@@ -1,6 +1,7 @@
 /// The sidebar section settings in cmux.json (`sidebar.sectionLook`,
 /// `sidebar.topBandMaxShare`, `sidebar.bottomBandMaxShare`,
-/// `sidebar.pinnedBandsScroll` and `sidebar.showWorkspaceTabs`;
+/// `sidebar.pinnedBandsScroll`, `sidebar.showWorkspaceTabs` and
+/// `sidebar.showCounts`;
 /// plans/cmux-next/sidebar-sections.md 7).
 /// `sidebar.minimalMode`: which pinned bands hide until the pointer is over
 /// the sidebar (R54).
@@ -28,9 +29,14 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var pinnedBandsScroll: Bool
     /// Whether the workspace list expands each workspace into its tab rows.
     public var showWorkspaceTabs: Bool
+    /// Each workspace row shows how many tabs it has.
+    public var showCounts = false
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
+    /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
+    /// `sidebar.stepping`, `sidebar.steppingWraps`).
+    public var navigation = SidebarNavigationSettings.defaults
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

@@ -14,18 +14,14 @@ struct EditorialSplitAccounts: OnboardingScreenVariant {
     static func makeContent(_ context: OnboardingStepContext) -> NSView {
         let root = FlippedView()
         let title = AccountsVariantLayout.title(OnboardingStrings.accountsTitle, size: 28)
-        let sentence = AccountsVariantLayout.sentence(OnboardingStrings.accountsSubtitle, lines: 8)
         let list = AccountsVariantLayout.list(context)
-        for view in [title, sentence, list] as [NSView] { root.addSubview(view) }
+        for view in [title, list] as [NSView] { root.addSubview(view) }
         let footer = AccountsVariantLayout.footer(context, in: root, margin: 40)
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: root.topAnchor, constant: 56),
             title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 40),
             title.widthAnchor.constraint(lessThanOrEqualToConstant: 192),
-            sentence.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 12),
-            sentence.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 40),
-            sentence.widthAnchor.constraint(equalToConstant: 192),
-            sentence.bottomAnchor.constraint(lessThanOrEqualTo: footer.topAnchor, constant: -16),
+            title.bottomAnchor.constraint(lessThanOrEqualTo: footer.topAnchor, constant: -16),
             list.topAnchor.constraint(equalTo: root.topAnchor, constant: 52),
             list.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 264),
             list.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -36),

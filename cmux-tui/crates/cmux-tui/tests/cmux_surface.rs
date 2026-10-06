@@ -191,3 +191,128 @@ fn accounts_list_warns_on_stderr_when_handles_are_not_stable() {
         );
     }
 }
+
+/// Each scope `cmux --help` lists answers `<scope> --help` and `help <scope>`
+/// with its own usage, never the root help (the app scopes route before the
+/// resource grammar; `window` is the app's windows, not a screen shorthand).
+#[test]
+fn every_routed_scope_prints_its_own_help() {
+    let names = Names::new("scope-help");
+    let cases: &[(&[&str], &str)] = &[
+        (&["settings", "--help"], "cmux settings get"),
+        (&["help", "settings"], "cmux settings get"),
+        (&["window", "--help"], "cmux window list"),
+        (&["help", "window"], "cmux window list"),
+        (&["events", "--help"], "cmux events [--after"),
+        (&["history", "--help"], "cmux history search"),
+        (&["bookmark", "--help"], "cmux bookmark search"),
+        (&["app", "--help"], "cmux app ping"),
+        (&["action", "--help"], "cmux action describe"),
+        (&["accounts", "--help"], "cmux accounts list"),
+        (&["open", "--help"], "cmux open <path|url>"),
+        (&["keybinding", "--help"], "cmux keybinding list"),
+        (&["ghostty", "--help"], "cmux ghostty diagnostics"),
+        (&["browser", "page", "--help"], "cmux browser <tab_…|page> navigate"),
+        (&["browser", "--help"], "cmux browser page|<tab_…>"),
+        (&["browser", "--help"], "cmux browser open <url> [--workspace <selector>]"),
+        (&["browser", "--help"], "cmux tab create browser --url <url>"),
+        (&["notify", "--help"], "cmux notify --clear"),
+        (&["help", "notify"], "cmux notify --clear"),
+        (&["notification", "--help"], "cmux notification ack --client"),
+    ];
+    for (args, expected) in cases {
+        let output = names.run("cmux", args);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "{args:?}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "{args:?} printed:\n{stdout}");
+        assert!(!stdout.contains("cmux screen list"), "{args:?} printed screen help:\n{stdout}");
+        assert!(!stdout.starts_with("cmux - terminal multiplexer"), "{args:?} printed root help");
+    }
+}
+
+/// `acp` and `link` take their own options, so a cmux global option before
+/// them names the fix instead of calling them unknown scopes.
+#[test]
+fn global_options_before_acp_or_link_name_the_fix() {
+    let names = Names::new("acp-globals");
+    for scope in ["acp", "link"] {
+        let output = names.run("cmux", &["--json", scope, "list"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .or_else(|_| serde_json::from_slice(&output.stderr))
+            .unwrap();
+        let message = error["message"].as_str().unwrap();
+        assert!(!message.contains("unknown resource scope"), "{scope}: {message}");
+        assert!(message.contains(&format!("cmux {scope} --help")), "{scope}: {message}");
+    }
+}
+
+#[test]
+fn link_help_succeeds_on_stdout() {
+    let names = Names::new("link-help");
+    let output = names.run("cmux", &["link", "--help"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(text(&output.stdout).contains("cmux link <init|show"), "{}", text(&output.stdout));
+}
+
+#[test]
+fn history_and_bookmark_search_without_text_say_what_is_missing() {
+    let names = Names::new("search-text");
+    for scope in ["history", "bookmark"] {
+        let output = names.run("cmux", &[scope, "search"]);
+        assert_eq!(output.status.code(), Some(2));
+        let stderr = text(&output.stderr);
+        assert!(stderr.contains(&format!("cmux {scope} search <text>")), "{scope}: {stderr}");
+    }
+}
+
+/// `help <process scope>` is the same as `<process scope> --help`.
+#[test]
+fn help_names_the_process_scopes() {
+    let names = Names::new("process-help");
+    for (scope, expected) in [
+        ("acp", "Usage: cmux acp"),
+        ("mcp", "cmux mcp serve"),
+        ("coderouter", "cmux coderouter status"),
+        ("link", "cmux link <init|show"),
+    ] {
+        let direct = names.run("cmux", &[scope, "--help"]);
+        let output = names.run("cmux", &["help", scope]);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "help {scope}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "help {scope} printed:\n{stdout}");
+        assert_eq!(stdout, text(&direct.stdout), "help {scope} differs from {scope} --help");
+    }
+}
+
+/// Remote errors name the program that ran (`cmux`, not `cmux-tui`), and
+/// `remote known-daemons` takes the global --socket like every other scope.
+#[test]
+fn remote_errors_name_the_invoked_program_and_known_daemons_takes_socket() {
+    let names = Names::new("remote-errors");
+    for args in [&["remote", "bogus"][..], &["remote", "known-daemons", "--bogus"][..]] {
+        let output = names.run("cmux", args);
+        let stderr = text(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.starts_with("cmux: "), "{args:?}: {stderr}");
+    }
+    let state = names.dir.join("state");
+    let state = state.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--socket",
+            "/nonexistent.sock",
+            "--json",
+            "remote",
+            "known-daemons",
+            "--state-dir",
+            &state,
+        ],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([])
+    );
+}

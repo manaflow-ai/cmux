@@ -287,3 +287,51 @@ fn rename_has_its_own_help() {
     }
     let _ = fs::remove_dir_all(dir);
 }
+
+/// Runs the binary under `name` (`cmux` or `cmux-tui`) in `dir`.
+fn run_as(dir: &Path, name: &str, args: &[&str]) -> Output {
+    let program = dir.join(name);
+    if !program.exists() {
+        symlink(env!("CARGO_BIN_EXE_cmux-tui"), &program).unwrap();
+    }
+    Command::new(program)
+        .args(args)
+        .env("HOME", dir)
+        .env("XDG_RUNTIME_DIR", dir)
+        .env("LC_ALL", "C")
+        .env("LANG", "C")
+        .env("CMUX_TUI_CONFIG", dir.join("config.json"))
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_SOCKET_PATH")
+        .env_remove("CMUX_BUNDLE_ID")
+        .env_remove("CMUX_TAG")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn attach_errors_name_the_program_that_was_run() {
+    let dir = temp_dir("attachname");
+    for name in ["cmux", "cmux-tui"] {
+        let output = run_as(&dir, name, &["attach", "--session", "cxa-absent"]);
+        assert!(!output.status.success(), "{name}: attach to a missing session succeeded");
+        let stderr = text(&output.stderr);
+        assert!(stderr.starts_with(&format!("{name}: ")), "{name}: {stderr}");
+    }
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn attach_help_shows_only_attach_usage() {
+    let dir = temp_dir("attachhelp");
+    let output = run_as(&dir, "cmux", &["attach", "--help"]);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    let help = text(&output.stdout);
+    assert!(help.contains("cmux attach"), "{help}");
+    assert!(help.contains("--terminal <id>"), "{help}");
+    assert!(!help.contains("--ws-insecure-bind"), "attach help lists start options: {help}");
+    assert!(!help.contains("--relay"), "attach help lists start options: {help}");
+    let _ = fs::remove_dir_all(dir);
+}

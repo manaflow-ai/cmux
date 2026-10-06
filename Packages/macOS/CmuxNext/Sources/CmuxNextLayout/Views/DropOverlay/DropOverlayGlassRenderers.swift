@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// `glassFill` (the original overlay) and `morph`: Liquid Glass filling the
 /// target with the label centered in it. Morph differs only in where it
@@ -127,7 +128,7 @@ final class InsetCardRenderer: DropOverlayRenderer {
         card.cornerRadius = min(Metrics.panelCornerRadius, rect.height / 2)
         if zone != frame.zone {
             zone = frame.zone
-            icon.image = NSImage(systemSymbolName: Self.symbol(frame.zone), accessibilityDescription: nil)
+            icon.image = DropOverlayGlyph.image(Self.icon(frame.zone))
         }
         icon.isHidden = !DropOverlayTunables.cardShowsIcon.value
         label.font = Typography.bodyEmphasized
@@ -144,14 +145,14 @@ final class InsetCardRenderer: DropOverlayRenderer {
         card.applyTheme()
     }
 
-    static func symbol(_ zone: DropOverlayZone) -> String {
+    static func icon(_ zone: DropOverlayZone) -> IconName {
         switch zone {
-        case .left: "rectangle.lefthalf.inset.filled"
-        case .right: "rectangle.righthalf.inset.filled"
-        case .top: "rectangle.tophalf.inset.filled"
-        case .bottom: "rectangle.bottomhalf.inset.filled"
-        case .center: "rectangle.stack"
-        case .column: "rectangle.split.3x1"
+        case .left: .paneSplitLeft
+        case .right: .paneSplitRight
+        case .top: .paneSplitUp
+        case .bottom: .paneSplitDown
+        case .center: .workspace
+        case .column: .column
         }
     }
 }

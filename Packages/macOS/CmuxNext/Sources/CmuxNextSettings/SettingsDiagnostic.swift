@@ -1,3 +1,5 @@
+import Foundation
+
 /// A problem found while reading cmux.json. Loading never fails on a bad
 /// entry: the entry is skipped and reported here.
 public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
@@ -15,18 +17,17 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case managedOverride
         /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
         case managedConflict
+        /// The key belongs to a removed feature; its value is ignored.
+        case removedSetting
     }
-
     public let kind: Kind
     /// Dotted key path of the offending entry.
     public let path: String
     public let message: String
-
     public init(kind: Kind, path: String, message: String) {
         self.kind = kind
         self.path = path
         self.message = message
     }
-
     public var description: String { "\(kind.rawValue) \(path): \(message)" }
 }

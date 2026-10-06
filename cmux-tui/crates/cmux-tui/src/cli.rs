@@ -9,12 +9,15 @@ mod action_hint;
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
+mod app_focus;
+#[cfg(unix)]
 mod apps_run;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
 mod command;
 mod docs;
+mod extra_help;
 mod federation;
 mod lifecycle;
 #[cfg(unix)]
@@ -27,7 +30,7 @@ mod shorthand;
 mod surface;
 mod topology_help;
 mod wire;
-pub(super) use surface::Surface;
+pub(super) use surface::{BIN, Surface};
 
 use std::borrow::Cow;
 use std::io::{self, Write};
@@ -261,8 +264,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
 #[cfg(unix)]
 fn run_app_scope(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
-    if has_help_option(&command_args) {
-        return None;
+    if has_help_option(&command_args) || command_args.first().is_some_and(|word| word == "help") {
+        return extra_help::print(&command_args);
     }
     match app::parse(&command_args) {
         Ok(Some(_)) if global.all_sessions => Some(app::failure(
@@ -342,6 +345,9 @@ fn parse_command(
     }
     if command_args[0] == "daemon" {
         return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
+    }
+    if let Some(error) = extra_help::own_options_scope(&command_args[0]) {
+        return Err(error);
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
@@ -653,10 +659,10 @@ fn scope_help_for(
         "workspace rename" | "screen rename" | "pane rename" | "tab rename" => {
             Cow::Owned(topology_help::rename_help(scope))
         }
-        "browser" => Cow::Borrowed(BROWSER_HELP),
-        "notification" => Cow::Borrowed(NOTIFICATION_HELP),
+        "browser" => Cow::Borrowed(scope_help::BROWSER_HELP),
+        "notification" => Cow::Borrowed(scope_help::NOTIFICATION_HELP),
         "agent" => Cow::Borrowed(AGENT_HELP),
-        "room" => Cow::Borrowed(ROOM_HELP),
+        "room" => Cow::Borrowed(scope_help::ROOM_HELP),
         "closed" => Cow::Borrowed(scope_help::CLOSED_HELP),
         "git" => Cow::Borrowed(scope_help::GIT_HELP),
         "sidebar" => Cow::Borrowed(SIDEBAR_HELP),
@@ -800,22 +806,6 @@ USAGE
   cmux client <selector> cell pixels set --width-px <n> --height-px <n>
 ";
 
-const BROWSER_HELP: &str = "\
-USAGE
-  cmux browser open <url> | --url <url> [OPTIONS]
-  cmux browser list
-  cmux browser <selector> show|navigate|back|forward|reload|activate
-  cmux browser <selector> key|text [OPTIONS]
-  cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
-  cmux browser <selector> attach|close [OPTIONS]
-";
-
-const NOTIFICATION_HELP: &str = "\
-USAGE
-  cmux notification list
-  cmux notification create --title <value> --body <value> [OPTIONS]
-";
-
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent list [OPTIONS]
@@ -826,27 +816,6 @@ USAGE
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
   cmux agent plugin use --builtin
-";
-
-const ROOM_HELP: &str = "\
-USAGE
-  cmux room list
-  cmux room create --name <value> [--color <value>] [--icon <value>] [--theme <value>] [--index <n>]
-  cmux room <room> update [--name <value>] [--color <value>|--clear-color]
-    [--icon <value>|--clear-icon] [--theme <value>|--clear-theme]
-    [--browser-profile <id>|--clear-browser-profile]
-    [--default-session <id>|--clear-default-session]
-  cmux room <room> delete [--move-to <room>]
-  cmux room <room> move --index <n>
-  cmux room <room> follow --sessions <session,...>
-  cmux room <room> pin --workspace <selector>
-  cmux room unpin --workspace <selector>
-
-Rooms are personal views of this Mac's home session. A room shows the
-workspaces pinned to it and the unpinned workspaces of the sessions it
-follows; --sessions is the complete follow set (\"\" follows none). A
-workspace is pinned to at most one room. A room is named by its id or exact
-name.
 ";
 
 const SIDEBAR_HELP: &str = "\

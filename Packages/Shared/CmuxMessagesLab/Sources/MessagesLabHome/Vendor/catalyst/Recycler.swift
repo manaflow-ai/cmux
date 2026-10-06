@@ -40,6 +40,12 @@ final class RowRecycler: UIScrollView, TranscriptList {
     /// transaction moves rows (window view: `animateRows`, `settle`).
     var overscanTop: CGFloat = 0 { didSet { if overscanTop != oldValue { setNeedsLayout() } } }
     var overscanBottom: CGFloat = 0 { didSet { if overscanBottom != oldValue { setNeedsLayout() } } }
+    /// Rows ahead in the scroll direction get cells (bitmaps attached and uploaded while off
+    /// screen); ScrollPrefetcher sets them from the velocity.
+    var leadTop: CGFloat = 0, leadBottom: CGFloat = 0
+    /// The transcript's clock (seconds; the window view sets its engine clock).
+    var clock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    let prefetcher = ScrollPrefetcher()
 
     private var visible: [String: RowCell] = [:]
     private var index: [ObjectIdentifier: Int] = [:]
@@ -84,8 +90,8 @@ final class RowRecycler: UIScrollView, TranscriptList {
         // The visible rect plus where rows are still animating in from
         // (`overscan`): a row on screen during a transaction's motion keeps
         // its cell even when its final place is outside the visible rect.
-        let rect = CGRect(x: bounds.minX, y: bounds.minY - overscanTop, width: bounds.width,
-                          height: bounds.height + overscanTop + overscanBottom)
+        let top = max(overscanTop, leadTop), bottom = max(overscanBottom, leadBottom)
+        let rect = CGRect(x: bounds.minX, y: bounds.minY - top, width: bounds.width, height: bounds.height + top + bottom)
         let attrs = (layout.layoutAttributesForElements(in: rect) ?? []).filter { $0.indexPath.item < n }
         var next: [String: RowCell] = [:]
         next.reserveCapacity(attrs.count)
@@ -110,8 +116,10 @@ final class RowRecycler: UIScrollView, TranscriptList {
             next[k] = cell
             newIndex[ObjectIdentifier(cell)] = i
         }
-        // Rows that left the rect: back to the pool (hidden, not removed).
-        for (_, c) in visible {
+        // Rows that left the rect: back to the pool (hidden, not removed), in row order: the
+        // dictionary's order follows the per-process hash seed, so which cell a later row got
+        // (and its leftover layers) differed between runs of the same script.
+        for c in visible.values.sorted(by: { (index[ObjectIdentifier($0)] ?? 0) < (index[ObjectIdentifier($1)] ?? 0) }) {
             c.isHidden = true
             c.prepareForReuse()
             pool.append(c)
@@ -120,6 +128,10 @@ final class RowRecycler: UIScrollView, TranscriptList {
         index = newIndex
         CATransaction.commit()
         for (c, i) in fresh { configure(c, i) }
+        // Long text rows: tiles follow the viewport inside the row (TiledBubble.swift).
+        for c in next.values where c.tiled?.isActive == true { c.tiled?.update(c) }
+        // Media: bitmaps and thumbnails ahead in the scroll direction (MediaCache.swift).
+        prefetcher.update(self)
     }
 
     private func take() -> RowCell {

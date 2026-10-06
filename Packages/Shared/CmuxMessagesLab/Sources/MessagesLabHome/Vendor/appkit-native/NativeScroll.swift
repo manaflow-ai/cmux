@@ -182,7 +182,16 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
         super.reflectScrolledClipView(cView)
         guard let demo, let s = verticalScroller as? SequenceScroller else { return }
         s.place(demo.historyFraction, proportion: demo.historyProportion)
+        // The indicator shows only while the person scrolls (wheel, trackpad, keys,
+        // knob): Messages shows none at rest, on a pointer move, during live resize or
+        // when the app moves the transcript (a send pinning it to the bottom).
+        let y = cView.bounds.origin.y
+        if y != lastRevealOrigin {
+            if applyingModel == 0, !inLiveResize { s.reveal() }
+            lastRevealOrigin = y
+        }
     }
+    private var lastRevealOrigin: CGFloat = .nan
 
     /// The overlay scroller ends above the field (the top inset is AppKit's).
     func placeScroller(bottom: CGFloat) {
@@ -261,7 +270,14 @@ final class TranscriptDocumentView: NSView {
 final class SequenceScroller: NSScroller {
     private var fixed: (value: Double, proportion: CGFloat)?
     var onJump: (Double) -> Void = { _ in }
+    /// A track click with "click in the scroll bar: jump to the next page" (+1 down, -1 up).
+    var onPage: (Int) -> Void = { _ in }
+    /// While the person drags the knob it stays under the pointer: model updates
+    /// (estimates resolving, pages loading) wait and apply on release.
+    private(set) var dragging = false
+    private var pendingModel: (Double, CGFloat)?
     func place(_ value: Double, proportion: CGFloat) {
+        if dragging { pendingModel = (value, proportion); return }
         fixed = (value, proportion)
         if doubleValue != value { super.doubleValue = value }
         if knobProportion != proportion { super.knobProportion = proportion }
@@ -274,20 +290,130 @@ final class SequenceScroller: NSScroller {
         get { super.knobProportion }
         set { super.knobProportion = fixed?.proportion ?? newValue }
     }
-    override func trackKnob(with event: NSEvent) {
-        // Track the knob ourselves: the value is a fraction of the history.
-        var e: NSEvent? = event
-        let slot = rect(for: .knobSlot)
-        let knob = rect(for: .knob)
-        let grab = convert(event.locationInWindow, from: nil).y - knob.minY
-        while let ev = e, ev.type != .leftMouseUp {
-            let y = convert(ev.locationInWindow, from: nil).y - grab
-            let v = Double(max(0, min(1, (y - slot.minY) / max(1, slot.height - knob.height))))
-            fixed = (v, knobProportion)
-            super.doubleValue = v
-            onJump(v)
-            e = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp])
+    /// Messages' scroll indicator (macOS 27, lossless still): a 7 pt bar of grey 87 with a
+    /// 0.5 pt dark (27) edge, its right side 2 pt from the window's right edge, no track.
+    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
+    /// Own visibility: AppKit's overlay fade does not reach an overridden `drawKnob`, so
+    /// the knob stayed drawn at rest. Shown on `reveal()` (every user scroll movement), faded
+    /// out after a pause. Timing fitted to Messages (scrollbar-scroll-fade reference, thumb
+    /// level per frame): fade-in 0.24 s, cubic-bezier (0.3, 1, 0.6, 1) (rms 0.005), starting
+    /// 0.054 s after the wheel event (ours' first movement comes about that late, so no extra
+    /// delay); fade-out starts 0.72 s after the last wheel event and is linear, 0.092 s.
+    /// Messages animates a wheel step 0.09 s longer than ours; scroll pacing is out of the
+    /// parity bar, so the hold counts from ours' last movement (about the event time).
+    private var shown = false
+    private var hideTimer: Timer?, showTimer: Timer?
+    static let showDelay: TimeInterval = 0, fadeInTime: TimeInterval = 0.24
+    static let holdTime: TimeInterval = 0.72, fadeTime: TimeInterval = 0.092
+    func reveal() {
+        hideTimer?.invalidate()
+        if !shown {
+            shown = true
+            alphaValue = 0
+            needsDisplay = true
+            showTimer?.invalidate()
+            showTimer = Timer.scheduledTimer(withTimeInterval: Self.showDelay, repeats: false) { [weak self] _ in
+                guard let self, self.shown else { return }
+                NSAnimationContext.runAnimationGroup { c in
+                    c.duration = Self.fadeInTime
+                    c.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1, 0.6, 1)
+                    self.animator().alphaValue = 1
+                }
+            }
+        } else if showTimer?.isValid != true, alphaValue < 1 {
+            // Scrolling again during the fade-out: back to full at once.
+            alphaValue = 1
         }
+        hideTimer = Timer.scheduledTimer(withTimeInterval: Self.holdTime, repeats: false) { [weak self] _ in
+            guard let self, !self.dragging else { return }
+            NSAnimationContext.runAnimationGroup({ c in
+                c.duration = Self.fadeTime
+                c.timingFunction = CAMediaTimingFunction(name: .linear)
+                self.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                guard let self, self.alphaValue == 0 else { return }
+                self.shown = false
+                self.needsDisplay = true
+            })
+        }
+    }
+    /// The drawn bar (scroller coordinates): 7 pt wide at the window's right edge
+    /// minus 2 pt, top and bottom on whole device pixels at every position (no
+    /// row of the edge lost or doubled while it moves).
+    var barRect: NSRect {
+        guard let win = window else { return .zero }
+        let k = rect(for: .knob)
+        // cmux: 2 pt from the scroller's own right edge: in a Home pane the window's
+        // right edge is not the transcript's (the same place when the pane is the window).
+        let right = bounds.maxX - 2
+        let s = win.backingScaleFactor
+        let top = (k.minY * s).rounded() / s, h = max(1, (k.height * s).rounded() / s)
+        return NSRect(x: right - 7, y: top, width: 7, height: h)
+    }
+    override func drawKnob() {
+        guard shown else { return }
+        let bar = barRect
+        NSColor(white: 27 / 255, alpha: 1).setFill()
+        NSBezierPath(roundedRect: bar.insetBy(dx: -0.5, dy: -0.5), xRadius: 4, yRadius: 4).fill()
+        NSColor(white: 87 / 255, alpha: 1).setFill()
+        NSBezierPath(roundedRect: bar, xRadius: 3.5, yRadius: 3.5).fill()
+    }
+
+    // MARK: Pointer
+
+    /// Knob or track. On the knob: drag. In the track: the system's "Click in the
+    /// scroll bar" setting (AppleScrollerPagingBehavior): jump to the spot (then
+    /// drag from the knob's middle), or page toward the click.
+    override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        let knob = rect(for: .knob)
+        if knob.insetBy(dx: -4, dy: 0).contains(p) || !rect(for: .knobSlot).contains(p) && knob.minY <= p.y && p.y <= knob.maxY {
+            track(event, grab: p.y - knob.minY); return
+        }
+        let jump = UserDefaults.standard.bool(forKey: "AppleScrollerPagingBehavior") != event.modifierFlags.contains(.option)
+        if jump {
+            dragBegan(at: p.y, grab: knob.height / 2)
+            dragMoved(to: p.y)
+            track(nil, grab: knob.height / 2)
+        } else {
+            reveal()
+            onPage(p.y > knob.midY ? 1 : -1)
+        }
+    }
+    override func trackKnob(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        track(event, grab: p.y - rect(for: .knob).minY)
+    }
+    private func track(_ first: NSEvent?, grab: CGFloat) {
+        if let first { dragBegan(at: convert(first.locationInWindow, from: nil).y, grab: grab) }
+        while let ev = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if ev.type == .leftMouseUp { break }
+            dragMoved(to: convert(ev.locationInWindow, from: nil).y)
+        }
+        dragEnded()
+    }
+
+    // Drag steps (also driven directly by the self-test).
+    private var grab: CGFloat = 0
+    private var dragProportion: CGFloat = 0
+    func dragBegan(at y: CGFloat, grab g: CGFloat) {
+        dragging = true; grab = g; dragProportion = knobProportion
+        reveal()
+    }
+    /// The knob's top goes to the pointer minus the grab offset (clamped at the ends);
+    /// its size stays as it was when the drag began.
+    func dragMoved(to y: CGFloat) {
+        let slot = rect(for: .knobSlot)
+        let kh = rect(for: .knob).height
+        let v = Double(max(0, min(1, (y - grab - slot.minY) / max(1, slot.height - kh))))
+        fixed = (v, dragProportion)
+        super.doubleValue = v
+        onJump(v)
+    }
+    func dragEnded() {
+        dragging = false
+        if let (v, prop) = pendingModel { pendingModel = nil; place(v, proportion: prop) }
+        reveal()
     }
 }
 

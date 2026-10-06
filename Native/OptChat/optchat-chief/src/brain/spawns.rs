@@ -60,9 +60,10 @@ impl Brain {
         Ok(SpawnPlan { spawn, ids })
     }
 
-    pub(super) fn sub_started(&mut self, id: &str, session_id: String) {
+    pub(super) fn sub_started(&mut self, id: &str, session_id: String, policy: Option<String>) {
         if let Some(sub) = self.state.sub_mut(id) {
             sub.session_id = Some(session_id);
+            sub.policy = policy;
             if sub.status == SubStatus::Starting {
                 sub.status = SubStatus::Running;
             }
@@ -295,7 +296,13 @@ impl Brain {
             .iter()
             .position(|q| matches!(&q.source, Source::Spawn(r) if r.spawn == spawn));
         match queued {
-            Some(k) => self.queue[k] = Queued { text, source },
+            Some(k) => {
+                self.queue[k] = Queued {
+                    text,
+                    source,
+                    images: Vec::new(),
+                }
+            }
             None => {
                 (self.log)(&format!("spawn {spawn}: queued its report"));
                 self.queue(text, source);
@@ -408,6 +415,53 @@ impl Brain {
         for spawn in spawns {
             self.deliver(&spawn);
         }
+    }
+}
+
+impl Brain {
+    /// A running subagent spawned under the spawn floor: the floor stays
+    /// `ask` while one lives (`spawn_policy`).
+    pub(super) fn ask_subagent_live(&self) -> bool {
+        self.state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .any(|s| {
+                s.policy.as_deref() == Some(crate::approval::ASK)
+                    && matches!(s.status, SubStatus::Starting | SubStatus::Running)
+            })
+    }
+
+    /// A permission request of subagent session `session_id`, when it is
+    /// one: an ask subagent's goes to a person in the Chief chat (as an ask
+    /// child's), any other's reaches the Chief as a note. True when handled.
+    pub(super) fn sub_permission(
+        &mut self,
+        session_id: &str,
+        permission_id: &str,
+        request: &Value,
+    ) -> bool {
+        let Some(id) = self.state.sub_by_session(session_id) else {
+            return false;
+        };
+        let ask = self
+            .state
+            .sub(&id)
+            .is_some_and(|(_, s)| s.policy.as_deref() == Some(crate::approval::ASK));
+        let summary: SessionSummary = match serde_json::from_value(json!({
+            "sessionId": session_id, "name": id, "status": "running",
+            "tags": {crate::subagents::SUBAGENT_TAG: id, crate::approval::POLICY_TAG: if ask { crate::approval::ASK } else { "" }},
+        })) {
+            Ok(s) => s,
+            Err(_) => return true,
+        };
+        if ask {
+            self.child_permission(&summary, permission_id.to_owned(), request.clone());
+        } else {
+            let text = super::children::permission_text(&id, request);
+            self.queue(text, Source::Note);
+        }
+        true
     }
 }
 

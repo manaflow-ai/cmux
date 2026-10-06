@@ -26,6 +26,7 @@ pub(crate) struct AppControlMessages {
     pub acp_open_usage: &'static str,
     pub browser_page_usage: &'static str,
     pub keybinding_usage: &'static str,
+    pub search_text_usage: &'static str,
     pub app_call_usage: &'static str,
     pub app_call_bad_json: &'static str,
     pub app_call_debug_only: &'static str,
@@ -61,6 +62,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     skew_classic: "this cmux-next CLI ({cli}) sent {method}, but the app at {socket} is the classic cmux app{version}, which does not speak cmux-next methods. Run this in a cmux-next terminal, or use the classic app's own CLI.",
     skew_other: "this CLI ({cli}) sent {method}, but {app}{version} at {socket} does not support it. Update and relaunch {app}, or use the CLI that ships with it.",
     skew_use_cli: "Its CLI: {path}",
+    search_text_usage: "usage: cmux {scope} search <text> [OPTIONS]; `cmux {scope} --help` lists the options",
     keybinding_usage: "usage: cmux keybinding list [--query TEXT] [--command ID] [--source default|app|user] | resolve KEYS [--window ID] | context [--window ID]",
     root_scopes: "APP SCOPES (the cmux app)\n  app           ping, identify, capabilities, call (debug builds), and app actions (`cmux app new-window`)\n  window        List the app's windows\n  action        List, describe, and run registered actions\n  settings      Read and change cmux.json settings\n  events        Stream app events as JSON lines\n  history       List and search the app's history (list, search <text>)\n  bookmark      List and search browser bookmarks (list, search <text>)\n  keybinding    Read key bindings (list, resolve <keys>, context)\n  <noun> <verb> Any action by its CLI name (`cmux action list`)\n  --app-socket <path>  Connect to an exact app control socket\n",
 };
@@ -92,6 +94,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_classic: "この cmux-next CLI ({cli}) は {method} を送りましたが、{socket} のアプリは従来の cmux アプリ{version} で、cmux-next のメソッドを話しません。cmux-next のターミナルで実行するか、従来のアプリ自身の CLI を使ってください。",
     skew_other: "この CLI ({cli}) は {method} を送りましたが、{socket} の {app}{version} はこのメソッドに対応していません。{app} を更新して再起動するか、そのアプリに同梱された CLI を使ってください。",
     skew_use_cli: "その CLI: {path}",
+    search_text_usage: "使い方: cmux {scope} search <テキスト> [オプション]。オプションは `cmux {scope} --help` で表示",
     keybinding_usage: "使い方: cmux keybinding list [--query テキスト] [--command ID] [--source default|app|user] | resolve キー [--window ID] | context [--window ID]",
     root_scopes: "アプリのスコープ (cmux アプリ)\n  app           ping、identify、capabilities、call (デバッグビルド) とアプリのアクション (`cmux app new-window`)\n  window        アプリのウィンドウ一覧\n  action        登録済みアクションの一覧、説明、実行\n  settings      cmux.json の設定の読み取りと変更\n  events        アプリのイベントを JSON 行で表示\n  history       アプリの履歴の一覧と検索 (list、search <テキスト>)\n  bookmark      ブラウザのブックマークの一覧と検索 (list、search <テキスト>)\n  keybinding    キーバインドの読み取り (list、resolve <キー>、context)\n  <名詞> <動詞> CLI 名で任意のアクションを実行 (`cmux action list`)\n  --app-socket <パス>  指定したアプリ制御ソケットに接続\n",
 };

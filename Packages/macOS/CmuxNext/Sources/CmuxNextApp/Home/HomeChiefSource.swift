@@ -8,8 +8,13 @@ import Foundation
 @MainActor
 enum HomeChiefSource {
     /// The Chief tab's conversation: the placed chief's main conversation, else `local`.
-    nonisolated static func choose(local: String?, placed: CloudChief?) -> String? {
-        placed?.mainConversation ?? local
+    /// One history (home-state-ownership.md): a placed chief takes the tab
+    /// only when the local Chief has no history to hide; with history the
+    /// local Chief stays until the brain move imports its conversation into
+    /// the placed chief's (DESIGN-cmux-lawrence.md section 5 step 3).
+    nonisolated static func choose(local: String?, localHasHistory: Bool, placed: CloudChief?) -> String? {
+        if let local, localHasHistory { return local }
+        return placed?.mainConversation ?? local
     }
 
     /// The Chief moved to `chief` (placed on a server) from `local`: the tabs
@@ -27,6 +32,16 @@ enum HomeChiefSource {
             }
         }
         return (close, pane)
+    }
+
+    /// The tabs that show a placed chief's conversation while the Chief is
+    /// another one (the local Chief with history): a placed chief that a
+    /// relaunch put in the Chief's place gives it back.
+    static func staleChiefTabs(placed: String?, chief: String, in workspaces: [WorkspaceModel]) -> [SurfaceID] {
+        guard let placed, placed != chief else { return [] }
+        return workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
+            .filter { $0.kind == .conversation && $0.snapshot.conversation?.conversation == placed }
+            .map(\.surface)
     }
 
     /// The placed chief (`CloudChiefs.placed`) with a main conversation, or

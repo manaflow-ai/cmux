@@ -45,12 +45,26 @@ impl Brain {
                 self.maybe_start_turn();
             }
             AgentEvent::Down => self.agents_up = false,
+            AgentEvent::Ended => {
+                // home-state-ownership.md section 3: the host lives inside its
+                // acpmux daemon's lifetime; the next Home open starts both.
+                self.agents_up = false;
+                self.fatal =
+                    Some("the acpmux daemon ended (sessions were ended); the host stops".into());
+            }
             AgentEvent::SessionChanged(session) => self.on_session(session),
             AgentEvent::Permission {
                 session_id,
-                permission_id: _,
+                permission_id,
                 request,
             } => {
+                if self.is_turn_session(&session_id) {
+                    self.turn_permission(session_id, permission_id, request);
+                    return;
+                }
+                if self.sub_permission(&session_id, &permission_id, &request) {
+                    return;
+                }
                 // A child can ask before its session_changed reached us.
                 let known = self.sessions.get(&session_id).cloned();
                 let session = match known {
@@ -71,7 +85,15 @@ impl Brain {
                         }
                     },
                 };
-                if self.is_child(&session) {
+                let ask = session
+                    .tags
+                    .get(crate::approval::POLICY_TAG)
+                    .map(String::as_str)
+                    == Some(crate::approval::ASK);
+                if self.is_child(&session) && ask {
+                    // Spawned under the ask floor: a person answers.
+                    self.child_permission(&session, permission_id, request);
+                } else if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
                     self.queue(text, Source::Note);
                 }
@@ -143,20 +165,24 @@ impl Brain {
             return;
         }
         let orphans = std::mem::take(&mut self.state.orphans);
+        let mut gone = Vec::new();
         for orphan in orphans {
             match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
                 Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
-                Err(e) if e.contains("no session matches") => (self.log)(&format!(
-                    "orphan turn session {} is gone from acpmux; dropped ({e})",
-                    orphan.session
-                )),
+                Err(e) if e.contains("no session matches") => {
+                    (self.log)(&format!(
+                        "orphan turn session {} is gone from acpmux; dropped ({e})",
+                        orphan.session
+                    ));
+                    gone.push((crate::state::fold_key(&orphan.session), None));
+                }
                 Err(e) => {
                     (self.log)(&format!("orphan turn session {}: {e}", orphan.session));
                     self.state.orphans.push(orphan);
                 }
             }
         }
-        self.save();
+        self.save_with(gone);
     }
 
     /// After a reconnect: children whose turn ended while the host was away,
@@ -276,7 +302,13 @@ impl Brain {
             floor: next_floor,
         };
         match queued {
-            Some(k) => self.queue[k] = super::Queued { text, source },
+            Some(k) => {
+                self.queue[k] = super::Queued {
+                    text,
+                    source,
+                    images: Vec::new(),
+                }
+            }
             None => self.queue(text, source),
         }
     }
@@ -308,7 +340,7 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
 }
 
 /// A child's permission request as a message to the Chief.
-fn permission_text(name: &str, request: &Value) -> String {
+pub(super) fn permission_text(name: &str, request: &Value) -> String {
     let call = request.get("toolCall");
     let title = call
         .and_then(|c| c.get("title"))

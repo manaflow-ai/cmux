@@ -85,7 +85,22 @@ pub(crate) struct ParsedResourceRequest {
     pub fields: Map<String, Value>,
 }
 
-pub(crate) fn is_resource_protocol_message(message: &str) -> bool {
+/// The one parse of a connection line (decisions: the origin gate). `None`
+/// when the line is not a `cmux.protocol/2` message (it has no `protocol`
+/// member); else the typed envelope, or why it is malformed. The origin gate
+/// checks this value and [`validate_resource_envelope`] then turns the same
+/// value into the dispatched request, so no check reads the line a second
+/// time and none can read it differently.
+pub(crate) fn parse_resource_line(message: &str) -> Option<Result<RequestEnvelope, ResourceError>> {
+    match parse_resource_envelope(message) {
+        Ok(envelope) => Some(Ok(envelope)),
+        // A typed envelope always has `protocol`; only a line that is not
+        // one needs the member probe to choose between v2 and legacy.
+        Err(error) => is_resource_protocol_message(message).then_some(Err(error)),
+    }
+}
+
+fn is_resource_protocol_message(message: &str) -> bool {
     serde_json::from_str::<Value>(message)
         .ok()
         .and_then(|value| value.as_object().cloned())
@@ -155,15 +170,29 @@ pub(crate) fn malformed_resource_response(message: &str, error: ResourceError) -
 pub(crate) fn parse_resource_request(
     message: &str,
 ) -> Result<ParsedResourceRequest, ResourceError> {
+    validate_resource_envelope(parse_resource_envelope(message)?)
+}
+
+/// The typed envelope of `message` (size limit, then one serde parse that
+/// refuses unknown and duplicate members). Nothing is validated beyond the
+/// types.
+fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceError> {
     if message.len() > crate::resource::MAX_MESSAGE_BYTES {
         return Err(validation_error(
             "request exceeds the protocol message limit",
             json!({"bytes":message.len(),"maximum":crate::resource::MAX_MESSAGE_BYTES}),
         ));
     }
-    let envelope = serde_json::from_str::<RequestEnvelope>(message).map_err(|error| {
+    serde_json::from_str::<RequestEnvelope>(message).map_err(|error| {
         validation_error("invalid request envelope", json!({"error":error.to_string()}))
-    })?;
+    })
+}
+
+/// Envelope rules and the operation's catalog params, on an envelope that
+/// is already parsed (it is moved into the request, never parsed again).
+pub(crate) fn validate_resource_envelope(
+    envelope: RequestEnvelope,
+) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
     let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
     Ok(ParsedResourceRequest { envelope, selectors, fields })

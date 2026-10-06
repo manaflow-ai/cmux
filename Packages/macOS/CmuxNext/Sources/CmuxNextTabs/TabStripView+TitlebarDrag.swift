@@ -4,7 +4,7 @@ public import CmuxNextDesign
 // Dogfood nxdog12/nxdog14: "tabs at top drag full window around". The strip
 // answers the window's one titlebar decision (`TitlebarDragPolicy`): only
 // empty strip space in the top row moves the window; a tab, a chip, the gap
-// between two, + and the trailing buttons never do.
+// between two and + never do.
 extension TabStripView: TitlebarPressDeciding {
     public func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         actsAsTitlebar && titlebarHit(at: convert(windowPoint, from: nil)) == .empty ? .movesWindow : .staysPut
@@ -13,7 +13,7 @@ extension TabStripView: TitlebarPressDeciding {
     /// What a press at a strip point is for.
     public enum TitlebarHit: Equatable, Sendable {
         /// A tab, a group chip, the gap between two of them, the + button, the
-        /// location field or a trailing button: the strip handles it and the window stays.
+        /// or the location field: the strip handles it and the window stays.
         case strip
         /// Empty strip space: in the top row it moves the window and a
         /// double-click runs the titlebar action.
@@ -21,7 +21,7 @@ extension TabStripView: TitlebarPressDeciding {
     }
 
     /// Strip-local rects that take the mouse: the run of tabs and chips from
-    /// the first one to the + button, the location field and the trailing buttons.
+    /// the first one to the + button and the location field.
     func mouseRects() -> [CGRect] {
         var rects: [CGRect] = []
         let clip = contentView.convert(tabsClip.frame, to: self)
@@ -29,10 +29,6 @@ extension TabStripView: TitlebarPressDeciding {
             ? clip.minX + min(tabRunTrailing(), clip.width)
             : contentView.convert(newTabButton.frame, to: self).maxX
         if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
-        if !buttonGroup.isHidden {
-            let buttons = contentView.convert(buttonGroup.frame, to: self)
-            rects.append(CGRect(x: buttons.minX, y: 0, width: buttons.width, height: bounds.height))
-        }
         return rects
     }
 

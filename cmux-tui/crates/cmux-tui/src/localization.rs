@@ -57,6 +57,11 @@ const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 /// Format a dollar amount with two decimals and thousands separators.
 /// Non-finite or negative inputs render as zero so a bad upstream number
 /// can never produce a misleading readout.
+/// `cmux attach --help`, naming the program the way it was run.
+pub(crate) fn attach_help() -> String {
+    catalog().attach.help.replace("{program}", &crate::cli::BIN.to_string())
+}
+
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;

@@ -4,7 +4,7 @@ nonisolated enum TerminalSettingsSchema {
     /// `TerminalFontSetting`).
     static var descriptors: [SettingDescriptor] {
         let font = SettingsText.keyed("settings.group.terminalFont", "Font")
-        let ghostty = SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty config")
+        let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         return [
             SettingDescriptor(
                 TerminalFontSetting().familyPath, section: .terminal, group: font,
