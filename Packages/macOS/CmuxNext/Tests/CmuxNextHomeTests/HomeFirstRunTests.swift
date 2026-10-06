@@ -75,6 +75,22 @@ import Testing
         #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
     }
 
+    @Test func firstRunChromeFollowsTheLiveInterfaceScale() {
+        let (window, view) = Self.view()
+        defer { window.close() }
+        view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        let panel = view.firstRun
+        let baseHeight = panel.terminal.bounds.height
+        let baseFontSize = panel.lead.font?.pointSize ?? 0
+
+        view.applyTextScale(1.25)
+        view.layoutSubtreeIfNeeded()
+
+        #expect(panel.terminal.bounds.height > baseHeight)
+        #expect(panel.lead.font?.pointSize ?? 0 > baseFontSize)
+    }
+
     /// Stability rule: a Chief conversation whose history is still loading
     /// is empty for a moment; the panel waits for the first page instead of
     /// flashing in and out.
