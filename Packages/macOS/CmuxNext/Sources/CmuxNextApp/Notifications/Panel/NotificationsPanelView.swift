@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The panel's window: a borderless child panel of the shell window (so it
 /// stays above Chromium page windows and moves with the window). It takes
@@ -121,8 +122,8 @@ final class NotificationsPanelView: NSView {
                                                name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         document.translatesAutoresizingMaskIntoConstraints = false
 
-        emptyIcon.image = NSImage(systemSymbolName: "bell", accessibilityDescription: NotificationsPanelStrings.title) ?? NSImage()
-        emptyIcon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 22, weight: .regular)
+        emptyIcon.image = NSImage.icon(.notification, size: 28)
+        emptyIcon.image?.accessibilityDescription = NotificationsPanelStrings.title
         emptyIcon.imageScaling = .scaleProportionallyDown
         emptyIcon.translatesAutoresizingMaskIntoConstraints = false
         emptyIcon.widthAnchor.constraint(equalToConstant: 28).isActive = true
