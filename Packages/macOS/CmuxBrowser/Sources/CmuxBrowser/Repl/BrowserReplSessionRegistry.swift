@@ -35,8 +35,10 @@ public struct BrowserReplSessionKey: Hashable, Sendable {
 /// and MCP runs without `--session`) carries that client's owner token, a
 /// random string only the client holds: it is left out of every other
 /// caller's list, and attaching to it or resetting it needs the token, so
-/// knowing or guessing its name gives another local client nothing. At
-/// most ``maximumSessions`` live at once: each holds a JavaScript thread,
+/// knowing or guessing its name gives another local client nothing. A
+/// token is taken only with such a client-made name (``isPrivateName(_:)``):
+/// a name a person chose is shared, and a token on it would hide it from
+/// every other client while it holds the name. At most ``maximumSessions`` live at once: each holds a JavaScript thread,
 /// timers and directories, so one more is refused rather than an idle one
 /// evicted. Each touch re-arms the session's idle timer on a shared
 /// `BrowserReplTimerScheduler`, so expiry needs no polling and is cancelled
@@ -62,6 +64,20 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         case ownedByAnotherClient
         /// The owner token is empty or longer than ``maximumOwnerBytes``.
         case invalidOwner
+        /// An owner token came with a shared name, one that is not a
+        /// client-made private name (``isPrivateName(_:)``).
+        case ownerOnSharedName
+    }
+
+    /// The prefixes of the names clients make for a session only they use
+    /// (the interactive CLI's `cli-`, `mcp`'s `mcp-`, the socket's own
+    /// one-shot `oneshot-`), the only names an owner token may come with.
+    public static let privateNamePrefixes = ["cli-", "mcp-", "oneshot-"]
+
+    /// Whether `name` is a client-made private name that may carry an
+    /// owner token.
+    public static func isPrivateName(_ name: String) -> Bool {
+        privateNamePrefixes.contains { name.hasPrefix($0) }
     }
 
     /// The longest session name.
@@ -128,6 +144,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     ) throws -> BrowserReplSession {
         guard Self.isValidName(key.name) else { throw Refusal.invalidName }
         guard Self.isValidOwner(owner) else { throw Refusal.invalidOwner }
+        guard owner == nil || Self.isPrivateName(key.name) else { throw Refusal.ownerOnSharedName }
         lock.lock()
         let session: BrowserReplSession
         if let existing = sessions[key], !existing.isClosed {

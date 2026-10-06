@@ -81,7 +81,7 @@ struct BrowserReplSessionRegistryTests {
         let registry = BrowserReplSessionRegistry()
         let key = BrowserReplSessionKey(workspaceID: first, name: "work")
         var made = 0
-        #expect(throws: BrowserReplSessionRegistry.Refusal.self) {
+        #expect(throws: BrowserReplSessionRegistry.Refusal.ownerOnSharedName) {
             try registry.session(for: key, owner: "squatter") { _ in
                 made += 1
                 return makeSession(key.name)

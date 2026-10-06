@@ -50,6 +50,9 @@ final class BrowserReplHost: @unchecked Sendable {
 /// and a one-shot run's session a token only this call holds: the registry
 /// lists such a session, attaches to it and resets it only for that token,
 /// so another local client that learns or guesses its name gets nothing.
+/// A token comes only with such a client-made name (`cli-`, `mcp-`,
+/// `oneshot-`): one with a shared name is refused, so no client can hide a
+/// name others share.
 ///
 /// Evaluations await the REPL's JavaScriptCore thread and the main-actor
 /// driver without parking a socket worker thread. These methods execute
@@ -270,6 +273,15 @@ extension TerminalController {
             return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
         } catch BrowserReplSessionRegistry.Refusal.invalidOwner {
             return .err(code: "invalid_params", message: Self.browserReplInvalidOwnerMessage, data: nil)
+        } catch BrowserReplSessionRegistry.Refusal.ownerOnSharedName {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "cli.browser.repl.error.sessionOwnerShared",
+                    defaultValue: "A named REPL session is shared by name and takes no owner token; send session_owner only with a session name the client made for itself (cli-, mcp- or oneshot-)"
+                ),
+                data: nil
+            )
         } catch {
             return .err(code: "invalid_params", message: Self.browserReplInvalidSessionNameMessage, data: nil)
         }

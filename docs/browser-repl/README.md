@@ -434,7 +434,9 @@ rest. Measurements: [performance.md](performance.md).
   other client sees it in `cmux browser repl list`, attaches to it or
   resets it, also when it knows the name or the client was killed before
   its session ended (it then idles out after 30 minutes). Named sessions
-  are shared by name. An owner token is at most 128 bytes and a working
+  are shared by name: an owner token is taken only with a client-made
+  name (`cli-`, `mcp-`, `oneshot-`), and one sent with any other name is
+  refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
   directory at most 1024 bytes (`PATH_MAX`); a longer one is refused
   before a session is made.
 - A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
