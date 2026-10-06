@@ -59,6 +59,7 @@ const CALLS = {
   annotate: { agent: [[["e1", "1"]], "doc"] },
   clearAnnotations: { agent: [] },
   budget: { world: "() => A.budget({})" },
+  slotAssigned: { world: "(el) => [...A.slotAssigned(el, () => true)]", handles: ["$t"] },
   reply: { world: "() => A.reply('a reply', 0)" },
 };
 
