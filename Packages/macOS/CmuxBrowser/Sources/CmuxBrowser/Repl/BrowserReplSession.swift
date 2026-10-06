@@ -1691,10 +1691,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                 self.refuseCall(Int(callID), refusal, method: "fetch")
             }
         }
-        let fs = hostFunction { [weak self] operation, arguments in
+        let fs = hostFunction("fs", isFileSystem: true) { [weak self] op, arguments in
             guard let self else { return nil }
-            let op = operation?.toString() ?? ""
-            var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
+            var args = JSONSerialization.browserReplObject(arguments)
             func failure(_ code: String, _ message: String) -> BrowserReplEgress {
                 self.boundary.egress(.fs(op: op, .failure(BrowserReplFileSystemError(code: code, message: message))))
             }
@@ -1724,10 +1723,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             let copyContents = op == "copyFile" ? self.boundary.fileStoreRedaction(syscall: "copyfile") : nil
             return self.boundary.egress(.fs(op: op, self.fileSystem.perform(op, arguments: args, copyContents: copyContents)))
         }
-        let secrets = hostFunction { [weak self] operation, arguments in
+        let secrets = hostFunction("secrets") { [weak self] op, arguments in
             guard let self else { return nil }
-            let op = operation?.toString() ?? ""
-            var args = JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
+            var args = JSONSerialization.browserReplObject(arguments)
             // secrets.load(path) reads the file here, so its values never
             // reach JavaScript.
             if op == "load", let path = args["path"] as? String {
@@ -1744,12 +1742,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             return self.boundary.egress(.host(self.boundary.secretsOperation(op, args)))
         }
-        let policy = hostFunction { [weak self] operation, arguments in
+        let policy = hostFunction("policy") { [weak self] op, arguments in
             guard let self else { return nil }
-            let (result, updated) = self.boundary.policyOperation(
-                operation?.toString() ?? "",
-                JSONSerialization.browserReplObject(arguments?.toString() ?? "{}")
-            )
+            let (result, updated) = self.boundary.policyOperation(op, JSONSerialization.browserReplObject(arguments))
             if let updated { self.driver.setDomainPolicy(updated) }
             return self.boundary.egress(.host(result))
         }
@@ -1776,12 +1771,55 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// A synchronous host function (`fs`, `secrets`, `policy`): its answer
     /// is whatever the egress gate gave `body`; `nil` (the session is
     /// gone) answers that the session was closed.
+    ///
+    /// The call's operation and arguments are reserved in the session's
+    /// ledger (``BrowserReplResource/hostCallBytes``, within its memory)
+    /// before they are copied out of JavaScript, parsed or decoded, and
+    /// released when it returns; one past its limit
+    /// (``hostCallLimit(isFileSystem:)``) or the session's memory is
+    /// refused with nothing parsed.
     private func hostFunction(
-        _ body: @escaping (_ operation: JSValue?, _ arguments: JSValue?) -> BrowserReplEgress?
+        _ name: String,
+        isFileSystem: Bool = false,
+        _ body: @escaping (_ operation: String, _ arguments: String) -> BrowserReplEgress?
     ) -> @convention(block) (JSValue?, JSValue?) -> String {
-        { operation, arguments in
-            body(operation, arguments)?.text ?? #"{"error":{"code":"closed","message":"closed"}}"#
+        { [weak self] operation, arguments in
+            guard let self else { return #"{"error":{"code":"closed","message":"closed"}}"# }
+            let limit = self.hostCallLimit(isFileSystem: isFileSystem)
+            func refuse(_ refusal: BrowserReplResourceLimitError) -> String {
+                if isFileSystem {
+                    let code = refusal.isPerItem ? "E2BIG" : "ENOMEM"
+                    return self.boundary.egress(.fs(op: "", .failure(BrowserReplFileSystemError(code: code, message: "\(code): \(refusal.message)")))).text
+                }
+                return self.boundary.egress(.host(.failure(refusal.driverError(name)))).text
+            }
+            // A JavaScript string's length in UTF-16 code units is at most
+            // its UTF-8 size, so a string past the limit by its length is
+            // refused before it is copied.
+            let units = [operation, arguments].reduce(0) { total, value in
+                guard let value, value.isString, let length = value.forProperty("length")?.toDouble(), length.isFinite else { return total }
+                return total + Int(min(length, Double(Int.max / 4)))
+            }
+            if units > limit {
+                return refuse(BrowserReplResourceLimitError(resource: .hostCallBytes, limit: limit, isPerItem: true, held: self.ledger.held(.hostCallBytes), requested: units))
+            }
+            let op = operation?.toString() ?? ""
+            let raw = arguments.flatMap { $0.isString ? $0.toString() : nil } ?? "{}"
+            let bytes = op.utf8.count + raw.utf8.count
+            if let refusal = self.ledger.reserve(bytes, of: .hostCallBytes, each: limit) { return refuse(refusal) }
+            defer { self.ledger.release(bytes, of: .hostCallBytes) }
+            return body(op, raw)?.text ?? #"{"error":{"code":"closed","message":"closed"}}"#
         }
+    }
+
+    /// The most one synchronous host call's operation and arguments may
+    /// hold: an fs call carries one write's bytes in Base64 (the fs write
+    /// limit, 256 MiB, plus 1 MiB for the rest), any other call the
+    /// ledger's own per-call limit.
+    func hostCallLimit(isFileSystem: Bool) -> Int {
+        let each = ledger.limits.each(.hostCallBytes) ?? .max
+        guard isFileSystem, let write = ledger.limits.each(.fileBytesWritten) else { return each }
+        return max(each, (write / 3 + 1) * 4 + (1 << 20))
     }
 
     /// The longest timer delay, 2^31-1 ms (about 24.8 days), as browsers and

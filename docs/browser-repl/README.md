@@ -604,6 +604,7 @@ checks nothing stays reserved after the session ends.
 | Parameters of calls and fetch requests waiting or running (M) | 512 MiB | the call fails at once |
 | One browser call's result | 64 MiB, also with secrets masked | the call fails before its result is masked |
 | Results the session's JavaScript has not taken yet (M) | 512 MiB | the call fails instead of waiting |
+| One `fs`, `secrets` or `policy` call's arguments (M), reserved before they are parsed or decoded | 64 MiB (an fs call: one write in Base64, plus 1 MiB) | the call fails before it is parsed (`E2BIG` / `ENOMEM` for fs) |
 | Fetches waiting for their response headers | 16 | later ones wait in order |
 | Open fetches | 64 | later ones wait in order |
 | Fetches waiting for a slot | 256 | the fetch fails at once |

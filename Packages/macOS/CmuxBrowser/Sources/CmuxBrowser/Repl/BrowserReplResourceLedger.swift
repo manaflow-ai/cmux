@@ -26,6 +26,9 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case requestBytes
     /// Driver results (and errors) the runtime has not taken yet.
     case driverResultBytes
+    /// The arguments of the synchronous host call running (`fs`, `secrets`,
+    /// `policy`), reserved before they are parsed or decoded.
+    case hostCallBytes
     /// Fetches waiting for a slot.
     case queuedFetches
     /// Fetches waiting for their response's headers.
@@ -85,7 +88,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isBytes: Bool {
         switch self {
         case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
-             .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
+             .driverResultBytes, .hostCallBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
              .fileBytesWritten, .sessionMemoryBytes:
             true
         default:
@@ -98,7 +101,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isMemory: Bool {
         switch self {
         case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
-             .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes:
+             .hostCallBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes:
             true
         default:
             false
@@ -126,6 +129,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .runningDriverCalls: "browser calls running"
         case .requestBytes: "parameters of the browser calls and fetches waiting or running"
         case .driverResultBytes: "browser call results the session's JavaScript has not taken yet"
+        case .hostCallBytes: "arguments of an fs, secrets or policy call"
         case .queuedFetches: "fetches waiting for a slot"
         case .requestPhaseFetches: "fetches waiting for their response headers"
         case .openFetches: "open fetches"
@@ -152,6 +156,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
              .requestPhaseFetches, .openFetches:
             "await some before starting more"
         case .driverResultBytes: "await results before starting more calls"
+        case .hostCallBytes: "pass less at once (write a large file in parts)"
         case .fetchBodyBytes: "await some before starting more, or download large files in a tab (page.waitForEvent(\"download\"))"
         case .queuedEvents, .queuedEventBytes, .heldEvents: "let the session's thread take them"
         case .pendingTimers: "clear some first"
@@ -232,6 +237,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             // One browser call's parameters (the fetch and readFile limit).
             .requestBytes: 64 << 20,
             .driverResultBytes: 64 << 20,
+            // One fs, secrets or policy call's arguments (an fs call's limit
+            // is one write's in Base64, BrowserReplSession.hostCallLimit).
+            .hostCallBytes: 64 << 20,
             // One fetch's response body.
             .fetchBodyBytes: 64 << 20,
             // One page event; a larger one arrives withheld.
