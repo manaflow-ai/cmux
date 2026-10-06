@@ -128,6 +128,9 @@ nonisolated extension ActionSurfaceCatalog {
         .focusMove: [
             "history.goTo",
         ],
+        .guiOnly: [
+            "agent.openSessionWorkspace",
+        ],
     ]
 
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
