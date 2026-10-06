@@ -2,13 +2,12 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Layer-hosting view under the rows that draws the selection pill and the
-/// drag gap as plain CALayers (no views), animated with CA springs.
+/// Layer-hosting view under the rows that draws the drag gap as a plain
+/// CALayer (no views), animated with a CA spring. The selection highlight is
+/// not here: each selected row and item paints its own fill in place
+/// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
 final class SidebarDecorationView: NSView {
-    private let pill = CALayer()
     private let gap = CALayer()
-    /// The selection pill (tests).
-    var pillLayer: CALayer { pill }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -18,12 +17,10 @@ final class SidebarDecorationView: NSView {
         root.isGeometryFlipped = true
         layer = root
         wantsLayer = true
-        for decoration in [gap, pill] {
-            decoration.cornerCurve = .continuous
-            decoration.opacity = 0
-            root.addSublayer(decoration)
-        }
-        // Flat gray pill and gap: no rim, no shadow, no border.
+        gap.cornerCurve = .continuous
+        gap.opacity = 0
+        root.addSublayer(gap)
+        // Flat gray gap: no rim, no shadow, no border.
         updateColors()
     }
 
@@ -47,46 +44,29 @@ final class SidebarDecorationView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            pill.backgroundColor = Palette.selectionFill.cgColor
             gap.backgroundColor = Palette.hoverFill.cgColor
         }
-        pill.cornerRadius = SidebarStyle.rowCornerRadius
         gap.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()
     }
 
-    /// Where the active row's pill goes: the sidebar's one selection
-    /// highlight (`SidebarSelectionHighlight`) draws it; this view then draws
-    /// no pill of its own.
-    var onPill: ((CGRect?, Bool) -> Void)?
-
-    /// Moves the pill under the active row (nil hides it).
-    func setPill(_ frame: CGRect?, animated: Bool) {
-        if let onPill { return onPill(frame, animated) }
-        move(pill, to: frame, animated: animated, spring: .selection)
-    }
-
-    /// Moves the pill and gap by `dy` at once, from where they show now,
-    /// with the rows and the scroll offset (the sidebar keeping what the
-    /// user sees after a close; close-focus.md): no visible change.
+    /// Moves the gap by `dy` at once, from where it shows now, with the rows
+    /// and the scroll offset (the sidebar keeping what the user sees after a
+    /// close; close-focus.md): no visible change.
     func shift(by dy: CGFloat) {
-        for layer in [pill, gap] {
-            let current = layer.presentation()?.frame ?? layer.frame
-            layer.removeAnimation(forKey: "position")
-            layer.removeAnimation(forKey: "bounds")
-            Motion.transaction(nil) { layer.frame = current.offsetBy(dx: 0, dy: dy) }
-        }
+        let current = gap.presentation()?.frame ?? gap.frame
+        gap.removeAnimation(forKey: "position")
+        gap.removeAnimation(forKey: "bounds")
+        Motion.transaction(nil) { gap.frame = current.offsetBy(dx: 0, dy: dy) }
     }
 
-    /// Shows the drag gap placeholder (nil hides it).
+    /// Shows the drag gap placeholder (nil hides it): springs it to `frame`
+    /// from its on-screen position (a new move mid-glide retargets without a
+    /// jump) and fades it in or out.
     func setGap(_ frame: CGRect?, animated: Bool) {
-        move(gap, to: frame, animated: animated, spring: .move)
-    }
-
-    /// Springs `layer` to `frame` from its on-screen position (a new move
-    /// mid-glide retargets without a jump) and fades it in or out.
-    private func move(_ layer: CALayer, to frame: CGRect?, animated: Bool, spring: MotionSpring) {
         updateColors()
+        let layer = gap
+        let spring = MotionSpring.move
         let visible = frame != nil
         let wasVisible = layer.opacity > 0
         if let frame {

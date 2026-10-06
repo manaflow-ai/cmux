@@ -13,6 +13,10 @@ import Testing
     static func sidebar() -> (SidebarModel, SidebarView) {
         let nodes = ["a", "b"].map { SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID($0), machineID: .local, title: $0, rowState: .live)) }
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)), nodes: nodes)])
+        // The bridge gives every layout item its info; the selected top item's info is marked active.
+        for section in model.layout.sections {
+            for item in section.items { model.itemInfo[item.id] = SidebarItemInfo.fallback(for: item.ref) }
+        }
         let sidebar = SidebarView(model: model)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
         sidebar.layoutSubtreeIfNeeded()
@@ -73,7 +77,12 @@ import Testing
     static func expectInPlace(_ sidebar: SidebarView, _ model: SidebarModel, select item: SidebarItem, target: () throws -> CGRect,
                               exact: Bool, _ comment: Comment) async throws {
         model.selectedItem = item
-        await settle { (try? target()).map { t in highlights(in: sidebar).contains { exact ? near($0.frame, t) : t.contains($0.frame) } } ?? false }
+        // The list and the top regions render in the same main-thread turn
+        // (one CA commit); wait for both, then check that nothing animates.
+        await settle {
+            let drawn = highlights(in: sidebar)
+            return drawn.count == 1 && ((try? target()).map { t in exact ? near(drawn[0].frame, t) : t.contains(drawn[0].frame) } ?? false)
+        }
         let drawn = highlights(in: sidebar)
         let t = try target()
         #expect(drawn.count == 1, "exactly one highlight: \(comment)")
@@ -95,6 +104,27 @@ import Testing
         try await Self.expectInPlace(sidebar, model, select: .workspace(WorkspaceID("b")), target: { try Self.rowFrame("b", in: sidebar) },
                                      exact: true, "workspace a to workspace b")
         try await Self.expectInPlace(sidebar, model, select: .topItem(storeID), target: store, exact: false, "workspace b to App Store")
+    }
+
+    /// debug.sidebar_rows reports the same single highlight: items "active"
+    /// plus rows "selected" name exactly the selected item.
+    @Test func theDebugReportNamesExactlyOneHighlight() async {
+        let (model, sidebar) = Self.sidebar()
+        let storeID = LayoutItemID("itm_app_store")
+        func marked() -> [String] {
+            sidebar.debugLayoutItems().filter(\.isActive).map(\.id) + sidebar.debugRows().rows.filter(\.selected).map(\.key)
+        }
+        for item in [SidebarItem.topItem(storeID), .workspace(WorkspaceID("a")), .workspace(WorkspaceID("b")), .topItem(storeID)] {
+            let expected: [String]
+            switch item {
+            case let .workspace(id): expected = [String(describing: SidebarRowKey.workspace(id))]
+            case let .topItem(id): expected = [id.rawValue]
+            case .group: expected = []
+            }
+            model.selectedItem = item
+            await Self.settle { marked() == expected && Self.highlights(in: sidebar).count == 1 }
+            #expect(marked() == expected, "exactly one highlight for \(item)")
+        }
     }
 
     @Test func noSelectionDrawsNoHighlight() async {
