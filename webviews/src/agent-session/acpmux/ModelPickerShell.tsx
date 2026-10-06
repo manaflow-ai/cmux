@@ -5,13 +5,16 @@ import { registerPicker } from "./pickerOpeners";
 import { useT } from "./i18n";
 import { useUiAnchor } from "../../ui/anchor";
 
-/// The model chip and the popover above it. Focus stays on the chip while the popover is open,
+/// The model chip, which names the effort after the model with one chevron, and the popover
+/// above it, which holds both. Focus stays on the chip while the popover is open,
 /// so typing, arrows, digits and Return reach `onKeyDown`; a press elsewhere, the window losing
 /// focus, or focus leaving the chip closes it. The open menu's body names its highlighted row
 /// on the chip (aria-activedescendant) itself.
 export function ModelPickerShell({
   layout,
   chip,
+  detail,
+  offersEffort = false,
   open,
   onOpenChange,
   onKeyDown,
@@ -23,6 +26,9 @@ export function ModelPickerShell({
   /// Unset for the first frame of an opening, while ModelPicker measures the cascade's room.
   layout?: PickerLayout;
   chip: string;
+  detail?: string;
+  /// The menu holds the effort too, so automation's "Effort" opens it.
+  offersEffort?: boolean;
   open: boolean;
   onOpenChange(open: boolean): void;
   onKeyDown(event: React.KeyboardEvent): void;
@@ -33,6 +39,7 @@ export function ModelPickerShell({
 }) {
   const t = useT();
   const modelLabel = t(PICKER_LABELS.model);
+  const effortLabel = t(PICKER_LABELS.effort);
   const root = useRef<HTMLSpanElement>(null);
   const menuId = useId();
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
@@ -59,16 +66,20 @@ export function ModelPickerShell({
   showRef.current = show;
   // Automation opens the menu by its label through the click path, which takes focus off the
   // prompt first: that closes the slash menu and restores the draft.
-  useEffect(
-    () =>
-      registerPicker(modelLabel, () => {
-        const focused = document.activeElement;
-        // Focus already on the chip stays there: blurring it would close the open menu.
-        if (focused instanceof HTMLElement && !root.current?.contains(focused)) focused.blur();
-        showRef.current();
-      }),
-    [modelLabel],
-  );
+  useEffect(() => {
+    const open = () => {
+      const focused = document.activeElement;
+      // Focus already on the chip stays there: blurring it would close the open menu.
+      if (focused instanceof HTMLElement && !root.current?.contains(focused)) focused.blur();
+      showRef.current();
+    };
+    const unregister = registerPicker(modelLabel, open);
+    const unregisterEffort = offersEffort ? registerPicker(effortLabel, open) : undefined;
+    return () => {
+      unregister();
+      unregisterEffort?.();
+    };
+  }, [modelLabel, effortLabel, offersEffort]);
   return (
     <span
       ref={root}
@@ -99,6 +110,7 @@ export function ModelPickerShell({
         onClick={() => (open ? onOpenChange(false) : show())}
       >
         <span className="acpmux-model-name">{chip}</span>
+        {detail && <span className="acpmux-model-effort">{detail}</span>}
         <ChevronIcon />
       </button>
       {open && (

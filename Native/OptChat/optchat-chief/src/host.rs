@@ -271,6 +271,8 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
+    // A status left by a host that crashed mid-wait says nothing true now.
+    crate::settle_status::SettleStatus::new(&paths.settle_status).clear();
     match start(&paths, &home, &daemon_socket, source) {
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
@@ -840,6 +842,9 @@ fn start(
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
+    .with_settle_status(crate::settle_status::SettleStatus::new(
+        &paths.settle_status,
+    ))
     .with_workspaces(workspaces);
     let mut brain = brain;
     if let Some(describer) = describer {

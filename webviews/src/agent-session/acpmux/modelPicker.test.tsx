@@ -164,7 +164,8 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
 
     test("opens with the numbered recents nearest the chip, 1 at the very bottom", async () => {
       await render(snapshot());
-      expect(chip().textContent).toBe("Opus 5.5");
+      // The model, then the effort in secondary text.
+      expect(chip().textContent).toBe("Opus 5.5High");
       await act(async () => chip().click());
       expect(chip().getAttribute("aria-expanded")).toBe("true");
       const recentRows = rows().filter((candidate) => candidate.querySelector(".acpmux-menu-hint"));
