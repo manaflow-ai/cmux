@@ -153,7 +153,11 @@ public final class HomeStore {
     }
 
     /// Writes the coalesced cache batch now (app quit), without stopping.
-    public func flushCache() {}
+    public func flushCache() {
+        cacheWrite?.cancel()
+        cacheWrite = nil
+        writeCache()
+    }
 
     /// Shows what the cache holds before the owner answers.
     private func restoreCache() {

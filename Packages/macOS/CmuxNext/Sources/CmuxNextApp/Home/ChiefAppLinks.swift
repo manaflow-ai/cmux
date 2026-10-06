@@ -16,13 +16,19 @@ nonisolated enum ChiefAppLinks {
 
     /// Points both links at this app (last writer wins), each atomically.
     static func publish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
-        _ = (home, controlSocket, daemonSocket)
+        let state = home.root.appendingPathComponent("state", isDirectory: true)
+        try? FileManager.default.createDirectory(at: state, withIntermediateDirectories: true)
+        point(controlLink(home), at: controlSocket)
+        if let daemonSocket { point(daemonLink(home), at: daemonSocket) }
     }
 
     /// Removes the links that still point at this app's sockets (another
     /// build that took them over keeps them).
     static func unpublish(home: ChiefHome, controlSocket: String, daemonSocket: String?) {
-        _ = (home, controlSocket, daemonSocket)
+        for (link, target) in [(controlLink(home), controlSocket), (daemonLink(home), daemonSocket)] {
+            guard let target, (try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == target else { continue }
+            unlink(link.path)
+        }
     }
 
     /// A temporary link renamed over the old one, so readers never see none.

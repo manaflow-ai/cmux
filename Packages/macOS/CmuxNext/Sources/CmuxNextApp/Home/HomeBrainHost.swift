@@ -59,7 +59,8 @@ nonisolated struct HomeBrainHost: Sendable {
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
             // Constant links to the app that last opened Home (ChiefAppLinks):
             // the host outlives the app that started it.
-            "CMUX_SOCKET_PATH": controlSocket,
+            "CMUX_SOCKET_PATH": ChiefAppLinks.controlLink(ChiefHome(root: muxHome, isolated: false)).path,
+            "CMUX_APP_DAEMON_SOCKET": ChiefAppLinks.daemonLink(ChiefHome(root: muxHome, isolated: false)).path,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,

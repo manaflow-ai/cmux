@@ -66,7 +66,32 @@ nonisolated enum ChiefMigration {
     /// Runs the move for `home`. Idempotent: a finished move is recorded in
     /// `<home>/migration.json`, and the owner skips what it already holds.
     static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old]) async throws -> Outcome {
-        .nothingToDo
+        let record = home.root.appendingPathComponent(recordName)
+        if home.isolated || FileManager.default.fileExists(atPath: record.path) { return .nothingToDo }
+        let blocking = olds.filter { lockHeld(at: $0.muxHome.appendingPathComponent("state/host.lock")) }.map(\.tag)
+        if !blocking.isEmpty { return .blocked(blocking) }
+        let lockPath = home.root.appendingPathComponent("state/host.lock")
+        try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard let lock = HostLock(path: lockPath) else { return .blocked([home.root.lastPathComponent]) }
+        defer { lock.release() }
+        let sources = olds.compactMap(readSource)
+        let plan = ChiefMigrationPlan.make(sources)
+        var outcome = Outcome.nothingToDo
+        if !plan.items.isEmpty {
+            let conversation = try await owner.chiefConversation()
+            let result: ConversationImportResult
+            do {
+                result = try await owner.importHistory(ConversationImportRequest(conversation: conversation, messages: plan.imports))
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("import_out_of_order") {
+                try writeRecord(record, olds: olds, status: "refused: \(message)")
+                return .refused(message)
+            }
+            let entries = try writeMemory(home: home, plan: plan, sources: sources, conversation: conversation,
+                                          loggedSeq: result.conversation.lastSeq)
+            outcome = .done(messages: plan.items.count, memoryEntries: entries)
+        }
+        try writeRecord(record, olds: olds, status: "done")
+        return outcome
     }
 
     // MARK: Memory
