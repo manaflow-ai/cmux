@@ -362,6 +362,44 @@ import Testing
                 == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
     }
 
+    /// A download carries the session whose input started it from the
+    /// moment WebKit made it. When that session left the tab before WebKit
+    /// picked the download's destination (its teardown could not cancel a
+    /// download it was never told of), the download fails closed: it is
+    /// cancelled, never handed on to the user's download location.
+    @Test func aDownloadWhoseStartingSessionLeftIsCancelled() throws {
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        let roots: (String) -> [String]? = { _ in nil }
+        let source = BrowserReplDownloadSource(hops: ["https://allowed.test/file.zip"])
+
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        #expect(users.downloadRoute(startedBy: "agent", source: source, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: false)))
+        users.detach(sessionID: "agent")
+        let left = users.downloadRoute(startedBy: "agent", source: source, policy: policies, fileRoots: roots)
+        #expect(Self.cancels(left), "a download the departed session's input started went on: \(left)")
+        // A download no session's input started keeps the user's location.
+        #expect(users.downloadRoute(startedBy: nil, source: source, policy: policies, fileRoots: roots) == .user)
+
+        // In a tab the session created, also after it left (the tab was kept).
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        own.detach(sessionID: "creator")
+        let kept = own.downloadRoute(startedBy: "creator", source: source, policy: policies, fileRoots: roots)
+        #expect(Self.cancels(kept), "a download the departed creator's input started went on: \(kept)")
+    }
+
+    /// Whether `route` ends the download with nobody getting the file: not
+    /// the user's location, and no session.
+    private static func cancels(_ route: BrowserReplDownloadRoute) -> Bool {
+        switch route {
+        case .user, .session: false
+        default: true
+        }
+    }
+
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")
