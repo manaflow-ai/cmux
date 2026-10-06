@@ -30,7 +30,7 @@ export function codePath(text: string): string | undefined {
   const path = stripLine(value);
   const parts = path.split("/").filter((part) => part && part !== "~");
   if (parts.length < 2) return undefined;
-  if (!path.endsWith("/") && !/^[^ ]*\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!)) return undefined;
+  if (!path.endsWith("/") && !/\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!)) return undefined;
   return path;
 }
 
