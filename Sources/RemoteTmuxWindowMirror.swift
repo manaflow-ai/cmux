@@ -81,6 +81,14 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Display title for this mirrored tmux window; inner surfaces use it unless
     /// tmux reports a pane title that differs from both host defaults.
     private(set) var windowTitle = String(localized: "remoteTmux.tab.window", defaultValue: "tmux window")
+    /// The initial title for each pane whose tmux title is merely the host default.
+    /// A window rename must not retitle those panes; only a pane-title event owns
+    /// an individual split tab's name.
+    @ObservationIgnored var fallbackTitleByPaneId: [Int: String] = [:]
+    /// The mirror is constructed from layout before its first authoritative
+    /// window payload arrives, so defer fallback capture until that payload
+    /// supplies the actual tmux window name.
+    @ObservationIgnored var hasAppliedWindow = false
 
     /// Only the visible tab's mirror writes after its initial claim. Hidden
     /// tabs stay mounted and still receive geometry callbacks, so default-hidden
@@ -355,6 +363,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         let previousRenderedLayout = renderedLayout
         let nextTitle = RemoteTmuxSessionMirror.tabTitle(for: window)
         if windowTitle != nextTitle { windowTitle = nextTitle }
+        hasAppliedWindow = true
         let newVisible = window.zoomed ? window.visibleLayout : nil
         if visibleLayout != newVisible { visibleLayout = newVisible }
         if zoomed != window.zoomed { zoomed = window.zoomed }
@@ -400,6 +409,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             panelsByPaneId[paneId] = nil
             onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
+            fallbackTitleByPaneId[paneId] = nil
             cancelPendingCreatedPaneFocus(candidatePaneID: paneId)
             if pendingControlPaneFocusRequest?.paneID == paneId {
                 cancelPendingControlPaneFocus()
@@ -407,6 +417,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             if activePaneId == paneId { activePaneId = nil }
         }
         lastRenderedGrids = lastRenderedGrids.filter { livePaneIds.contains($0.key) }
+        fallbackTitleByPaneId = fallbackTitleByPaneId.filter { livePaneIds.contains($0.key) }
         // Structural change (split/close/re-nest) vs geometry-only reflow: only
         // the former re-arms client sizing (the chrome fold's output changed).
         // `init` reconciles the layout it just stored, so the first pass never
@@ -627,6 +638,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         paneIdByTabId.removeAll()
         cwdByPaneId.removeAll()
         paneTitleMetadataByPane.removeAll()
+        fallbackTitleByPaneId.removeAll()
         lastRenderedGrids.removeAll()
         activePaneId = nil
         connection = nil

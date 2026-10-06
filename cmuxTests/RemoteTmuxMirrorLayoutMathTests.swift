@@ -207,6 +207,72 @@ import Testing
         })
     }
 
+    @Test @MainActor func unnamedPaneFallbacksSurviveWindowRenameAndExplicitTitleChanges() {
+        let initialLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 26, height: 24, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 26, height: 24, x: 27, y: 0, content: .pane(2)),
+                RemoteTmuxLayoutNode(width: 26, height: 24, x: 54, y: 0, content: .pane(3)),
+            ])
+        )
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "session"
+        )
+        connection.paneTitleMetadataByPane = [
+            1: RemoteTmuxPaneTitleMetadata(title: "test1", host: "host.example", hostShort: "host"),
+            2: RemoteTmuxPaneTitleMetadata(title: "test", host: "host.example", hostShort: "host"),
+            3: RemoteTmuxPaneTitleMetadata(title: "host", host: "host.example", hostShort: "host"),
+        ]
+        let mirror = RemoteTmuxWindowMirror(
+            windowId: 1,
+            panelId: UUID(),
+            connection: connection,
+            layout: initialLayout,
+            makePanel: { _ in nil }
+        )
+
+        mirror.apply(window: RemoteTmuxWindow(
+            id: 1, name: "before", width: 80, height: 24, layout: initialLayout
+        ))
+        #expect(mirror.title(forPane: 1) == "test1")
+        #expect(mirror.title(forPane: 2) == "test")
+        #expect(mirror.title(forPane: 3) == "before [2]")
+
+        mirror.apply(window: RemoteTmuxWindow(
+            id: 1, name: "after", width: 80, height: 24, layout: initialLayout
+        ))
+        #expect(mirror.title(forPane: 3) == "before [2]")
+
+        connection.paneTitleMetadataByPane[3] = RemoteTmuxPaneTitleMetadata(
+            title: "codex", host: "host.example", hostShort: "host"
+        )
+        mirror.apply(window: RemoteTmuxWindow(
+            id: 1, name: "after", width: 80, height: 24, layout: initialLayout
+        ))
+        #expect(mirror.title(forPane: 3) == "codex")
+
+        connection.paneTitleMetadataByPane[3] = RemoteTmuxPaneTitleMetadata(
+            title: "host", host: "host.example", hostShort: "host"
+        )
+        mirror.apply(window: RemoteTmuxWindow(
+            id: 1, name: "after", width: 80, height: 24, layout: initialLayout
+        ))
+        #expect(mirror.title(forPane: 3) == "before [2]")
+
+        let twoPaneLayout = RemoteTmuxLayoutNode(
+            width: 80, height: 24, x: 0, y: 0,
+            content: .horizontal([
+                RemoteTmuxLayoutNode(width: 39, height: 24, x: 0, y: 0, content: .pane(1)),
+                RemoteTmuxLayoutNode(width: 40, height: 24, x: 40, y: 0, content: .pane(2)),
+            ])
+        )
+        mirror.apply(window: RemoteTmuxWindow(
+            id: 1, name: "after", width: 80, height: 24, layout: twoPaneLayout
+        ))
+        #expect(mirror.fallbackTitleByPaneId[3] == nil)
+    }
+
     @Test func tinyAreaClampsToMinimumGrid() {
         let layout = RemoteTmuxLayoutNode(width: 80, height: 24, x: 0, y: 0, content: .pane(1))
         let grid = RemoteTmuxWindowMirror.clientGrid(
