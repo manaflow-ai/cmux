@@ -937,3 +937,43 @@ test("popups: the runtime closes a session popup the policy blocks, never a user
     removeTestDir(host.tmpdir);
   }
 });
+
+// page.exportContent sends the exported tab's cookies (README, Page
+// additions), so its Google and YouTube requests are bound to that tab, never
+// to whichever tab is current: another tab's store must not authenticate the
+// export or take its Set-Cookie.
+test("page.exportContent: the export request uses the exported tab's cookies, not the current tab's", async () => {
+  const servers = await startFixtureServers();
+  const dir = makeTestDir("cmux-repl-export-bind-");
+  const browser = await createDevBrowser();
+  const lines = [];
+  const host = createNodeHost({ workDir: dir, sessionId: `export-bind-${process.pid}`, print: (level, text) => lines.push(text) });
+  const requests = [];
+  host.fetch = async (url, init = {}) => {
+    requests.push({ url, targetId: init.targetId, origin: init.origin });
+    return { status: 200, statusText: "OK", url, headers: { "content-type": "text/plain" }, base64: Buffer.from("doc").toString("base64"), redirected: false };
+  };
+  const repl = createDevRepl({ host, driver: browser.driver() });
+  try {
+    const r = await repl.evaluate(`
+      const doc = await tabs.open(${JSON.stringify(servers.origins.primary + "/")});
+      const other = await tabs.open(${JSON.stringify(servers.origins.peer + "/")});
+      await tabs.use(other);
+      // The exported tab is a Google Doc; the current tab is another site.
+      doc.url = () => "https://docs.google.com/document/d/abc123/edit";
+      await doc.exportContent({ format: "txt" });
+      console.log("@@" + JSON.stringify({ doc: doc._targetId, other: other._targetId, current: page._targetId }));`);
+    assert.equal(r.ok, true, `${r.error}\n${lines.join("\n").slice(0, 2000)}`);
+    const ids = JSON.parse(lines.find((l) => l.startsWith("@@")).slice(2));
+    assert.equal(ids.current, ids.other, "the other tab is current");
+    const exportRequest = requests.find((q) => q.url.startsWith("https://docs.google.com/"));
+    assert.ok(exportRequest, `no export request: ${JSON.stringify(requests)}`);
+    assert.deepEqual({ targetId: exportRequest.targetId, origin: exportRequest.origin }, { targetId: ids.doc, origin: "https://docs.google.com" });
+  } finally {
+    repl.dispose();
+    await browser.close();
+    await servers.close();
+    removeTestDir(dir);
+    removeTestDir(host.tmpdir);
+  }
+});
