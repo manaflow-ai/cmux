@@ -143,8 +143,14 @@ afterwards, popups included. Its tabs list the dataStore
 `cookies.*` without `targetId` use it, and with `targetId` the tab's own
 store. It closes at the session's end unless a tab in it (a popup too) was
 kept, then at host exit. Known gap: proxy credentials answer `unsupported`
-(they need `Fetch.authRequired`). Not yet: `permissions` (`unsupported`,
-owner decision pending).
+(they need `Fetch.authRequired`). `permissions` (chief, 2026-10-06, option
+2): CDP grants per browser context, never per tab, so the session's new tabs
+open in a private store (`<profile>/private-<n>`, or its proxy store) that
+holds the grants; no grant reaches a person's tab. A private store starts
+with a one-way copy of the profile's cookies (never written back), and closes
+like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
+drops the grants and new tabs open in the profile again (a proxy store keeps
+them).
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each

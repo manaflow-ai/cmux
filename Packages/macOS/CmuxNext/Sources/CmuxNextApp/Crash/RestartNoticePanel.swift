@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// "cmux restarted after a problem": a small glass panel (opaque under
 /// Reduce Transparency, `Glass.makeOverlayPanel`) at the bottom of a
@@ -49,8 +50,7 @@ final class RestartNoticePanel {
             show.bezelStyle = .accessoryBarAction
             views.append(show)
         }
-        let close = NSButton(image: NSImage(systemSymbolName: "xmark", accessibilityDescription: CrashStrings.dismiss) ?? NSImage(),
-                             target: self, action: #selector(dismiss))
+        let close = NSButton(image: NSImage.icon(.actionClose, size: .iconFloor), target: self, action: #selector(dismiss))
         close.isBordered = false
         close.setAccessibilityLabel(CrashStrings.dismiss)
         views.append(close)
