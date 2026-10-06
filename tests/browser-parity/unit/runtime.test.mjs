@@ -128,6 +128,26 @@ test("diff: changes carry their unchanged ancestors as context", () => {
   assert.deepEqual(diffLines([], ["- a"]), ["+ - a"]);
 });
 
+test("diff: page text that reads like a ref never pairs with a real ref", () => {
+  // The text sits before the button, so a key read from anywhere in a line
+  // would pair the text's removal with the button's change and hide it.
+  const before = ['- text: "[ref=e1]"', '- button "Save" [ref=e1]'];
+  const after = ['- button "Save" [ref=e1] [disabled]'];
+  assert.deepEqual(diffLines(before, after), [
+    '- - text: "[ref=e1]"',
+    '~ - button "Save" [ref=e1] [disabled]',
+  ]);
+  // A name or value that reads like a ref is page text too.
+  assert.deepEqual(diffLines(['- link "x [ref=e2]"', '- link "Go" [ref=e2]'], ['- link "Go" [ref=e2] [focused]']), [
+    '- - link "x [ref=e2]"',
+    '~ - link "Go" [ref=e2] [focused]',
+  ]);
+  // Added text that contains a ref marker is still text for an interactive diff.
+  const full = ["- main:", '  - textbox "Email" [ref=e1]'];
+  const fullAfter = ["- main:", '  - textbox "Email" [ref=e1]', '  - text: "Saved [ref=e9]"'];
+  assert.deepEqual(textChanges(diffLines(full, fullAfter)), ["  - main:", '+   - text: "Saved [ref=e9]"']);
+});
+
 test("print choice: a small tree prints its diff when shorter; a large one needs 30%", () => {
   const form = ['- heading "Sign up" [level=1]', '- textbox "Email" [ref=e1]', '- textbox "Name" [ref=e2]', '- checkbox "Accept terms" [ref=e3]',
     '- combobox "Plan" [ref=e4] [options: Free, Pro, Team]: "Pro"', '- button "Create account" [ref=e5]', '- text: "Already have an account?"', '- link "Sign in" [ref=e6]'];
