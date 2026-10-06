@@ -1,5 +1,4 @@
 import CmuxNextControl
-import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextUpdater
 import Foundation
@@ -18,9 +17,7 @@ extension AppControl {
             .mainActor("updates.rollback") { call in
                 let build = call.params["build"]?.stringValue
                 let check = call.params["check"]?.boolValue == true
-                let tag = appServices.environment.tag
-                let stateDirectories = [tag.map(DaemonLauncher.tagStateDirectory(tag:)),
-                                        ChiefHome.resolve(tag: tag).daemonStateDirectory]
+                let stateDirectories = appServices.daemonStateDirectories
                 return .followUp {
                     let inputs = await updater.rollbackInputs(stateDirectories: stateDirectories)
                     return try await MainActor.run { () throws -> JSONValue in
