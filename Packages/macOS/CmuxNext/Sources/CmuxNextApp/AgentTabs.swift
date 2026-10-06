@@ -70,6 +70,8 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
+    var launchDeferred: Set<String> = []
     /// "This chat runs on <machine>" for tabs whose session another Mac's acpmux runs.
     var notices: [String: AgentTabElsewhereView] = [:]
     /// A provisional tab's id -> the store's id once the creation answered
