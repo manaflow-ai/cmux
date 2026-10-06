@@ -105,9 +105,35 @@ import Testing
         ]
         let env = ["CMUX_DOGFOOD_STACK_EMAIL": "e@x", "CMUX_DOGFOOD_STACK_PASSWORD": "ep"]
         // The file has a dogfood email without a password: skip it, take the env pair.
-        #expect(DogfoodCredentials.resolve(environment: env, home: "/h", read: { files[$0] }) == DogfoodCredentials(email: "e@x", password: "ep"))
+        #expect(DogfoodCredentials.resolve(environment: env.merging(["CMUX_DEV_AUTH_PROFILE": "personal"]) { $1 }, home: "/h",
+                                           read: { files[$0] }) == DogfoodCredentials(email: "e@x", password: "ep"))
         #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "agent"], home: "/h", read: { files[$0] })
             == DogfoodCredentials(email: "u@x", password: "up"))
         #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "bogus"], home: "/h", read: { files[$0] }) == nil)
+    }
+
+    /// hmdm1 on cmux-lawrence-2 (2026-10-06): a tagged build with no profile
+    /// signed in from the machine's own ~/.secrets/cmuxterm-dev.env, whose
+    /// dogfood pair names another person. Auto sign-in now needs an explicit
+    /// profile or credentials file; ambient files and shell exports alone
+    /// sign in nobody.
+    @Test func noProfileAndNoFileSignsInNobody() {
+        let files = ["/h/.secrets/cmuxterm-dev.env": "CMUX_DOGFOOD_STACK_EMAIL=other@x\nCMUX_DOGFOOD_STACK_PASSWORD=p\n"]
+        #expect(DogfoodCredentials.resolve(environment: [:], home: "/h", read: { files[$0] }) == nil)
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DOGFOOD_STACK_EMAIL": "e@x", "CMUX_DOGFOOD_STACK_PASSWORD": "ep"],
+                                           home: "/h", read: { files[$0] }) == nil)
+        #expect(DogfoodCredentials.resolve(environment: ["CMUX_DEV_AUTH_PROFILE": "personal"], home: "/h", read: { files[$0] })
+            == DogfoodCredentials(email: "other@x", password: "p"))
+    }
+
+    /// The launcher names the account it expects (`CMUX_DEV_AUTH_ACCOUNT`):
+    /// a profile or file that resolves to anyone else signs in nobody.
+    @Test func anExpectedAccountRefusesEveryOtherAccount() {
+        let files = ["/h/.secrets/cmuxterm-dev.env": "CMUX_DOGFOOD_STACK_EMAIL=Other@X\nCMUX_DOGFOOD_STACK_PASSWORD=p\n"]
+        let mismatch = ["CMUX_DEV_AUTH_PROFILE": "personal", "CMUX_DEV_AUTH_ACCOUNT": "me@x"]
+        #expect(DogfoodCredentials.resolve(environment: mismatch, home: "/h", read: { files[$0] }) == nil)
+        let match = ["CMUX_DEV_AUTH_PROFILE": "personal", "CMUX_DEV_AUTH_ACCOUNT": "other@x"]
+        #expect(DogfoodCredentials.resolve(environment: match, home: "/h", read: { files[$0] })
+            == DogfoodCredentials(email: "Other@X", password: "p"), "emails compare without case")
     }
 }
