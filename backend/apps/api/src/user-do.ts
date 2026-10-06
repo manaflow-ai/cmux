@@ -453,8 +453,7 @@ export class UserDO extends OwnerDO<UserState> {
     const g = state.grants[grant]
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
     if (agent !== undefined && !chiefActive(state, agent)) return { ok: false }
-    // The email from the user's last Stack session, so other owners can check email-domain rules for installs.
-    // A paired server answers as the chief placed on it with the chief's rights (G8); nothing else widens.
+    // Email from the last Stack session (email-domain rules); a paired server acts as its placed chief with the chief's rights (G8).
     return { ok: true, op_classes: chiefGrantClasses(state, install, agent, g.op_classes), kind: inst.kind, email: state.user?.email ?? null, email_verified: state.user?.email_verified === true, ...(inst.bound_machine ? { bound_machine: inst.bound_machine } : {}) }
   }
 
