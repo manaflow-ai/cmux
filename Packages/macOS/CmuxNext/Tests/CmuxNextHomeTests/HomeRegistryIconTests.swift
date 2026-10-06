@@ -33,6 +33,27 @@ import Testing
         #expect(image.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
     }
 
+    @Test func selectedConversationRowsLeaveBreathingRoomAroundTheSelectionFill() throws {
+        let row = HomeConversationTableRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 40))
+        row.isSelected = true
+        row.isEmphasized = true
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 240, pixelsHigh: 40,
+                                                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bitmapFormat: [], bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: rep))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        row.drawSelection(in: row.bounds)
+        context.flushGraphics()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let alphaAt = { (y: Int) in rep.colorAt(x: rep.pixelsWide / 2, y: y)?.alphaComponent ?? 0 }
+        #expect(alphaAt(2) == 0, "selection fill reaches the top edge: \(alphaAt(2))")
+        #expect(alphaAt(rep.pixelsHigh - 3) == 0, "selection fill reaches the bottom edge: \(alphaAt(rep.pixelsHigh - 3))")
+        #expect(alphaAt(rep.pixelsHigh / 2) > 0, "selection fill did not render")
+    }
+
     @Test func chiefConversationRowsUseTheRegistryMarkAndKeepTheirChromeBreathingRoom() throws {
         let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         list.update(rows: HomeConversationListTests.rows, me: HomeConversationListTests.me)
