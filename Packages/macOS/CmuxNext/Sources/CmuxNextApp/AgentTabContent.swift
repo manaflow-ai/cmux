@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
+import os
 
 /// An agent tab's content in `pane`, with its changed files opening beside
 /// it: in a new tab of this pane (the file preview is a browser page on a
@@ -22,6 +23,9 @@ struct AgentTabContent {
         ) { [weak pane] in
             if let pane, pane.currentTabKey == key { pane.showSelected() }
         }
+        os.Logger(subsystem: "com.cmuxterm.app.next", category: "launch-defer").notice(
+            "agent \(key, privacy: .public) pane=\(pane.paneKey, privacy: .public) focused=\(focused ?? "nil", privacy: .public) ready=\(services.launchReveal.isReady(.pane)) deferred=\(deferred)"
+        )
         if deferred { return nil }
         guard let view = services.agentTabs.view(for: key) else {
             return services.agentTabs.notice(for: key).map(TabContent.notice)
