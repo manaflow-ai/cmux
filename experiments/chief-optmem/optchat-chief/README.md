@@ -85,12 +85,32 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] "task"
 optchat-chief agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+                                                           Claude Code transcripts as messages (host stopped)
 ```
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of
 each turn comes back as one message `[<name>] <report>`, which starts a new
 turn when the Chief is idle.
+
+### Importing Claude Code sessions
+
+`import-claude-code` reads Claude Code transcripts (`--projects`, default
+`$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`) and turns each session
+into a `note` (session id and working directory), then per turn the user's
+message (`user`), one `tool` line with the turn's tool names, counts and the
+files they named, and the final reply (`talk`), each with its transcript
+date (section 10: "the user's messages and the agent's final replies,
+without repeated pastes and tool noise"). Thinking, intermediate replies,
+tool inputs and outputs (which can hold secrets), meta lines, slash
+commands, interruptions and subagent lines are dropped, as are lines a
+resumed session copied (same uuid) and a user message of 500 or more
+characters seen before. `dry-run` prints the counts and the date range and
+writes nothing; `write` appends the items through the chat (`OptChat`'s
+append, the store seam), so it needs the host stopped, and the items get
+their ids from the end of the log. Sessions go in order of their first line,
+so import into an empty memory to keep the history in time order.
 
 ## Environment
 

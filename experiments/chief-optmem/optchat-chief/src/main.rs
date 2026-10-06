@@ -14,6 +14,9 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+                                                           Claude Code transcripts (default ~/.claude/projects) as messages;
+                                                           dry-run prints counts only, write appends them (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -122,6 +125,45 @@ fn main() {
                 }
                 Err(e) => {
                     eprintln!("optchat-chief import: {e}");
+                    1
+                }
+            }
+        }
+        Some("import-claude-code") => {
+            let paths = Paths::new(&home(&flags));
+            let projects = flags.values.get("projects").map(PathBuf::from).unwrap_or_else(|| {
+                let user_home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+                optchat_chief::claude_import::default_projects_dir(
+                    &user_home,
+                    std::env::var("CLAUDE_CONFIG_DIR").ok(),
+                )
+            });
+            let mode = flags.words.get(1).map(String::as_str);
+            let converted = match mode {
+                Some("dry-run" | "write") => {
+                    optchat_chief::claude_import::convert_projects(&projects)
+                        .map_err(|e| format!("{}: {e}", projects.display()))
+                }
+                _ => Err(USAGE.to_owned()),
+            };
+            match converted.and_then(|(items, stats)| {
+                println!("{}: {stats}", projects.display());
+                if mode == Some("write") {
+                    optchat_chief::browse::import(&paths.chat, &items).map(Some)
+                } else {
+                    Ok(None)
+                }
+            }) {
+                Ok(Some(n)) => {
+                    println!("imported {n} messages");
+                    0
+                }
+                Ok(None) => {
+                    println!("dry run: nothing written");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief import-claude-code: {e}");
                     1
                 }
             }

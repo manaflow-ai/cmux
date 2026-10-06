@@ -11,6 +11,7 @@ pub mod acpmux_daemon;
 pub mod agents;
 pub mod brain;
 pub mod browse;
+pub mod claude_import;
 pub mod cli;
 pub mod compactor;
 pub mod daemon;
