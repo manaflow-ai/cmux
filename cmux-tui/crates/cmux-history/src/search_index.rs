@@ -238,7 +238,7 @@ impl SearchIndex {
              FROM docs_text JOIN docs d ON d.id = docs_text.rowid \
              WHERE docs_text MATCH ?{filter} ORDER BY docs_text.rowid DESC LIMIT ?"
         );
-        let mut statement = self.connection.prepare_cached(&sql)?;
+        let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| {
             let marked: String = row.get(6)?;
             hit(row, &marked)
@@ -273,7 +273,7 @@ impl SearchIndex {
         sql.push_str(" ORDER BY d.id DESC LIMIT ?");
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let first = words[0].to_ascii_lowercase();
-        let mut statement = self.connection.prepare_cached(&sql)?;
+        let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| {
             let title: String = row.get(4)?;
             let marked = match title.to_ascii_lowercase().find(&first) {
