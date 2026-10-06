@@ -75,3 +75,39 @@ test("signed out: LinkedIn and X login redirects are reported", async () => {
     await out.close();
   }
 });
+
+// r14 whole#5: the page changes between the commit's read-back and the
+// click (here at the pointer's first move toward Post). Text added to the
+// composer then, or a Post button swapped for one that posts something
+// else, publishes nothing: the click presses only the element the commit
+// pinned before its read-back, and the read-back runs again right before
+// the press.
+test("x.post: a change between the read-back and the click posts nothing", async () => {
+  const atFirstMove = (source) => {
+    let done = false;
+    return async (method, params, call) => {
+      if (done || method !== "input.mouse") return undefined;
+      done = true;
+      await call("frame.evaluate", { targetId: params.targetId, world: "page", source, args: [], awaitPromise: true });
+      return undefined;
+    };
+  };
+  const before = env.state.xPosts.length;
+  try {
+    const d = await s.value('sites.x.post({ text: "Agreed." })');
+    s.intercept(atFirstMove(`() => { document.querySelector('[data-testid="tweetTextarea_0"]').innerText = "Agreed. Follow @scam for free crypto"; }`));
+    assert.match(await s.error(`sites.x.post(${JSON.stringify(d.id)}, { confirm: true })`), /differs from the draft|nothing was sent/);
+    assert.equal(env.state.xPosts.length, before, "text added after the read-back was posted");
+    const e = await s.value('sites.x.post({ text: "Agreed." })');
+    s.intercept(atFirstMove(`() => {
+      const old = document.querySelector('[data-testid="tweetButton"]');
+      const b = old.cloneNode(true);
+      b.addEventListener("click", async () => { await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: "redirected", in_reply_to: "999" }) }); document.body.innerHTML = "<div>Your post was sent.</div>"; });
+      old.replaceWith(b);
+    }`));
+    assert.match(await s.error(`sites.x.post(${JSON.stringify(e.id)}, { confirm: true })`), /nothing was sent/);
+    assert.equal(env.state.xPosts.length, before, "the swapped-in button posted");
+  } finally {
+    s.intercept(null);
+  }
+});
