@@ -79,6 +79,30 @@ import Testing
         #expect(h.tab.commands.last == .focus(true))
     }
 
+    /// Light/dark mid-edit recolors the placeholder without ending the edit,
+    /// also while the field is empty and the placeholder shows. Ending it ran
+    /// the focus coordinator inside AppKit's endEditing, which refocused the
+    /// omnibar and overflowed the stack in the app.
+    @Test func appearanceChangeWhileEditingKeepsTheEdit() async throws {
+        for typed in ["exa", ""] {
+            let h = Harness()
+            h.window.appearance = NSAppearance(named: .aqua)
+            await h.settle()
+            h.bar.debugType("x")
+            let editor = try #require(h.editor as? NSTextView)
+            editor.selectAll(nil)
+            if typed.isEmpty { editor.deleteBackward(nil) } else { editor.insertText(typed, replacementRange: editor.selectedRange()) }
+            await h.settle()
+            #expect(h.editor?.string == typed)
+            h.chrome.onOmnibarEvent = { h.events.append($0) }
+            h.window.appearance = NSAppearance(named: .darkAqua)
+            await h.settle()
+            #expect(h.bar.isEditing)
+            #expect(h.editor?.string == typed)
+            #expect(h.events.isEmpty, "the edit never ended (typed: \(typed))")
+        }
+    }
+
     @Test func snapshots() async throws {
         guard let directory = ProcessInfo.processInfo.environment["OMNIBAR_SNAPSHOT_DIR"] else { return }
         let history = [
