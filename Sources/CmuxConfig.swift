@@ -1749,6 +1749,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
     let settingName: String
     let commandName: String?
     let sourcePath: String?
+    let line: Int?
     let message: String?
 
     init(
@@ -1756,12 +1757,14 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
         settingName: String,
         commandName: String? = nil,
         sourcePath: String? = nil,
+        line: Int? = nil,
         message: String? = nil
     ) {
         self.kind = kind
         self.settingName = settingName
         self.commandName = commandName
         self.sourcePath = sourcePath
+        self.line = line
         self.message = message
     }
 
@@ -1771,6 +1774,7 @@ struct CmuxConfigIssue: Identifiable, Equatable, Sendable {
             settingName,
             commandName ?? "",
             sourcePath ?? "",
+            line.map { String($0) } ?? "",
             message ?? ""
         ].joined(separator: "|")
     }
@@ -1914,6 +1918,7 @@ final class CmuxConfigStore: ObservableObject {
     private var resolvedNewWorkspaceCommandCache: CmuxResolvedCommand?
     private var resolvedNewWorkspaceActionCache: CmuxResolvedConfigAction?
     private var parsedConfigCache: [String: ParsedConfigCacheEntry] = [:]
+    private var lastGoodConfigs: [String: CmuxConfigFile] = [:]
     private var lifetimeCancellables = Set<AnyCancellable>()
     private var trackingCancellables = Set<AnyCancellable>()
     // The local config still uses a bespoke DispatchSource watcher because it
@@ -3451,8 +3456,15 @@ final class CmuxConfigStore: ObservableObject {
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {
             parsedConfigCache.removeValue(forKey: path)
+            lastGoodConfigs.removeValue(forKey: path)
             return ParsedConfigResult(config: nil, issue: nil)
         }
+
+        // Retain a last-good snapshot for the primary global cmux.json. Pack
+        // files are independently replaceable inputs: an invalid pack must be
+        // removed from the resolved action set so a later fixed write can be
+        // observed as a real transition.
+        let retainedConfig = path == globalConfigPath ? lastGoodConfigs[path] : nil
 
         // Key the parse cache on stat(2), which follows symlinks, rather than
         // attributesOfItem(atPath:), which has lstat semantics and does not.
@@ -3479,15 +3491,15 @@ final class CmuxConfigStore: ObservableObject {
 
         guard let data = fileManager.contents(atPath: path),
               !data.isEmpty else {
-            let issue = schemaIssue(path: path, message: "cmux.json is empty")
+            let issue = schemaIssue(path: path, message: "cmux.json is empty", line: 1)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: retainedConfig,
                 issue: issue
             )
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
         let sanitized: Data
         do {
@@ -3498,14 +3510,15 @@ final class CmuxConfigStore: ObservableObject {
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: retainedConfig,
                 issue: issue
             )
             NSLog("[CmuxConfig] JSONC preprocessing error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
 
         do {
+            _ = try JSONSerialization.jsonObject(with: sanitized, options: [])
             let config = try JSONDecoder().decode(CmuxConfigFile.self, from: sanitized)
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
@@ -3514,28 +3527,44 @@ final class CmuxConfigStore: ObservableObject {
                 config: config,
                 issue: nil
             )
+            lastGoodConfigs[path] = config
             return ParsedConfigResult(config: config, issue: nil)
         } catch {
-            let issue = schemaIssue(path: path, message: schemaErrorMessage(error))
+            let issue = schemaIssue(
+                path: path,
+                message: schemaErrorMessage(error),
+                line: Self.configErrorLine(in: sanitized, error: error)
+            )
             parsedConfigCache[path] = ParsedConfigCacheEntry(
                 fileSize: fileSize,
                 modificationDate: modificationDate,
                 workspaceColorPaletteFingerprint: paletteFingerprint,
-                config: nil,
+                config: retainedConfig,
                 issue: issue
             )
             NSLog("[CmuxConfig] parse error at %@: %@", path, String(describing: error))
-            return ParsedConfigResult(config: nil, issue: issue)
+            return ParsedConfigResult(config: retainedConfig, issue: issue)
         }
     }
 
-    private func schemaIssue(path: String, message: String) -> CmuxConfigIssue {
+    private func schemaIssue(path: String, message: String, line: Int? = nil) -> CmuxConfigIssue {
         CmuxConfigIssue(
             kind: .schemaError,
             settingName: (path as NSString).lastPathComponent,
             sourcePath: path,
+            line: line,
             message: message
         )
+    }
+
+    private static func configErrorLine(in data: Data, error: Error) -> Int? {
+        guard let index = (error as NSError).userInfo["NSJSONSerializationErrorIndex"] as? Int else {
+            return nil
+        }
+        let boundedIndex = min(max(index, 0), data.count)
+        return data.prefix(boundedIndex).reduce(into: 1) { line, byte in
+            if byte == 0x0A { line += 1 }
+        }
     }
 
     private func schemaErrorMessage(_ error: Error) -> String {
