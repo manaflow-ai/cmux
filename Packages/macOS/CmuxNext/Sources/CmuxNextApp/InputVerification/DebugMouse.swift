@@ -32,9 +32,7 @@ enum DebugMouse {
             return .object(["error": .string("pass x and y, or a pane shown in the window")])
         }
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
-        let right = params["button"]?.stringValue == "right"
-        let (down, up, dragged): (NSEvent.EventType, NSEvent.EventType, NSEvent.EventType) =
-            right ? (.rightMouseDown, .rightMouseUp, .rightMouseDragged) : (.leftMouseDown, .leftMouseUp, .leftMouseDragged)
+        let (down, up, dragged) = eventTypes(button: params["button"]?.stringValue)
         let action = params["action"]?.stringValue ?? "click"
         var events: [NSEvent?] = []
         switch action {
@@ -114,8 +112,16 @@ enum DebugMouse {
         return NSPoint(x: point.x, y: height - point.y)
     }
 
-    private static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, flags: NSEvent.ModifierFlags,
-                              clicks: Int) -> NSEvent? {
+    /// The press, release and drag event types for `button`.
+    static func eventTypes(button: String?) -> (down: NSEvent.EventType, up: NSEvent.EventType, dragged: NSEvent.EventType) {
+        switch button {
+        case "right": (.rightMouseDown, .rightMouseUp, .rightMouseDragged)
+        default: (.leftMouseDown, .leftMouseUp, .leftMouseDragged)
+        }
+    }
+
+    static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, flags: NSEvent.ModifierFlags,
+                      clicks: Int) -> NSEvent? {
         NSEvent.mouseEvent(with: type, location: baseLocation(point, in: window), modifierFlags: flags,
                            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
                            eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseUp || type == .rightMouseUp ? 0 : 1)
