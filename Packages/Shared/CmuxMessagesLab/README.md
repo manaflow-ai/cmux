@@ -84,8 +84,8 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 2ba9f72
-(2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
+that are wip checkpoints. Current pins (2026-10-06): every file at 0e4eb90
+(0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
 rows add only their difference (`--no-container-motion` for A/B); 995b723's cheaper
 flight recorder (the cmux edits re-applied: policy, optional window, log folder);
 85684b4 builds with Xcode 26.6 and 27 and keeps ScrollPrefetcher on the engine
