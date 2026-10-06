@@ -2,10 +2,9 @@
 // path looks; the host checks every open again (file.open: the pane's roots and a user gesture).
 // A path on the deny list draws as plain text here, and the host refuses it as well.
 
-/// A local path a link points at: absolute (`/Users/…/README.md`) or a `file://` URL. Relative
-/// links stay as they are until the host resolves them against the session's folder.
+/// A local path a link points at: absolute (`/Users/…/README.md`), from home (`~/…`), a `file://`
+/// URL, or relative (`./notes.md`, `docs/a.md`), which the host resolves from the session's folder.
 export function linkPath(href: string): string | undefined {
-  if (href.startsWith("/") && !href.startsWith("//")) return stripLine(safeDecode(href.split(/[?#]/)[0]!));
   if (/^file:\/\//i.test(href)) {
     try {
       const url = new URL(href);
@@ -15,20 +14,44 @@ export function linkPath(href: string): string | undefined {
       return undefined;
     }
   }
-  return undefined;
+  if (href.startsWith("//") || href.startsWith("#") || href.startsWith("?") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(href))
+    return undefined;
+  const path = stripLine(safeDecode(href.split(/[?#]/)[0]!));
+  return path || undefined;
 }
 
-/// An inline code span that is a path: absolute, with a folder in it, and either a file name
-/// with an extension or a trailing slash (`/tmp/app.log`, `/Users/me/repo/src/`), optionally
-/// with a `:line[:col]` suffix. Shell commands, globs and flags stay code.
+/// An inline code span that is a path: absolute or from home, with a folder in it, and either a
+/// file name with an extension or a trailing slash (`/tmp/app.log`, `~/repo/src/`, also with a
+/// space as in `Application Support`), optionally with a `:line[:col]` suffix. Shell commands,
+/// globs and flags stay code.
 export function codePath(text: string): string | undefined {
   const value = text.trim();
-  if (!/^\/[^\s`'"<>|*?$;&(){}[\]]+$/.test(value)) return undefined;
+  if (!/^~?\/[^\t\n`'"<>|*?$;&(){}[\]]+$/.test(value) || / -/.test(value)) return undefined;
   const path = stripLine(value);
-  const parts = path.split("/").filter(Boolean);
+  const parts = path.split("/").filter((part) => part && part !== "~");
   if (parts.length < 2) return undefined;
-  if (!path.endsWith("/") && !/\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!)) return undefined;
+  if (!path.endsWith("/") && !/^[^ ]*\.[A-Za-z0-9]{1,12}$/.test(parts.at(-1)!)) return undefined;
   return path;
+}
+
+/// A path or URL in plain reply text: `kind` and where it is. A path is absolute or from home,
+/// with a folder and a file extension (`/Users/me/repo/demo.ts`, `~/notes/todo.md`); a URL is
+/// http or https with a host. Trailing sentence punctuation stays text.
+export type TextLink = { kind: "path" | "url"; start: number; end: number; value: string };
+
+const TEXT_LINK =
+  /(?<![\w/.:~@-])(?:(~?\/(?:[\w.@+-]+\/)+[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?)(?![\w/])|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*))/g;
+
+export function textLinks(text: string): TextLink[] {
+  if (!text.includes("/")) return [];
+  const out: TextLink[] = [];
+  for (const match of text.matchAll(TEXT_LINK)) {
+    let value = match[0];
+    if (match[2]) value = value.replace(/[.,;:!?*_]+$/, "");
+    if (match[2] && !/^https?:\/\/[^/?#]*[A-Za-z0-9]/.test(value)) continue;
+    out.push({ kind: match[1] ? "path" : "url", start: match.index!, end: match.index! + value.length, value });
+  }
+  return out;
 }
 
 /// The path without a `:12` or `:12:4` line suffix (the open takes the file).

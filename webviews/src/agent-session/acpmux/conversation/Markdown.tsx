@@ -14,7 +14,7 @@ import { ArxivMark, Check, FileDoc, GitHubMark, Globe, ImageIcon } from "./icons
 import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
-import { PathChip, UrlChip } from "../chips/LinkChips";
+import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
 import { codePath, linkPath } from "../chips/paths";
 import { ReplyImage } from "../chips/ReplyImage";
 
@@ -317,7 +317,7 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
   let last = 0;
   let k = 0;
   for (const m of text.matchAll(INLINE_RE)) {
-    if (m.index! > last) out.push(text.slice(last, m.index));
+    if (m.index! > last) out.push(...linkedText(text.slice(last, m.index), `t${k++}`));
     const t = m[0];
     if (m[1]) {
       const path = codePath(t.slice(1, -1));
@@ -381,7 +381,7 @@ export function renderInline(source: string, opts: InlineOptions = {}): ReactNod
     }
     last = m.index! + t.length;
   }
-  if (last < text.length) out.push(text.slice(last));
+  if (last < text.length) out.push(...linkedText(text.slice(last), `t${k++}`));
   return out;
 }
 

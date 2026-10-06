@@ -9,7 +9,7 @@ import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { FileDoc, Folder, Globe, Lock } from "../conversation/icons";
 import { usePathInfo, useSiteInfo } from "./linkStore";
-import { isDeniedPath, pathName } from "./paths";
+import { isDeniedPath, pathName, textLinks } from "./paths";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
 /// text, which a path that gets no chip draws as.
@@ -55,4 +55,27 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
       <span className="cv-chip__label">{children}</span>
     </a>
   );
+}
+
+/// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
+export function linkedText(text: string, key: string): ReactNode[] {
+  const links = textLinks(text);
+  if (!links.length) return [text];
+  const out: ReactNode[] = [];
+  let at = 0;
+  links.forEach((link, index) => {
+    if (link.start > at) out.push(text.slice(at, link.start));
+    out.push(
+      link.kind === "path" ? (
+        <PathChip key={`${key}-${index}`} path={link.value.replace(/:\d+(?::\d+)?$/, "")} written={link.value} />
+      ) : (
+        <UrlChip key={`${key}-${index}`} href={link.value}>
+          {link.value}
+        </UrlChip>
+      ),
+    );
+    at = link.end;
+  });
+  if (at < text.length) out.push(text.slice(at));
+  return out;
 }
