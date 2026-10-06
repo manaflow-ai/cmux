@@ -9,17 +9,26 @@ nonisolated public protocol AppcastFetching: Sendable {
 /// Fetches over an ephemeral `URLSession` with a hard deadline and no cache,
 /// so a probe always sees the live feed and never hangs.
 nonisolated public struct URLSessionAppcastFetcher: AppcastFetching {
-    private let session: URLSession
+    private let deadline: TimeInterval
 
+    /// Makes no session: the first URLSession of the process costs about
+    /// 100 ms, and the updater is built on the main thread at launch.
     public init(deadline: TimeInterval = 15) {
+        self.deadline = deadline
+    }
+
+    public func fetch(_ url: URL) async throws -> Data {
+        try await Self.download(url, deadline: deadline)
+    }
+
+    /// One session per fetch, made off the main actor (update checks are rare).
+    @concurrent private static func download(_ url: URL, deadline: TimeInterval) async throws -> Data {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = deadline
         configuration.timeoutIntervalForResource = deadline
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        session = URLSession(configuration: configuration)
-    }
-
-    public func fetch(_ url: URL) async throws -> Data {
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
         let (data, response) = try await session.data(from: url)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw AppcastParseError(message: "feed returned HTTP \(http.statusCode)")
