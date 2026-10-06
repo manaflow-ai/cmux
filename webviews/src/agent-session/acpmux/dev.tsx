@@ -10,6 +10,7 @@ import "./summary/summary.css";
 import "./header/header.css";
 import "./composerControls.css";
 import "./composerStates.css";
+import "./composerLocation.css";
 import "./searchChats.css";
 import "./markdownField.css";
 import "./modelPicker.css";

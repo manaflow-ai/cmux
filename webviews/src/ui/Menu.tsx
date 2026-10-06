@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { UI_ANCHOR_GAP } from "./anchor";
 
 export interface MenuProps {
   open?: boolean;
@@ -48,7 +49,7 @@ export function MenuPopup({ className, side = "bottom", align = "start", childre
   const container = usePortalContainer();
   return (
     <BaseMenu.Portal container={container}>
-      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={4}>
+      <BaseMenu.Positioner className="ui-positioner" side={side} align={align} sideOffset={UI_ANCHOR_GAP}>
         <BaseMenu.Popup className={cx("ui-popup ui-menu", className)}>{children}</BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>

@@ -124,7 +124,7 @@ final class NewTabSparePool {
 
     private func park(in content: NSView) {
         guard parking.superview !== content else { return }
-        parking.frame = content.bounds
+        parking.frame = NewTabSpareParking.frame(in: content.bounds)
         parking.autoresizingMask = [.width, .height]
         content.addSubview(parking, positioned: .below, relativeTo: nil)
     }
@@ -248,6 +248,13 @@ final class NewTabSparePool {
 /// a window and not hidden), fully transparent, never hit by the mouse, and
 /// out of the accessibility tree. Adopting the spare reparents it into a pane.
 final class NewTabSpareParking: NSView {
+    /// The window content's size, far outside it. A web view's tracking areas
+    /// ignore alpha and hit testing: parked over the content, the spare's
+    /// cards hovered and set the cursor under the tab in front of it.
+    static func frame(in bounds: NSRect) -> NSRect {
+        NSRect(origin: NSPoint(x: bounds.minX - 100_000, y: bounds.minY - 100_000), size: bounds.size)
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         alphaValue = 0

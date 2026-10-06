@@ -36,15 +36,23 @@ LOADER="$(node scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.js
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
 bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
 
+# The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
+# fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
+cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
-grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
+grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # KaTeX's rules and fonts (data URLs: the CSP below allows fonts only from data:) for the
 # transcript's math (conversation/Math.tsx).
 node scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
+<<<<<<< HEAD
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
   "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
+=======
+  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
+>>>>>>> origin/feat-cmux-next
 
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web

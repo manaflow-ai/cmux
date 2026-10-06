@@ -173,6 +173,22 @@ struct AgentTabLifecycleTests {
         #expect(projects == ["/project"])
     }
 
+    /// A new tab page's tab is "New Tab" in the strip until it becomes a chat: the strip
+    /// observes which tabs show the page, under the provisional id and then the store's.
+    @Test func theStripSeesWhichTabsShowTheNewTabPage() async throws {
+        let fixture = try AgentTabFixture()
+        try AgentTabFixture.connect(fixture.daemon)
+        let handler = NewTabPageHandler(open: { _, _ in }, jump: { _, _ in }, editShortcut: { _ in }, setDefaultKind: { _ in },
+                                        listProjects: { _ in [] })
+        let pending = try fixture.tabs.open(in: 3, of: fixture.service, newTab: (AgentPaneNewTab(kind: .agent), handler))
+        #expect(fixture.tabs.pageTabs.ids == [pending.key])
+        let created = try await pending.value()
+        #expect(fixture.tabs.pageTabs.ids == [created.key])
+        let view = try #require(fixture.tabs.view(for: created.key))
+        _ = await view.model.respond(to: .persistSession("s-1"))
+        #expect(fixture.tabs.pageTabs.ids.isEmpty)
+    }
+
     /// A tab closed out of sight (the CLI, another client, its pane closing) lets its page go
     /// once its tree is live without it; a tree from a daemon that is away is not trusted.
     @Test func aTabTheStoreNoLongerListsLetsItsViewGo() async throws {

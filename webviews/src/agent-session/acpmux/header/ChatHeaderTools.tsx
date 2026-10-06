@@ -8,6 +8,7 @@ import { usePopover } from "../summary/usePopover";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useShortcut, withShortcut } from "../shortcuts";
+import { useUiAnchor } from "../../../ui/anchor";
 
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
@@ -117,6 +118,7 @@ function ChatMenu({
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
   const [expanded, setExpanded] = useState<string>();
   const opening = useRef(0);
+  const popoverStyle = useUiAnchor(button, popover, open, { side: "below", align: "end" });
   const show = (row?: string) => {
     if (open && !row) return setOpen(false);
     const generation = ++opening.current;
@@ -166,7 +168,13 @@ function ChatMenu({
         <Icon name="action.more" size={15} />
       </button>
       {open && (
-        <dialog ref={popover} open className="acpmux-chat-menu-popover" aria-label={t("chatMenu.open")}>
+        <dialog
+          ref={popover}
+          open
+          className="acpmux-chat-menu-popover"
+          aria-label={t("chatMenu.open")}
+          style={popoverStyle}
+        >
           <div
             role="menu"
             tabIndex={-1}
