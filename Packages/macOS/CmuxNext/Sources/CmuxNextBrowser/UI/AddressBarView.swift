@@ -40,7 +40,7 @@ public final class AddressBarView: NSView {
     private var fieldToEdge: NSLayoutConstraint!
     private var fieldToBadge: NSLayoutConstraint!
     let panel = OmniboxSuggestionPanel()
-    private let density = DensityBinding()
+    let density = DensityBinding()
 
     private var reportedURL: URL?
     /// The page's URL changed (the host refreshes the bookmark star).

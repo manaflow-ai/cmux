@@ -94,6 +94,8 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// the field editor keeps its text, selection and marked text, the
     /// resting text is written again. Writing the editor's text replaced it,
     /// which dropped an input method's composition and moved the caret.
+    /// While editing this sets the font only: `text` and `style` apply to
+    /// the resting field, so a new text or style goes through `write`.
     func restyle(_ text: String, style: OmnibarPresentation.Style) {
         let font = self.font ?? OmnibarStyle.font
         guard let editor = currentEditor() as? NSTextView else {

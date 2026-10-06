@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextDesign
 import Testing
 @testable import CmuxNextBrowser
 
@@ -104,23 +103,23 @@ import Testing
     /// A density change restyles the field in place. It used to write the
     /// text again, which put the caret at the end of the URL and dropped the
     /// input method's marked text; OmnibarViewTests changes the density while
-    /// the other omnibar suites run (#17601, #17626).
+    /// the other omnibar suites run (#17601, #17626). This runs the bar's
+    /// density appliers directly, so it never changes the app-wide density
+    /// under the suites running beside it.
     @Test func aDensityChangeKeepsTheSelectionAndMarkedText() async throws {
         let h = Harness()
         await h.focus()
         let editor = try #require(h.editor)
-        let before = DesignSettings.shared.density
-        defer { DesignSettings.shared.density = before }
         let selected = editor.selectedRange()
         #expect(selected.length > 0, "focus selects the URL")
 
-        DesignSettings.shared.density = before == .compact ? .comfortable : .compact
+        h.bar.density.reapply()
         await h.settle()
         #expect(editor.selectedRange() == selected)
 
         editor.setMarkedText("gi", selectedRange: range(2, 0), replacementRange: range(NSNotFound, 0))
         await h.settle()
-        DesignSettings.shared.density = before
+        h.bar.density.reapply()
         await h.settle()
         #expect(editor.hasMarkedText())
         #expect(editor.string == "gi")
