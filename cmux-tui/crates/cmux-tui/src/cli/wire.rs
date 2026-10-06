@@ -58,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -420,6 +420,9 @@ fn run_response(
                         localize_operation_error(plan, &mut error);
                     }
                     key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
@@ -504,7 +507,7 @@ fn run_response(
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
@@ -532,6 +535,7 @@ pub(super) fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -956,6 +960,9 @@ pub(super) fn resolve_socket_with_env(
     }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
+
+mod hints;
+pub(super) use hints::connect_failure;
 
 #[cfg(test)]
 mod tests;

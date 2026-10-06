@@ -85,6 +85,8 @@ public final class SidebarView: NSView {
         get { list.inlineRename.onEnded }
         set { list.inlineRename.onEnded = newValue }
     }
+    /// The sidebar's chrome reveal changed (the window's title bar buttons follow).
+    public var onChromeRevealChange: ((Bool) -> Void)?
     /// The update and announcement cards above the spaces dots (R114; the updates lead fills it).
     public var footerCards: NSView?
     /// Builds the same Help destinations as the app's Help menu when the
@@ -97,7 +99,6 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-
     /// A small view in the titlebar row, after the traffic lights (an
     /// incognito window's badge). Nil removes it.
     public var titlebarAccessory: NSView? {
@@ -197,7 +198,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.alphaValue = 1
+        newButton.alphaValue = 0
         addSubview(newButton)
 
         scrollView.drawsBackground = false
@@ -230,19 +231,16 @@ public final class SidebarView: NSView {
     }
 
     @objc private func clipFrameChanged(_ note: Notification) {
-        syncListWidth()
+        syncListSize()
     }
 
     @objc private func scrollerStyleChanged(_ note: Notification) {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
-        syncListWidth()
+        syncListSize()
     }
 
-    /// The list is always exactly as wide as the visible clip.
-    private func syncListWidth() {
-        let width = scrollView.contentView.bounds.width
-        if list.frame.width != width { list.setFrameSize(NSSize(width: width, height: list.frame.height)) }
-    }
+    /// The list follows the visible clip (`SidebarListView.fitToClip`).
+    private func syncListSize() { list.fitToClip() }
 
     override public func layout() {
         super.layout()
@@ -283,7 +281,7 @@ public final class SidebarView: NSView {
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
-        syncListWidth()
+        syncListSize()
     }
 
 

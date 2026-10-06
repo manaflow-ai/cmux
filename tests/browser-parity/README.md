@@ -59,6 +59,24 @@ cmux goldens.
   tagged no-activate app connected to the host as its engine provider. Same
   goldens as `cmux`; `gate.sh --host <engine>` adds them to the gate.
 
+## Intentional cmux-next differences
+
+The host backends follow cmux-next's automation lease
+(plans/cmux-next/automation-lease.md), which classic and `cmux-dev` do not
+have. Where the lease changes a value on purpose, the golden's `lease`
+section overrides it for `host-*` backends (`{"$absent": true}`: the key is
+not emitted) and `lease.reasons` names the rule. These are deliberate
+differences, not regressions:
+
+- 35-pointer-owner `names-holder`: false. Act rule: the holder's input took
+  the tab's lease, so the other session's input is refused at once with
+  `lease_held`, before any pointer wait; the refusal names no mouse holder.
+- 37-session-context `other-session-acts`, `third-session-acts`:
+  `lease-held`. Act rule: the owner session holds the tab's lease until it
+  ends, so other sessions' evaluate and reload are refused.
+  `owner-options-survive-another-session` is not emitted (the third session
+  cannot read the owner's tab).
+
 ## Commands
 
 ```sh

@@ -29,30 +29,44 @@ this order applies (first wins):
 
 1. Your cmux shortcuts: `shortcuts.bindings` in `~/.config/cmux/cmux.json`,
    **Settings > Keyboard Shortcuts**, and keybindings.json.
-2. Your Ghostty keybindings, while a terminal has keyboard focus (not in copy
-   mode). A binding counts as yours when it differs from Ghostty's default.
+2. Your Ghostty keybindings, in every pane and surface. A binding counts as
+   yours when it differs from Ghostty's default.
 3. cmux's default shortcuts.
 4. Ghostty's default keybindings.
 
 So a line such as `keybind = super+d=new_split:down` replaces cmux's Cmd+D
-(Split Right) in a terminal, and Cmd+D still splits right in a browser pane. To
-take a key back from your Ghostty config in terminals too, bind it in cmux.json.
+(Split Right) everywhere: a terminal runs it itself, and in a browser pane, the
+sidebar or terminal copy mode cmux runs the same action (Split Down). To take a
+key back from your Ghostty config, bind it in cmux.json.
+
+A Ghostty keybinding that maps a key to a terminal action (`text:`, `csi:`,
+`esc:` and the like) or `unbind`s it also takes that key from cmux's defaults.
+For example `keybind = ctrl+shift+h=unbind` sends Ctrl+Shift+H to the terminal
+program instead of running Resize Pane Left; the action keeps its other default
+key (Ctrl+Cmd+Left). The Keyboard Shortcuts page lists such a default with the
+source "Ghostty config".
+
+cmux reads your Ghostty config at launch and again whenever it changes, and
+applies it as a live layer. It never copies Ghostty keybindings into cmux.json,
+so an edit of the Ghostty config takes effect without an import step.
 
 A cmux shortcut that applies only in another place (for example a browser-only
 shortcut) does not block the key: the next binding in the order gets it. A cmux
 shortcut that applies here but cannot run now still takes the key from the
-bindings below it, and the key goes to the focused view.
+bindings below it, and the key goes to the focused view. Browser shortcuts in a
+browser pane (Cmd+[ Back, Cmd+Y History) stay the browser's even when your
+Ghostty config binds the same key.
 
-Ghostty keybindings for window, tab and split actions (the tables below) also
-work outside a terminal when no cmux shortcut uses the key. Other Ghostty
-bindings run only while a terminal surface has keyboard focus. The Keyboard
-Shortcuts page lists your Ghostty keybindings (source "Ghostty") and Ghostty's
-defaults (source "Ghostty default"). They are read-only there: edit your Ghostty
-config to change them.
+Ghostty keybindings for window, tab and split actions (the tables below) work
+outside a terminal. Other Ghostty bindings run only while a terminal surface has
+keyboard focus. The Keyboard Shortcuts page lists your Ghostty keybindings
+(source "Ghostty") and Ghostty's defaults (source "Ghostty default"). They are
+read-only there: edit your Ghostty config to change them.
 
-Limit: Ghostty reports one key per action. If you bind one of Ghostty's default
+Limits: Ghostty reports one key per action. If you bind one of Ghostty's default
 keys to a different action, cmux still sees that key as a Ghostty default, so a
-cmux default on that key wins.
+cmux default on that key wins. An `unbind` inside a key sequence (`ctrl+b>x`)
+does not free a cmux default.
 
 cmux suppresses Ghostty's built-in workspace/window shortcuts before loading
 your bindings. The existing cmux-owned split, close, workspace-number, and
