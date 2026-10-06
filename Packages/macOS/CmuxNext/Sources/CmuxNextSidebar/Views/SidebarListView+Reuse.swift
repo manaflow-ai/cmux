@@ -17,11 +17,7 @@ extension SidebarListView {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
             view.onClose = { [weak self] in self?.model.send(.close([id])) }
-            view.onToggleTabs = { [weak self] in
-                guard let self else { return }
-                self.model.toggleWorkspaceTabs(id)
-                self.reload(animated: true)
-            }
+            view.onToggleTabs = { [weak self] in self?.model.toggleWorkspaceTabs(id); self?.reload(animated: true) }
         case (.tab, _):
             break
         case let (.group(id), view as GroupHeaderRowView):

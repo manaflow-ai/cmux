@@ -258,6 +258,16 @@ public final class SidebarModel {
         if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
     }
 
+    /// The list layout's options that come from the model.
+    func listOptions() -> SidebarLayoutOptions {
+        var o = SidebarLayoutOptions()
+        o.filterMatches = filterMatches
+        o.showWorkspaceTabs = showWorkspaceTabs
+        o.collapsedWorkspaces = collapsedWorkspaces
+        o.showCounts = showCounts
+        return o
+    }
+
     // MARK: Presentation
 
     /// Next (+1) or previous (-1) profile, clamped at the ends. Returns
