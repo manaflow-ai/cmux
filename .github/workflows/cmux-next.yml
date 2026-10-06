@@ -343,7 +343,15 @@ jobs:
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}
           JOBS: cmux-scheme-compile release-compile swift-test daemon-test generated-files
-        run: python3 scripts/ci/side_lane_placement.py
+        run: |
+          python3 scripts/ci/side_lane_placement.py
+          # The trusted checkout may still be on a base branch that predates
+          # the route output. Keep the same owned-pool fallback for that
+          # transition and for an API read that fails closed.
+          route="$(awk -F= '$1 == "runner" { value=substr($0, index($0, "=") + 1) } END { print value }' "$GITHUB_OUTPUT")"
+          if [ -z "$route" ] && [[ "$SIDE_LABEL" == glaeda-side-* ]]; then
+            printf 'runner=glaeda-%s\n' "${SIDE_LABEL#glaeda-side-}" >> "$GITHUB_OUTPUT"
+          fi
 
       # Fail-safe: without the marker the run is only not watched. Skipped
       # only when every macOS job took its fallback.

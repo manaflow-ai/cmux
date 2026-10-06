@@ -163,7 +163,7 @@ class CmuxNextWiring(unittest.TestCase):
         jobs = self.workflow()["jobs"]
         placement_job = jobs[self.PLACEMENT]
         place = next(step for step in placement_job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["run"], "python3 scripts/ci/side_lane_placement.py")
+        self.assertIn("python3 scripts/ci/side_lane_placement.py", place["run"])
         placed = tuple(place["env"]["JOBS"].split())
         self.assertEqual(set(placed), set(JOBS))
         for name in placed:
