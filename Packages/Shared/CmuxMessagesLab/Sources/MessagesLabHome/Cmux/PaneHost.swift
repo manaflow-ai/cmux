@@ -189,6 +189,27 @@ final class HostView: NSView {
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
 
+    // Hover (MessagesLab 2a0805d): an attachment in the field shows its remove
+    // button. The tracking area exists only while the field holds attachments,
+    // covers only the field, and only for the key window (no wake-up per mouse move).
+    private var hoverArea: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
+        guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
+        let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)
+        addTrackingArea(t)
+        hoverArea = t
+    }
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        controller?.demo?.compose.hoverAttachments(point(event))
+    }
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        controller?.demo?.compose.hoverAttachments(nil)
+    }
+
     // MARK: Drop
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
@@ -294,6 +315,29 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
+        demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
+        // The scroller (MessagesLab 93cf61f): a knob drag or a track click. Home has no
+        // pager: a drag scrolls the loaded window (older pages load as it nears the top).
+        (host.scrollView.verticalScroller as? SequenceScroller)?.onJump = { [weak self] v in
+            guard let self else { return }
+            let sv = self.host.scrollView, clip = sv.contentView
+            let range = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: (CGFloat(v) * range).rounded())); sv.reflectScrolledClipView(clip)
+        }
+        (host.scrollView.verticalScroller as? SequenceScroller)?.onPage = { [weak self] dir in
+            guard let self else { return }
+            // One page: the visible height less a line, as the Page keys do.
+            let sv = self.host.scrollView, clip = sv.contentView
+            var o = clip.bounds.origin
+            o.y += CGFloat(dir) * max(40, clip.bounds.height - 40)
+            o.y = max(0, min(o.y, (sv.documentView?.frame.height ?? 0) - clip.bounds.height))
+            clip.scroll(to: o); sv.reflectScrolledClipView(clip)
+        }
+        // An attachment grows the field at once (MessagesLab cd2bc08): the glass follows without animating.
+        demo.compose.onFieldJump = { [weak self] in
+            guard let self, let demo = self.demo else { return }
+            self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+        }
         let tv = demo.compose.textView
         tv.view.delegate = self
         tv.onSend = { [weak self] in self?.send() }
@@ -492,7 +536,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
             let local = CGPoint(x: p.x - hit.body.minX - Fixture.bubblePadX, y: p.y - hit.body.minY - Fixture.bubblePadY)
             if let tl = hit.row.text, let url = tl.link(at: local).flatMap(URL.init(string:)) { NSWorkspace.shared.open(url); return }
             switch hit.row.part {
-            case let .link(url, _, _, _, _): if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+            case let .link(url, _, _, _, _):
+                // cmux: the tap is the one time a received card may fetch its preview (HomeLinkPreviews).
+                intents?.linkTapped(hit.row.ref, url: url)
+                if let u = URL(string: url) { NSWorkspace.shared.open(u) }
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.

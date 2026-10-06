@@ -24,6 +24,8 @@ protocol ChatIntents: AnyObject {
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool
     /// The field's text changed (the host clears its notice).
     func draftChanged()
+    /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
+    func linkTapped(_ ref: PartRef, url: String)
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)

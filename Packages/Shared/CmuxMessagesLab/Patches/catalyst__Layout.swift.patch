@@ -12,18 +12,33 @@
          let ts = CTTypesetterCreateWithAttributedString(attr)
          let len = (text as NSString).length
          var lines: [Line] = []
-@@ -55,6 +58,10 @@
-             if r.mention != nil { traits.insert(.traitBold) }
+@@ -56,6 +59,10 @@
              if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
                  a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
-+            }
+             }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            if r.style?.contains("code") == true {
 +                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
-             }
++            }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-@@ -613,7 +620,8 @@
+             }
+@@ -113,7 +120,13 @@
+     /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
+     /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
+     /// the width (0.5707 W), wrapped later than Messages below 600 pt.
+-    var maxTextWidth: CGFloat { ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
++    var maxTextWidth: CGFloat {
++        // cmux: a Home pane can be narrower than Messages' 434 pt window minimum (the
++        // pane layout has no per-content minimum): below 434 pt the column keeps its
++        // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
++        guard width < 434 else { return ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
++        return (((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - 434)) * width / 434) * 10).rounded() / 10
++    }
+     var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
+     var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
+ }
+@@ -652,7 +665,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -33,7 +48,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -670,7 +678,7 @@
+@@ -709,7 +723,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -42,7 +57,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -679,7 +687,7 @@
+@@ -718,7 +732,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -51,7 +66,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -698,56 +706,58 @@
+@@ -737,56 +751,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

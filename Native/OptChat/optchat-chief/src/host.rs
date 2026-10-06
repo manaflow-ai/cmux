@@ -26,8 +26,9 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 5] = [
+const PASSTHROUGH: [&str; 6] = [
     "CMUX_SOCKET_PATH",
+    crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
@@ -114,6 +115,104 @@ pub fn harness_families(
     ))
 }
 
+/// The env every turn session's tools see (and the `chief` launcher bakes
+/// in): this home, the daemon and acpmux sockets, the passed-through keys and
+/// PATH. `inherited` reads the host's own env; `exe` is this executable.
+pub fn session_env(
+    home: &std::path::Path,
+    daemon_socket: &str,
+    acpmux_socket: &std::path::Path,
+    exe: &std::path::Path,
+    inherited: &dyn Fn(&str) -> Option<String>,
+) -> BTreeMap<String, String> {
+    let mut session_env = BTreeMap::new();
+    session_env.insert("MUX_HOME".to_owned(), home.display().to_string());
+    session_env.insert("CMUX_DAEMON_SOCKET".to_owned(), daemon_socket.to_owned());
+    session_env.insert(
+        "ACPMUX_SOCKET".to_owned(),
+        acpmux_socket.display().to_string(),
+    );
+    for key in PASSTHROUGH {
+        if let Some(value) = inherited(key) {
+            session_env.insert(key.to_owned(), value);
+        }
+    }
+    session_env.insert(
+        "PATH".to_owned(),
+        inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
+    );
+    // Every `cmux` call reaches this app's daemon (see cmux_env).
+    let socket = crate::cmux_env::app_daemon_socket(daemon_socket, inherited);
+    let bundled = crate::cmux_env::bundled_bin(exe);
+    crate::cmux_env::pin(&mut session_env, &socket, bundled.as_deref());
+    session_env
+}
+
+/// Where the Chief conversation lives (`--conversation-source`).
+pub enum Source {
+    /// The local owner of the daemon (local-conversations-v1), bound as
+    /// agent_mux with the app's token: the app starts this host.
+    Local { token_file: Option<PathBuf> },
+    /// The chief's cloud main conversation through the daemon's
+    /// cloud-conversations-v1 proxy, as the chief principal (an always-on
+    /// brain host; brains/DESIGN-cmux-lawrence.md).
+    Cloud {
+        install: Box<crate::cloud::auth::InstallFile>,
+    },
+}
+
+/// `--conversation-source local|cloud` (`OPTCHAT_CONVERSATION_SOURCE`,
+/// default local); cloud reads `--cloud-install FILE` (`OPTCHAT_CLOUD_INSTALL`).
+pub fn conversation_source(flags: &Flags) -> Result<Source, String> {
+    let kind = flags
+        .value("conversation-source")
+        .map(str::to_owned)
+        .or_else(|| env("OPTCHAT_CONVERSATION_SOURCE"))
+        .unwrap_or_else(|| "local".into());
+    match kind.as_str() {
+        "local" => {
+            let token_file = env("MUX_AGENT_TOKEN_FILE").map(PathBuf::from);
+            if daemon::read_token(token_file.as_deref()).is_none() {
+                // Without the token the owner stamps the host as the user and refuses
+                // every agent_mux write; the app starts the host with MUX_AGENT_TOKEN_FILE.
+                return Err(
+                    "MUX_AGENT_TOKEN_FILE is missing or empty; start the host from cmux".into(),
+                );
+            }
+            Ok(Source::Local { token_file })
+        }
+        "cloud" => {
+            let path = flags
+                .value("cloud-install")
+                .map(str::to_owned)
+                .or_else(|| env("OPTCHAT_CLOUD_INSTALL"))
+                .ok_or("--conversation-source cloud needs --cloud-install FILE (or OPTCHAT_CLOUD_INSTALL)")?;
+            let install = crate::cloud::auth::InstallFile::load(std::path::Path::new(&path))?;
+            let missing: Vec<&str> = [
+                ("install", install.install.is_none()),
+                ("user", install.user.is_none()),
+                ("chief", install.chief.is_none()),
+                ("conversation", install.conversation.is_none()),
+            ]
+            .into_iter()
+            .filter_map(|(k, m)| m.then_some(k))
+            .collect();
+            if !missing.is_empty() {
+                return Err(format!(
+                    "{path} has no {}: run `optchat-chief cloud pair` (or `cloud register` and `cloud chief`) first",
+                    missing.join(", ")
+                ));
+            }
+            Ok(Source::Cloud {
+                install: Box::new(install),
+            })
+        }
+        other => Err(format!(
+            "unknown --conversation-source {other} (local or cloud)"
+        )),
+    }
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     let Some(daemon_socket) = flags
@@ -128,15 +227,13 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home);
-    let token_file = env("MUX_AGENT_TOKEN_FILE").map(PathBuf::from);
-    if daemon::read_token(token_file.as_deref()).is_none() {
-        // Without the token the owner stamps the host as the user and refuses
-        // every agent_mux write; the app starts the host with MUX_AGENT_TOKEN_FILE.
-        eprintln!(
-            "optchat-chief host: MUX_AGENT_TOKEN_FILE is missing or empty; start the host from cmux"
-        );
-        return 2;
-    }
+    let source = match conversation_source(flags) {
+        Ok(source) => source,
+        Err(why) => {
+            eprintln!("optchat-chief host: {why}");
+            return 2;
+        }
+    };
     let paths = Paths::new(&home);
     if let Err(e) = paths.create() {
         log(format!("creating {}: {e}", paths.root.display()));
@@ -157,7 +254,7 @@ pub fn run(flags: &Flags, started_ms: u64) -> i32 {
             return 1;
         }
     };
-    match start(&paths, &home, &daemon_socket, token_file) {
+    match start(&paths, &home, &daemon_socket, source) {
         Ok(fatal) => {
             log(format!("stopping: {fatal}"));
             1
@@ -173,28 +270,16 @@ fn start(
     paths: &Paths,
     home: &std::path::Path,
     daemon_socket: &str,
-    token_file: Option<PathBuf>,
+    source: Source,
 ) -> Result<String, String> {
     let exe = std::env::current_exe()
         .and_then(|p| p.canonicalize())
         .map_err(|e| format!("finding this executable: {e}"))?;
     let acpmux_socket = crate::acpmux_daemon::socket_path();
-    let mut session_env = BTreeMap::new();
-    session_env.insert("MUX_HOME".to_owned(), home.display().to_string());
-    session_env.insert("CMUX_DAEMON_SOCKET".to_owned(), daemon_socket.to_owned());
-    session_env.insert(
-        "ACPMUX_SOCKET".to_owned(),
-        acpmux_socket.display().to_string(),
-    );
-    for key in PASSTHROUGH {
-        if let Some(value) = env(key) {
-            session_env.insert(key.to_owned(), value);
-        }
-    }
-    session_env.insert(
-        "PATH".to_owned(),
-        env("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
-    );
+    let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
+    let pinned = crate::cmux_env::pinned_subset(&session_env);
+    // The acpmux daemon this host starts runs the children: pinned too.
+    crate::acpmux_daemon::set_child_env(pinned.clone());
     let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
     let (harness, compactor_harness) = harness_choice(
@@ -316,7 +401,12 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let preset = turn_preset(paths, home, &turn_profile, family, isolate, &system_text);
+    let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &system_text);
+    // A harness without the project settings' env (codex) reads its tools'
+    // env from the acpmux daemon and the preset: the preset pins cmux.
+    if let Some(preset) = preset.as_mut() {
+        preset.env.extend(pinned);
+    }
     let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
@@ -637,19 +727,47 @@ fn start(
         brain.set_describer(describer);
     }
     spawn_probe(model, fallback, system, route, tx.clone());
-    let (display_name, title) = LinkConfig::names_from_env();
-    daemon::spawn_link(
-        LinkConfig {
-            socket: daemon_socket.into(),
-            token_file,
-            display_name,
-            title,
-        },
-        Arc::new(move |event| {
-            let _ = tx.send(Input::from(event));
-        }),
-        brain_log,
-    );
+    let sink: Arc<dyn Fn(daemon::DaemonEvent) + Send + Sync> = Arc::new(move |event| {
+        let _ = tx.send(Input::from(event));
+    });
+    match source {
+        Source::Local { token_file } => {
+            let (display_name, title) = LinkConfig::names_from_env();
+            daemon::spawn_link(
+                LinkConfig {
+                    socket: daemon_socket.into(),
+                    token_file,
+                    display_name,
+                    title,
+                },
+                sink,
+                brain_log,
+            );
+        }
+        Source::Cloud { install } => {
+            let (chief, conversation) = (
+                install.chief.clone().unwrap_or_default(),
+                install.conversation.clone().unwrap_or_default(),
+            );
+            log(format!(
+                "conversation source: cloud ({} as {chief}, conversation {conversation}, api {})",
+                daemon_socket, install.api_base_url
+            ));
+            crate::cloud::link::spawn_cloud_link(
+                crate::cloud::link::CloudLinkConfig {
+                    socket: daemon_socket.into(),
+                    chief,
+                    conversation,
+                },
+                Arc::new(crate::cloud::auth::InstallTokens::new(
+                    *install,
+                    Arc::new(crate::cloud::auth::UreqHttp),
+                )),
+                sink,
+                brain_log,
+            );
+        }
+    }
     let fatal = brain.run(rx);
     chat.shutdown();
     Ok(fatal)
