@@ -63,6 +63,8 @@ pub struct TabState {
     pub frame_sessions: HashMap<String, String>,
     /// Closed shadow roots per CDP session (`closed_roots`).
     pub closed_roots: HashMap<String, super::closed_roots::SessionRoots>,
+    /// Closed-root walks and DOM events of this tab (`tab.info closedRoots`).
+    pub closed_root_stats: super::closed_roots::WalkStats,
     /// Loader of the main frame's current document.
     pub loader: Option<String>,
     /// Lifecycle events (`DOMContentLoaded`, `load`, `networkIdle`) seen for `loader`.
@@ -103,6 +105,7 @@ impl TabState {
             responses: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             closed_roots: HashMap::new(),
+            closed_root_stats: Default::default(),
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
@@ -363,10 +366,11 @@ impl State {
         applied: &mut Applied,
     ) {
         if method.starts_with("DOM.") {
-            if let Some(roots) =
-                self.tabs.get_mut(target_id).and_then(|tab| tab.closed_roots.get_mut(session_id))
-            {
-                roots.dom_changed();
+            if let Some(tab) = self.tabs.get_mut(target_id) {
+                tab.closed_root_stats.dom_events += 1;
+                if let Some(roots) = tab.closed_roots.get_mut(session_id) {
+                    roots.dom_changed();
+                }
             }
             return;
         }
