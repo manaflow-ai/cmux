@@ -111,12 +111,25 @@ public final class HomeStore {
     public static let tailSize = 60
     public static let pageSize = 80
 
+    /// The client's durable copy (`HomeCache`), nil for none.
+    @ObservationIgnored public let cache: HomeCache?
+    /// How long cache writes are coalesced (zero writes at once: tests).
+    @ObservationIgnored let cacheWriteDelay: Duration
+
     public init(source: any HomeSource, blobCacheDirectory: URL = HomeStore.defaultBlobCacheDirectory,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(), cache: HomeCache? = nil,
+                cacheWriteDelay: Duration = .milliseconds(250)) {
         self.source = source
         self.blobCacheDirectory = blobCacheDirectory
         self.clock = clock
+        self.cache = cache
+        self.cacheWriteDelay = cacheWriteDelay
     }
+
+    public func draft(for id: ConversationID) -> String? { nil }
+    public func setDraft(_ text: String, for id: ConversationID) {}
+    public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { nil }
+    public func setScrollAnchor(_ anchor: HomeScrollAnchor?, for id: ConversationID) {}
 
     /// `Caches/cmux-home-blobs`.
     public nonisolated static var defaultBlobCacheDirectory: URL {
