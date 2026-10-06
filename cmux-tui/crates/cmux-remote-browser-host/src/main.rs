@@ -4,7 +4,7 @@
 //! (remote-tab-r2.md section 5) land.
 
 #[cfg(target_os = "macos")]
-fn main() {
+fn main() -> std::process::ExitCode {
     use std::ffi::{CString, c_char, c_int};
 
     use cmux_remote_browser_host::ffi::{RbCallbacks, rb_shim_run};
@@ -37,11 +37,11 @@ fn main() {
             &callbacks,
         )
     };
-    std::process::exit(code);
+    std::process::ExitCode::from(u8::try_from(code).unwrap_or(1))
 }
 
 #[cfg(not(target_os = "macos"))]
-fn main() {
+fn main() -> std::process::ExitCode {
     eprintln!("cmux-remote-browser-host: the macOS host is the only host in r2 (Linux follows)");
-    std::process::exit(2);
+    std::process::ExitCode::from(2)
 }
