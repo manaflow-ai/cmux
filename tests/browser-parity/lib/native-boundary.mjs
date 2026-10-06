@@ -358,7 +358,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       if (!policy.allowed) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([${s.domains.map((d) => JSON.stringify(!d.scheme && !loadsOnlySecurely(d) ? "https://" + d.raw : d.raw)).join(", ")}]) first`);
       if (!keeps(policy.allowed, s.domains)) {
         const outside = policy.allowed.filter((a) => !s.domains.some((d) => covers(d, a))).map((a) => a.raw).join(", ");
-        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}) over https; the policy also allows ${outside} (a domain without a scheme also allows http; name it with https://, such as https://example.com)`);
+        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}); the policy also allows ${outside} (a domain without a scheme also allows http; name it with https://, such as https://example.com)`);
       }
       if (!typedSecretDomains.includes(s.domains)) typedSecretDomains.push(s.domains);
       p.text = s.totp ? T.totp(s.value, now()) : s.value;

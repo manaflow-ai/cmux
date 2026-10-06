@@ -282,7 +282,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 let outside = allowed.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
                 return BrowserReplDriverError(
                     code: "invalid",
-                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)) over https; the policy also allows \(outside)\(Self.httpsHint)"
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)\(Self.httpsHint)"
                 )
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
@@ -313,7 +313,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 } ?? ""
                 return .failure(BrowserReplDriverError(
                     code: "invalid",
-                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw) over https\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) (or narrower) first"
+                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) (or narrower) first"
                 ))
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
