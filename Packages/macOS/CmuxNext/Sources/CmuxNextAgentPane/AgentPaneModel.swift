@@ -12,6 +12,10 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page drew its first frame after the handshake (`pane.painted`), the
+    /// first that shows what it is. Until then its pane keeps what it showed.
+    public internal(set) var hasPainted = false
+    @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -176,7 +180,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -239,6 +243,9 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
+        case .painted:
+            markPainted()
+            return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
@@ -249,8 +256,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
-        case .shellRun, .shellRead, .shellStop:
-            return await respondToShell(request)
+        case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)

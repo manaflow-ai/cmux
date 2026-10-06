@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 import CmuxNextPages
 
 extension InternalPageID {
@@ -21,6 +22,7 @@ final class CodeRouterPageTab: InternalPageProvider {
     var page: InternalPageID { .coderouter }
     var title: String { CodeRouterPageStrings.title }
     var symbol: String { "arrow.triangle.branch" }
+    var icon: IconName? { .accountRouted }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services, let view = PageFactory(services: services).coderouterWebPage() else { return NSView() }

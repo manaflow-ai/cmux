@@ -1,7 +1,7 @@
 public import CmuxNextDesign
 
-/// Why a drop target cannot take the dragged tabs. The App shows the
-/// localized reason on the preview and again when the user drops there.
+/// Why a drop target cannot take the dragged tabs. The zone does not
+/// highlight and the drop springs back (`TabDropPreview.highlights`).
 public nonisolated enum TabDropRefusal: Hashable, Sendable {
     /// A split of the source pane with every tab it holds, on an owner that
     /// cannot spawn a replacement tab: nothing would be left to split.
@@ -24,8 +24,8 @@ public nonisolated enum TabDropVerdict: Hashable, Sendable {
     /// The proposal is the tabs' own place: the preview shows it, and the
     /// drop changes nothing.
     case stay
-    /// The proposal cannot run: the preview shows the reason, and so does
-    /// the drop.
+    /// The proposal cannot run: nothing highlights, and the drop springs
+    /// back.
     case refuse(TabDropRefusal)
 }
 

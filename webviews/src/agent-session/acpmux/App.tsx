@@ -876,6 +876,8 @@ function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
   const [newSession, setNewSession] = useState(false);
+  // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
+  const [handshaken, setHandshaken] = useState(false);
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
@@ -910,6 +912,15 @@ function AcpmuxPane() {
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
+  // The pane keeps what it showed until this document first draws what it is: the frames before
+  // the handshake (no hero yet, "Connecting") stay hidden. The second animation frame after the
+  // handshake's render runs once that frame was drawn. The host shows the page anyway after a limit.
+  const paintReported = useRef(false);
+  useEffect(() => {
+    if (!handshaken || paintReported.current) return;
+    paintReported.current = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)));
+  }, [handshaken]);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
   }, [checkpoints.supported, snapshot.sessionId]);
@@ -1433,6 +1444,7 @@ function AcpmuxPane() {
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
+        setHandshaken(true);
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)

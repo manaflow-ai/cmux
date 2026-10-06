@@ -70,7 +70,9 @@ public final class HomeConversationListView: NSView {
         scroll.documentView = table
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
+        // A legacy scroller ("Always") narrows the clip: the column follows on the next layout.
+        SystemScrollers.follow(scroll)
+        SystemScrollers.observe(self) { [weak self] _ in self?.needsLayout = true }
         addSubview(scroll)
     }
 

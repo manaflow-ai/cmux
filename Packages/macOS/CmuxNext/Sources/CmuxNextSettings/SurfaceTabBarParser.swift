@@ -17,6 +17,11 @@ public struct SurfaceTabBarParser {
         public var diagnostics: [SettingsDiagnostic]
     }
 
+    /// The diagnostic for a set `ui.surfaceTabBar.buttons` (or legacy
+    /// `surfaceTabBarButtons`): the trailing buttons were removed, so the
+    /// list draws nothing. Its inline command entries stay palette actions.
+    public nonisolated static let removedMessage = "ignored: the tab bar buttons were removed"
+
     public nonisolated static func parse(_ root: JSONValue, configDirectory: URL) -> Result {
         var diagnostics: [SettingsDiagnostic] = []
         var actions = ConfigActionParser.parseActions(root, configDirectory: configDirectory, diagnostics: &diagnostics)
@@ -30,6 +35,8 @@ public struct SurfaceTabBarParser {
         }
         var tabBar = SurfaceTabBarConfig.defaults
         if let (value, path) = located {
+            // TAB-STRIP-TRAILING-BUTTONS-REMOVED: the strip draws no buttons.
+            diagnostics.append(SettingsDiagnostic(kind: .removedSetting, path: path, message: removedMessage))
             if case .array(let entries) = value {
                 var buttons: [TabBarButtonSpec] = []
                 var seen = Set<String>()
@@ -44,8 +51,6 @@ public struct SurfaceTabBarParser {
                     buttons.append(button)
                 }
                 tabBar = SurfaceTabBarConfig(buttons: buttons, usesDefaults: false)
-            } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an array; using the default buttons"))
             }
         }
         let sortedActions = actions.values.sorted { $0.name < $1.name }

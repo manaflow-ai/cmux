@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// What an agent chat tab shows on a Mac that does not run its session: the session lives in
 /// another Mac's acpmux, and only that Mac attaches to it ("This chat runs on <machine>").
@@ -7,10 +8,13 @@ final class AgentTabElsewhereView: NSView {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: "")
 
+    /// The glyph drawn (tests).
+    var glyph: NSImage? { icon.image }
+
     init(machine: String?) {
         super.init(frame: .zero)
         wantsLayer = true
-        icon.image = NSImage(systemSymbolName: "desktopcomputer", accessibilityDescription: nil)
+        icon.image = NSImage.icon(.machineMac, size: .iconRowSize(forLabelPointSize: NSFont.systemFontSize))
         label.stringValue = machine.map(RemoteStrings.agentTabElsewhere) ?? RemoteStrings.agentTabElsewhereUnknown
         label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         label.lineBreakMode = .byTruncatingMiddle
