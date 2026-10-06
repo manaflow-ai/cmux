@@ -116,6 +116,7 @@ mod browser_host_command;
 mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
+mod cloud_conversations;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -162,8 +163,19 @@ mod terminal_resources;
 mod terminal_snapshot;
 use terminal_snapshot::{attach_overflow_json, handle_attach_send_error, report_attach_overflow};
 mod capabilities;
+mod socket_path;
+#[cfg(test)]
+use socket_path::default_socket_path_in_runtime_dir;
+#[cfg(unix)]
+pub(crate) use socket_path::unix_socket_path_fits;
+pub use socket_path::{
+    default_socket_path, try_default_socket_path, try_default_socket_path_in_base,
+    validate_session_name,
+};
 mod url_open;
+#[cfg(test)]
 use capabilities::advertised_capabilities;
+use capabilities::identify_capabilities;
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
 const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
@@ -770,80 +782,6 @@ pub(crate) fn decode_terminal_host_clear_history(
 ) -> anyhow::Result<Option<KeyInput>> {
     let fallback_key: Option<ProtocolKeyInput> = serde_json::from_slice(payload)?;
     fallback_key.map(KeyInput::try_from).transpose()
-}
-
-/// Validate the component used to identify a local session.
-///
-/// Session names become socket file names. Keep legacy names that are still a
-/// single path component, but reject values that can escape the socket root or
-/// carry control and line-separator characters.
-pub fn validate_session_name(session: &str) -> anyhow::Result<()> {
-    let invalid = session.is_empty()
-        || matches!(session, "." | "..")
-        || session.chars().any(|character| {
-            character == '/'
-                || character == '\\'
-                || character == '\0'
-                || character.is_control()
-                || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
-        });
-    anyhow::ensure!(
-        !invalid,
-        "session name must be a non-empty path component without separators or control characters"
-    );
-    Ok(())
-}
-
-/// Default socket path for a session.
-pub fn default_socket_path(session: &str) -> PathBuf {
-    match try_default_socket_path(session) {
-        Ok(path) => path,
-        Err(_) => invalid_session_socket_path(session),
-    }
-}
-
-/// Resolve a session socket path and report invalid input before any path use.
-pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
-    validate_session_name(session)?;
-    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
-}
-
-/// The socket `session` listens on when its owner runs with `TMPDIR=base`
-/// and no `XDG_RUNTIME_DIR` (how the cmux app starts its session).
-pub fn try_default_socket_path_in_base(session: &str, base: &Path) -> anyhow::Result<PathBuf> {
-    validate_session_name(session)?;
-    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir_for_base(base)))
-}
-
-fn invalid_session_socket_path(session: &str) -> PathBuf {
-    let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
-    platform::invalid_runtime_dir().join(format!("{digest}.sock"))
-}
-
-fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> PathBuf {
-    let file_name = format!("{session}.sock");
-    let preferred = runtime_dir.join(&file_name);
-    #[cfg(unix)]
-    if !unix_socket_path_fits(&preferred) {
-        let fallback = platform::fallback_runtime_dir().join(&file_name);
-        if unix_socket_path_fits(&fallback) {
-            return fallback;
-        }
-        let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
-        let preferred_base = runtime_dir.parent().unwrap_or_else(|| Path::new("/tmp"));
-        let hashed =
-            platform::hashed_runtime_dir_for_base(preferred_base).join(format!("{digest}.sock"));
-        if unix_socket_path_fits(&hashed) {
-            return hashed;
-        }
-        return platform::fallback_hashed_runtime_dir().join(format!("{digest}.sock"));
-    }
-    preferred
-}
-
-#[cfg(unix)]
-pub(crate) fn unix_socket_path_fits(path: &Path) -> bool {
-    cmux_unix_socket::fits(path)
 }
 
 #[derive(Deserialize)]
@@ -1979,6 +1917,19 @@ enum Command {
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
+    /// Cloud conversations proxy (`cloud-conversations-v1`,
+    /// server/cloud_conversations.rs).
+    CloudSessionSet(cloud_conversations::SessionSetParams),
+    CloudSessionClear,
+    CloudSessionStatus,
+    CloudInboxList(cloud_conversations::InboxListParams),
+    CloudConversationSnapshot(cloud_conversations::SnapshotParams),
+    CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationOp(cloud_conversations::OpParams),
+    CloudInboxSubscribe,
+    CloudInboxUnsubscribe,
+    CloudConversationSubscribe(cloud_conversations::TargetParams),
+    CloudConversationUnsubscribe(cloud_conversations::TargetParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -6767,6 +6718,7 @@ fn disconnect_client_with_notice(
         record
     };
     mux.unbind_conversation_principal(client);
+    mux.release_cloud_conversation_client(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.
@@ -10492,6 +10444,12 @@ fn handle_request_with_cancellation(
     if let Command::UrlOpen { terminal_id, url } = cmd {
         return url_open::start(mux, client, id, terminal_id, url, writer);
     }
+    if cloud_conversations::is_network(&cmd) {
+        return cloud_conversations::start(mux, client, id, cmd, writer);
+    }
+    if let Some(target) = cloud_conversations::subscribe_target(&cmd) {
+        return cloud_conversations::subscribe_then_announce(mux, client, id, cmd, target, writer);
+    }
     if matches!(&cmd, Command::ShutdownDaemon { .. } | Command::ReloadConfig)
         && !mux.server_lifecycle_ready()
     {
@@ -10514,7 +10472,7 @@ fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
-    let (mut reason, mut details) = (None, None);
+    let (mut reason, mut retryable, mut details) = (None, None, None);
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -10525,7 +10483,9 @@ fn handle_request_with_cancellation(
             error_delivery: None,
         },
         Err(error) => {
-            reason = conversations::error_reason(&error);
+            reason = conversations::error_reason(&error)
+                .or_else(|| cloud_conversations::error_reason(&error));
+            retryable = cloud_conversations::error_retryable(&error);
             details = renderer_grant::error_details(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
@@ -10543,7 +10503,7 @@ fn handle_request_with_cancellation(
     let (response, reason) = remote_relay::redact_response(mux, client, response, reason);
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
-    let sent = responses::send_response_with_reason(writer, response, reason, details);
+    let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {
@@ -12735,7 +12695,7 @@ fn handle_command_with_cancellation(
                 "build_commit": stamped_build_commit(),
                 "ghostty_commit": stamped_ghostty_commit(),
                 "protocol": PROTOCOL_VERSION,
-                "capabilities": advertised_capabilities(cfg!(unix)),
+                "capabilities": identify_capabilities(mux),
                 "session": mux.session,
                 "pid": std::process::id(),
                 "session_id": registry_id,
@@ -14411,6 +14371,25 @@ fn handle_command_with_cancellation(
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
+        Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
+        Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
+        Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
+        Command::CloudConversationSnapshot(params) => {
+            cloud_conversations::snapshot(mux, client, params)
+        }
+        Command::CloudConversationHistory(params) => {
+            cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
+        Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
+        Command::CloudInboxUnsubscribe => cloud_conversations::unsubscribe(mux, client, None),
+        Command::CloudConversationSubscribe(params) => {
+            cloud_conversations::subscribe(mux, client, Some(params))
+        }
+        Command::CloudConversationUnsubscribe(params) => {
+            cloud_conversations::unsubscribe(mux, client, Some(params))
+        }
         Command::CreateProfile {
             name,
             profile,
@@ -15100,7 +15079,11 @@ fn handle_command_with_cancellation(
                         {
                             continue;
                         }
-                        MuxEvent::Conversation(_) if !trusted_pairing_client => continue,
+                        MuxEvent::Conversation(_) | MuxEvent::CloudConversation(_)
+                            if !trusted_pairing_client =>
+                        {
+                            continue;
+                        }
                         MuxEvent::PairingRequested(challenge) => json!({
                             "event": "pairing-requested",
                             "request": challenge.id,
@@ -15814,6 +15797,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "personal_revision": personal_revision,
         }),
         MuxEvent::Conversation(event) => event.wire_json(),
+        MuxEvent::CloudConversation(event) => event.wire_json(),
         MuxEvent::BookmarksChanged(change) => json!({
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,

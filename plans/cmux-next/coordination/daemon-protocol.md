@@ -1,6 +1,7 @@
 # Lane: daemon-protocol
 
 ## Active streams
+- Cloud conversations proxy (`cloud-conversations-v1`, plans/cmux-next/home-cloud-proxy.md): branch feat-cmux-next-home-cloud-proxy. Trusted local clients lease the app's Stack token to the daemon (memory only) and list the cloud inbox, read snapshots and history, subscribe and submit cloud ops through the daemon; new `cloud-*` commands and events, local-conversations-v1 unchanged.
 - Typed LayoutOp, daemon tab-conservation validation, proptest, TLA+ model (plans/cmux-next/formal/): tab-loss agent.
 - Federation daemon (remote-terminal tabs, detached create, terminal.project delta): branch feat-cmux-next-federation-tui-r8.
 

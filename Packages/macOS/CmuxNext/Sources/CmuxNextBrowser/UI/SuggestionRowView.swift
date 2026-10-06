@@ -34,6 +34,7 @@ final class SuggestionRowView: NSView {
         case .bookmark: "star"
         case .keyword: "puzzlepiece.extension"
         case .switchToTab: "rectangle.on.rectangle"
+        case .answer: "equal.circle"
         }
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))

@@ -36,6 +36,8 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
+      - Resources/ghostty/**
+      - Resources/terminfo-overlay/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -45,6 +47,10 @@ on:
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -79,6 +85,8 @@ on:
       - scripts/cmux-next/pin-cmux-tui.sh
       - scripts/cmux-next/tests/**
       - scripts/cmux-next/bundle-ghostty-resources.sh
+      - Resources/ghostty/**
+      - Resources/terminfo-overlay/**
       - ghostty-next
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
@@ -88,6 +96,10 @@ on:
       - tests/test_cmux_next_checks_workflow.py
       - tests/test_cmux_next_stale_pcm_cleanup.sh
       - tests/test_check_app_personalities.sh
+      - scripts/lint-ios-package-conventions*
+      - scripts/lint_swift_namespaces.py
+      - scripts/lint-namespace-types-*.txt
+      - scripts/swift_source_mask.py
   workflow_dispatch:
 
 permissions:
@@ -393,6 +405,22 @@ jobs:
           git submodule update --init --depth 1 --filter=blob:none ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
 
+      # The bundled terminfo (Ghostty's entries with cmux's overlay on top)
+      # carries ghostty-next's capabilities and cmux's 256-color 8-15 patch.
+      # Its own step, so the summary names it when it is red.
+      - name: Bundled terminfo
+        id: bundled-terminfo
+        continue-on-error: true
+        run: bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+
+      # The repo-wide package conventions (namespace types, free functions,
+      # singletons, ...). test-ios.yml runs it only for pull requests, merge
+      # groups and dispatches; this step covers direct feat-cmux-next pushes.
+      - name: Package conventions lint
+        id: package-conventions
+        continue-on-error: true
+        run: ./scripts/lint-ios-package-conventions.sh
+
       - name: Checks job structure
         id: checks-structure
         continue-on-error: true
@@ -413,6 +441,8 @@ jobs:
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
+            ${{ steps.bundled-terminfo.outcome }}|Bundled terminfo
+            ${{ steps.package-conventions.outcome }}|Package conventions lint
             ${{ steps.checks-structure.outcome }}|Checks job structure
         run: |
           failed=()
@@ -472,6 +502,19 @@ jobs:
       # job left (scripts/ci/reset-stale-submodules.sh), as on a fresh checkout.
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
+
+      # The GUI-tagged suites (.requiresGUISession, .requiresPasteboard; for
+      # example SidebarLiveReorderTests) skip when the host has no display or
+      # pasteboard. Every glaeda mini has both: in 153 swift-test jobs
+      # (2026-10-04/05) all 11 minis behind the side label ran
+      # SidebarLiveReorderTests and no GUI or pasteboard test skipped. On a
+      # mini, CMUX_TEST_REQUIRE_GUI=1 turns a lost display into a failure
+      # instead of a silent skip. Blacksmith and hosted labels
+      # keep the skip: nothing has shown that they have a display session.
+      - name: Require the GUI session on a mini
+        if: ${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}
+        shell: bash
+        run: echo "CMUX_TEST_REQUIRE_GUI=1" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh

@@ -101,6 +101,12 @@ class RepositoryTests(unittest.TestCase):
         hand = ios.HAND_WRITTEN.read_text().replace("Rich Felker", "R. Felker", 1)
         self.assertTrue(any("musl" in error for error in ios.mac_notice_errors(hand)))
 
+    def test_the_committed_z2d_offer_names_the_ios_release_archive(self) -> None:
+        pane = plistlib.loads(ios.PANE.read_bytes())["PreferenceSpecifiers"]
+        z2d = next(group for group in pane if group["Title"] == "z2d (in Ghostty)")
+        self.assertIn("cmux-ios-source-<build>.tar.gz", z2d["FooterText"])
+        self.assertIn("releases/download/ios-source/", z2d["FooterText"])
+
     def test_settings_bundle_root_links_the_pane(self) -> None:
         root = plistlib.loads((ios.SETTINGS / "Root.plist").read_bytes())
         panes = [item for item in root["PreferenceSpecifiers"] if item.get("Type") == "PSChildPaneSpecifier"]
@@ -295,8 +301,9 @@ class PaneTests(unittest.TestCase):
         self.assertIn("Ghostty (license, embedded fonts)", titles)
         z2d = next(group for group in pane["PreferenceSpecifiers"] if group["Title"] == "z2d (in Ghostty)")
         self.assertIn("z2d MPL text", z2d["FooterText"])
-        self.assertIn("https://example.test/z2d.tar.gz", z2d["FooterText"])
         self.assertIn("Source Code Form", z2d["FooterText"])
+        # IOS-SOURCE-ARCHIVE-PER-RELEASE: the offer names this release's own archive.
+        self.assertIn("cmux-ios-source-<build>.tar.gz", z2d["FooterText"])
 
     def test_pane_omits_owners_and_zig_packages_proven_absent(self) -> None:
         pin = {"url": "u", "sha256": PIN, "ghostty_revision": "a" * 40}

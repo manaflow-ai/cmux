@@ -164,6 +164,11 @@ mode_from_args() {
 
 tree_dir() { echo "$repo_root/cmux-tui/target/hosted/tree/$1"; }
 
+# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
+# for the publication actually read. <key> is published_key, <v2 key> the
+# checkout's key.
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v1 fallback)"; }
+
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
 refuse_dirty_source() {
@@ -423,8 +428,13 @@ fetch_tree() {
   refuse_dirty_source
   dir="$(tree_dir "$key")"
   binary="$dir/cmux-tui"
-  if [[ -f "$binary" && -f "$dir/cmux-tui.sha256" && "$(sha256_of "$binary")" == "$(cat "$dir/cmux-tui.sha256")" ]]; then
+  # The cache dir carries the v2 key's name even when the binary came from the
+  # v1 publication, so fetched-key records the source; a cache without that
+  # record is fetched again rather than reported as an unknown source.
+  if [[ -f "$binary" && -f "$dir/cmux-tui.sha256" && -s "$dir/fetched-key" &&
+        "$(sha256_of "$binary")" == "$(cat "$dir/cmux-tui.sha256")" ]]; then
     echo "same-tree cmux-tui $key already present: $binary"
+    echo "cmux-tui tree $key already present, fetched from $(tree_source_label "$(awk '{print $1}' "$dir/fetched-key")" "$key")"
     fetch_tree_companions "$key" "$dir"
     return 0
   fi
@@ -456,7 +466,9 @@ fetch_tree() {
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/cmux-tui" "$binary"
   printf '%s\n' "$published" > "$dir/cmux-tui.sha256"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v1"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
+  echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
 }
 
@@ -478,6 +490,7 @@ resolve_tree_commit() {
   manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET")"
   [[ "$manifest_sha" == "$published" ]] || {
     echo "error: commit $commit published cmux-tui-$TARGET $manifest_sha, not tree $key's $published" >&2; exit 1; }
+  echo "resolved cmux-tui tree $(tree_source_label "$published_key" "$key")" >&2
   echo "$commit"
 }
 

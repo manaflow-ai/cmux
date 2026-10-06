@@ -223,6 +223,458 @@ builds) is in the public domain.
 
 --- end of LICENSE.TXT ---
 
+docs/FTL.TXT:
+
+The FreeType Project LICENSE
+                    ----------------------------
+
+                            2006-Jan-27
+
+                    Copyright 1996-2002, 2006 by
+          David Turner, Robert Wilhelm, and Werner Lemberg
+
+
+
+Introduction
+============
+
+  The FreeType  Project is distributed in  several archive packages;
+  some of them may contain, in addition to the FreeType font engine,
+  various tools and  contributions which rely on, or  relate to, the
+  FreeType Project.
+
+  This  license applies  to all  files found  in such  packages, and
+  which do not  fall under their own explicit  license.  The license
+  affects  thus  the  FreeType   font  engine,  the  test  programs,
+  documentation and makefiles, at the very least.
+
+  This  license   was  inspired  by  the  BSD,   Artistic,  and  IJG
+  (Independent JPEG  Group) licenses, which  all encourage inclusion
+  and  use of  free  software in  commercial  and freeware  products
+  alike.  As a consequence, its main points are that:
+
+    o We don't promise that this software works. However, we will be
+      interested in any kind of bug reports. (`as is' distribution)
+
+    o You can  use this software for whatever you  want, in parts or
+      full form, without having to pay us. (`royalty-free' usage)
+
+    o You may not pretend that  you wrote this software.  If you use
+      it, or  only parts of it,  in a program,  you must acknowledge
+      somewhere  in  your  documentation  that  you  have  used  the
+      FreeType code. (`credits')
+
+  We  specifically  permit  and  encourage  the  inclusion  of  this
+  software, with  or without modifications,  in commercial products.
+  We  disclaim  all warranties  covering  The  FreeType Project  and
+  assume no liability related to The FreeType Project.
+
+
+  Finally,  many  people  asked  us  for  a  preferred  form  for  a
+  credit/disclaimer to use in compliance with this license.  We thus
+  encourage you to use the following text:
+
+   """
+    Portions of this software are copyright © &lt;year&gt; The FreeType
+    Project (www.freetype.org).  All rights reserved.
+   """
+
+  Please replace &lt;year&gt; with the value from the FreeType version you
+  actually use.
+
+
+Legal Terms
+===========
+
+0. Definitions
+--------------
+
+  Throughout this license,  the terms `package', `FreeType Project',
+  and  `FreeType  archive' refer  to  the  set  of files  originally
+  distributed  by the  authors  (David Turner,  Robert Wilhelm,  and
+  Werner Lemberg) as the `FreeType Project', be they named as alpha,
+  beta or final release.
+
+  `You' refers to  the licensee, or person using  the project, where
+  `using' is a generic term including compiling the project's source
+  code as  well as linking it  to form a  `program' or `executable'.
+  This  program is  referred to  as  `a program  using the  FreeType
+  engine'.
+
+  This  license applies  to all  files distributed  in  the original
+  FreeType  Project,   including  all  source   code,  binaries  and
+  documentation,  unless  otherwise  stated   in  the  file  in  its
+  original, unmodified form as  distributed in the original archive.
+  If you are  unsure whether or not a particular  file is covered by
+  this license, you must contact us to verify this.
+
+  The FreeType  Project is copyright (C) 1996-2000  by David Turner,
+  Robert Wilhelm, and Werner Lemberg.  All rights reserved except as
+  specified below.
+
+1. No Warranty
+--------------
+
+  THE FREETYPE PROJECT  IS PROVIDED `AS IS' WITHOUT  WARRANTY OF ANY
+  KIND, EITHER  EXPRESS OR IMPLIED,  INCLUDING, BUT NOT  LIMITED TO,
+  WARRANTIES  OF  MERCHANTABILITY   AND  FITNESS  FOR  A  PARTICULAR
+  PURPOSE.  IN NO EVENT WILL ANY OF THE AUTHORS OR COPYRIGHT HOLDERS
+  BE LIABLE  FOR ANY DAMAGES CAUSED  BY THE USE OR  THE INABILITY TO
+  USE, OF THE FREETYPE PROJECT.
+
+2. Redistribution
+-----------------
+
+  This  license  grants  a  worldwide, royalty-free,  perpetual  and
+  irrevocable right  and license to use,  execute, perform, compile,
+  display,  copy,   create  derivative  works   of,  distribute  and
+  sublicense the  FreeType Project (in  both source and  object code
+  forms)  and  derivative works  thereof  for  any  purpose; and  to
+  authorize others  to exercise  some or all  of the  rights granted
+  herein, subject to the following conditions:
+
+    o Redistribution of  source code  must retain this  license file
+      (`FTL.TXT') unaltered; any  additions, deletions or changes to
+      the original  files must be clearly  indicated in accompanying
+      documentation.   The  copyright   notices  of  the  unaltered,
+      original  files must  be  preserved in  all  copies of  source
+      files.
+
+    o Redistribution in binary form must provide a  disclaimer  that
+      states  that  the software is based in part of the work of the
+      FreeType Team,  in  the  distribution  documentation.  We also
+      encourage you to put an URL to the FreeType web page  in  your
+      documentation, though this isn't mandatory.
+
+  These conditions  apply to any  software derived from or  based on
+  the FreeType Project,  not just the unmodified files.   If you use
+  our work, you  must acknowledge us.  However, no  fee need be paid
+  to us.
+
+3. Advertising
+--------------
+
+  Neither the  FreeType authors and  contributors nor you  shall use
+  the name of the  other for commercial, advertising, or promotional
+  purposes without specific prior written permission.
+
+  We suggest,  but do not require, that  you use one or  more of the
+  following phrases to refer  to this software in your documentation
+  or advertising  materials: `FreeType Project',  `FreeType Engine',
+  `FreeType library', or `FreeType Distribution'.
+
+  As  you have  not signed  this license,  you are  not  required to
+  accept  it.   However,  as  the FreeType  Project  is  copyrighted
+  material, only  this license, or  another one contracted  with the
+  authors, grants you  the right to use, distribute,  and modify it.
+  Therefore,  by  using,  distributing,  or modifying  the  FreeType
+  Project, you indicate that you understand and accept all the terms
+  of this license.
+
+4. Contacts
+-----------
+
+  There are two mailing lists related to FreeType:
+
+    o freetype@nongnu.org
+
+      Discusses general use and applications of FreeType, as well as
+      future and  wanted additions to the  library and distribution.
+      If  you are looking  for support,  start in  this list  if you
+      haven't found anything to help you in the documentation.
+
+    o freetype-devel@nongnu.org
+
+      Discusses bugs,  as well  as engine internals,  design issues,
+      specific licenses, porting, etc.
+
+  Our home page can be found at
+
+    https://www.freetype.org
+
+
+--- end of FTL.TXT ---
+
+src/bdf/README:
+
+FreeType font driver for BDF fonts
+
+                       Francesco Zappa Nardelli
+                  &lt;francesco.zappa.nardelli@ens.fr&gt;
+
+
+Introduction
+************
+
+BDF (Bitmap Distribution Format) is a bitmap font format defined by Adobe,
+which is intended to be easily understood by both humans and computers.
+This code implements a BDF driver for the FreeType library, following the
+Adobe Specification V 2.2.  The specification of the BDF font format is
+available from Adobe's web site:
+
+  https://adobe-type-tools.github.io/font-tech-notes/pdfs/5005.BDF_Spec.pdf
+
+Many good bitmap fonts in bdf format come with XFree86 (www.XFree86.org).
+They do not define vertical metrics, because the X Consortium BDF
+specification has removed them.
+
+
+Encodings
+*********
+
+[This section is out of date, retained for historical reasons.  BDF
+ properties can be retrieved with `FT_Get_BDF_Property`, character set ID
+ values with `FT_Get_BDF_Charset_ID`.]
+
+The variety of encodings that accompanies bdf fonts appears to encompass the
+small set defined in freetype.h.  On the other hand, two properties that
+specify encoding and registry are usually defined in bdf fonts.
+
+I decided to make these two properties directly accessible, leaving to the
+client application the work of interpreting them.  For instance:
+
+
+  #include FT_INTERNAL_BDF_TYPES_H
+
+  FT_Face          face;
+  BDF_Public_Face  bdfface;
+
+
+  FT_New_Face( library, ..., &amp;face );
+
+  bdfface = (BDF_Public_Face)face;
+
+  if ( ( bdfface-&gt;charset_registry == "ISO10646" ) &amp;&amp;
+       ( bdfface-&gt;charset_encoding == "1" )        )
+    [..]
+
+
+Thus the driver always exports `ft_encoding_none' as face-&gt;charmap.encoding.
+FT_Get_Char_Index's behavior is unmodified, that is, it converts the ULong
+value given as argument into the corresponding glyph number.
+
+If the two properties are not available, Adobe Standard Encoding should be
+assumed.
+
+
+Anti-Aliased Bitmaps
+********************
+
+The driver supports an extension to the BDF format as used in Mark Leisher's
+xmbdfed bitmap font editor.  Microsoft's SBIT tool expects bitmap fonts in
+that format for adding anti-aliased them to TrueType fonts.  It introduces a
+fourth field to the `SIZE' keyword which gives the bpp value (bits per
+pixel) of the glyph data in the font.  Possible values are 1 (the default),
+2 (four gray levels), 4 (16 gray levels), and 8 (256 gray levels).  The
+driver returns either a bitmap with 1 bit per pixel or a pixmap with 8bits
+per pixel (using 4, 16, and 256 gray levels, respectively).
+
+
+Known problems
+**************
+
+- A font is entirely loaded into memory.  Obviously, this is not the Right
+  Thing(TM).  If you have big fonts I suggest you convert them into PCF
+  format (using the bdftopcf utility): the PCF font drive of FreeType can
+  perform incremental glyph loading.
+
+When I have some time, I will implement on-demand glyph parsing.
+
+- Except for encodings properties, client applications have no visibility of
+  the PCF_Face object.  This means that applications cannot directly access
+  font tables and must trust FreeType.
+
+- Currently, glyph names are ignored.
+
+  I plan to give full visibility of the BDF_Face object in an upcoming
+  revision of the driver, thus implementing also glyph names.
+
+- As I have never seen a BDF font that defines vertical metrics, vertical
+  metrics are (parsed and) discarded.  If you own a BDF font that defines
+  vertical metrics, please let me know (I will implement them in 5-10
+  minutes).
+
+
+License
+*******
+
+Copyright (C) 2001-2002 by Francesco Zappa Nardelli
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+*** Portions of the driver (that is, bdflib.c and bdf.h):
+
+Copyright 2000 Computing Research Labs, New Mexico State University
+Copyright 2001-2002, 2011 Francesco Zappa Nardelli
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of this software and associated documentation files (the "Software"),
+to deal in the Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+THE COMPUTING RESEARCH LAB OR NEW MEXICO STATE UNIVERSITY BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Credits
+*******
+
+This driver is based on excellent Mark Leisher's bdf library.  If you
+find something good in this driver you should probably thank him, not
+me.
+
+src/pcf/README:
+
+FreeType font driver for PCF fonts
+
+                       Francesco Zappa Nardelli
+                  &lt;francesco.zappa.nardelli@ens.fr&gt;
+
+
+Introduction
+************
+
+PCF (Portable Compiled Format) is a binary bitmap font format, largely used
+in X world. This code implements a PCF driver for the FreeType library.
+Glyph images are loaded into memory only on demand, thus leading to a small
+memory footprint.
+
+Information on the PCF font format can only be worked out from
+`pcfread.c', and `pcfwrite.c', to be found, for instance, in the XFree86
+(www.xfree86.org) source tree (xc/lib/font/bitmap/).
+
+Many good bitmap fonts in bdf format come with XFree86: they can be
+compiled into the pcf format using the `bdftopcf' utility.
+
+
+Supported hardware
+******************
+
+The driver has been tested on linux/x86 and sunos5.5/sparc.  In both
+cases the compiler was gcc.  When back in Paris, I will test it also
+on linux/alpha.
+
+
+Encodings
+*********
+
+Use `FT_Get_BDF_Charset_ID' to access the encoding and registry.
+
+The driver always exports `ft_encoding_none' as face-&gt;charmap.encoding.
+FT_Get_Char_Index() behavior is unmodified, that is, it converts the ULong
+value given as argument into the corresponding glyph number.
+
+
+Known problems
+**************
+
+- dealing explicitly with encodings breaks the uniformity of FreeType 2
+  API.
+
+- except for encodings properties, client applications have no
+  visibility of the PCF_Face object.  This means that applications
+  cannot directly access font tables and are obliged to trust
+  FreeType.
+
+- currently, glyph names and ink_metrics are ignored.
+
+I plan to give full visibility of the PCF_Face object in the next
+release of the driver, thus implementing also glyph names and
+ink_metrics.
+
+- height is defined as (ascent - descent).  Is this correct?
+
+- if unable to read size information from the font, PCF_Init_Face
+  sets available_size-&gt;width and available_size-&gt;height to 12.
+
+- too many english grammar errors in the readme file :-(
+
+
+License
+*******
+
+Copyright (C) 2000 by Francesco Zappa Nardelli
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Credits
+*******
+
+Keith Packard wrote the pcf driver found in XFree86.  His work is at
+the same time the specification and the sample implementation of the
+PCF format.  Undoubtedly, this driver is inspired from his work.
+
+src/base/fthash.c#L9-L31:
+
+/*
+ * Copyright 2000 Computing Research Labs, New Mexico State University
+ * Copyright 2001-2015
+ *   Francesco Zappa Nardelli
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE COMPUTING RESEARCH LAB OR NEW MEXICO STATE UNIVERSITY BE LIABLE FOR ANY
+ * CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT
+ * OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+ * THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
+
 This software is based in part on the work of the FreeType Team (FreeType 2.13.2, https://freetype.org). Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org).  All rights reserved.
 </string>
 			<key>Title</key>
@@ -4687,7 +5139,7 @@ The Source Code Form of the exact version in this build is available at:
 - https://github.com/vancluever/z2d/tree/7dbae85c81784dba9988320bf9543ed9a81350c8 (upstream tag v0.12.1)
 - the cmux release source archive cmux-next-source-&lt;build&gt;.tar.gz, published with this release at https://github.com/manaflow-ai/cmux/releases/download/nightly-next/ (&lt;build&gt; is the build number in the app's version), and the cmux source of this build at its public tag https://github.com/manaflow-ai/cmux/tree/cmux-next-src-&lt;commit, 11 characters&gt;. The archive contains Ghostty at the revision this build uses and every Ghostty Zig package archive, including this one.
 
-z2d is licensed under the Mozilla Public License 2.0 (MPL-2.0); its text is above. This app contains z2d in Executable Form, unmodified. The Source Code Form of the exact version in this app is available at https://deps.files.ghostty.org/z2d-7dbae85c81784dba9988320bf9543ed9a81350c8.tar.gz (the archive that Ghostty 3320bd06ec13ca5479ef842372be1736d9cdfecf fetches) and at https://github.com/vancluever/z2d. The Ghostty source that selects it is at https://github.com/manaflow-ai/ghostty-next/tree/3320bd06ec13ca5479ef842372be1736d9cdfecf.
+z2d is licensed under the Mozilla Public License 2.0 (MPL-2.0); its text is above. This app contains z2d in Executable Form, unmodified. The Source Code Form of the exact version in this app is in the cmux iOS release source archive cmux-ios-source-&lt;build&gt;.tar.gz, published with this release at https://github.com/manaflow-ai/cmux/releases/download/ios-source/ (&lt;build&gt; is the build number in the app's version), and the cmux source of this build is at its public tag https://github.com/manaflow-ai/cmux/tree/cmux-next-src-&lt;commit, 11 characters&gt;. The archive contains Ghostty 3320bd06ec13ca5479ef842372be1736d9cdfecf (https://github.com/manaflow-ai/ghostty-next/tree/3320bd06ec13ca5479ef842372be1736d9cdfecf) and every Ghostty Zig package archive, z2d included.
 </string>
 			<key>Title</key>
 			<string>z2d (in Ghostty)</string>
@@ -5079,7 +5531,7 @@ obstacle to adoption, that text has been removed.
 		</dict>
 		<dict>
 			<key>FooterText</key>
-			<string>GhosttyNextKit https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-3320bd06ec13ca5479ef842372be1736d9cdfecf-apple-v6/GhosttyNextKit.xcframework.zip sha256 788fe6a6e42fc0062007cf7292992dd3bb770cbce7a33f5040d5180e40150bc1; Ghostty 3320bd06ec13ca5479ef842372be1736d9cdfecf; license tree 98 files. Omitted as absent from the linked app (iterm2_themes, zig_js): cmux-ci job 3cb75148fdc2bb261c043703, artifact sha256 c1e4854d61ea00ba5a7693e802c9610dc2e671cbc8adfec0611c286f6b18c4bc. Generated by scripts/cmux-next/notices/ios_notices.py.
+			<string>GhosttyNextKit https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-3320bd06ec13ca5479ef842372be1736d9cdfecf-apple-v6/GhosttyNextKit.xcframework.zip sha256 788fe6a6e42fc0062007cf7292992dd3bb770cbce7a33f5040d5180e40150bc1; Ghostty 3320bd06ec13ca5479ef842372be1736d9cdfecf; license tree 102 files. Omitted as absent from the linked app (iterm2_themes, zig_js): cmux-ci job 3cb75148fdc2bb261c043703, artifact sha256 c1e4854d61ea00ba5a7693e802c9610dc2e671cbc8adfec0611c286f6b18c4bc. Generated by scripts/cmux-next/notices/ios_notices.py.
 </string>
 			<key>Title</key>
 			<string>Build record</string>

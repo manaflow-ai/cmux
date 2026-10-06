@@ -108,43 +108,16 @@ extension SidebarLayoutDocument {
     /// Built-ins that are first-party apps now (R63/R64).
     public nonisolated static let firstPartyApps: [SidebarBuiltIn: String] = [.home: "cmux/home", .appStore: "cmux/app-store"]
 
-    /// The default top section's arrangement: four large tiles.
+    /// The large-tiles arrangement (#17349). It is no longer the default
+    /// top (Lawrence 2026-10-05: rows); a user can still choose it.
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
-    /// The launcher tiles after Home and the App Store in the default top
-    /// section; Home stays first, so Cmd-1 still runs it.
-    public nonisolated static let tileItems = [
-        LayoutItem(id: LayoutItemID("itm_new_workspace"), ref: .builtIn(.newWorkspace)),
-        LayoutItem(id: LayoutItemID("itm_import_sync"), ref: .builtIn(.importSync)),
-    ]
-
-    /// The ops that turn the plain-row top section of the earlier default
-    /// (Home and the App Store as app items, CodeRouter after them when the
-    /// layout still holds it) into the tiles default, or none. A top
-    /// section the user changed in any way is theirs and never migrates.
-    public nonisolated var tilesMigrationOps: [SidebarLayoutOp] {
-        let top = Self.topSectionID
-        let rows = [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
-                    LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]
-        let coderouter = LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))
-        let earlier = [rows, rows + [coderouter]].map {
-            LayoutSection(id: top, region: .top, look: .builtIn, items: $0)
-        }
-        guard let section = section(top), earlier.contains(section) else { return [] }
-        return [.sectionUpdate(top, SectionPatch(layout: .tiles, columns: .set(4)))]
-            + Self.tileItems.enumerated().map { .itemAdd($0.element, section: top, index: rows.count + $0.offset) }
-    }
-
-    /// Every migration in order (sections, then app refs, then tiles), as
-    /// one op list that applies to this layout.
+    /// Every migration in order (sections, then app refs), as one op list
+    /// that applies to this layout. No migration turns a plain-row top
+    /// section into tiles; the tiles default was never stored (the store
+    /// did not serve `sidebar-layout-v1` yet), so none moves back either.
     public nonisolated var layoutMigrationOps: [SidebarLayoutOp] {
-        let sectioned = sectionsMigration
-        var appRefs = sectioned
-        for op in sectioned.appRefMigrationOps {
-            guard case .success(let next) = SidebarLayoutReducer.reduce(appRefs, op) else { break }
-            appRefs = next
-        }
-        return sectionsMigrationOps + sectioned.appRefMigrationOps + appRefs.tilesMigrationOps
+        sectionsMigrationOps + sectionsMigration.appRefMigrationOps
     }
 
     /// This layout with `layoutMigrationOps` applied.

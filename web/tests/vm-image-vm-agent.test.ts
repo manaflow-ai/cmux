@@ -324,3 +324,148 @@ describe("per-clone machine-id and the daemon block of bind (coordinator 2026-10
     await expect(resolveDaemonInfo(store, { activitySender: false })).rejects.toThrow(/daemon/);
   });
 });
+
+describe("heartbeat interval: a test override only in dev (coordinator 2026-10-05)", () => {
+  test("dev honors CMUX_VM_AGENT_HEARTBEAT_MS within 1 s..1 h; stg and prod always use 1 h", async () => {
+    const { heartbeatMsFor, DEFAULT_HEARTBEAT_MS } = await import("../../images/cmux-vm/guest/vm-agent");
+    expect(DEFAULT_HEARTBEAT_MS).toBe(3_600_000);
+    expect(heartbeatMsFor("dev", "15000")).toBe(15_000);
+    expect(heartbeatMsFor("stg", "15000")).toBe(DEFAULT_HEARTBEAT_MS);
+    expect(heartbeatMsFor("prod", "15000")).toBe(DEFAULT_HEARTBEAT_MS);
+    expect(heartbeatMsFor("dev", undefined)).toBe(DEFAULT_HEARTBEAT_MS);
+    for (const bad of ["", "abc", "999", "3600001", "-5", "1e4", "15000.5"]) expect(heartbeatMsFor("dev", bad)).toBe(DEFAULT_HEARTBEAT_MS);
+  });
+});
+
+describe("report results are observable (end-to-end evidence)", () => {
+  test("onResult gets each report's reason and whether the server applied or held it", async () => {
+    const store = new MemoryStore();
+    store.write("/var/lib/cmux/bind.json", bindFileText, 0o600);
+    bindCalls = 0;
+    const key = await ensureInstallKey(store, "i-zzz");
+    await bindMachine({ fetch: fakeFetch, store, key, wg, daemon });
+    const clock = new FakeClock();
+    const client = new CloudClient({ fetch: fakeFetch, bound: JSON.parse(store.read("/var/lib/cmux/bound.json")!), key, clock });
+    const results: Array<{ reason: string; ok: boolean; applied: boolean | null }> = [];
+    opsScript = [
+      { status: 200, body: vector("vm.status.report").responses[0].body },
+      { status: 200, body: vector("vm.status.report").responses[1].body },
+      { status: 503, body: { code: "owner.unreachable" } },
+      { status: 200, body: vector("vm.status.report").responses[0].body },
+    ];
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon: await daemon(), heartbeatMs: 60_000, random: () => 0.5, onResult: (r) => results.push({ reason: r.reason, ok: r.ok, applied: r.applied }) });
+    reporter.trigger("bind");
+    await reporter.settled();
+    reporter.update({ active_sessions: 1 });
+    clock.advance(10_000);
+    await reporter.settled();
+    clock.advance(60_000);
+    await reporter.settled();
+    clock.advance(clock.pending()[0]);
+    await reporter.settled();
+    expect(results).toEqual([
+      { reason: "bind", ok: true, applied: true },
+      { reason: "change", ok: true, applied: false },
+      { reason: "heartbeat", ok: false, applied: null },
+      { reason: "heartbeat", ok: true, applied: true },
+    ]);
+  });
+});
+
+describe("resume is an event, not a poll", () => {
+  test('a {"resume": true} socket line (sent by the OnClockChange timer) triggers a report with reason resume', async () => {
+    const { handleAgentLine } = await import("../../images/cmux-vm/guest/vm-agent");
+    const reasons: string[] = [];
+    const running = { reporter: { trigger: (r: string) => reasons.push(r), update: () => undefined }, events: { emit: () => undefined } };
+    handleAgentLine('{"resume": true}', running as never);
+    handleAgentLine("not json", running as never);
+    handleAgentLine('{"resume": false}', running as never);
+    expect(reasons).toEqual(["resume"]);
+  });
+});
+
+describe("report reasons are merged, not overwritten", () => {
+  test("a change and a resume before one send are both named on that report", async () => {
+    const store = new MemoryStore();
+    store.write("/var/lib/cmux/bind.json", bindFileText, 0o600);
+    bindCalls = 0;
+    const key = await ensureInstallKey(store, "i-yyy");
+    await bindMachine({ fetch: fakeFetch, store, key, wg, daemon });
+    const clock = new FakeClock();
+    const client = new CloudClient({ fetch: fakeFetch, bound: JSON.parse(store.read("/var/lib/cmux/bound.json")!), key, clock });
+    const reasons: string[] = [];
+    opsScript = [];
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon: await daemon(), heartbeatMs: 60_000, random: () => 0.5, onResult: (r) => reasons.push(r.reason) });
+    reporter.trigger("start");
+    await reporter.settled();
+    reporter.update({ active_sessions: 1 });
+    reporter.trigger("resume");
+    clock.advance(10_000);
+    await reporter.settled();
+    expect(reasons).toEqual(["start", "change+resume"]);
+  });
+});
+
+describe("activity sender, agent side (cloud-automation.md 27)", () => {
+  test("daemon activity maps to the report: sessions = attached clients + live agents; only real times", async () => {
+    const { activityFromDaemon } = await import("../../images/cmux-vm/guest/vm-agent");
+    expect(activityFromDaemon({ attached_clients: 1, live_agents: 2, last_user_input_at_ms: 1_790_000_000_000, last_agent_action_at_ms: null })).toEqual({ active_sessions: 3, last_user_input_at: 1_790_000_000_000 });
+    expect(activityFromDaemon({})).toEqual({ active_sessions: 0 });
+  });
+
+  test("the watcher subscribes, maps snapshot and events, and reconnects after a drop with backoff", async () => {
+    const { ActivityWatcher } = await import("../../images/cmux-vm/guest/vm-agent");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { createServer: createUnixServer } = await import("node:net");
+    const sock = `${mkdtempSync(path.join(tmpdir(), "a-"))}/cloud.sock`;
+    const conns: Array<import("node:net").Socket> = [];
+    const daemonServer = createUnixServer((s) => {
+      conns.push(s);
+      s.on("data", (d) => {
+        const req = JSON.parse(String(d).trim()) as { id: number; cmd: string };
+        expect(req.cmd).toBe("subscribe-activity");
+        s.write(`${JSON.stringify({ id: req.id, ok: true, data: { activity: { attached_clients: 1, live_agents: 0, last_user_input_at_ms: 10 } } })}\n`);
+        s.write(`${JSON.stringify({ event: "activity-changed", activity: { attached_clients: 0, live_agents: 1, last_agent_action_at_ms: 20 } })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => daemonServer.listen(sock, resolve));
+    const clock = new FakeClock();
+    const seen: unknown[] = [];
+    const states: boolean[] = [];
+    const watcher = new ActivityWatcher({ socketPath: sock, clock, random: () => 0.5, onActivity: (a) => seen.push(a), onConnected: (c) => states.push(c) });
+    watcher.start();
+    for (let i = 0; i < 50 && seen.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(seen).toEqual([{ active_sessions: 1, last_user_input_at: 10 }, { active_sessions: 1, last_agent_action_at: 20 }]);
+    expect(states).toEqual([true]);
+    conns[0].destroy();
+    for (let i = 0; i < 50 && states.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(states).toEqual([true, false]);
+    expect(clock.pending()).toHaveLength(1);
+    clock.advance(clock.pending()[0]);
+    for (let i = 0; i < 50 && states.length < 3; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(states).toEqual([true, false, true]);
+    watcher.stop();
+    await new Promise<void>((resolve) => daemonServer.close(() => resolve()));
+  });
+
+  test("the reporter's daemon block can change (activity on while subscribed), and the next report carries it", async () => {
+    const store = new MemoryStore();
+    store.write("/var/lib/cmux/bind.json", bindFileText, 0o600);
+    bindCalls = 0;
+    const key = await ensureInstallKey(store, "i-xxx");
+    await bindMachine({ fetch: fakeFetch, store, key, wg, daemon });
+    const clock = new FakeClock();
+    const client = new CloudClient({ fetch: fakeFetch, bound: JSON.parse(store.read("/var/lib/cmux/bound.json")!), key, clock });
+    opsScript = [];
+    seen.length = 0;
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon: { version: "v", capabilities: ["vm-agent-v1"] }, heartbeatMs: 60_000, random: () => 0.5 });
+    reporter.trigger("start");
+    await reporter.settled();
+    reporter.setDaemon({ version: "v", capabilities: ["vm-agent-v1", "activity"] });
+    clock.advance(10_000);
+    await reporter.settled();
+    const ops = seen.filter((s) => s.path === "/v1/ops");
+    expect(ops.at(-1)!.body.params.daemon.capabilities).toEqual(["vm-agent-v1", "activity"]);
+  });
+});

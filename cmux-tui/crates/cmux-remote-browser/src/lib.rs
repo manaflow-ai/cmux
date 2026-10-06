@@ -10,6 +10,7 @@
 pub mod cookie;
 pub mod menu;
 pub mod proto;
+pub mod rp_input;
 pub mod scroll;
 pub mod session;
 

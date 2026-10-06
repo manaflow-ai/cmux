@@ -35,6 +35,11 @@ matches, so a toolchain bump stops until its text is reviewed.
 FreeType: the macos slice links FreeType, so hand-written.md's `FreeType` section holds the
 FreeType License credit; `ios_notices.py check-macos` (source-archive CI, with the license
 tree) fails when it does not name the FreeType version of the pinned tree (`FREETYPE_YEARS`).
+The collected tree also carries FreeType's docs/FTL.TXT and the BDF, PCF and fthash.c terms
+(pinned-licenses/MANIFEST.json `supplements`: collect-ghostty-licenses.py ships each text only
+when the fetched package has exactly those bytes, and stops on a FreeType with another hash).
+The gzip module's zlib copy and ft-hb.c are not compiled (system zlib, no HarfBuzz), so
+their terms do not ship; the note in MANIFEST.json gives the symbol evidence.
 
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
 app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
@@ -42,6 +47,15 @@ section, checked by `ios_notices.py check-repo`; the pane takes the reviewed fil
 `cmux-tui/dist/notices/package-notices.json`). The cmux-tui Darwin packages link no
 musl-derived code (`package-notices.json` `darwin.review`); `package_notices.py
 check-darwin-binary` in the package job fails a Darwin binary that gains some.
+
+Browser host: `bin/cmux-browser-host` has its own Rust section (`rust-cmux-browser-host`;
+rquickjs-sys carries the QuickJS-NG MIT text, the Unicode License V3 of libunicode-table.h
+and the quickjs-c-atomics.h notice from reviewed.json) and the hand-written section
+"cmux browser host runtime JavaScript" for the embedded acorn and Playwright code.
+`cmux-tui/build-support/notices/browser-host/browser_host_js_notices.py check` (notices CI)
+fails a js/vendor file without a reviewed row in `browser-host-js.json`, a new upstream
+version (marker), a changed text, or a section that lacks a path or text.
+install-cmux-tui-client.sh installs the binary only while bundle-map.json maps it.
 
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.

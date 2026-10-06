@@ -7,7 +7,7 @@ public nonisolated enum OmnibarRules {
     public static func fillText(for row: BrowserSuggestion) -> String {
         switch row.kind {
         case .search: row.title
-        case .keyword: row.content ?? row.title
+        case .keyword, .answer: row.content ?? row.title
         case .navigate, .history, .bookmark, .switchToTab: BrowserURLDisplay.editingText(for: row.url)
         }
     }
@@ -18,7 +18,7 @@ public nonisolated enum OmnibarRules {
     /// scheme, no `www.`) or of the full URL, and never for a trailing space.
     /// Search, remote and Switch to Tab rows never complete.
     public static func inlineCompletion(for row: BrowserSuggestion, typed: String) -> String? {
-        guard row.inlineCompletable, row.kind != .search, row.kind != .keyword, row.kind != .switchToTab,
+        guard row.inlineCompletable, row.kind != .search, row.kind != .keyword, row.kind != .switchToTab, row.kind != .answer,
               !typed.isEmpty, typed.last?.isWhitespace == false else { return nil }
         let lowered = typed.lowercased()
         for form in completionForms(of: row.url) where form.lowercased().hasPrefix(lowered) && form.count > typed.count {

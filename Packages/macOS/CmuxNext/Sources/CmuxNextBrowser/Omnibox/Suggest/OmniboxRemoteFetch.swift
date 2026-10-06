@@ -58,7 +58,8 @@ extension OmniboxSuggestionEngine {
     /// Phase B for `text`: after `remote.debounce` without cancellation, one
     /// request to the engine's suggest endpoint, cancelled after
     /// `remote.timeout` or with the query; nil when anything fails.
-    static func remoteRows(_ text: String, engine: BrowserSearchEngine, remote: OmniboxRemoteConfiguration) async -> [BrowserSuggestion]? {
+    static func remoteRows(_ text: String, engine: BrowserSearchEngine, remote: OmniboxRemoteConfiguration,
+                           answer: String? = nil) async -> [BrowserSuggestion]? {
         guard let fetcher = remote.fetcher, let url = engine.suggestURL(for: text) else { return nil }
         let clock = remote.clock, timeout = remote.timeout, ephemeral = remote.isPrivate
         do {
@@ -81,6 +82,7 @@ extension OmniboxSuggestionEngine {
             fetch.cancel()
         }
         guard let data, !Task.isCancelled else { return nil }
-        return OmniboxRemoteSuggestions.rows(OmniboxRemoteSuggestions.parse(data), query: text, engine: engine, limit: remote.limit)
+        return OmniboxRemoteSuggestions.rows(OmniboxRemoteSuggestions.parse(data), query: text, engine: engine, limit: remote.limit,
+                                             answer: answer)
     }
 }

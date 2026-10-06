@@ -999,3 +999,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_install_zig_ci_reviewed_version.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_package_input_key.py"
+lane = "linux-guard"

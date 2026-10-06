@@ -53,13 +53,19 @@ nonisolated enum OmnibarSettingsSchema {
                 kind: .number(SettingNumber(S.maxRowsRange, step: 1, unit: .count)), default: .number(Double(fallback.maxRows)),
                 keywords: ["suggestions", "rows", "omnibox"]
             ),
+            SettingDescriptor(
+                S.calculatorPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.omnibar.calculator", "Calculator Answers"),
+                help: SettingsText.keyed("settings.browser.omnibar.calculator.help", "Shows the answer to arithmetic you type. Return copies it."),
+                kind: .toggle, default: .bool(fallback.calculator), keywords: ["calculator", "math", "answer", "omnibox"]
+            ),
         ]
     }
 
     /// Agents may change how many rows show and inline completion; the
     /// engine and remote suggestions decide what leaves the machine.
     static var agentSettableKeys: Set<String> {
-        ["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows"]
+        ["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator"]
     }
 
     static var privacyKeys: [String] {
@@ -72,6 +78,8 @@ nonisolated enum OmnibarSettingsSchema {
         case .toggle: "expected true or false"
         case .choice(let choices): "expected one of " + choices.map { "\"\($0.value)\"" }.joined(separator: ", ")
         case .number(let number): "expected a number from \(Int(number.range.lowerBound)) to \(Int(number.range.upperBound))"
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            "expected a web address with %s or {searchTerms} where the typed text goes, or \"\""
         case .url: "expected a web address or \"\""
         default: "invalid value"
         }

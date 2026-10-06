@@ -8206,10 +8206,8 @@
     {
       "accepts" : [
         "",
-        "https://cmux.com",
-        "example.com/path",
-        "about:blank",
-        "file:///tmp/a.html"
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
@@ -8241,9 +8239,9 @@
         "search"
       ],
       "refuses" : [
-        "not a url",
-        "ftp://example.com",
-        "localhost",
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
         1
       ],
       "section" : "browser",
@@ -8251,15 +8249,13 @@
         "key" : "settings.browser.customSearch",
         "text" : "Custom Search Address"
       },
-      "validation" : "portable"
+      "validation" : "domain:search_template"
     },
     {
       "accepts" : [
         "",
-        "https://cmux.com",
-        "example.com/path",
-        "about:blank",
-        "file:///tmp/a.html"
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
@@ -8291,9 +8287,9 @@
         "suggest"
       ],
       "refuses" : [
-        "not a url",
-        "ftp://example.com",
-        "localhost",
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
         1
       ],
       "section" : "browser",
@@ -8301,7 +8297,7 @@
         "key" : "settings.browser.customSuggest",
         "text" : "Custom Suggestions Address"
       },
-      "validation" : "portable"
+      "validation" : "domain:search_template"
     },
     {
       "accepts" : [
@@ -8441,6 +8437,52 @@
       "title" : {
         "key" : "settings.browser.omnibar.maxRows",
         "text" : "Suggestions Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.calculator.help",
+        "text" : "Shows the answer to arithmetic you type. Return copies it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.calculator",
+      "keywords" : [
+        "calculator",
+        "math",
+        "answer",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "browser",
+        "omnibar",
+        "calculator"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.calculator",
+        "text" : "Calculator Answers"
       },
       "validation" : "portable"
     },
@@ -11028,7 +11070,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "0995eaabc8821590129293a5d1395acdebc7541a8147c3e4f40f04b2e38aab7b",
+  "schema_hash" : "3f47e173d2b2e66b26fa5b89991981a4b86822535337a9d7915419baa5ffb179",
   "sections" : [
     {
       "id" : "general",

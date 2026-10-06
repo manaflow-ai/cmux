@@ -41,7 +41,7 @@ nonisolated extension ActionSurfaceCatalog {
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
-            "palette.openGhosttySettings", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
+            "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal",
             "palette.toggleSetting", "palette.shortcutKeymap", "palette.searchShortcuts", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide",
             "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.pro.upgrade",

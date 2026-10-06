@@ -1,3 +1,5 @@
+import Foundation
+
 /// The address bar's suggestion keys in cmux.json
 /// (plans/cmux-next/omnibar-suggestions.md, "Settings"):
 ///
@@ -8,7 +10,7 @@
 ///     "search": "https://example.com/search?q=%s",
 ///     "suggest": "https://example.com/suggest?q=%s"   // optional, OpenSearch JSON
 ///   },
-///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8 }
+///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true }
 /// }
 /// ```
 ///
@@ -21,9 +23,24 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let remoteSuggestionsPath = ["browser", "omnibar", "remoteSuggestions"]
     public static let inlineAutocompletePath = ["browser", "omnibar", "inlineAutocomplete"]
     public static let maxRowsPath = ["browser", "omnibar", "maxRows"]
+    public static let calculatorPath = ["browser", "omnibar", "calculator"]
     /// The built-in engines, then `custom`.
     public static let engines = ["google", "duckduckgo", "bing", "brave", "kagi", "custom"]
     public static let maxRowsRange: ClosedRange<Double> = 3...15
+    /// The custom engine's addresses: each must mark where the typed text goes.
+    public static let templatePaths = [customSearchPath, customSuggestPath]
+
+    /// Empty (no custom address), or a web address with `%s` or
+    /// `{searchTerms}`. A search address without one would search for the
+    /// same page whatever was typed, so it is refused when written and
+    /// reported when loaded.
+    public static func isSearchTemplate(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty { return true }
+        guard trimmed.contains("%s") || trimmed.contains("{searchTerms}") else { return false }
+        return BrowserNewTabPage.url(from: trimmed.replacingOccurrences(of: "%s", with: "x")
+            .replacingOccurrences(of: "{searchTerms}", with: "x")) != nil
+    }
 
     public var searchEngine = "google"
     public var customSearch = ""
@@ -31,6 +48,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var remoteSuggestions = true
     public var inlineAutocomplete = true
     public var maxRows = 8
+    public var calculator = true
 
     public init() {}
 
@@ -53,6 +71,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             case remoteSuggestionsPath: setting.remoteSuggestions = value.boolValue ?? true
             case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? true
             case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 8)
+            case calculatorPath: setting.calculator = value.boolValue ?? true
             default: break
             }
         }

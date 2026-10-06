@@ -242,15 +242,10 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "for attempt in 1 2 3" in daemon
     assert "cargo test --workspace --locked cmux_next_" in daemon
 
-    requeue = workflow_job(artifacts, "requeue-failed-publish")
-    assert "github.run_attempt < 3" in requeue
-    assert "actions: write" in requeue
-    assert "/actions/runs/$RUN_ID/rerun" in requeue
-    assert "needs.cmux-next-daemon-tests.result == 'failure'" in requeue
-    assert "needs.build.result == 'failure'" in requeue
-    assert "needs.tree-preflight.result == 'failure'" in requeue
-    assert "needs.tree-owner-wait.result == 'failure'" in requeue
-    assert "needs.publish-pr-tree.result == 'failure'" in requeue
+    # A run cannot rerun itself while it is in progress (403 "This workflow
+    # is already running"); cmux-tui-artifacts-retry.yml retries completed
+    # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
+    assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
     pr_publisher = workflow_job(artifacts, "publish-pr-tree")
     assert "github.event_name == 'pull_request_target'" in pr_publisher
     assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
@@ -2161,3 +2156,55 @@ def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> str:
+    """Renders a group string with `${{ ... }}` expressions (cmux-tui-artifacts.yml).
+
+    Supports what that expression uses: dotted github.* lookups, string
+    literals, ==, &&, || and format(). GitHub's && and || return operands like
+    Python's and/or, and a missing property is null (falsy).
+    """
+    def lookup(match: re.Match[str]) -> str:
+        value: object = context
+        for part in match.group(0).split("."):
+            value = value.get(part) if isinstance(value, dict) else None
+        return repr(value)
+
+    def evaluate(match: re.Match[str]) -> str:
+        python = re.sub(r"\bgithub(?:\.[A-Za-z_]+)+", lookup, match.group(1))
+        python = python.replace("&&", " and ").replace("||", " or ")
+        python = re.sub(r"format\('([^']*)',", r"_format('\1',", python)
+        return str(eval(python, {"_format": lambda text, *args: text.format(*args)}))  # noqa: S307 - test-only, fixed input
+
+    return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
+
+
+def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> None:
+    # Only the newest commit's tree matters, and macOS runners are scarce (2026-10-06:
+    # 30 runs queued behind ~3 macos-15 slots). With cancel-in-progress false a
+    # concurrency group keeps one running and one pending run: a newer push replaces
+    # the pending one and never cancels a running publish (immutable objects).
+    document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
+    concurrency = document["concurrency"]
+    assert concurrency["cancel-in-progress"] == "false"
+    group = concurrency["group"]
+
+    def evaluate(event_name: str, ref: str, sha: str, pr: int | None = None) -> str:
+        event = {"pull_request": {"number": pr}} if pr else {}
+        return _evaluate_concurrency_group(
+            group, {"github": {"event_name": event_name, "ref": ref, "sha": sha, "event": event}}
+        )
+
+    feat = "refs/heads/feat-cmux-next"
+    assert evaluate("push", feat, "a" * 40) == evaluate("push", feat, "b" * 40)
+    pin_a = evaluate("push", "refs/heads/cmux-tui-pin-aaaa", "a" * 40)
+    pin_b = evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
+    assert pin_a != pin_b and evaluate("push", feat, "a" * 40) not in (pin_a, pin_b)
+    assert evaluate("push", "refs/heads/main", "a" * 40) == "cmux-tui-artifacts-main"
+    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) == "cmux-tui-artifacts-pr-7"
+    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) != evaluate("pull_request_target", feat, "a" * 40, pr=8)
+    # A manual republish of one commit is never superseded by a branch push.
+    dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
+    assert dispatched != evaluate("push", feat, "c" * 40)
+    assert "c" * 40 in dispatched

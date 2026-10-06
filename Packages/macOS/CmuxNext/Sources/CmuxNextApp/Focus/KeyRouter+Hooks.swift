@@ -62,6 +62,12 @@ extension KeyRouter {
         return body()
     }
 
+    /// Whether a terminal may offer `event` to the main menu before Ghostty
+    /// (`TerminalKeyEquivalent.menuMayClaim`).
+    func menuMayClaim(_ event: NSEvent) -> Bool {
+        !decided.contains(event)
+    }
+
     func allowsMenuKeyEquivalent(_ id: ActionID) -> Bool {
         let allowed = menuGate(id)
         trace?("menu gate \(id.rawValue): \(allowed ? "allowed" : "refused")")

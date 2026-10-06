@@ -13,19 +13,19 @@ use crate::surface::SurfaceOptions;
 use crate::workspace_registry::WorkspacePresentationUpdate;
 use crate::workspace_registry::WorkspaceRegistry;
 
-struct Session {
+pub(super) struct Session {
     root: PathBuf,
     name: &'static str,
 }
 
 impl Session {
-    fn new(name: &'static str) -> Self {
+    pub(super) fn new(name: &'static str) -> Self {
         let root = std::env::temp_dir()
             .join(format!("cmux-state-{name}-{}", WorkspacePublicId::random().unwrap()));
         Self { root, name }
     }
 
-    fn open(&self) -> Arc<Mux> {
+    pub(super) fn open(&self) -> Arc<Mux> {
         let registry = WorkspaceRegistry::open(&self.root, self.name).unwrap();
         Mux::from_workspace_registry(
             self.name.into(),

@@ -10,6 +10,12 @@ import GhosttyNextKit
 public struct TerminalKeyEquivalent {
     public let view: TerminalSurfaceView
 
+    /// Whether the main menu may take `event` before Ghostty. The app says no
+    /// for a key its dispatcher already decided (it gave the key to this
+    /// terminal): a refused menu item still claims its key equivalent, so
+    /// asking the menu would swallow the user's Ghostty keybind (nxdog50).
+    public static var menuMayClaim: ((NSEvent) -> Bool)?
+
     /// Notes the path of a traced key (`debug.key`); nil otherwise.
     public static var trace: ((String) -> Void)?
 
@@ -28,7 +34,7 @@ public struct TerminalKeyEquivalent {
         }
         Self.trace?("terminal: Ghostty binding \(isBinding ? "yes" : "no")")
         if isBinding {
-            if NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+            if Self.menuMayClaim?(event) ?? true, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 Self.trace?("terminal: the menu took it")
                 return true
             }

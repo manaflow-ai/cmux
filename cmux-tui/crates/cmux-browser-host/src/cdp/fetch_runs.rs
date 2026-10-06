@@ -22,6 +22,9 @@ pub(crate) struct Runs {
     running: HashMap<String, Run>,
     /// Cancels that found no running fetch, with when they came.
     early: HashMap<String, Instant>,
+    /// Shells a fetch keeps across its redirect hops, one per origin
+    /// (origin, target), until the gate says the fetch is done.
+    kept: HashMap<String, Vec<(String, String)>>,
 }
 
 impl Runs {
@@ -69,13 +72,27 @@ impl Runs {
         }
     }
 
+    /// The shell a fetch keeps for `origin`, if any.
+    pub(super) fn kept_shell(&self, id: &str, origin: &str) -> Option<String> {
+        self.kept.get(id)?.iter().find(|(o, _)| o == origin).map(|(_, target)| target.clone())
+    }
+
+    pub(super) fn keep_shell(&mut self, id: &str, origin: &str, target: &str) {
+        self.kept.entry(id.to_owned()).or_default().push((origin.to_owned(), target.to_owned()));
+    }
+
+    /// The fetch is done (every hop): the shells it kept, to close.
+    pub(super) fn done(&mut self, id: &str) -> Vec<String> {
+        self.kept.remove(id).unwrap_or_default().into_iter().map(|(_, target)| target).collect()
+    }
+
     fn sweep(&mut self, now: Instant) {
         self.early.retain(|_, at| now.saturating_duration_since(*at) < EARLY_CANCEL_TTL);
     }
 
     #[cfg(test)]
     fn len(&self) -> usize {
-        self.running.len() + self.early.len()
+        self.running.len() + self.early.len() + self.kept.len()
     }
 }
 

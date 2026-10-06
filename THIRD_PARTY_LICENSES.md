@@ -160,10 +160,52 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ---
 
+<!-- notices-section: manual-ghostty-shell-integration -->
+## Ghostty shell integration
+
+The app bundles Ghostty's shell integration scripts from ghostty-next (`Contents/Resources/ghostty/shell-integration/`), and `bin/cmux` and `bin/cmux-tui-ssh/*` embed the files marked (embedded). Each file and its license:
+
+- `README.md`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `bash/bash-preexec.sh` (embedded): bash-preexec 0.7.0 (Ryan Caloras and contributors, https://github.com/rcaloras/bash-preexec), modified by Ghostty (__bp_adjust_histcontrol commented out); MIT (text below)
+- `bash/ghostty.bash` (embedded): Ghostty (ghostty-next), parts based on Kitty's bash integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+- `elvish/lib/ghostty-integration.elv`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `fish/vendor_conf.d/ghostty-shell-integration.fish` (embedded): Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `nushell/vendor/autoload/ghostty.nu`: Ghostty (ghostty-next); MIT (Ghostty's license, in the Ghostty section)
+- `zsh/.zshenv` (embedded): Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+- `zsh/ghostty-integration` (embedded): Ghostty (ghostty-next), based on Kitty's zsh integration (https://github.com/kovidgoyal/kitty); GPL-3.0-or-later (the GNU GPL text is `Contents/Resources/LICENSE`)
+
+bash-preexec 0.7.0 (https://github.com/rcaloras/bash-preexec, tag 0.7.0), MIT License:
+
+```text
+The MIT License
+
+Copyright (c) 2017 Ryan Caloras and contributors (see https://github.com/rcaloras/bash-preexec)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+---
+
 <!-- notices-section: manual-freetype -->
 ## FreeType
 
-GhosttyNextKit (Ghostty's terminal library in this app) statically links FreeType for font rendering. This app uses FreeType under the FreeType License (FTL); FreeType's LICENSE.TXT is in `Contents/Resources/ghostty-next-licenses/`. The FTL asks binary distributions to credit the FreeType Project:
+GhosttyNextKit (Ghostty's terminal library in this app) statically links FreeType for font rendering. This app uses FreeType under the FreeType License (FTL). `Contents/Resources/ghostty-next-licenses/` holds FreeType's LICENSE.TXT, the FTL text (docs/FTL.TXT) and the X11-style terms of the parts of FreeType that the app compiles in: the BDF driver (src/bdf/README), the PCF driver (src/pcf/README) and src/base/fthash.c. The FTL asks binary distributions to credit the FreeType Project:
 
 This software is based in part on the work of the FreeType Team (FreeType 2.13.2, https://freetype.org). Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org).  All rights reserved.
 
@@ -517,6 +559,260 @@ Shiki's Monaco adapter. It uses the shiki, vscode-textmate and Oniguruma code li
 - **License:** MIT License
 - **Copyright:** Copyright (c) 2021 Pine Wu; Copyright (c) 2023 Anthony Fu and Shiki contributors
 - **Source:** https://github.com/shikijs/shiki/tree/main/packages/monaco
+
+---
+
+<!-- notices-section: manual-cmux-browser-host-runtime-javascript -->
+## cmux browser host runtime JavaScript
+
+`bin/cmux-browser-host` embeds its runtime JavaScript (cmux-tui `crates/cmux-browser-host/js`, every file of `js/manifest.json`). Three embedded files are third-party code; the rest is cmux's own code (GPL-3.0-or-later, `Contents/Resources/LICENSE`). Rows: `cmux-tui/build-support/notices/browser-host/browser-host-js.json`.
+
+- `vendor/acorn.js`: acorn 8.16.0 (https://github.com/acornjs/acorn), `dist/acorn.js` unmodified; MIT (text below)
+- `vendor/playwright-injected.js`: Playwright (playwright-core 1.57.0, https://github.com/microsoft/playwright), `lib/generated/injectedScriptSource.js` (the evaluated source string, unmodified); Apache-2.0 (LICENSE and NOTICE below)
+- `vendor/playwright-locator-utils.js`: Playwright (playwright-core 1.57.0), `lib/utils/isomorphic/locatorUtils.js` and the escape helpers of `lib/utils/isomorphic/stringUtils.js`; the functions are unchanged, the module wrapper was changed by cmux (the file header says so); Apache-2.0 (LICENSE and NOTICE below)
+
+acorn 8.16.0, `LICENSE` from the npm package:
+
+```text
+MIT License
+
+Copyright (C) 2012-2022 by various contributors (see AUTHORS)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+playwright-core 1.57.0, `NOTICE` from the npm package:
+
+```text
+Playwright
+Copyright (c) Microsoft Corporation
+
+This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer),
+available under the Apache 2.0 license (https://github.com/puppeteer/puppeteer/blob/master/LICENSE).
+```
+
+playwright-core 1.57.0, `LICENSE` from the npm package (Apache License 2.0; shown with LF line endings):
+
+```text
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Portions Copyright (c) Microsoft Corporation.
+   Portions Copyright 2017 Google Inc.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
 
 ---
 
@@ -895,7 +1191,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 <!-- notices-section: ghostty-themes -->
 ## Ghostty themes
 
-Generated by scripts/cmux-next/notices/ghostty_themes_notice.py. The 463 color themes in `Contents/Resources/ghostty/themes` come from iTerm2-Color-Schemes release-20260216-151611-fc73ce3 (https://github.com/mbadolato/iTerm2-Color-Schemes, commit fc73ce39746540b6d5ec6b91e304785431401d85; archive https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20260216-151611-fc73ce3/ghostty-themes.tgz).
+Generated by scripts/cmux-next/notices/ghostty_themes_notice.py. The 617 color themes in `Contents/Resources/ghostty/themes` come from iTerm2-Color-Schemes release-20260921-150923-0b55a9e (https://github.com/mbadolato/iTerm2-Color-Schemes, commit 0b55a9e609daa0727be7d0d4705616dbe8d08fed; archive https://github.com/mbadolato/iTerm2-Color-Schemes/releases/download/release-20260921-150923-0b55a9e/ghostty-themes.tgz).
 
 Source of this text: https://raw.githubusercontent.com/mbadolato/iTerm2-Color-Schemes/c3968b385e8072d61651eb8e32f498703058c2fd/LICENSE
 
@@ -1255,7 +1551,7 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 - **ring 0.17.14**: Apache-2.0 AND ISC. Source: https://crates.io/api/v1/crates/ring/0.17.14/download. Files: `LICENSE` (text b3d734001a94), `LICENSE-BoringSSL` (text 005fc765ddc5), `LICENSE-other-bits` (text f025ccfb7dfb), `src/polyfill/once_cell/LICENSE-APACHE` (text a60eea817514), `src/polyfill/once_cell/LICENSE-MIT` (text 6ee2ed6c7771), `third_party/fiat/LICENSE` (text 9eacbcb81be6)
 - **rquickjs 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs/0.14.0/download. Files: `LICENSE` (text 976ad3d07927)
 - **rquickjs-core 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-core/0.14.0/download. Files: `reviewed-LICENSE` (text 976ad3d07927)
-- **rquickjs-sys 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download. Files: `quickjs/LICENSE` (text 96f73f9d2a16), `reviewed-LICENSE` (text 976ad3d07927)
+- **rquickjs-sys 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download. Files: `quickjs/LICENSE` (text 96f73f9d2a16), `reviewed-LICENSE` (text 976ad3d07927), `reviewed-UNICODE-LICENSE-V3.txt` (text e7a93b009565), `reviewed-quickjs-c-atomics-LICENSE.txt` (text 0a726795ea99)
 - **rusqlite 0.39.0**: MIT. Source: https://crates.io/api/v1/crates/rusqlite/0.39.0/download. Files: `LICENSE` (text c10c1f273375)
 - **rustc-hash 2.1.3**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/rustc-hash/2.1.3/download. Files: `LICENSE-APACHE` (text 95bd3988beee), `LICENSE-MIT` (text 30fefc3a7d6a)
 - **rustix 1.1.4**: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/rustix/1.1.4/download. Files: `COPYRIGHT` (text 377c2e7c5325), `LICENSE-APACHE` (text a60eea817514), `LICENSE-Apache-2.0_WITH_LLVM-exception` (text 268872b9816f), `LICENSE-MIT` (text 23f18e03dc49)
@@ -1405,10 +1701,69 @@ Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo
 - **relative-path 2.0.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/relative-path/2.0.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
 - **rquickjs 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs/0.14.0/download. Files: `LICENSE` (text 976ad3d07927)
 - **rquickjs-core 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-core/0.14.0/download. Files: `reviewed-LICENSE` (text 976ad3d07927)
-- **rquickjs-sys 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download. Files: `quickjs/LICENSE` (text 96f73f9d2a16), `reviewed-LICENSE` (text 976ad3d07927)
+- **rquickjs-sys 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download. Files: `quickjs/LICENSE` (text 96f73f9d2a16), `reviewed-LICENSE` (text 976ad3d07927), `reviewed-UNICODE-LICENSE-V3.txt` (text e7a93b009565), `reviewed-quickjs-c-atomics-LICENSE.txt` (text 0a726795ea99)
 - **serde 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
 - **serde_core 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_core/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
 - **serde_json 1.0.151**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_json/1.0.151/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **zmij 1.0.23**: MIT. Source: https://crates.io/api/v1/crates/zmij/1.0.23/download. Files: `LICENSE-MIT` (text 23f18e03dc49)
+
+---
+
+<!-- notices-section: rust-cmux-browser-host -->
+## Rust crates: browser host (bin/cmux-browser-host)
+
+Generated by cmux-tui/build-support/notices/rust_notices.py from `cmux-tui/Cargo.lock at the cmux-tui pin 4a232fc2c61` (roots: cmux-browser-host; targets: aarch64-apple-darwin, x86_64-apple-darwin; closure: lock text). Each crate lists its license files; identical license texts are printed once, under "License texts".
+
+- **allocator-api2 0.2.21**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/allocator-api2/0.2.21/download. Files: `LICENSE-APACHE` (text 20fe7b00e904), `LICENSE-MIT` (text 36516aefdc84)
+- **block-buffer 0.10.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/block-buffer/0.10.4/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text d5c22aa3118d)
+- **cfg-if 1.0.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cfg-if/1.0.4/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 378f5840b258)
+- **cmux-browser-host 0.1.0**: GPL-3.0-or-later. Source: https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-4a232fc2c61/cmux-tui/crates/cmux-browser-host. Files: `LICENSE` (text 9a430cd033a2)
+- **cpufeatures 0.2.17**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/cpufeatures/0.2.17/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text ae9baa7beea9)
+- **crypto-common 0.1.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/crypto-common/0.1.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 3521672491a3)
+- **digest 0.10.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/digest/0.10.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 9e0dfd2dd417)
+- **equivalent 1.0.2**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/equivalent/1.0.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 7365cc8878a1)
+- **foldhash 0.2.0**: Zlib. Source: https://crates.io/api/v1/crates/foldhash/0.2.0/download. Files: `LICENSE` (text b1181a40b2a7)
+- **form_urlencoded 1.2.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/form_urlencoded/1.2.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 20c7855c364d)
+- **generic-array 0.14.7**: MIT. Source: https://crates.io/api/v1/crates/generic-array/0.14.7/download. Files: `LICENSE` (text c09aae9d3c77)
+- **getrandom 0.2.17**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/getrandom/0.2.17/download. Files: `LICENSE-APACHE` (text aaff376532ea), `LICENSE-MIT` (text 42fa16951ce7)
+- **hashbrown 0.17.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/hashbrown/0.17.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text ff8f68cb076c)
+- **hmac 0.12.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/hmac/0.12.1/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text 9e0dfd2dd417)
+- **icu_collections 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_collections/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_locale_core 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_locale_core/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_normalizer 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_normalizer/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_normalizer_data 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_normalizer_data/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_properties 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_properties/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_properties_data 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_properties_data/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **icu_provider 2.2.0**: Unicode-3.0. Source: https://crates.io/api/v1/crates/icu_provider/2.2.0/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **idna 1.1.0**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/idna/1.1.0/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text b38f11f60967)
+- **idna_adapter 1.2.2**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/idna_adapter/1.2.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 8b43ce8accd6)
+- **itoa 1.0.18**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/itoa/1.0.18/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **libc 0.2.189**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/libc/0.2.189/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 123a331b5dbf)
+- **litemap 0.8.2**: Unicode-3.0. Source: https://crates.io/api/v1/crates/litemap/0.8.2/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **memchr 2.8.3**: Unlicense OR MIT. Source: https://crates.io/api/v1/crates/memchr/2.8.3/download. Files: `COPYING` (text 01c266bced4a), `LICENSE-MIT` (text 0f96a83840e1), `UNLICENSE` (text 7e12e5df4bae)
+- **percent-encoding 2.3.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/percent-encoding/2.3.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text b38f11f60967)
+- **potential_utf 0.1.5**: Unicode-3.0. Source: https://crates.io/api/v1/crates/potential_utf/0.1.5/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **rand_core 0.6.4**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/rand_core/0.6.4/download. Files: `COPYRIGHT` (text 90eb64f0279b), `LICENSE-APACHE` (text 6df43f6f4b5d), `LICENSE-MIT` (text 209fbbe0ad52)
+- **relative-path 2.0.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/relative-path/2.0.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 6485b8ed310d)
+- **rquickjs 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs/0.14.0/download. Files: `LICENSE` (text 976ad3d07927)
+- **rquickjs-core 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-core/0.14.0/download. Files: `reviewed-LICENSE` (text 976ad3d07927)
+- **rquickjs-sys 0.14.0**: MIT. Source: https://crates.io/api/v1/crates/rquickjs-sys/0.14.0/download. Files: `quickjs/LICENSE` (text 96f73f9d2a16), `reviewed-LICENSE` (text 976ad3d07927), `reviewed-UNICODE-LICENSE-V3.txt` (text e7a93b009565), `reviewed-quickjs-c-atomics-LICENSE.txt` (text 0a726795ea99)
+- **serde 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **serde_core 1.0.229**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_core/1.0.229/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **serde_json 1.0.151**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/serde_json/1.0.151/download. Files: `LICENSE-APACHE` (text 62c7a1e35f56), `LICENSE-MIT` (text 23f18e03dc49)
+- **sha1 0.10.7**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/sha1/0.10.7/download. Files: `LICENSE-APACHE` (text a9040321c371), `LICENSE-MIT` (text b4eb00df6e2a)
+- **smallvec 1.15.2**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/smallvec/1.15.2/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 0b28172679e0)
+- **stable_deref_trait 1.2.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/stable_deref_trait/1.2.1/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text 5e05b024f653)
+- **subtle 2.6.1**: BSD-3-Clause. Source: https://crates.io/api/v1/crates/subtle/2.6.1/download. Files: `LICENSE` (text d1fc1bc0d155)
+- **tinystr 0.8.3**: Unicode-3.0. Source: https://crates.io/api/v1/crates/tinystr/0.8.3/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **typenum 1.20.1**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/typenum/1.20.1/download. Files: `LICENSE` (text db11fec99467), `LICENSE-APACHE` (text 516b24e051bf), `LICENSE-MIT` (text a825bd853ab7)
+- **url 2.5.8**: MIT OR Apache-2.0. Source: https://crates.io/api/v1/crates/url/2.5.8/download. Files: `LICENSE-APACHE` (text a60eea817514), `LICENSE-MIT` (text b38f11f60967)
+- **utf8_iter 1.0.4**: Apache-2.0 OR MIT. Source: https://crates.io/api/v1/crates/utf8_iter/1.0.4/download. Files: `COPYRIGHT` (text c30152c94a6d), `LICENSE-APACHE` (text cfc7749b96f6), `LICENSE-MIT` (text 3fa4ca83dcc9)
+- **writeable 0.6.3**: Unicode-3.0. Source: https://crates.io/api/v1/crates/writeable/0.6.3/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **yoke 0.8.3**: Unicode-3.0. Source: https://crates.io/api/v1/crates/yoke/0.8.3/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **zerofrom 0.1.8**: Unicode-3.0. Source: https://crates.io/api/v1/crates/zerofrom/0.1.8/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **zerotrie 0.2.4**: Unicode-3.0. Source: https://crates.io/api/v1/crates/zerotrie/0.2.4/download. Files: `LICENSE` (text f367c1b8e1aa)
+- **zerovec 0.11.6**: Unicode-3.0. Source: https://crates.io/api/v1/crates/zerovec/0.11.6/download. Files: `LICENSE` (text f367c1b8e1aa)
 - **zmij 1.0.23**: MIT. Source: https://crates.io/api/v1/crates/zmij/1.0.23/download. Files: `LICENSE-MIT` (text 23f18e03dc49)
 
 ---
@@ -3497,6 +3852,34 @@ Permission is granted to anyone to use this software for any purpose, including 
 2. Altered source versions must be plainly marked as such, and must not be misrepresented as being the original software.
 
 3. This notice may not be removed or altered from any source distribution.
+```
+
+#### Text 0a726795ea99
+
+```text
+/*
+ * QuickJS C atomics definitions
+ *
+ * Copyright (c) 2023 Marcin Kolny
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 ```
 
 #### Text 0ab4d106b6fa
@@ -23924,6 +24307,50 @@ CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
+```
+
+#### Text e7a93b009565
+
+```text
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2026 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.
 ```
 
 #### Text ea084a2373eb

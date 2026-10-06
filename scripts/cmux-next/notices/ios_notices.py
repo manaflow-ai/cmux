@@ -85,12 +85,18 @@ LANGUAGES = ("en", "ja")
 # Bytes that only GNU gettext's libintl puts into an object or a linked binary.
 LIBINTL_MARKERS = (b"libintl_dcigettext", b"GETTEXT_LOG_UNTRANSLATED", b"gettext-runtime/intl")
 SLICE = "ios-arm64"
-# The z2d MPL-2.0 Executable Form notice (MPL-2.0 3.2(a)) for the iOS app.
+# The z2d MPL-2.0 Executable Form notice (MPL-2.0 3.2(a)) for the iOS app. Each iOS
+# release publishes its own corresponding-source archive (IOS-SOURCE-ARCHIVE-PER-RELEASE:
+# cmux-next-source-archive.yml builds it before the upload, publish-ios-source-archive.sh
+# attaches it); upstream URLs alone are not an offer.
 Z2D_OFFER = """z2d is licensed under the Mozilla Public License 2.0 (MPL-2.0); its text is above. \
 This app contains z2d in Executable Form, unmodified. The Source Code Form of the exact \
-version in this app is available at {url} (the archive that Ghostty {revision} fetches) \
-and at https://github.com/vancluever/z2d. The Ghostty source that selects it is at \
-https://github.com/manaflow-ai/ghostty-next/tree/{revision}."""
+version in this app is in the cmux iOS release source archive cmux-ios-source-<build>.tar.gz, \
+published with this release at https://github.com/manaflow-ai/cmux/releases/download/ios-source/ \
+(<build> is the build number in the app's version), and the cmux source of this build is at its \
+public tag https://github.com/manaflow-ai/cmux/tree/cmux-next-src-<commit, 11 characters>. The \
+archive contains Ghostty {revision} (https://github.com/manaflow-ai/ghostty-next/tree/{revision}) \
+and every Ghostty Zig package archive, z2d included."""
 
 # The FreeType License (docs/FTL.TXT, section 3) asks binary redistributions to cite the
 # FreeType Project in their documentation, with the year of the FreeType version in use.

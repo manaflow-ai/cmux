@@ -28,6 +28,13 @@ public nonisolated struct OmniboxRemoteSuggestions {
         return true
     }
 
+    /// `text` without a leading "=" and spaces, as an answer reads.
+    static func answerText(_ text: String) -> String {
+        var trimmed = Substring(text.trimmingCharacters(in: .whitespacesAndNewlines))
+        if trimmed.hasPrefix("=") { trimmed = trimmed.dropFirst() }
+        return trimmed.trimmingCharacters(in: .whitespaces)
+    }
+
     /// The suggestions of an OpenSearch JSON response (`[query, [s1, s2, ...], ...]`),
     /// in order. Bytes that are not UTF-8 read as Latin-1 (Google's
     /// `client=firefox` answers in ISO-8859-1 for some languages).
@@ -39,12 +46,16 @@ public nonisolated struct OmniboxRemoteSuggestions {
     }
 
     /// Search rows for `suggestions` of the typed `query`: no repeat of the
-    /// query itself or of one another, at most `limit`, never inline-completable.
-    public static func rows(_ suggestions: [String], query: String, engine: BrowserSearchEngine, limit: Int) -> [BrowserSuggestion] {
+    /// query itself, of one another, or of the calculator's `answer` ("4"
+    /// or "= 4" when the answer row already says "= 4"), at most `limit`,
+    /// never inline-completable.
+    public static func rows(_ suggestions: [String], query: String, engine: BrowserSearchEngine, limit: Int,
+                            answer: String? = nil) -> [BrowserSuggestion] {
         var seen: Set<String> = [query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
         var rows: [BrowserSuggestion] = []
         for suggestion in suggestions where rows.count < limit {
             let text = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let answer, answerText(text) == answer { continue }
             guard !text.isEmpty, seen.insert(text.lowercased()).inserted, let url = engine.searchURL(for: text) else { continue }
             var row = BrowserSuggestion(kind: .search, title: text, detail: "", url: url, score: topScore - Double(rows.count))
             row.inlineCompletable = false
@@ -61,12 +72,15 @@ public nonisolated struct OmniboxConfiguration: Hashable, Sendable {
     public var remoteSuggestions = true
     public var inlineAutocomplete = true
     public var maxRows = 8
+    /// `browser.omnibar.calculator`: arithmetic answers.
+    public var calculator = true
 
     public init(searchEngine: BrowserSearchEngine = .google, remoteSuggestions: Bool = true, inlineAutocomplete: Bool = true,
-                maxRows: Int = 8) {
+                maxRows: Int = 8, calculator: Bool = true) {
         self.searchEngine = searchEngine
         self.remoteSuggestions = remoteSuggestions
         self.inlineAutocomplete = inlineAutocomplete
         self.maxRows = maxRows
+        self.calculator = calculator
     }
 }

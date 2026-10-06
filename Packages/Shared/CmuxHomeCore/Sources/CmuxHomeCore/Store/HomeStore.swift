@@ -37,6 +37,15 @@ public final class HomeStore {
     @ObservationIgnored private var pendingResends: [HomeIntent] = []
     @ObservationIgnored private var refetching: Set<HomeStream> = []
     @ObservationIgnored private var olderLoading: Set<ConversationID> = []
+    /// Views showing each conversation's transcript now (`open` minus `close`).
+    @ObservationIgnored private(set) var viewers: [ConversationID: Int] = [:]
+    /// Bumps each time a conversation goes from shown nowhere to shown. A
+    /// page read under an older epoch was read before a close: the close
+    /// ended what the source kept for it (a cloud subscription), so the
+    /// page is dropped and, when the conversation is shown again, read again.
+    @ObservationIgnored private var openEpochs: [ConversationID: UInt64] = [:]
+    /// The transcript read running per conversation (one at a time).
+    @ObservationIgnored private var loads: [ConversationID: Task<Void, Never>] = [:]
     @ObservationIgnored private var stopped = false
     /// Where prepared attachments live (`<root>/<hash>/data.<ext>`).
     @ObservationIgnored public let blobCacheDirectory: URL
@@ -68,6 +77,9 @@ public final class HomeStore {
     @ObservationIgnored private let clock: any Clock<Duration>
     /// A send or op the owner refused after the call that made it returned
     /// (a resumed upload, a resend): the host says why. On the main actor.
+    /// Each live view of the intent's conversation hears it through its
+    /// registered hooks (`register(_:)`, what `HomeStoreBinding` does);
+    /// this hears it only when no view of that conversation is registered.
     /// Resends that run out without an answer are not refusals and do not
     /// come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onRefusal: ((HomeIntent, HomeRejection) -> Void)?
@@ -75,9 +87,13 @@ public final class HomeStore {
     /// whose resends ran out without an answer: it left the log, so the
     /// change is gone from the transcript until an echo shows the owner
     /// did commit it. The host says it may not have gone through. On the
-    /// main actor. A send keeps its "Not Delivered" row and does not come
-    /// here (see `HomeSendState.unanswered`).
+    /// main actor. Like `onRefusal`, it hears only what no registered view
+    /// of the conversation hears. A send keeps its "Not Delivered" row and
+    /// does not come here (see `HomeSendState.unanswered`).
     @ObservationIgnored public var onUnanswered: ((HomeIntent) -> Void)?
+    /// The hooks of the views showing each conversation, held weakly (a
+    /// view freed without `unregister` hears nothing and is pruned).
+    @ObservationIgnored private var hooks: [ConversationID: [WeakConversationHooks]] = [:]
     /// Test seam: awaited before the prune deletes each blob directory.
     @ObservationIgnored var pruneWillDelete: (@Sendable (String) async -> Void)?
 
@@ -201,12 +217,45 @@ public final class HomeStore {
 
     // MARK: Paging
 
-    /// Loads the newest messages of a conversation the first time it opens.
-    /// Events committed while the page loads are buffered and kept.
+    /// A view shows the conversation's transcript; each call pairs with one
+    /// `close`. Loads the newest messages the first time it opens. Events
+    /// committed while the page loads are buffered and kept.
     public func open(_ id: ConversationID) async {
-        guard mirror.windows[id] == nil else { return }
+        await beginOpen(id).value
+    }
+
+    /// `open` without waiting: the view counts as shown when this returns,
+    /// so a `close` right after pairs with it. The task ends when the first
+    /// page is in (at once when it already was).
+    @discardableResult
+    public func beginOpen(_ id: ConversationID) -> Task<Void, Never> {
+        if viewers[id] == nil { openEpochs[id, default: 0] += 1 }
+        viewers[id, default: 0] += 1
+        if let running = loads[id] {
+            // A read that started before a close reads again for this open.
+            mirror.beginLoading(id)
+            return running
+        }
+        guard mirror.windows[id] == nil else { return Task {} }
         mirror.beginLoading(id)
-        await refetch(.conversation(id))
+        return load(id)
+    }
+
+    /// A view of the conversation's transcript went away; pairs with one
+    /// `open`. When the last one goes, the transcript is on screen nowhere:
+    /// the store drops its window (the next `open` loads it again) and tells
+    /// the source, which may end what it keeps for it (a cloud
+    /// subscription, an archived conversation shown only while open).
+    public func close(_ id: ConversationID) {
+        guard let count = viewers[id] else { return }
+        guard count <= 1 else {
+            viewers[id] = count - 1
+            return
+        }
+        viewers[id] = nil
+        mirror.endTranscript(id)
+        bumpTranscript(id)
+        source.close(id)
     }
 
     public func loadOlder(_ id: ConversationID) async {
@@ -559,7 +608,7 @@ public final class HomeStore {
             try await uploadAndSubmitPasses(&key)
         } catch let rejection as HomeRejection {
             if background, let entry = log.entries.first(where: { $0.intent.key == key }), case .failed = entry.state {
-                onRefusal?(entry.intent, rejection)
+                reportRefusal(entry.intent, rejection)
             }
             throw rejection
         }
@@ -744,7 +793,7 @@ public final class HomeStore {
         uploads[key]?.waitingForReconnect = false
         leaveSendQueue(key)
         afterLogChange(entry.intent.op)
-        if case .sendMessage = entry.intent.op {} else { onUnanswered?(entry.intent) }
+        if case .sendMessage = entry.intent.op {} else { reportUnanswered(entry.intent) }
     }
 
     private func cancelBackoff(_ key: IdempotencyKey) {
@@ -1024,7 +1073,7 @@ public final class HomeStore {
                     _ = try await self.submit(next)
                 } catch let rejection as HomeRejection {
                     // Nobody awaits a resend: the host hears of the refusal.
-                    self.onRefusal?(next, rejection)
+                    self.reportRefusal(next, rejection)
                 } catch {}
             }
             self?.resendTask = nil
@@ -1048,6 +1097,19 @@ public final class HomeStore {
                 for stream in mirror.stale { scheduleRefetch(stream) }
             }
             rebuildRows()
+        case .ownerRecovered:
+            // Offline intents wait for the reconnect, which resends them anyway.
+            guard isOnline else { return }
+            enqueueResends(log.takeResends())
+            for stream in mirror.stale { scheduleRefetch(stream) }
+            rebuildRows()
+        case .intentsRevoked(let keys):
+            // A resend already queued must not go either; one in flight is refused by its owner.
+            pendingResends.removeAll { keys.contains($0.key) }
+            for op in log.revoke(keys) {
+                if let id = op.conversation { bumpTranscript(id) }
+            }
+            rebuildRows()
         case .typing(let id, let who, let on):
             var set = typing[id] ?? []
             if on { set.insert(who) } else { set.remove(who) }
@@ -1066,6 +1128,8 @@ public final class HomeStore {
                 dropOrphanUploadJobs()
             case .message(let message, _):
                 bumpTranscript(message.conversation)
+            case .conversationPage(let page):
+                bumpTranscript(page.conversation.id)
             default:
                 break
             }
@@ -1076,39 +1140,144 @@ public final class HomeStore {
     }
 
     private func scheduleRefetch(_ stream: HomeStream) {
-        guard !refetching.contains(stream), !stopped else { return }
-        Task { await self.refetch(stream) }
+        guard !stopped else { return }
+        switch stream {
+        case .inbox:
+            guard !refetching.contains(stream) else { return }
+            Task { await self.refetchInbox() }
+        case .conversation(let id):
+            load(id)
+        }
     }
 
-    /// Fetches a stream until it is caught up (at most three tries per call).
-    /// A failure leaves it stale; the next reconnect fetches it again.
-    private func refetch(_ stream: HomeStream) async {
+    /// Fetches the inbox. A failure leaves it stale; the next reconnect
+    /// fetches it again.
+    private func refetchInbox() async {
+        let stream = HomeStream.inbox
         guard !refetching.contains(stream), !stopped else { return }
         refetching.insert(stream)
         defer { refetching.remove(stream) }
-        for _ in 0..<3 where !stopped {
-            switch stream {
-            case .inbox:
-                guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
-                let behind = mirror.apply(inbox: snapshot)
-                me = snapshot.me
+        guard let snapshot = try? await source.inbox() else { mirror.markStale(stream); return }
+        let behind = mirror.apply(inbox: snapshot)
+        me = snapshot.me
+        settle()
+        rebuildRows()
+        for next in behind { scheduleRefetch(next) }
+    }
+
+    /// The conversation's transcript read, or the one already running.
+    @discardableResult
+    private func load(_ id: ConversationID) -> Task<Void, Never> {
+        if let running = loads[id] { return running }
+        let task = Task {
+            await self.readTranscript(id)
+            self.loads[id] = nil
+        }
+        loads[id] = task
+        return task
+    }
+
+    /// Reads the conversation's tail until it is caught up (at most three
+    /// gaps per call), only while a view shows it. A failure leaves it
+    /// stale; the next reconnect reads it again.
+    ///
+    /// Shown nowhere, nothing is read: a read would set up what only a
+    /// `close` ends (a cloud subscription). Without a window a stale mark
+    /// only holds intents back, and the inbox carries the summary, so it
+    /// is cleared. A page that comes back after its transcript closed is
+    /// dropped (the close ended the window and told the source); one that
+    /// comes back after a close and a new open is read again, so the source
+    /// sets up again what the close ended. A read that returns after its
+    /// transcript closed closes the source again.
+    private func readTranscript(_ id: ConversationID) async {
+        let stream = HomeStream.conversation(id)
+        var gaps = 0
+        while gaps < 3, !stopped {
+            guard viewers[id] != nil else {
+                mirror.endTranscript(id)
                 settle()
                 rebuildRows()
-                for next in behind { scheduleRefetch(next) }
                 return
-            case .conversation(let id):
-                guard let page = try? await source.snapshot(of: id, tail: Self.tailSize) else {
-                    mirror.markStale(stream)
-                    return
-                }
-                let outcome = mirror.apply(page: page)
-                bumpTranscript(id)
-                settle()
-                rebuildRows()
-                if outcome == .applied { return }
             }
+            let epoch = openEpochs[id]
+            let page = try? await source.snapshot(of: id, tail: Self.tailSize)
+            guard !stopped else { return }
+            guard viewers[id] != nil else {
+                // Closed while the read ran. The source reads off the main
+                // actor, so the close may have reached it before the read
+                // set anything up (a cloud subscription), which the read
+                // then did: close it again.
+                source.close(id)
+                return
+            }
+            guard openEpochs[id] == epoch else { continue }
+            guard let page else {
+                mirror.markStale(stream)
+                return
+            }
+            let outcome = mirror.apply(page: page)
+            bumpTranscript(id)
+            settle()
+            rebuildRows()
+            if outcome == .applied { return }
+            gaps += 1
         }
     }
+
+    // MARK: Conversation hooks
+
+    /// A view of `hooks.conversation` hears that conversation's refusals and
+    /// unanswered ops nobody awaits until `unregister`, or until it is freed
+    /// (the store holds it weakly). Registering it again does nothing.
+    public func register(_ hooks: HomeConversationHooks) {
+        let id = hooks.conversation
+        var list = self.hooks[id, default: []].filter { $0.hooks != nil }
+        if !list.contains(where: { $0.hooks === hooks }) { list.append(WeakConversationHooks(hooks: hooks)) }
+        self.hooks[id] = list
+    }
+
+    /// The view stopped: it hears nothing more. Unregistering hooks that are
+    /// not registered does nothing.
+    public func unregister(_ hooks: HomeConversationHooks) {
+        let id = hooks.conversation
+        let list = self.hooks[id, default: []].filter { $0.hooks != nil && $0.hooks !== hooks }
+        self.hooks[id] = list.isEmpty ? nil : list
+    }
+
+    /// Drops the entries of `conversation`'s hooks that were freed without
+    /// `unregister` (a binding's deinit calls it).
+    public func pruneHooks(for conversation: ConversationID) {
+        let list = hooks[conversation, default: []].filter { $0.hooks != nil }
+        hooks[conversation] = list.isEmpty ? nil : list
+    }
+
+    /// The live hooks of the intent's conversation, in registration order.
+    /// Taken before any is called, so a hook that unregisters (or registers
+    /// another) while it runs changes no delivery of this intent.
+    private func liveHooks(for intent: HomeIntent) -> [HomeConversationHooks] {
+        guard let id = intent.op.conversation else { return [] }
+        pruneHooks(for: id)
+        return hooks[id, default: []].compactMap(\.hooks)
+    }
+
+    /// A refusal nobody awaits: each live view of its conversation hears it
+    /// once; with none, `onRefusal` does.
+    func reportRefusal(_ intent: HomeIntent, _ rejection: HomeRejection) {
+        let live = liveHooks(for: intent)
+        guard !live.isEmpty else { onRefusal?(intent, rejection); return }
+        for hooks in live { hooks.onRefusal(intent, rejection) }
+    }
+
+    /// An op that ran out of resends: each live view of its conversation
+    /// hears it once; with none, `onUnanswered` does.
+    func reportUnanswered(_ intent: HomeIntent) {
+        let live = liveHooks(for: intent)
+        guard !live.isEmpty else { onUnanswered?(intent); return }
+        for hooks in live { hooks.onUnanswered(intent) }
+    }
+
+    /// Hook entries the store holds now, live or freed and not yet pruned (tests).
+    var registeredHookCount: Int { hooks.values.reduce(0) { $0 + $1.count } }
 
     private func settle() {
         let settled = log.settle(against: mirror)
