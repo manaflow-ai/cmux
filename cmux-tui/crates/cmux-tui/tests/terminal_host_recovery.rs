@@ -1056,6 +1056,23 @@ fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     assert_eq!(drained["next_offset"], stream_end.to_string());
     assert_eq!(drained["complete"], true);
 
+    // The close policy took the workspace's only tab, so the workspace
+    // closed with it (LAST-TAB-CLOSES-WORKSPACE): the keep-policy run gets
+    // a new one.
+    let kept_workspace = resource_request(
+        &harness.socket,
+        "output-read-kept-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Output read kept",
+            "initial_content":"empty",
+        }),
+        Some("output-read-kept-workspace"),
+    );
+    let workspace = kept_workspace["value"]["workspace_id"].as_str().unwrap();
+
     // Keep policy: the exited terminal retains its views, and the same read
     // serves its output without escapes.
     let kept_run = resource_request(
@@ -4132,9 +4149,9 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .expect("Ctrl-D removed the workspace identity");
-    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id));
+    // Its only tab went, so the workspace closed too (LAST-TAB-CLOSES-WORKSPACE).
+    assert!(workspace.is_none(), "Ctrl-D left an empty workspace behind: {tree}");
 }
 
 #[test]
