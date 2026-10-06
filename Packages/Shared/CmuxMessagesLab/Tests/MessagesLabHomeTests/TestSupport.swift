@@ -12,6 +12,8 @@ actor ScriptedSource: HomeSource {
     var messages: [CmuxHomeCore.Message]
     private var continuation: AsyncStream<HomeEvent>.Continuation?
     private(set) var submitted: [HomeIntent] = []
+    /// Every attachment upload, in order (the owner's stored ref is the declared one).
+    private(set) var uploads: [AttachmentRef] = []
     var refusal: HomeRejection?
     private var rev: Revision = 10
 
@@ -44,6 +46,11 @@ actor ScriptedSource: HomeSource {
         if let refusal { throw refusal }
         rev += 1
         return HomeOpResult(rev: rev)
+    }
+
+    func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        uploads.append(file.ref)
+        return file.ref
     }
 
     func search(_ query: String, limit: Int) -> [HomeSearchHit] { [] }
@@ -97,6 +104,15 @@ enum Fixture2 {
 final class NoWake: ChatWakeScheduler {
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void) {}
     func cancel() {}
+}
+
+/// Waits for an actor's state (a source's submits).
+@MainActor
+func waitFor(_ condition: () async -> Bool) async {
+    for _ in 0..<400 {
+        if await condition() { return }
+        try? await Task.sleep(for: .milliseconds(5))
+    }
 }
 
 @MainActor
