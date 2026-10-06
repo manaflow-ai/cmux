@@ -9,21 +9,31 @@ above the large-file threshold. Screenshots are `debug.window_snapshot` of the a
 `debug.page snapshot` of the page. The app quits through `debug.quit`; only the PID launched here
 is ever killed. Run on cmux-lawrence-2, never the laptop.
 
-Usage: file-pages-e2e.py --tag <tag> [--out DIR]
+On exit (also a failure, Ctrl-C or SIGTERM) the tag's daemons end (tag_teardown.py): the app
+keeps cmux-tui, acpmux and their hosts running after a quit, and they hold PTYs.
+
+Usage: file-pages-e2e.py --tag <tag> [--app <path to cmux DEV <tag>.app>] [--out DIR]
 """
 import argparse, glob, hashlib, json, os, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
+parser.add_argument("--app", help="the tagged app (default: the DerivedData build of --tag)")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="file-pages-e2e-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
-APP = next(iter(sorted(glob.glob(os.path.expanduser(
+APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
     f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tag_teardown import TagTeardown, pty_count
+TEARDOWN = TagTeardown(APP)
+TEARDOWN.install()
+PTYS_BEFORE = pty_count()
+print(f"PTYs open before: {PTYS_BEFORE}", flush=True)
 SCRATCH = tempfile.mkdtemp(prefix=f"file-pages-{opts.tag}-")
 FIXTURE = "/tmp/hq48fp-fixture"
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -255,4 +265,6 @@ finally:
             print(f"killed {app.pid} (did not quit)", flush=True)
     if app and app.returncode not in (None, 0):
         print(open(os.path.join(SCRATCH, "app.log")).read()[-3000:])
+    TEARDOWN.end()
+    print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
 sys.exit(1 if failures else 0)

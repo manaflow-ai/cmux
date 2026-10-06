@@ -24,6 +24,9 @@ openLink). The "without a gesture" step waits 1.5 s after the last debug.key, so
 the 1 s window. Editor autosave is off in the test config, so edits stay unsaved until the quit. Apps quit
 through debug.quit; the only signals go to the PIDs this script launched. Run on cmux-lawrence-2, never the laptop.
 
+On exit (also a failure, Ctrl-C or SIGTERM) the tag's daemons end (tag_teardown.py): the app
+keeps cmux-tui, acpmux and their hosts running after a quit, and they hold PTYs.
+
 Usage: file-pages-r96-e2e.py --tag <tag> --app <path to cmux DEV <tag>.app> [--out DIR]
 """
 import argparse, json, os, signal, socket, subprocess, sys, tempfile, time
@@ -36,6 +39,12 @@ opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 BINARY = os.path.join(opts.app, "Contents/MacOS/cmux DEV")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tag_teardown import TagTeardown, pty_count
+TEARDOWN = TagTeardown(opts.app)
+TEARDOWN.install()
+PTYS_BEFORE = pty_count()
+print(f"PTYs open before: {PTYS_BEFORE}", flush=True)
 SCRATCH = tempfile.mkdtemp(prefix=f"file-pages-r96-{opts.tag}-")
 FIXTURE = "/tmp/hq48fp-r96-fixture"
 CONFIG = os.path.join(SCRATCH, "cmux.json")
@@ -341,4 +350,6 @@ finally:
                 app.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 app.send_signal(signal.SIGKILL)  # the PID launched here, never a pattern
+    TEARDOWN.end()
+    print(f"PTYs open before: {PTYS_BEFORE}, after: {pty_count()}", flush=True)
 sys.exit(1 if failures else 0)
