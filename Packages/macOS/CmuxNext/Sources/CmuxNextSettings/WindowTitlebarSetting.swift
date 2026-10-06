@@ -3,7 +3,8 @@ public import CmuxNextDesign
 /// `window.titlebar` in cmux.json: "minimal" (default: no titlebar strip,
 /// the top row's empty space moves the window) or "standard" (a titlebar
 /// strip with the workspace name).
-public nonisolated enum WindowTitlebarSetting {
+public nonisolated struct WindowTitlebarSetting {
+    public nonisolated init() {}
     public static let configPath = ["window", "titlebar"]
     public static let fallback: TitlebarStyle = .minimal
 
@@ -21,7 +22,8 @@ public nonisolated enum WindowTitlebarSetting {
 
 /// `window.titlebarButtons` in cmux-next.json (R83): "hover" (default) or
 /// "always".
-public nonisolated enum TitlebarButtonsSetting {
+public nonisolated struct TitlebarButtonsSetting {
+    public nonisolated init() {}
     public static let configPath = ["window", "titlebarButtons"]
     public static let fallback: TitlebarButtonsMode = .hover
 
@@ -36,7 +38,8 @@ public nonisolated enum TitlebarButtonsSetting {
 }
 
 /// `tabs.plusButton` in cmux-next.json (R120): "hover" (default) or "always".
-public nonisolated enum PlusButtonSetting {
+public nonisolated struct PlusButtonSetting {
+    public nonisolated init() {}
     public static let configPath = ["tabs", "plusButton"]
     public static let fallback: PlusButtonMode = .hover
 

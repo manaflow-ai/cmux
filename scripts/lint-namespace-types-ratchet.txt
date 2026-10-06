@@ -90,9 +90,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTuna
 Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/DropOverlayTunables.swift:LayoutTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/System/ExternalOpenRoute.swift:ShellQuote
 Packages/macOS/CmuxNext/Sources/CmuxNextOnboarding/Theme/GhosttyThemeFile.swift:GhosttyThemeFile
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/PaletteRanker.swift:PaletteRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchPlan.swift:TabSearchPlan
-Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchRanker.swift:TabSearchRanker
 Packages/macOS/CmuxNext/Sources/CmuxNextPalette/TabSearch/TabSearchStyle.swift:PaletteTunables
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/HealthAlert.swift:HealthOrdering
 Packages/macOS/CmuxNext/Sources/CmuxNextServer/Model/PairingCode.swift:PairingCode
@@ -114,7 +112,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettings/SidebarSectionsSetting.swift:Si
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/StripScrollbarSetting.swift:StripScrollbarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/TerminalCommandHistorySetting.swift:TerminalCommandHistorySetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowBackgroundSetting.swift:WindowBackgroundSetting
-Packages/macOS/CmuxNext/Sources/CmuxNextSettings/WindowTitlebarSetting.swift:WindowTitlebarSetting
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/DropResolver.swift:DropResolver
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:KeyboardReorder
 Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/KeyboardReorder.swift:SidebarFilter

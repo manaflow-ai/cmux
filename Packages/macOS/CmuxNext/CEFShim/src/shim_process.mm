@@ -226,6 +226,8 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
   CMUX_BIND(side_panel_state, "cmux_side_panel_state");
   CMUX_BIND(side_panel_press, "cmux_side_panel_press");
+  CMUX_BIND(profile_passkeys_list, "cmux_profile_passkeys_list");
+  CMUX_BIND(profile_passkey_delete, "cmux_profile_passkey_delete");
 #undef CMUX_BIND
 }
 
@@ -391,6 +393,8 @@ void cmux_shim_shutdown(void) {
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();
   request_contexts().clear();
+  // Download callbacks hold Chromium objects: release them first.
+  ForgetDownloads();
   CefShutdown();
 }
 

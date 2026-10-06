@@ -105,6 +105,7 @@ extension BrowserChromeView {
             updateColors()
             renderPrompt()
         }
+        headerBandReattachIfInstalled()
     }
 
     /// The region of this chrome that contains `view`, nil when outside.

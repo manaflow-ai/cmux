@@ -141,17 +141,18 @@ public nonisolated final class TerminalStepQueue: Sendable {
     private static func outputSize(_ step: TerminalStreamPlan.Step) -> Int {
         switch step {
         case .output(let data): data.count
-        case .snapshot(let frame) where frame.phase == .history: frame.data.count
+        case .snapshot(let frame) where frame.phase != .ready: frame.data.count
         default: 0
         }
     }
 
     /// A replay or READY snapshot holds the whole screen: it never waits and
-    /// replaces queued bulk steps.
+    /// replaces queued bulk steps. A local-history READY does not: its
+    /// restore reflows the screen that every earlier byte built.
     private static func supersedes(_ step: TerminalStreamPlan.Step) -> Bool {
         switch step {
         case .replay: true
-        case .snapshot(let frame): frame.phase == .ready
+        case .snapshot(let frame): frame.phase == .ready && frame.localHistory == nil
         default: false
         }
     }

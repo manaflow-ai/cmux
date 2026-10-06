@@ -28,10 +28,22 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
+    "crate::mux::CloseReason": "CloseReason",
+    "AgentSessionParams": "AgentSessionSource",
     "crate::model::ColumnDock": "ColumnPin",
     "SnapshotHave": "SnapshotRequestHave",
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
+}
+
+# Request fields the server takes as raw JSON and then decodes element by
+# element into a named type, so a bad element gets the command's own error
+# code. The SDK types the field as that named type; the server struct named
+# in the comment is the authority for its fields.
+RUNTIME_DECODED_REQUEST_FIELDS = {
+    # server/bookmarks.rs `import` decodes each node into
+    # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
+    ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
 }
 
 sys.path.insert(0, str(BINDINGS))
@@ -278,6 +290,10 @@ def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:
 
 def _runtime_field_presence(field: RuntimeField) -> tuple[str, bool]:
     rust_type, optional_type = _unwrap_rust_option(field.rust_type)
+    # An `Option<T>` with the `required_nullable` deserializer must be present
+    # and may be null.
+    if optional_type and any("required_nullable" in value for value in field.attributes):
+        return "required", True
     has_default = any(re.search(r"\bdefault\b", value) for value in field.attributes)
     presence = "optional" if optional_type or has_default else "required"
     # serde_json::Value includes JSON null even though it is not Option<Value>.
@@ -376,7 +392,9 @@ def _schema_type_shape(
         name = str(expression["name"])
         if name == "DeclarativeLayout":
             return "declarative-layout"
-        if name in RUNTIME_NAMED_REQUEST_REFS.values():
+        if name in RUNTIME_NAMED_REQUEST_REFS.values() or any(
+            f"ref<{name}>" in shape for _, shape in RUNTIME_DECODED_REQUEST_FIELDS.values()
+        ):
             return f"ref<{name}>"
         if name in seen:
             fail(f"cyclic SDK type reference while checking Rust request field: {name}")
@@ -446,6 +464,15 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
                     f"SDK={sorted(schema_aliases)}, runtime={sorted(runtime_aliases)}"
                 )
             runtime_shape = _runtime_type_shape(runtime_field.rust_type)
+            decoded = RUNTIME_DECODED_REQUEST_FIELDS.get((command_name, field_name))
+            if decoded is not None:
+                rust_type, decoded_shape = decoded
+                if runtime_field.rust_type.replace(" ", "") != rust_type:
+                    fail(
+                        f"decoded request field {command_name}.{field_name} is no longer "
+                        f"{rust_type} at runtime: {runtime_field.rust_type}"
+                    )
+                runtime_shape = decoded_shape
             type_expression = schema_field["type"]
             assert isinstance(type_expression, Mapping)
             schema_shape = _schema_type_shape(type_expression, ir.types)

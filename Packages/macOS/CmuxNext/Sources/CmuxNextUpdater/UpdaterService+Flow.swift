@@ -17,12 +17,18 @@ extension UpdaterService {
         flow.showsSettingsBadge(preferences: preferences)
     }
 
-    /// A click on the card: install a staged update, or show a failed
-    /// check's details. The waiting card's own buttons are
-    /// ``installNow()`` and ``installLater()``.
+    /// The Settings row control's label ("Restart to Update"), or nil
+    /// when it does not show.
+    public var settingsBadgeTitle: String? {
+        flow.settingsBadgeTitle(preferences: preferences)
+    }
+
+    /// A click on the card: show a failed check's details. The waiting
+    /// card's own buttons are ``installNow()`` and ``installLater()``; a
+    /// staged update installs from the Settings row control
+    /// (``installClicked()``).
     public func cardClicked() {
         switch card {
-        case .ready, .available: installClicked()
         case .note(_, isError: true): presentUpdateUI?()
         case .checking, .downloading, .waiting, .installing, .note, nil: break
         }

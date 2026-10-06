@@ -31,6 +31,11 @@ pub(crate) enum PersonalChange {
         color: Option<Option<String>>,
         collapsed: Option<bool>,
         room: Option<String>,
+        /// The group's slot among the loose workspaces
+        /// (`personal-mixed-order-v1`); `Some(None)` clears it. Omitted
+        /// when absent, so older mutation fingerprints keep their shape.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        top_index: Option<Option<usize>>,
     },
     GroupDelete {
         group: String,
@@ -193,7 +198,7 @@ fn apply_personal(
                 .context("created group vanished")?;
             Ok(StateChanges::new(value, all_groups(tx)?))
         }
-        PersonalChange::GroupUpdate { group, name, color, collapsed, room } => {
+        PersonalChange::GroupUpdate { group, name, color, collapsed, room, top_index } => {
             personal::update_group(
                 tx,
                 &group,
@@ -203,6 +208,10 @@ fn apply_personal(
                 room.as_deref(),
             )
             .map_err(|error| typed(error, "workspace_group", &group))?;
+            if let Some(top_index) = top_index {
+                personal::set_group_top(tx, &group, top_index)
+                    .map_err(|error| typed(error, "workspace_group", &group))?;
+            }
             let value = personal::workspace_group_snapshot(tx, &group)?
                 .context("updated group vanished")?;
             let mut changes = vec![state_upsert("workspace_group", &group, value.clone())];

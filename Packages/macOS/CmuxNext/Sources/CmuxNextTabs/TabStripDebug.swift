@@ -3,7 +3,9 @@ public import AppKit
 /// Benchmarks (`debug.hover_sweep`, R131): drive a strip's hover path
 /// without a real pointer.
 @MainActor
-public enum TabStripDebug {
+public struct TabStripDebug {
+    public init() {}
+
     /// The center of the visible tab at `index` in `strip`'s coordinates.
     public static func tabCenter(in strip: TabStripView, at index: Int) -> CGPoint? {
         let tabs = strip.model.orderedTabs
@@ -13,4 +15,7 @@ public enum TabStripDebug {
 
     /// The pointer moves to `point`, as a mouse move does.
     public static func pointerMoved(in strip: TabStripView, to point: CGPoint) { strip.updateHover(at: point, moved: true) }
+
+    /// The image the strip's hover card shows now (nil: placeholder).
+    public static func cardThumbnail(in strip: TabStripView) -> CGImage? { strip.hoverCard.shownThumbnail }
 }

@@ -2,6 +2,7 @@ import CmuxNextDaemon
 import CmuxNextSidebar
 import Testing
 @testable import CmuxNextBridge
+@testable import CmuxNextDaemon
 
 @MainActor
 struct SidebarMappingTests {
@@ -43,6 +44,26 @@ struct SidebarMappingTests {
         state.workspaceStatus[betaID]?.progress = nil
         store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
         #expect(try mapped().progress == SidebarProgress(value: 0.3, isError: true))
+    }
+
+    /// Workspace rows keep a visible type glyph even when the workspace has
+    /// no user icon. Harness tabs take precedence over browser tabs, and a
+    /// workspace with no tabs keeps the terminal fallback.
+    @Test func rowKindFollowsHarnessThenBrowserThenTerminal() throws {
+        let store = try BridgeFixture.store()
+        let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let betaTab = try #require(beta.screens.flatMap(\.panes).flatMap(\.tabs).first)
+        let row = { try #require(SidebarMapping.shared.sections(store.sidebarSections, machine: machine)[0].workspaces.first { $0.id.rawValue == beta.id }) }
+
+        #expect(try row().kind == .terminal)
+        betaTab.kind = .browser
+        #expect(try row().kind == .browser)
+        betaTab.setAgent(AgentStatus(surface: betaTab.surface, state: .working, agent: "claude"))
+        #expect(try row().kind == .harness)
+
+        let gamma = try #require(store.workspaces.first { $0.displayName == "gamma" })
+        #expect(SidebarMapping.shared.row(gamma, machine: .local).kind == .terminal)
     }
 
     @Test func dropPositionMapsToRootIndexAfterRemoval() {

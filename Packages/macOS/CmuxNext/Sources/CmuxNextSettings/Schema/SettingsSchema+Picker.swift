@@ -1,7 +1,8 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum PickerSettingsSchema {
     /// The cmux picker (R89, plans/cmux-next/picker.md): folders it lists
     /// under Locations. Parsed by ``PickerPinnedSetting``.
-    static var picker: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.picker", "Folder Picker")
         return [
             SettingDescriptor(

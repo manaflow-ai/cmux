@@ -5,10 +5,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Handshake checks for cmux localhost listeners: Origin, Host and token (no I/O)"
+description = "Handshake checks for cmux localhost listeners: Origin, Host and token, and the frontend install-key proof (no I/O)"
 
 [lints]
 workspace = true
 
 [dependencies]
+hmac.workspace = true
+sha2.workspace = true
 subtle.workspace = true

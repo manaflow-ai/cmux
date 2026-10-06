@@ -7,8 +7,11 @@
 //! `ThemeInput.swift`) on cmux `feat-cmux-next`. The Ghostty config is read
 //! here (no libghostty): default files per platform, `config-file`
 //! includes, `theme = ` with `light:`/`dark:` pairs and Ghostty's theme
-//! directories, explicit colors over the theme. Synchronous, no UI toolkit,
-//! plain `Copy` `#[repr(C)]` results.
+//! directories, explicit colors over the theme, and an optional theme
+//! override after the files (`Env::theme_override`: a space, workspace or
+//! terminal theme, resolved as cmux-next's `ThemeResolver`). Synchronous, no
+//! UI toolkit, no features or dependencies, plain `Copy` `#[repr(C)]`
+//! results.
 //!
 //! Source of the values: the token values come from the spec's
 //! `design-tokens.json` (pixel parity rule), proposed at
@@ -21,6 +24,12 @@
 //! let loaded = load(&Env::current(), Appearance::Dark);
 //! let tokens = ThemeTokens::derive(&loaded.input);
 //! // Watch loaded.watch_paths() (event-driven) and call `load` again on a change.
+//!
+//! // A space, workspace or terminal theme: the user's config with
+//! // `theme = Nord` after it (explicit colors in the files still win).
+//! if let Some(env) = Env::current().with_theme_override("Nord") {
+//!     let _nord = ThemeTokens::derive(&load(&env, Appearance::Dark).input);
+//! }
 //! ```
 
 mod colors;
@@ -30,7 +39,8 @@ mod tokens;
 
 pub use colors::parse_color;
 pub use config::{
-    Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, load, theme_for,
+    Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_OVERRIDE_MAX_CHARS,
+    load, theme_for, theme_override_value,
 };
 pub use rgb::Rgb;
 pub use tokens::*;

@@ -23,10 +23,14 @@ pub type Result<T> = std::result::Result<T, CmuxError>;
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum CmuxError {
+    /// A protocol-v12 command failure. `error_code` and `error_details` are
+    /// the response's machine-readable fields when it carries them.
     Command {
         command: String,
         message: String,
         id: Option<Value>,
+        error_code: Option<String>,
+        error_details: Option<Box<Value>>,
     },
     /// Structured `cmux.protocol/2` operation failure.
     Protocol {
@@ -144,15 +148,6 @@ impl fmt::Display for CmuxError {
                 Ok(())
             }
             Self::Closed => formatter.write_str("stream is closed"),
-        }
-    }
-}
-
-impl std::error::Error for CmuxError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            Self::MutationTransport { source, .. } => Some(source.as_ref()),
-            _ => None,
         }
     }
 }

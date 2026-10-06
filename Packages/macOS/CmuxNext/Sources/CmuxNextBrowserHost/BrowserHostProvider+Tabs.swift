@@ -79,7 +79,7 @@ extension BrowserHostProvider {
         if relays[targetID] != nil { endRelay(targetID, answering: true) }
         accessSent[targetID] = nil
         calledTargets.remove(targetID)
-        if leases.removeValue(forKey: targetID) != nil { onLeaseChange?(targetID, nil) }
+        if leases.removeValue(forKey: targetID) != nil { notifyLease(targetID, nil) }
         onTabGone?(targetID)
     }
 

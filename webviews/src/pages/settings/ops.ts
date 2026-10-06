@@ -36,6 +36,16 @@ export type SnapshotResult = {
   domains?: Partial<PublishedDomains> | null;
 };
 
+/** One Ghostty config key, keybind action or unreadable line cmux does not apply (R92). */
+export type GhosttyDiagnostic = {
+  kind: "key" | "keybind-action" | "invalid";
+  name: string;
+  file: string | null;
+  line: number | null;
+  reason: "superseded" | "not-applicable" | "later" | null;
+  replacement: string | null;
+};
+
 /** One space or machine row (`cmux.settings.host.lists`). */
 export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
 
@@ -58,9 +68,13 @@ export type HostLists = {
   /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
   theme?: { levels: string[]; current: Record<string, string | null> };
   terminal?: { ghostty_config: string; shell_integration: string | null };
+  /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
+  ghostty_diagnostics?: GhosttyDiagnostic[] | null;
   settings_file?: string | null;
   /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
   backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
+  derived?: Record<string, number>;
 };
 
 /** One button of the Accounts part; the host localizes every text. */
@@ -125,6 +139,10 @@ export type SettingsOps = {
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
+  /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
+  "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** Native: the buttons at the end of a section (registry titles, localized by the app). */
+  "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
   /** Native: show `value` live while a gesture runs; never written. */

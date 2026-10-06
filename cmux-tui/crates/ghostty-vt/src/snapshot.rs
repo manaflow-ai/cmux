@@ -313,12 +313,68 @@ impl Terminal {
     pub fn encode_snapshot(&self, phase: SnapshotPhase) -> Result<Vec<u8>> {
         encode_raw(self.raw(), phase)
     }
+
+    /// The divergence check of a local-history READY: the primary screen's
+    /// history row count and a digest of the 64 history rows directly above
+    /// the READY seam (codepoints and wrap flags, no styles). Call it
+    /// directly after [`Terminal::encode_snapshot`] with no terminal change
+    /// in between. A viewer that reflowed its own copy of the history
+    /// compares both after its reflow.
+    ///
+    /// Computed by libghostty-vt `ghostty_terminal_history_digest` (digest
+    /// version [`HISTORY_DIGEST_VERSION`]). `None` when it fails; the caller
+    /// then sends a READY with its full history instead.
+    pub fn history_digest(&self) -> Option<HistoryDigest> {
+        let mut rows = 0u64;
+        let mut digest = vec![0u8; sys::GHOSTTY_TERMINAL_HISTORY_DIGEST_LEN as usize];
+        // The out-pointers are valid for the call and `digest.len()` is the
+        // length the API requires; the caller owns the terminal (`&self`).
+        let result = unsafe {
+            sys::ghostty_terminal_history_digest(
+                self.raw(),
+                &mut rows,
+                digest.as_mut_ptr(),
+                digest.len(),
+            )
+        };
+        check(result).ok()?;
+        Some(HistoryDigest { rows, digest })
+    }
+}
+
+/// The history digest algorithm version of [`Terminal::history_digest`].
+pub const HISTORY_DIGEST_VERSION: u32 = sys::GHOSTTY_TERMINAL_HISTORY_DIGEST_VERSION;
+
+/// [`Terminal::history_digest`]: the history row count and the digest bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryDigest {
+    pub rows: u64,
+    pub digest: Vec<u8>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::Callbacks;
+
+    #[test]
+    fn history_digest_counts_history_rows_and_follows_the_newest_rows() {
+        let mut term = Terminal::new(20, 3, 1 << 20, Callbacks::default()).unwrap();
+        let empty = term.history_digest().expect("digest of an empty history");
+        assert_eq!(empty.rows, 0);
+        assert_eq!(empty.digest.len(), 32);
+        for line in 0..40 {
+            term.vt_write(format!("line {line}\r\n").as_bytes());
+        }
+        let digest = term.history_digest().expect("digest");
+        assert_eq!(digest.rows, u64::from(term.history_rows()));
+        assert!(digest.rows > 0);
+        assert_ne!(digest.digest, empty.digest);
+        // Same history, same digest; new history rows change it.
+        assert_eq!(term.history_digest(), Some(digest.clone()));
+        term.vt_write(b"one more\r\n");
+        assert_ne!(term.history_digest().unwrap().digest, digest.digest);
+    }
 
     #[test]
     fn ready_snapshot_is_a_prefix_of_the_complete_snapshot() {

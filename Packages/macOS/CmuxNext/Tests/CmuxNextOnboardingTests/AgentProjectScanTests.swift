@@ -113,4 +113,31 @@ import Testing
         #expect(scan.claude.path == "/cfg/claude" && scan.codex.path == "/cfg/codex")
         #expect(scan.pi.path.hasSuffix("/.pi/agent") && scan.opencode.path == "/data/opencode")
     }
+
+    @Test func recentScanMergesAgentHintsAndBoundedGitRepositories() throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let agent = folder("code/app")
+        let hinted = folder("code/from-classic-history")
+        let repo = folder("Projects/example")
+        let nestedRepo = folder("Projects/group/nested")
+        for path in [hinted, repo, nestedRepo] {
+            try FileManager.default.createDirectory(at: URL(fileURLWithPath: path), withIntermediateDirectories: true)
+        }
+        try write(".claude/projects/-app/session.jsonl", [["cwd": agent]], age: 0)
+        try FileManager.default.createDirectory(at: URL(fileURLWithPath: repo).appending(path: ".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: URL(fileURLWithPath: nestedRepo).appending(path: ".git"), withIntermediateDirectories: true)
+
+        let scan = RecentProjectScan(projects: AgentProjectScan(home: home), roots: [home.appending(path: "Projects")], maxProjects: 20)
+        let projects = scan.run(hints: [hinted], now: now)
+        #expect(Set(projects.map(\.id)) == Set([agent, hinted, repo, nestedRepo]))
+        #expect(Set(scan.complete(query: "Projects", hints: [hinted])) == Set([repo, nestedRepo]))
+    }
+
+    @Test func recentScanKeepsPrivacyGuardedHintsWithoutReadingThem() throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let desktop = folder("Desktop/hidden-project")
+        let scan = RecentProjectScan(projects: AgentProjectScan(home: home), roots: [])
+        let projects = scan.run(hints: [desktop], now: now)
+        #expect(projects.map(\.id) == [desktop])
+    }
 }

@@ -157,17 +157,18 @@ extension WindowOverlayHost {
 
     /// Where an overlay of `size` goes, clamped inside `bounds` (8 pt inset).
     nonisolated static func origin(for size: NSSize, options: OverlayOptions, in bounds: NSRect) -> NSPoint {
+        if options.kind == .attached, let anchor = options.anchor { return anchor.origin }
         let inset: CGFloat = 8
         var origin: NSPoint
         switch (options.kind, options.anchor) {
         case (.dialog, let anchor?):
             origin = NSPoint(x: anchor.midX - size.width / 2, y: anchor.midY - size.height / 2)
-        case (.dialog, nil), (.tooltip, nil), (.popover, nil), (.menu, nil), (.dragGhost, nil):
+        case (.dialog, nil), (.tooltip, nil), (.popover, nil), (.menu, nil), (.dragGhost, nil), (.attached, nil):
             origin = NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2)
         case (.toast, let anchor):
             let area = anchor ?? bounds
             origin = NSPoint(x: area.midX - size.width / 2, y: area.minY + 24)
-        case (.dragGhost, let anchor?):
+        case (.dragGhost, let anchor?), (.attached, let anchor?):
             origin = anchor.origin
         case (.tooltip, let anchor?), (.popover, let anchor?), (.menu, let anchor?):
             // Below the anchor; above it when there is no room below.

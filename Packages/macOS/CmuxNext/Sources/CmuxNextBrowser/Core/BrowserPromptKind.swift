@@ -5,6 +5,9 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     case camera
     case microphone
     case cameraAndMicrophone
+    /// A second download without a fresh user gesture
+    /// (`AutomaticDownloadPolicy`): Allow or Block, remembered for the site.
+    case automaticDownloads
 }
 
 /// What a prompt asks the user.

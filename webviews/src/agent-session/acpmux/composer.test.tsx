@@ -79,7 +79,12 @@ describe("acpmux composer slash menu", () => {
   const key = async (name: string, isComposing = false) =>
     act(async () => {
       textarea().dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: name, isComposing, bubbles: true, cancelable: true }),
+        new dom.window.KeyboardEvent("keydown", {
+          key: name,
+          isComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
     });
   const render = async (value: AcpmuxSnapshot) => {
@@ -239,6 +244,42 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual([]);
   });
 
+  test("keeps Mode and Plan out of the default bar while the + menu changes them", async () => {
+    const modes = {
+      currentModeId: "ask",
+      availableModes: [
+        { id: "ask", name: "Ask for approval" },
+        { id: "bypassPermissions", name: "Full access" },
+        { id: "plan", name: "Plan" },
+      ],
+    };
+    const modeCalls: string[] = [];
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: { ...snapshot(), summary: { sessionId: "s", modes } },
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          onMode: (mode: string) => modeCalls.push(mode),
+        }),
+      ),
+    );
+    await ready();
+    expect(dom.window.document.querySelector(".acpmux-mode")).toBeNull();
+    expect(dom.window.document.querySelector(".acpmux-plan")).toBeNull();
+    await act(async () => plusButton().click());
+    expect(
+      [...dom.window.document.querySelectorAll(".acpmux-composer-plus [role=option]")].map((item) => item.textContent),
+    ).toEqual(["Ask for approval", "Full access", "Plan", "Mention a file or folder@"]);
+    await act(async () =>
+      dom.window.document
+        .querySelector<HTMLElement>('.acpmux-composer-plus [data-value="mode:bypassPermissions"]')!
+        .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+    );
+    expect(modeCalls).toEqual(["bypassPermissions"]);
+  });
+
   test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
     const plus = () => pickPlus("commands");
     await render(snapshot(commands));
@@ -332,8 +373,13 @@ describe("acpmux composer slash menu", () => {
   describe("attachments", () => {
     const settleFiles = () => act(() => new Promise((resolve) => setTimeout(resolve, 5)));
     const png = () =>
-      new dom.window.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", { type: "image/png" });
-    const transfer = (files: File[]) => ({ files, types: files.length ? ["Files"] : ["text/plain"] });
+      new dom.window.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "shot.png", {
+        type: "image/png",
+      });
+    const transfer = (files: File[]) => ({
+      files,
+      types: files.length ? ["Files"] : ["text/plain"],
+    });
     const paste = async (files: File[]) => {
       const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
       Object.defineProperty(event, "clipboardData", { value: transfer(files) });
@@ -353,7 +399,10 @@ describe("acpmux composer slash menu", () => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: true } } },
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: true } },
+            },
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);
@@ -386,7 +435,10 @@ describe("acpmux composer slash menu", () => {
       await act(async () =>
         root.render(
           createElement(Composer, {
-            snapshot: { ...snapshot(), summary: { sessionId: "s", promptCapabilities: { image: false } } },
+            snapshot: {
+              ...snapshot(),
+              summary: { sessionId: "s", promptCapabilities: { image: false } },
+            },
             chips: () => null,
             onSend: (text: string, attachments = []) => {
               sent.push(text);

@@ -112,6 +112,28 @@ class LocalizeChangesTests(unittest.TestCase):
             self.assertEqual(second.prepared, 0)
             self.assertEqual(path.read_text(encoding="utf-8"), prepared_text)
 
+    def test_a_catalog_with_more_locales_gets_rows_and_imports_for_all_of_them(self):
+        # The agent pane catalog carries 21 locales, not only the 9 macOS ones: a changed key there
+        # is work in every locale the catalog has, and a completed row for one of the extra locales
+        # imports.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            relative = "webviews/src/agent-session/acpmux/Localizable.xcstrings"
+            path = root / relative
+            path.parent.mkdir(parents=True)
+            extra = ("km", "pt-BR", "uk")
+            full = {locale: unit("Close") for locale in (*MODULE.macos_locales(), *extra)}
+            path.write_text(json.dumps({"sourceLanguage": "en", "version": "1.0", "strings": {
+                "close": {"localizations": full},
+                "open": {"localizations": {"en": unit("Open")}},
+            }}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            rows = MODULE.extract_changed(root, [(path, "open")], {}, {}, {})
+            self.assertEqual({row["locale"] for row in rows}, (set(MODULE.macos_locales()) | set(extra)) - {"en"})
+            packet = {"entries": [{"catalog": relative, "key": "open", "source": "Open", "locale": "km", "value": "បើក"}]}
+            self.assertEqual(MODULE.apply_completed(root, packet, {}), 1)
+            stored = json.loads(path.read_text(encoding="utf-8"))["strings"]["open"]["localizations"]["km"]
+            self.assertEqual(stored["stringUnit"]["value"], "បើក")
+
     def test_catalog_insert_is_minimal_and_deterministic(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

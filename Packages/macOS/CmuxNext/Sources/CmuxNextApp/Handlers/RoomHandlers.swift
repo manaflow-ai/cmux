@@ -22,13 +22,15 @@ enum RoomHandlers {
             let windows = context.services.windows!
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
-            Task { await windows.createWorkspace(into: windowID) }
+            Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows!
             let target = windows.targetWindow(preferring: windows.active?.state.id)
-            Task { _ = try? await windows.createWorkspace(WorkspaceSpawn(profile: room.id), into: target) }
+            var spawn = WorkspaceSpawn(profile: room.id)
+            spawn.opensNewTabPage = invocation.origin == .user
+            Task { _ = try? await windows.createWorkspace(spawn, into: target) }
         }
         bind("space.rename") { invocation in
             let room = try context.room(invocation)
@@ -118,7 +120,10 @@ enum RoomHandlers {
         RoomMoveHandlers.bind(bind, context: context)
     }
 
-    private static func create(invocation: ActionInvocation, _ context: AppActionContext) throws {
+    /// A new space with the next free color; the active window enters it
+    /// (`enter`, else a switch that opens a new terminal workspace there).
+    static func create(invocation: ActionInvocation, _ context: AppActionContext, action: ActionID = "space.new",
+                       enter: (@MainActor @Sendable (ProfileID, WindowState) -> Void)? = nil) throws {
         let store = context.services.machines.local.store
         let name = invocation["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? RoomStrings.defaultName(store.profileIDs.count + 1)
         let used = Set(store.profiles.compactMap(\.color))
@@ -132,13 +137,15 @@ enum RoomHandlers {
         let id = ProfileID.generate()
         let services = context.services
         services.registry.track(Task {
-            guard let connection = services.machines.local.connection else { return ActionWorkFailure("space.new", DaemonError.notConnected) }
+            guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {
                 _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
-                if let active, let state = services.windows.states[active.id] { services.windows.switchProfile(id, in: state) }
+                if let active, let state = services.windows.states[active.id] {
+                    if let enter { enter(id, state) } else { services.windows.switchProfile(id, in: state) }
+                }
                 return nil
             } catch {
-                return ActionWorkFailure("space.new", error)
+                return ActionWorkFailure(action.rawValue, error)
             }
         })
     }

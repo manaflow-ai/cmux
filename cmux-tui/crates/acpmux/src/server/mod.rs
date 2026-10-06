@@ -215,7 +215,33 @@ fn tune_ws_socket(stream: &tokio::net::TcpStream) {
 }
 
 pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
+    serve_ws_with(hub, listener, token, WsAuth::default()).await
+}
+
+/// The proofs a WebSocket connection may present beyond the dashboard
+/// token: this launch's LocalApp token (`local_app.rs`) and peer token
+/// (`peer_auth.rs`). Without one, no connection gets that origin.
+#[derive(Default, Clone)]
+pub struct WsAuth {
+    pub local_app: Option<Arc<local_app::LocalAppAuth>>,
+    pub peer: Option<Arc<peer_auth::PeerAuth>>,
+}
+
+/// How long a connection may wait before its first frame decides whether it
+/// is the local app (`local_app.rs`); after it, it is remote-origin.
+const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `serve_ws` with this launch's LocalApp and peer tokens: a connection
+/// that meets every LocalApp condition is served as `Origin::LocalApp`, one
+/// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
+pub async fn serve_ws_with(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
+    let bound = listener.local_addr()?;
     let (extra_origins, extra_hosts) = {
         let config = hub.config.read().await;
         let (mut origins, hosts) = config
@@ -240,6 +266,8 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
         let hub = hub.clone();
         let token = token.clone();
         let policy = policy.clone();
+        let local_app = auth.local_app.clone();
+        let peer_auth = auth.peer.clone();
         tokio::spawn(async move {
             let mut head = [0u8; 4096];
             let n = match tokio::time::timeout(
@@ -260,6 +288,12 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                 return;
             }
             let expected = token.clone();
+            // The upgrade request's Origin headers, for the LocalApp check.
+            let seen_origins: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_origins = seen_origins.clone();
+            // Its peer token headers, for the Peer check.
+            let seen_peer: Arc<StdMutex<Vec<String>>> = Arc::default();
+            let record_peer = seen_peer.clone();
             let callback = move |req: &tokio_tungstenite::tungstenite::handshake::server::Request,
                                  resp: tokio_tungstenite::tungstenite::handshake::server::Response| {
                 let values = |name: &str| {
@@ -278,6 +312,10 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                 if let Err(refusal) = policy.check(&values("host"), &values("origin")) {
                     return Err(refuse(refusal));
                 }
+                *record_origins.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values("origin").into_iter().map(str::to_owned).collect();
+                *record_peer.lock().unwrap_or_else(|e| e.into_inner()) =
+                    values(peer_auth::HEADER).into_iter().map(str::to_owned).collect();
                 let header = req
                     .headers()
                     .get("authorization")
@@ -298,6 +336,43 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
             let (mut sink, mut source) = ws.split();
             let (in_tx, in_rx) = mpsc::channel::<String>(256);
             let (out_tx, mut out_rx) = mpsc::channel::<String>(4096);
+            // The first frame decides LocalApp; it reaches the protocol
+            // handler without the token.
+            let mut origin = Origin::Web;
+            let mut first = None;
+            let presented =
+                std::mem::take(&mut *seen_peer.lock().unwrap_or_else(|e| e.into_inner()));
+            if peer_auth.as_ref().is_some_and(|a| a.is_peer(peer, &presented)) {
+                origin = Origin::Peer;
+            } else if let Some(auth) = &local_app {
+                let frame = tokio::time::timeout(FIRST_FRAME, async {
+                    while let Some(Ok(frame)) = source.next().await {
+                        if let tokio_tungstenite::tungstenite::Message::Text(t) = frame {
+                            return Some(t.to_string());
+                        }
+                    }
+                    None
+                })
+                .await
+                .ok()
+                .flatten();
+                let origins = seen_origins.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                let hello = local_app::Hello {
+                    listener: bound,
+                    peer,
+                    origins: &origins,
+                    first_frame: frame.as_deref(),
+                };
+                if auth.is_local_app(&hello) {
+                    origin = Origin::LocalApp;
+                }
+                first = frame.map(|f| local_app::strip_token(&f));
+            }
+            if let Some(first) = first
+                && in_tx.send(first).await.is_err()
+            {
+                return;
+            }
             tokio::spawn(async move {
                 while let Some(Ok(frame)) = source.next().await {
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
@@ -319,7 +394,7 @@ pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Re
                     }
                 }
             });
-            serve_connection_with(hub, in_rx, out_tx, Origin::Web).await;
+            serve_connection_with(hub, in_rx, out_tx, origin).await;
         });
     }
 }
@@ -429,9 +504,13 @@ async fn serve_http(
 // ------------------------------------------------------------ connection
 
 /// Where a connection came from. A `Web` connection (the WebSocket
-/// listener: peer daemons, remote clients, the agent pane) is remote-origin:
-/// remote chains build their settings from scratch, so it never starts or
-/// sets a preset that carries harness args or a system prompt.
+/// listener: peer daemons, remote clients, relays) is remote-origin: remote
+/// chains build their settings from scratch, so it never starts or sets a
+/// preset that carries harness args or a system prompt, and the session
+/// pool never serves it. `LocalApp` is the app's own agent pane, proven by
+/// every condition in `local_app.rs`: the pool serves it, it may start any
+/// configured preset, and like `Web` it never sets a preset's harness args
+/// or system prompt and never reads a token back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Origin {
     /// The local Unix socket.
@@ -439,6 +518,19 @@ pub enum Origin {
     Local,
     /// The WebSocket listener.
     Web,
+    /// The app's agent pane over the WebSocket listener (`local_app.rs`).
+    LocalApp,
+    /// A peer acpmux daemon over the WebSocket listener, proven by this
+    /// launch's peer token (`peer_auth.rs`). It has the Web's rights except
+    /// the current-mode rule for prompts and permission answers.
+    Peer,
+}
+
+impl Origin {
+    /// Web or Peer: a connection held to the Web's rules.
+    pub fn web_class(self) -> bool {
+        matches!(self, Origin::Web | Origin::Peer)
+    }
 }
 
 /// A connection from the local Unix socket.
@@ -670,7 +762,7 @@ fn str_param<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
     params.get(key).and_then(Value::as_str)
 }
 
-fn session_key(params: &Value) -> Result<&str, RpcError> {
+pub(super) fn session_key(params: &Value) -> Result<&str, RpcError> {
     str_param(params, "sessionId")
         .or_else(|| str_param(params, "session"))
         .or_else(|| str_param(params, "name"))
@@ -709,6 +801,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+pub mod local_app;
+pub mod peer_auth;
+mod redact;
+mod remote_guard;
 mod requests;
 mod wait;
 use requests::{handle_notification, handle_request};

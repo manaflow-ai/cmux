@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
@@ -24,6 +25,7 @@ enum AppActions {
         KeybindingHandlers.bind(into: registry, context: context)
         PageCommandHandlers.bind(into: registry, context: context)
         ListHandlers.bind(into: registry, context: context)
+        PasswordHandlers.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
@@ -50,9 +52,13 @@ enum AppActions {
         FindInDirectoryHandlers.bind(into: registry, context: context)
         GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
+        BrowserHitHandlers.bind(into: registry, context: context)
+        DiffHandlers.bind(into: registry, context: context)
+        FilePageHandlers.bind(into: registry, context: context)
         AgentExtensionHandlers.bind(into: registry, context: context)
         ViewerHandlers.bind(into: registry, context: context)
         PageInfoHandlers.bind(into: registry, context: context)
+        CertificateWarningHandlers.bind(into: registry, context: context)
         ExtensionHandlers.bind(into: registry, context: context)
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
@@ -67,6 +73,12 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         WindowKeyTable.install(services)
+        // One owner per action: a second binding silently replaces the first. The check is a test
+        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
+        if !registry.duplicateBindings.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions")
+                .fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

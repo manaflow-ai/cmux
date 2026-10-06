@@ -14,10 +14,11 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5";
+inline constexpr std::string_view kProtocolIrSha256 = "56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30";
 
 struct AgentRecord;
 enum class AgentReportSource;
+struct AgentSessionSource;
 enum class AgentSource;
 enum class AgentState;
 struct AppliedPane;
@@ -25,7 +26,11 @@ struct ApplyLayoutResult;
 struct AttachedViewOutcomeResult;
 struct AttachedViewResizeResult;
 struct Base64;
+struct Bookmark;
+struct BookmarkChangeResult;
+struct BookmarkImportNode;
 struct BrowserFrame;
+struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
 struct BrowserProviderSnapshot;
 struct BrowserProviderTarget;
@@ -36,6 +41,7 @@ struct CellPixelSurface;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
+enum class CloseReason;
 struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
@@ -121,6 +127,8 @@ struct ResourceSelectors;
 struct RowHeight;
 struct RowMarkerPoint;
 struct RunResult;
+struct SavedTabGroupMember;
+struct SavedTabGroupRecord;
 struct Screen;
 struct ServerStatsConnections;
 struct ServerStatsHistogram;
@@ -153,7 +161,16 @@ enum class SplitDirection;
 struct SplitRespawn;
 struct SurfaceResult;
 struct Tab;
+struct TabGroupEndedTerminal;
+struct TabGroupOutcome;
+struct TabGroupRecord;
+struct TabGroupRun;
 struct TabRef;
+struct TerminalClipboardHost;
+enum class TerminalClipboardHostKind;
+enum class TerminalClipboardLocation;
+struct TerminalClipboardReplyResult;
+struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
 struct TerminalCommandHistoryResult;
@@ -187,10 +204,13 @@ struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
+struct BindConversationTabSessionRequest;
+struct BindConversationTabSessionResult;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
 struct BrowserFramePresentedRequest;
+struct BrowserHostProviderRequest;
 struct BrowserInsertTextRequest;
 struct BrowserKeyRequest;
 struct BrowserKeyPressRequest;
@@ -210,9 +230,21 @@ struct CloseScreenRequest;
 struct CloseScreenGroupRequest;
 struct CloseSurfaceRequest;
 struct CloseTabGroupRequest;
+struct CloseTabGroupResult;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct CloudConversationHistoryRequest;
+struct CloudConversationOpRequest;
+struct CloudConversationSnapshotRequest;
+struct CloudConversationSubscribeRequest;
+struct CloudConversationUnsubscribeRequest;
+struct CloudInboxListRequest;
+struct CloudInboxSubscribeRequest;
+struct CloudInboxUnsubscribeRequest;
+struct CloudSessionClearRequest;
+struct CloudSessionSetRequest;
+struct CloudSessionStatusRequest;
 struct ConversationAgentTokenRequest;
 struct ConversationAgentTokenResult;
 struct ConversationBindRequest;
@@ -242,11 +274,13 @@ struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
 struct DeleteBookmarkRequest;
+struct DeleteBookmarkResult;
 struct DeleteBrowserProfileRequest;
 struct DeletePersonalGroupRequest;
 struct DeleteProfileRequest;
 struct DeleteSavedScreenGroupRequest;
 struct DeleteSavedTabGroupRequest;
+struct DeleteSavedTabGroupResult;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
@@ -262,18 +296,22 @@ struct GetSizeStateRequest;
 struct IdentifyRequest;
 struct IdsRequest;
 struct ImportBookmarksRequest;
+struct ImportBookmarksResult;
 struct ImportSessionOrganizationRequest;
 struct JournalFrontendEventRequest;
 struct JournalFrontendEventResult;
 struct ListAgentsRequest;
 struct ListBookmarksRequest;
+struct ListBookmarksResult;
 struct ListClientsRequest;
 struct ListClientsResult;
 struct ListNotificationsRequest;
 struct ListPersonalRequest;
 struct ListSavedScreenGroupsRequest;
 struct ListSavedTabGroupsRequest;
+struct ListSavedTabGroupsResult;
 struct ListTabGroupsRequest;
+struct ListTabGroupsResult;
 struct ListTerminalsRequest;
 struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
@@ -332,6 +370,7 @@ struct ReloadConfigRequest;
 struct ReloadConfigResult;
 struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
+struct RemoveTabsFromTabGroupResult;
 struct RenamePaneRequest;
 struct RenameProviderManagedWorkspaceRequest;
 struct RenameScreenRequest;
@@ -347,6 +386,7 @@ struct ResolveTerminalRequest;
 struct RunRequest;
 struct SaveScreenGroupRequest;
 struct SaveTabGroupRequest;
+struct SaveTabGroupResult;
 struct ScrollSurfaceRequest;
 struct SelectScreenRequest;
 struct SelectTabRequest;
@@ -383,6 +423,8 @@ struct SnapshotRequestRequest;
 struct SplitRequest;
 struct SubscribeRequest;
 struct SwapPaneRequest;
+struct TerminalClipboardReplyRequest;
+struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
 struct TerminalReadRangeRequest;
@@ -390,10 +432,12 @@ struct TerminalResourcesRequest;
 struct UndoLayoutRequest;
 struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
+struct UngroupTabGroupResult;
 struct UnpinWorkspaceRequest;
 struct UnregisterBrowserProviderRequest;
 struct UnsaveScreenGroupRequest;
 struct UnsaveTabGroupRequest;
+struct UnsaveTabGroupResult;
 struct UpdateBookmarkRequest;
 struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
@@ -417,6 +461,12 @@ struct ClientAttachedEvent;
 struct ClientChangedEvent;
 struct ClientDetachedEvent;
 struct ClientListInvalidatedEvent;
+struct CloudConversationChangedEvent;
+struct CloudConversationResyncedEvent;
+struct CloudInboxChangedEvent;
+struct CloudInboxResetEvent;
+struct CloudSessionNeededEvent;
+struct CloudSubscriptionStateEvent;
 struct ColorsChangedEvent;
 struct ConfigReloadRequestedEvent;
 struct ConversationChangedEvent;
@@ -455,6 +505,8 @@ struct TabAddedEvent;
 struct TabChangedEvent;
 struct TabClosedEvent;
 struct TabRenamedEvent;
+struct TerminalClipboardReadEvent;
+struct TerminalClipboardReadCancelledEvent;
 struct TerminalReapedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
@@ -565,6 +617,14 @@ enum class AgentReportSource {
     hook,
 };
 
+struct AgentSessionSource {
+    Field<std::string> harness{};
+    std::string host{};
+    Field<std::string> host_name{};
+    Field<std::string> session{};
+    friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
 struct AppliedPane {
     Id pane{};
     Id surface{};
@@ -629,6 +689,8 @@ struct AttachSurfaceRequest {
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
     Field<std::string> snapshot{};
+    std::optional<bool> snapshot_images{};
+    std::optional<bool> snapshot_local_history{};
     Field<std::uint16_t> snapshot_version{};
     Field<Id> surface{};
     Field<std::uint64_t> viewer_backlog_bytes{};
@@ -664,6 +726,60 @@ struct BellEvent {
     friend bool operator==(const BellEvent&, const BellEvent&) = default;
 };
 
+struct BindConversationTabSessionRequest {
+    std::optional<std::string> expected_session{};
+    std::string session{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionRequest&, const BindConversationTabSessionRequest&) = default;
+};
+
+struct ConversationTabRecord {
+    std::optional<AgentSessionSource> agent_session{};
+    std::optional<std::string> conversation{};
+    std::optional<std::string> owner{};
+    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
+};
+
+struct BindConversationTabSessionResult {
+    ConversationTabRecord conversation{};
+    bool replayed{};
+    Id surface{};
+    friend bool operator==(const BindConversationTabSessionResult&, const BindConversationTabSessionResult&) = default;
+};
+
+struct Bookmark {
+    std::string browser_profile_id{};
+    std::uint64_t created_ms{};
+    std::optional<std::string> favicon_key{};
+    std::string id{};
+    std::uint64_t index{};
+    std::string kind{};
+    std::optional<std::uint64_t> last_used_ms{};
+    std::string parent{};
+    std::optional<std::string> source_key{};
+    std::string title{};
+    std::optional<std::string> url{};
+    Json::Object additional_properties{};
+    friend bool operator==(const Bookmark&, const Bookmark&) = default;
+};
+
+struct BookmarkChangeResult {
+    Bookmark bookmark{};
+    bool changed{};
+    bool replayed{};
+    Json::Object additional_properties{};
+    friend bool operator==(const BookmarkChangeResult&, const BookmarkChangeResult&) = default;
+};
+
+struct BookmarkImportNode {
+    std::optional<std::vector<std::shared_ptr<BookmarkImportNode>>> children{};
+    std::optional<std::uint64_t> created_ms{};
+    std::string kind{};
+    std::string title{};
+    std::optional<std::string> url{};
+    friend bool operator==(const BookmarkImportNode&, const BookmarkImportNode&) = default;
+};
+
 struct BookmarksChangedEvent {
     std::uint64_t bookmarks_revision{};
     std::string browser_profile_id{};
@@ -697,6 +813,18 @@ struct BrowserFramePresentedRequest {
     std::uint64_t frame_seq{};
     Id surface{};
     friend bool operator==(const BrowserFramePresentedRequest&, const BrowserFramePresentedRequest&) = default;
+};
+
+struct BrowserHostProviderRequest {
+    friend bool operator==(const BrowserHostProviderRequest&, const BrowserHostProviderRequest&) = default;
+};
+
+struct BrowserHostProviderResult {
+    std::uint32_t host_pid{};
+    std::uint32_t listener_pid{};
+    std::string secret{};
+    std::string socket{};
+    friend bool operator==(const BrowserHostProviderResult&, const BrowserHostProviderResult&) = default;
 };
 
 struct BrowserInsertTextRequest {
@@ -1096,6 +1224,10 @@ struct CloseProviderManagedWorkspaceRequest {
     friend bool operator==(const CloseProviderManagedWorkspaceRequest&, const CloseProviderManagedWorkspaceRequest&) = default;
 };
 
+enum class CloseReason {
+    session_end,
+};
+
 struct CloseScreenGroupRequest {
     std::optional<bool> end_terminals{};
     std::string group{};
@@ -1119,12 +1251,28 @@ struct CloseTabGroupRequest {
     friend bool operator==(const CloseTabGroupRequest&, const CloseTabGroupRequest&) = default;
 };
 
+struct TabGroupEndedTerminal {
+    std::string terminal_id{};
+    std::optional<std::string> terminal_incarnation{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TabGroupEndedTerminal&, const TabGroupEndedTerminal&) = default;
+};
+
+struct CloseTabGroupResult {
+    std::vector<Id> closed{};
+    std::string group{};
+    std::optional<std::vector<TabGroupEndedTerminal>> terminals{};
+    Json::Object additional_properties{};
+    friend bool operator==(const CloseTabGroupResult&, const CloseTabGroupResult&) = default;
+};
+
 struct CloseTabsRequest {
     std::optional<bool> end_terminals{};
     Field<std::string> expected_generation{};
     Field<std::uint64_t> expected_revision{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<CloseReason> reason{};
     std::vector<TabRef> surfaces{};
     Field<std::string> transaction{};
     friend bool operator==(const CloseTabsRequest&, const CloseTabsRequest&) = default;
@@ -1160,6 +1308,121 @@ struct CloseWorkspaceRequest {
     Field<std::string> origin{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CloudConversationChangedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> change{};
+    std::string conversation{};
+    std::uint64_t rev{};
+    std::uint64_t seq{};
+    std::string transaction{};
+    friend bool operator==(const CloudConversationChangedEvent&, const CloudConversationChangedEvent&) = default;
+};
+
+struct CloudConversationHistoryRequest {
+    std::uint64_t before_seq{};
+    std::string conversation{};
+    std::uint32_t limit{};
+    friend bool operator==(const CloudConversationHistoryRequest&, const CloudConversationHistoryRequest&) = default;
+};
+
+struct CloudConversationOpRequest {
+    Field<std::string> conversation{};
+    std::string idempotency_key{};
+    std::optional<JsonValue> op{};
+    Field<std::string> origin{};
+    friend bool operator==(const CloudConversationOpRequest&, const CloudConversationOpRequest&) = default;
+};
+
+struct CloudConversationResyncedEvent {
+    std::optional<std::string> account{};
+    std::string conversation{};
+    std::optional<JsonValue> messages{};
+    std::uint64_t rev{};
+    std::uint64_t seq{};
+    std::optional<JsonValue> summary{};
+    friend bool operator==(const CloudConversationResyncedEvent&, const CloudConversationResyncedEvent&) = default;
+};
+
+struct CloudConversationSnapshotRequest {
+    std::string conversation{};
+    std::uint32_t tail{};
+    friend bool operator==(const CloudConversationSnapshotRequest&, const CloudConversationSnapshotRequest&) = default;
+};
+
+struct CloudConversationSubscribeRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationSubscribeRequest&, const CloudConversationSubscribeRequest&) = default;
+};
+
+struct CloudConversationUnsubscribeRequest {
+    std::string conversation{};
+    friend bool operator==(const CloudConversationUnsubscribeRequest&, const CloudConversationUnsubscribeRequest&) = default;
+};
+
+struct CloudInboxChangedEvent {
+    std::optional<std::string> account{};
+    std::optional<JsonValue> entries{};
+    std::uint64_t seq{};
+    std::string transaction{};
+    friend bool operator==(const CloudInboxChangedEvent&, const CloudInboxChangedEvent&) = default;
+};
+
+struct CloudInboxListRequest {
+    std::optional<bool> include_archived{};
+    Field<std::uint32_t> limit{};
+    friend bool operator==(const CloudInboxListRequest&, const CloudInboxListRequest&) = default;
+};
+
+struct CloudInboxResetEvent {
+    std::optional<std::string> account{};
+    std::uint64_t seq{};
+    friend bool operator==(const CloudInboxResetEvent&, const CloudInboxResetEvent&) = default;
+};
+
+struct CloudInboxSubscribeRequest {
+    friend bool operator==(const CloudInboxSubscribeRequest&, const CloudInboxSubscribeRequest&) = default;
+};
+
+struct CloudInboxUnsubscribeRequest {
+    friend bool operator==(const CloudInboxUnsubscribeRequest&, const CloudInboxUnsubscribeRequest&) = default;
+};
+
+struct CloudSessionClearRequest {
+    friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
+};
+
+struct CloudSessionNeededEvent {
+    Field<std::uint64_t> expires_at{};
+    std::string reason{};
+    friend bool operator==(const CloudSessionNeededEvent&, const CloudSessionNeededEvent&) = default;
+};
+
+struct CloudSessionSetRequest {
+    std::string access_token{};
+    std::string api_base_url{};
+    Field<std::string> client_version{};
+    std::uint64_t expires_at{};
+    friend bool operator==(const CloudSessionSetRequest&, const CloudSessionSetRequest&) = default;
+};
+
+struct CloudSessionStatusRequest {
+    friend bool operator==(const CloudSessionStatusRequest&, const CloudSessionStatusRequest&) = default;
+};
+
+struct CloudSubscriptionStateEvent {
+    std::optional<std::string> account{};
+    Field<std::string> conversation{};
+    Field<std::string> reason{};
+    std::string scope{};
+    std::string state{};
+    friend bool operator==(const CloudSubscriptionStateEvent&, const CloudSubscriptionStateEvent&) = default;
 };
 
 struct ColorHex {
@@ -1315,11 +1578,6 @@ struct ConversationChange {
     friend bool operator==(const ConversationChange&, const ConversationChange&) = default;
 };
 
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
-};
-
 struct ConversationChangedEvent {
     std::optional<JsonValue> change{};
     std::string conversation{};
@@ -1413,12 +1671,6 @@ struct ConversationSnapshotResult {
     ConversationSummary conversation{};
     std::vector<ConversationMessage> messages{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
-};
-
-struct ConversationTabRecord {
-    std::string conversation{};
-    std::string owner{};
-    friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
 struct ConversationTypingEvent {
@@ -1618,6 +1870,13 @@ struct DeleteBookmarkRequest {
     friend bool operator==(const DeleteBookmarkRequest&, const DeleteBookmarkRequest&) = default;
 };
 
+struct DeleteBookmarkResult {
+    std::vector<std::string> deleted{};
+    bool replayed{};
+    Json::Object additional_properties{};
+    friend bool operator==(const DeleteBookmarkResult&, const DeleteBookmarkResult&) = default;
+};
+
 struct DeleteBrowserProfileRequest {
     std::string browser_profile{};
     friend bool operator==(const DeleteBrowserProfileRequest&, const DeleteBrowserProfileRequest&) = default;
@@ -1642,6 +1901,13 @@ struct DeleteSavedScreenGroupRequest {
 struct DeleteSavedTabGroupRequest {
     std::string saved{};
     friend bool operator==(const DeleteSavedTabGroupRequest&, const DeleteSavedTabGroupRequest&) = default;
+};
+
+struct DeleteSavedTabGroupResult {
+    bool deleted{};
+    std::string saved{};
+    Json::Object additional_properties{};
+    friend bool operator==(const DeleteSavedTabGroupResult&, const DeleteSavedTabGroupResult&) = default;
 };
 
 struct DeleteWorkspaceGroupRequest {
@@ -2050,12 +2316,20 @@ struct ImportBookmarksRequest {
     std::string browser_profile_id{};
     Field<std::uint64_t> index{};
     Field<std::string> mutation_id{};
-    std::vector<JsonValue> nodes{};
+    std::vector<BookmarkImportNode> nodes{};
     Field<std::string> origin{};
     std::string parent{};
     std::optional<bool> replace{};
     Field<std::string> source_key{};
     friend bool operator==(const ImportBookmarksRequest&, const ImportBookmarksRequest&) = default;
+};
+
+struct ImportBookmarksResult {
+    std::uint64_t count{};
+    bool replayed{};
+    std::vector<std::string> root_ids{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ImportBookmarksResult&, const ImportBookmarksResult&) = default;
 };
 
 struct ImportSessionOrganizationRequest {
@@ -2134,6 +2408,13 @@ struct ListBookmarksRequest {
     friend bool operator==(const ListBookmarksRequest&, const ListBookmarksRequest&) = default;
 };
 
+struct ListBookmarksResult {
+    std::vector<Bookmark> bookmarks{};
+    std::uint64_t bookmarks_revision{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ListBookmarksResult&, const ListBookmarksResult&) = default;
+};
+
 struct ListClientsRequest {
     friend bool operator==(const ListClientsRequest&, const ListClientsRequest&) = default;
 };
@@ -2160,8 +2441,57 @@ struct ListSavedTabGroupsRequest {
     friend bool operator==(const ListSavedTabGroupsRequest&, const ListSavedTabGroupsRequest&) = default;
 };
 
+struct SavedTabGroupMember {
+    Field<std::string> cwd{};
+    Field<std::string> engine{};
+    std::string kind{};
+    Field<std::string> profile_id{};
+    Field<std::string> terminal_id{};
+    Field<std::string> title{};
+    std::optional<std::string> url{};
+    Json::Object additional_properties{};
+    friend bool operator==(const SavedTabGroupMember&, const SavedTabGroupMember&) = default;
+};
+
+struct SavedTabGroupRecord {
+    std::string color{};
+    std::string id{};
+    std::vector<SavedTabGroupMember> members{};
+    std::string name{};
+    std::string room{};
+    std::uint64_t updated_at_ms{};
+    Json::Object additional_properties{};
+    friend bool operator==(const SavedTabGroupRecord&, const SavedTabGroupRecord&) = default;
+};
+
+struct ListSavedTabGroupsResult {
+    std::vector<SavedTabGroupRecord> saved_groups{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ListSavedTabGroupsResult&, const ListSavedTabGroupsResult&) = default;
+};
+
 struct ListTabGroupsRequest {
     friend bool operator==(const ListTabGroupsRequest&, const ListTabGroupsRequest&) = default;
+};
+
+struct TabGroupRun {
+    bool collapsed{};
+    std::string color{};
+    std::uint64_t count{};
+    std::string id{};
+    std::string name{};
+    std::optional<Id> pane{};
+    std::optional<std::string> saved_id{};
+    std::uint64_t start{};
+    std::vector<Id> surfaces{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TabGroupRun&, const TabGroupRun&) = default;
+};
+
+struct ListTabGroupsResult {
+    std::vector<TabGroupRun> groups{};
+    Json::Object additional_properties{};
+    friend bool operator==(const ListTabGroupsResult&, const ListTabGroupsResult&) = default;
 };
 
 struct ListTerminalsRequest {
@@ -2565,13 +2895,15 @@ struct NewBrowserTabRequest {
 };
 
 struct NewConversationTabRequest {
+    Field<AgentSessionSource> agent_session{};
     Field<std::uint16_t> cols{};
-    std::string conversation{};
+    Field<std::string> conversation{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
-    std::string owner{};
+    Field<std::string> owner{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
+    Field<std::string> transaction{};
     Field<Id> workspace{};
     friend bool operator==(const NewConversationTabRequest&, const NewConversationTabRequest&) = default;
 };
@@ -2582,10 +2914,12 @@ struct NewConversationTabResult {
     bool replayed{};
     Id surface{};
     std::optional<std::string> tab_resource_id{};
+    std::optional<std::string> transaction{};
     friend bool operator==(const NewConversationTabResult&, const NewConversationTabResult&) = default;
 };
 
 struct NewFrontendBrowserTabRequest {
+    std::optional<bool> activate{};
     Field<std::uint16_t> cols{};
     std::string engine{};
     Field<std::string> favicon_url{};
@@ -2658,12 +2992,15 @@ struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
     Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> group{};
     Field<std::string> icon{};
     Field<std::uint64_t> index{};
     Field<bool> pinned{};
     Field<std::uint16_t> rows{};
     Field<std::string> screen_name{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const NewScreenRequest&, const NewScreenRequest&) = default;
 };
@@ -2993,6 +3330,13 @@ struct RemoveTabsFromTabGroupRequest {
     friend bool operator==(const RemoveTabsFromTabGroupRequest&, const RemoveTabsFromTabGroupRequest&) = default;
 };
 
+struct RemoveTabsFromTabGroupResult {
+    std::vector<std::string> groups{};
+    std::vector<Id> surfaces{};
+    Json::Object additional_properties{};
+    friend bool operator==(const RemoveTabsFromTabGroupResult&, const RemoveTabsFromTabGroupResult&) = default;
+};
+
 struct RenamePaneRequest {
     std::string name{};
     Id pane{};
@@ -3269,6 +3613,13 @@ struct SaveScreenGroupRequest {
 struct SaveTabGroupRequest {
     std::string group{};
     friend bool operator==(const SaveTabGroupRequest&, const SaveTabGroupRequest&) = default;
+};
+
+struct SaveTabGroupResult {
+    std::string group{};
+    std::string saved{};
+    Json::Object additional_properties{};
+    friend bool operator==(const SaveTabGroupResult&, const SaveTabGroupResult&) = default;
 };
 
 struct Screen {
@@ -3829,6 +4180,25 @@ struct TabClosedEvent {
     friend bool operator==(const TabClosedEvent&, const TabClosedEvent&) = default;
 };
 
+struct TabGroupRecord {
+    bool collapsed{};
+    std::string color{};
+    std::string id{};
+    std::string name{};
+    std::optional<std::string> saved_id{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TabGroupRecord&, const TabGroupRecord&) = default;
+};
+
+struct TabGroupOutcome {
+    std::optional<TabGroupRecord> group{};
+    std::optional<Id> pane{};
+    std::vector<Id> surfaces{};
+    std::optional<Id> workspace{};
+    Json::Object additional_properties{};
+    friend bool operator==(const TabGroupOutcome&, const TabGroupOutcome&) = default;
+};
+
 struct TabRenamedEvent {
     Tab entity{};
     Id pane{};
@@ -3836,6 +4206,59 @@ struct TabRenamedEvent {
     Id surface{};
     Id workspace{};
     friend bool operator==(const TabRenamedEvent&, const TabRenamedEvent&) = default;
+};
+
+enum class TerminalClipboardHostKind {
+    local,
+    remote,
+    cloud,
+};
+
+struct TerminalClipboardHost {
+    TerminalClipboardHostKind kind{};
+    std::optional<std::string> name{};
+    friend bool operator==(const TerminalClipboardHost&, const TerminalClipboardHost&) = default;
+};
+
+enum class TerminalClipboardLocation {
+    standard,
+    selection,
+    primary,
+};
+
+struct TerminalClipboardReadCancelledEvent {
+    std::string request_id{};
+    friend bool operator==(const TerminalClipboardReadCancelledEvent&, const TerminalClipboardReadCancelledEvent&) = default;
+};
+
+struct TerminalClipboardReadEvent {
+    TerminalClipboardHost host{};
+    TerminalClipboardLocation location{};
+    std::string request_id{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalClipboardReadEvent&, const TerminalClipboardReadEvent&) = default;
+};
+
+struct TerminalClipboardReplyRequest {
+    std::string request_id{};
+    Field<std::string> text{};
+    friend bool operator==(const TerminalClipboardReplyRequest&, const TerminalClipboardReplyRequest&) = default;
+};
+
+struct TerminalClipboardReplyResult {
+    bool accepted{};
+    bool granted{};
+    friend bool operator==(const TerminalClipboardReplyResult&, const TerminalClipboardReplyResult&) = default;
+};
+
+struct TerminalClipboardSubscribeRequest {
+    std::vector<std::string> terminal_ids{};
+    friend bool operator==(const TerminalClipboardSubscribeRequest&, const TerminalClipboardSubscribeRequest&) = default;
+};
+
+struct TerminalClipboardSubscribeResult {
+    bool clipboard_read_ready{};
+    friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
 };
 
 struct TerminalCommandHistoryResult {
@@ -4026,6 +4449,13 @@ struct UngroupTabGroupRequest {
     friend bool operator==(const UngroupTabGroupRequest&, const UngroupTabGroupRequest&) = default;
 };
 
+struct UngroupTabGroupResult {
+    std::string group{};
+    std::vector<Id> surfaces{};
+    Json::Object additional_properties{};
+    friend bool operator==(const UngroupTabGroupResult&, const UngroupTabGroupResult&) = default;
+};
+
 struct UnpinWorkspaceRequest {
     std::string session_id{};
     std::string workspace_key{};
@@ -4044,6 +4474,13 @@ struct UnsaveScreenGroupRequest {
 struct UnsaveTabGroupRequest {
     std::string group{};
     friend bool operator==(const UnsaveTabGroupRequest&, const UnsaveTabGroupRequest&) = default;
+};
+
+struct UnsaveTabGroupResult {
+    std::string group{};
+    bool unsaved{};
+    Json::Object additional_properties{};
+    friend bool operator==(const UnsaveTabGroupResult&, const UnsaveTabGroupResult&) = default;
 };
 
 struct UpdateBookmarkRequest {
@@ -4294,6 +4731,12 @@ struct Codec<AgentReportSource> {
 };
 
 template <>
+struct Codec<AgentSessionSource> {
+    static Result<Json> encode(const AgentSessionSource& value);
+    static Result<AgentSessionSource> decode(const Json& value);
+};
+
+template <>
 struct Codec<AgentSource> {
     static Result<Json> encode(const AgentSource& value);
     static Result<AgentSource> decode(const Json& value);
@@ -4336,9 +4779,33 @@ struct Codec<Base64> {
 };
 
 template <>
+struct Codec<Bookmark> {
+    static Result<Json> encode(const Bookmark& value);
+    static Result<Bookmark> decode(const Json& value);
+};
+
+template <>
+struct Codec<BookmarkChangeResult> {
+    static Result<Json> encode(const BookmarkChangeResult& value);
+    static Result<BookmarkChangeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BookmarkImportNode> {
+    static Result<Json> encode(const BookmarkImportNode& value);
+    static Result<BookmarkImportNode> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserHostProviderResult> {
+    static Result<Json> encode(const BrowserHostProviderResult& value);
+    static Result<BrowserHostProviderResult> decode(const Json& value);
 };
 
 template <>
@@ -4399,6 +4866,12 @@ template <>
 struct Codec<ClientTransport> {
     static Result<Json> encode(const ClientTransport& value);
     static Result<ClientTransport> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloseReason> {
+    static Result<Json> encode(const CloseReason& value);
+    static Result<CloseReason> decode(const Json& value);
 };
 
 template <>
@@ -4912,6 +5385,18 @@ struct Codec<RunResult> {
 };
 
 template <>
+struct Codec<SavedTabGroupMember> {
+    static Result<Json> encode(const SavedTabGroupMember& value);
+    static Result<SavedTabGroupMember> decode(const Json& value);
+};
+
+template <>
+struct Codec<SavedTabGroupRecord> {
+    static Result<Json> encode(const SavedTabGroupRecord& value);
+    static Result<SavedTabGroupRecord> decode(const Json& value);
+};
+
+template <>
 struct Codec<Screen> {
     static Result<Json> encode(const Screen& value);
     static Result<Screen> decode(const Json& value);
@@ -5104,9 +5589,63 @@ struct Codec<Tab> {
 };
 
 template <>
+struct Codec<TabGroupEndedTerminal> {
+    static Result<Json> encode(const TabGroupEndedTerminal& value);
+    static Result<TabGroupEndedTerminal> decode(const Json& value);
+};
+
+template <>
+struct Codec<TabGroupOutcome> {
+    static Result<Json> encode(const TabGroupOutcome& value);
+    static Result<TabGroupOutcome> decode(const Json& value);
+};
+
+template <>
+struct Codec<TabGroupRecord> {
+    static Result<Json> encode(const TabGroupRecord& value);
+    static Result<TabGroupRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<TabGroupRun> {
+    static Result<Json> encode(const TabGroupRun& value);
+    static Result<TabGroupRun> decode(const Json& value);
+};
+
+template <>
 struct Codec<TabRef> {
     static Result<Json> encode(const TabRef& value);
     static Result<TabRef> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardHost> {
+    static Result<Json> encode(const TerminalClipboardHost& value);
+    static Result<TerminalClipboardHost> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardHostKind> {
+    static Result<Json> encode(const TerminalClipboardHostKind& value);
+    static Result<TerminalClipboardHostKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardLocation> {
+    static Result<Json> encode(const TerminalClipboardLocation& value);
+    static Result<TerminalClipboardLocation> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReplyResult> {
+    static Result<Json> encode(const TerminalClipboardReplyResult& value);
+    static Result<TerminalClipboardReplyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardSubscribeResult> {
+    static Result<Json> encode(const TerminalClipboardSubscribeResult& value);
+    static Result<TerminalClipboardSubscribeResult> decode(const Json& value);
 };
 
 template <>
@@ -5308,6 +5847,18 @@ struct Codec<AttachSurfaceRequest> {
 };
 
 template <>
+struct Codec<BindConversationTabSessionRequest> {
+    static Result<Json> encode(const BindConversationTabSessionRequest& value);
+    static Result<BindConversationTabSessionRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BindConversationTabSessionResult> {
+    static Result<Json> encode(const BindConversationTabSessionResult& value);
+    static Result<BindConversationTabSessionResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserActivateRequest> {
     static Result<Json> encode(const BrowserActivateRequest& value);
     static Result<BrowserActivateRequest> decode(const Json& value);
@@ -5329,6 +5880,12 @@ template <>
 struct Codec<BrowserFramePresentedRequest> {
     static Result<Json> encode(const BrowserFramePresentedRequest& value);
     static Result<BrowserFramePresentedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserHostProviderRequest> {
+    static Result<Json> encode(const BrowserHostProviderRequest& value);
+    static Result<BrowserHostProviderRequest> decode(const Json& value);
 };
 
 template <>
@@ -5446,6 +6003,12 @@ struct Codec<CloseTabGroupRequest> {
 };
 
 template <>
+struct Codec<CloseTabGroupResult> {
+    static Result<Json> encode(const CloseTabGroupResult& value);
+    static Result<CloseTabGroupResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseTabsRequest> {
     static Result<Json> encode(const CloseTabsRequest& value);
     static Result<CloseTabsRequest> decode(const Json& value);
@@ -5461,6 +6024,72 @@ template <>
 struct Codec<CloseWorkspaceRequest> {
     static Result<Json> encode(const CloseWorkspaceRequest& value);
     static Result<CloseWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationHistoryRequest> {
+    static Result<Json> encode(const CloudConversationHistoryRequest& value);
+    static Result<CloudConversationHistoryRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationOpRequest> {
+    static Result<Json> encode(const CloudConversationOpRequest& value);
+    static Result<CloudConversationOpRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationSnapshotRequest> {
+    static Result<Json> encode(const CloudConversationSnapshotRequest& value);
+    static Result<CloudConversationSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationSubscribeRequest> {
+    static Result<Json> encode(const CloudConversationSubscribeRequest& value);
+    static Result<CloudConversationSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationUnsubscribeRequest> {
+    static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
+    static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxListRequest> {
+    static Result<Json> encode(const CloudInboxListRequest& value);
+    static Result<CloudInboxListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxSubscribeRequest> {
+    static Result<Json> encode(const CloudInboxSubscribeRequest& value);
+    static Result<CloudInboxSubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxUnsubscribeRequest> {
+    static Result<Json> encode(const CloudInboxUnsubscribeRequest& value);
+    static Result<CloudInboxUnsubscribeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionClearRequest> {
+    static Result<Json> encode(const CloudSessionClearRequest& value);
+    static Result<CloudSessionClearRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionSetRequest> {
+    static Result<Json> encode(const CloudSessionSetRequest& value);
+    static Result<CloudSessionSetRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionStatusRequest> {
+    static Result<Json> encode(const CloudSessionStatusRequest& value);
+    static Result<CloudSessionStatusRequest> decode(const Json& value);
 };
 
 template <>
@@ -5638,6 +6267,12 @@ struct Codec<DeleteBookmarkRequest> {
 };
 
 template <>
+struct Codec<DeleteBookmarkResult> {
+    static Result<Json> encode(const DeleteBookmarkResult& value);
+    static Result<DeleteBookmarkResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<DeleteBrowserProfileRequest> {
     static Result<Json> encode(const DeleteBrowserProfileRequest& value);
     static Result<DeleteBrowserProfileRequest> decode(const Json& value);
@@ -5665,6 +6300,12 @@ template <>
 struct Codec<DeleteSavedTabGroupRequest> {
     static Result<Json> encode(const DeleteSavedTabGroupRequest& value);
     static Result<DeleteSavedTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteSavedTabGroupResult> {
+    static Result<Json> encode(const DeleteSavedTabGroupResult& value);
+    static Result<DeleteSavedTabGroupResult> decode(const Json& value);
 };
 
 template <>
@@ -5758,6 +6399,12 @@ struct Codec<ImportBookmarksRequest> {
 };
 
 template <>
+struct Codec<ImportBookmarksResult> {
+    static Result<Json> encode(const ImportBookmarksResult& value);
+    static Result<ImportBookmarksResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ImportSessionOrganizationRequest> {
     static Result<Json> encode(const ImportSessionOrganizationRequest& value);
     static Result<ImportSessionOrganizationRequest> decode(const Json& value);
@@ -5785,6 +6432,12 @@ template <>
 struct Codec<ListBookmarksRequest> {
     static Result<Json> encode(const ListBookmarksRequest& value);
     static Result<ListBookmarksRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListBookmarksResult> {
+    static Result<Json> encode(const ListBookmarksResult& value);
+    static Result<ListBookmarksResult> decode(const Json& value);
 };
 
 template <>
@@ -5824,9 +6477,21 @@ struct Codec<ListSavedTabGroupsRequest> {
 };
 
 template <>
+struct Codec<ListSavedTabGroupsResult> {
+    static Result<Json> encode(const ListSavedTabGroupsResult& value);
+    static Result<ListSavedTabGroupsResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ListTabGroupsRequest> {
     static Result<Json> encode(const ListTabGroupsRequest& value);
     static Result<ListTabGroupsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListTabGroupsResult> {
+    static Result<Json> encode(const ListTabGroupsResult& value);
+    static Result<ListTabGroupsResult> decode(const Json& value);
 };
 
 template <>
@@ -6178,6 +6843,12 @@ struct Codec<RemoveTabsFromTabGroupRequest> {
 };
 
 template <>
+struct Codec<RemoveTabsFromTabGroupResult> {
+    static Result<Json> encode(const RemoveTabsFromTabGroupResult& value);
+    static Result<RemoveTabsFromTabGroupResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<RenamePaneRequest> {
     static Result<Json> encode(const RenamePaneRequest& value);
     static Result<RenamePaneRequest> decode(const Json& value);
@@ -6265,6 +6936,12 @@ template <>
 struct Codec<SaveTabGroupRequest> {
     static Result<Json> encode(const SaveTabGroupRequest& value);
     static Result<SaveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SaveTabGroupResult> {
+    static Result<Json> encode(const SaveTabGroupResult& value);
+    static Result<SaveTabGroupResult> decode(const Json& value);
 };
 
 template <>
@@ -6484,6 +7161,18 @@ struct Codec<SwapPaneRequest> {
 };
 
 template <>
+struct Codec<TerminalClipboardReplyRequest> {
+    static Result<Json> encode(const TerminalClipboardReplyRequest& value);
+    static Result<TerminalClipboardReplyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardSubscribeRequest> {
+    static Result<Json> encode(const TerminalClipboardSubscribeRequest& value);
+    static Result<TerminalClipboardSubscribeRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalEventsRequest> {
     static Result<Json> encode(const TerminalEventsRequest& value);
     static Result<TerminalEventsRequest> decode(const Json& value);
@@ -6526,6 +7215,12 @@ struct Codec<UngroupTabGroupRequest> {
 };
 
 template <>
+struct Codec<UngroupTabGroupResult> {
+    static Result<Json> encode(const UngroupTabGroupResult& value);
+    static Result<UngroupTabGroupResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<UnpinWorkspaceRequest> {
     static Result<Json> encode(const UnpinWorkspaceRequest& value);
     static Result<UnpinWorkspaceRequest> decode(const Json& value);
@@ -6547,6 +7242,12 @@ template <>
 struct Codec<UnsaveTabGroupRequest> {
     static Result<Json> encode(const UnsaveTabGroupRequest& value);
     static Result<UnsaveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UnsaveTabGroupResult> {
+    static Result<Json> encode(const UnsaveTabGroupResult& value);
+    static Result<UnsaveTabGroupResult> decode(const Json& value);
 };
 
 template <>
@@ -6685,6 +7386,42 @@ template <>
 struct Codec<ClientListInvalidatedEvent> {
     static Result<Json> encode(const ClientListInvalidatedEvent& value);
     static Result<ClientListInvalidatedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationChangedEvent> {
+    static Result<Json> encode(const CloudConversationChangedEvent& value);
+    static Result<CloudConversationChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudConversationResyncedEvent> {
+    static Result<Json> encode(const CloudConversationResyncedEvent& value);
+    static Result<CloudConversationResyncedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxChangedEvent> {
+    static Result<Json> encode(const CloudInboxChangedEvent& value);
+    static Result<CloudInboxChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudInboxResetEvent> {
+    static Result<Json> encode(const CloudInboxResetEvent& value);
+    static Result<CloudInboxResetEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSessionNeededEvent> {
+    static Result<Json> encode(const CloudSessionNeededEvent& value);
+    static Result<CloudSessionNeededEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSubscriptionStateEvent> {
+    static Result<Json> encode(const CloudSubscriptionStateEvent& value);
+    static Result<CloudSubscriptionStateEvent> decode(const Json& value);
 };
 
 template <>
@@ -6913,6 +7650,18 @@ template <>
 struct Codec<TabRenamedEvent> {
     static Result<Json> encode(const TabRenamedEvent& value);
     static Result<TabRenamedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReadEvent> {
+    static Result<Json> encode(const TerminalClipboardReadEvent& value);
+    static Result<TerminalClipboardReadEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalClipboardReadCancelledEvent> {
+    static Result<Json> encode(const TerminalClipboardReadCancelledEvent& value);
+    static Result<TerminalClipboardReadCancelledEvent> decode(const Json& value);
 };
 
 template <>

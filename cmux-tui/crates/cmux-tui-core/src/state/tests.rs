@@ -13,19 +13,19 @@ use crate::surface::SurfaceOptions;
 use crate::workspace_registry::WorkspacePresentationUpdate;
 use crate::workspace_registry::WorkspaceRegistry;
 
-struct Session {
+pub(super) struct Session {
     root: PathBuf,
     name: &'static str,
 }
 
 impl Session {
-    fn new(name: &'static str) -> Self {
+    pub(super) fn new(name: &'static str) -> Self {
         let root = std::env::temp_dir()
             .join(format!("cmux-state-{name}-{}", WorkspacePublicId::random().unwrap()));
         Self { root, name }
     }
 
-    fn open(&self) -> Arc<Mux> {
+    pub(super) fn open(&self) -> Arc<Mux> {
         let registry = WorkspaceRegistry::open(&self.root, self.name).unwrap();
         Mux::from_workspace_registry(
             self.name.into(),
@@ -1227,7 +1227,12 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     assert_eq!(relaunch(&kept), Value::Null);
 
     let before = revision(&mux);
-    mux.commit_kept_tabs(&[(kept.clone(), Some("/tmp/project".into()))]).unwrap();
+    mux.commit_kept_tabs(&[crate::state::kept_tab_store::KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+    }])
+    .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
     assert_eq!(relaunch(&kept), json!({"cwd": "/tmp/project"}));
     assert_eq!(relaunch(&other), Value::Null);

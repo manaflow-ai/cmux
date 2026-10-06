@@ -14,6 +14,7 @@ use std::time::Instant;
 const PAGE_ACCESS: &[&str] = &[
     "frames.list",
     "frame.evaluate",
+    "frame.observe",
     "frame.contentFrame",
     "frame.contentFrames",
     "frame.ownerBox",

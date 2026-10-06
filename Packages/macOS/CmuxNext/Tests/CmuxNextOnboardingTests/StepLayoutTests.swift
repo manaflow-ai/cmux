@@ -32,8 +32,7 @@ import Testing
     /// Walks every step from the start, as Continue does.
     @Test func walkingTheStepsLaysOut() async {
         let services = MockOnboardingServices()
-        services.firstTaskView = NSView()
-        services.themeChoices = (0..<9).map { ThemeChoice(name: "Theme \($0)", input: .ghosttyDefault) }
+        services.accountsView = NSView()
         let model = OnboardingModel(services: services)
         let controller = OnboardingWindowController(model: model)
         guard let window = controller.window else { return }

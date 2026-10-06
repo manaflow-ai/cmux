@@ -77,7 +77,8 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 
 /// The local acpmux daemon at quit: one census when the dialog opens, and
 /// ending its agents for Quit Everything.
-public nonisolated enum AcpmuxQuit {
+public nonisolated struct AcpmuxQuit {
+    public nonisolated init() {}
     /// Nil when acpmux did not answer within `deadline`, or when it is
     /// shutting down (no usable socket, daemon.lock held): unknown, not
     /// zero. With no daemon, the agent hosts that still hold their lock.

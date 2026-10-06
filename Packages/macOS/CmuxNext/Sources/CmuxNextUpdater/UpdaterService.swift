@@ -41,6 +41,21 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// Opens the changelog page (set by the App; the what's-new card's click).
+    @ObservationIgnored public var openChangelog: (() -> Bool)?
+    /// Runs an allow-listed action id (set by the App; an announcement's Try It).
+    @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
+    /// The announcement cards to show (filtered), newest feed order.
+    public internal(set) var announcements: [Announcement] = []
+    /// `announcements.enabled` / `announcements.fetch` (set by the App).
+    public var announcementsEnabled = true { didSet { if oldValue != announcementsEnabled { refreshAnnouncements() } } }
+    public var announcementsFetch = true
+    @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
+    @ObservationIgnored var allAnnouncements: [Announcement] = []
+    /// This build's notes while the what's-new card shows, else nil.
+    public internal(set) var whatsNew: ReleaseNotes?
+    /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -145,6 +160,8 @@ public final class UpdaterService {
         guard !started else { return }
         started = true
         observeFlowPhase()
+        loadWhatsNew()
+        refreshAnnouncements()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -279,7 +296,8 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
-            card: card
+            card: card,
+            badge: settingsBadgeTitle
         )
     }
 

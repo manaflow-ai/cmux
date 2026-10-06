@@ -957,8 +957,8 @@ impl Mux {
                 icon: member.icon.clone(),
                 ..ScreenSpec::default()
             };
-            let (_, screen) =
-                self.new_screen_with_spec(Some(workspace), member.cwd.clone(), None, spec)?;
+            let spawn = TerminalSpawnOptions::new(member.cwd.clone(), Vec::new());
+            let (_, screen) = self.new_screen_with_spec(Some(workspace), spawn, None, spec)?;
             created.push(screen);
         }
         anyhow::ensure!(!created.is_empty(), "bad request: the saved screen group has no members");
@@ -986,7 +986,7 @@ impl Mux {
     pub fn new_screen_with_spec(
         self: &Arc<Self>,
         workspace: Option<WorkspaceId>,
-        cwd: Option<String>,
+        spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
         spec: ScreenSpec,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
@@ -996,7 +996,7 @@ impl Mux {
         if let Some(icon) = &spec.icon {
             crate::workspace_registry::validate_presentation_icon(icon)?;
         }
-        let surface = self.new_screen_named(workspace, spec.name.clone(), cwd, size)?;
+        let surface = self.new_screen_named(workspace, spec.name.clone(), spawn, size)?;
         let screen = self
             .with_state(|state| {
                 let pane = state.pane_of(surface.id)?;

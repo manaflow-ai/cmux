@@ -47,6 +47,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
     /// direct `shortcuts.<id>` keys (direct keys win, as in the old loader).
+    /// The classic 0.30 second modifier-hold hint preference.
+    public var showModifierHoldHints = ModifierHoldHintsSetting().fallback
     public var shortcuts: [String: ShortcutBinding]
     /// Key routing tiers by action ID (`shortcuts.tiers.<id>`: `system`,
     /// `navigation` or `content`), plans/cmux-next/focus.md section 5.
@@ -69,6 +71,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previewFeatures = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
+    /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
+    public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
+    public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
@@ -101,8 +107,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
-    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
-    /// nil (Ghostty's values) when unset or invalid.
+    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
@@ -137,6 +142,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var spacesPosition: SpacesPosition = .bottom
     /// `tabs.barPosition` (R109).
     public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
@@ -164,6 +171,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
     public var updates = UpdatesSettings()
+    /// `announcements.*`: the cmux announcement cards (R114).
+    public var announcements = AnnouncementsSettings()
     /// `feed.github`: this Mac's opt-in GitHub inbox connection.
     public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
@@ -194,6 +203,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
         snapshot.diagnostics += tabBar.diagnostics
+        let (hints, hintsDiagnostic) = ModifierHoldHintsSetting().parse(root)
+        snapshot.showModifierHoldHints = hints
+        if let hintsDiagnostic { snapshot.diagnostics.append(hintsDiagnostic) }
         let (engine, engineDiagnostic) = BrowserDefaultEngine.parse(root)
         snapshot.browserDefaultEngine = engine
         if let engineDiagnostic { snapshot.diagnostics.append(engineDiagnostic) }
@@ -212,6 +224,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
+        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
+        snapshot.browserLinkClicks = linkClicks
+        snapshot.diagnostics += linkClickDiagnostics
         let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
         snapshot.remoteLocalhost = remoteLocalhost
         snapshot.diagnostics += remoteLocalhostDiagnostics
@@ -243,6 +258,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
@@ -268,6 +285,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
+        snapshot.diagnostics += Self.closeWarningDiagnostics(root)
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
@@ -292,6 +310,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.announcements = AnnouncementsSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
@@ -328,11 +347,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             }
                             snapshot.metrics[name] = number
                             // The applier clamps; the diagnostic says so, as the Settings window refuses it.
-                            let interfaceSize = InterfaceSizeSetting()
-                            if name == interfaceSize.metricName, !interfaceSize.range.contains(number) {
+                            if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(interfaceSize.range.lowerBound)) to \(Int(interfaceSize.range.upperBound)); clamped"
+                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }

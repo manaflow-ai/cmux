@@ -18,7 +18,14 @@ In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
 `unsupported`, `invalid`, `closed`, `blocked`, `hibernated` and `crashed`
-(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)).
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)), and the
+host's `cancelled` (FETCH-CANCEL-CODE, 2026-10-05): a fetch the host stopped,
+because the cell that started it timed out (message, classic's text: "fetch:
+cancelled because the cell that started it timed out") or its session ended
+("fetch: the session ended"). Compatibility: readers treat a code they do not
+know as an error with that code and its message (the runtime compares code
+strings; the Rust `ErrorCode` decodes an unknown code as `Unknown`), so an
+older reader of `cancelled` still reports the error and its message.
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
@@ -30,7 +37,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
-| `tabs.close` | `{ targetId, runBeforeUnload? }` | |
+| `tabs.close` | `{ targetId, runBeforeUnload?, timeoutMs?, reason? }` | `reason` is `"session_end"` only when the browser host closes a tab at the session's end (with `timeoutMs`); the app then closes it with raw `close-tabs {reason: "session_end"}` (`close-reason-v1`), so the close is not in Reopen Closed. An agent's own `tabs.close` carries no reason (the host removes one an agent sends); the app provider closes no tab for it (tabs belong to the person's layout) |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
@@ -44,7 +51,8 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
-Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends;
+Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends
+(`tabs.close` with `reason: "session_end"`, left out of Reopen Closed);
 `tab.keep` releases one so it stays open.
 
 A tab the session created (`tabs.open`, and popups of such a tab) gets the

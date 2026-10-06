@@ -20,6 +20,15 @@ enum SheetDismissal {
         return ended
     }
 
+    /// Ends the topmost sheet on `window` (a nested sheet before its parent)
+    /// as cancelled. Returns whether one ended.
+    @discardableResult
+    static func endTopmost(of window: NSWindow) -> Bool {
+        guard let sheet = deepestSheet(of: window) else { return false }
+        (sheet.sheetParent ?? window).endSheet(sheet, returnCode: .cancel)
+        return true
+    }
+
     private static func deepestSheet(of window: NSWindow) -> NSWindow? {
         var sheet = window.attachedSheet
         while let nested = sheet?.attachedSheet { sheet = nested }

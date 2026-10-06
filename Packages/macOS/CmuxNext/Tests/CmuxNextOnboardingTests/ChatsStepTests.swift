@@ -24,24 +24,23 @@ import Testing
     }
 
     @Test func theStepFollowsProjectsOnlyWhenTheAppCanOpenChats() {
-        #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.chats))
-        let steps = OnboardingModel(services: services([])).steps
-        #expect(steps.firstIndex(of: .chats) == steps.firstIndex(of: .projects).map { $0 + 1 })
+        #expect(!OnboardingModel(services: MockOnboardingServices(), start: .projects).steps.contains(.chats))
+        #expect(OnboardingModel(services: services([]), start: .projects).steps == [.projects, .chats])
     }
 
-    /// The role step starts the scan; nothing is checked, so Continue alone resumes nothing.
+    /// The projects step starts the scan; nothing is checked, so Continue alone resumes nothing.
     @Test func theListArrivesEarlyWithNothingChecked() async {
         let services = services([chat("a"), chat("b", .codex)])
-        let model = OnboardingModel(services: services)
+        let model = OnboardingModel(services: services, start: .projects)
         model.stepDidAppear()
         await settle { model.chats.scanned }
         #expect(model.chats.chats.map(\.sessionID) == ["a", "b"] && model.chats.selected.isEmpty)
         model.go(to: .chats)
         model.next()
-        #expect(services.resumedChats.isEmpty && model.step == .defaultBrowser)
+        #expect(services.resumedChats.isEmpty && services.ended == true)
     }
 
-    /// Continue resumes the checked chats; after Back, only ones not resumed yet.
+    /// Continue resumes the checked chats once and ends the run (chats come last).
     @Test func continueResumesEachCheckedChatOnce() async {
         let services = services([chat("a"), chat("b", .codex), chat("c")])
         let model = OnboardingModel(services: services, start: .chats)
@@ -50,10 +49,9 @@ import Testing
         model.chats.toggle(model.chats.chats[0])
         model.chats.toggle(model.chats.chats[1])
         model.next()
-        model.back()
-        model.chats.toggle(model.chats.chats[2])
         model.next()
-        #expect(services.resumedChats.map { $0.map(\.sessionID) } == [["a", "b"], ["c"]])
+        #expect(services.resumedChats.map { $0.map(\.sessionID) } == [["a", "b"]])
+        #expect(services.ended == true)
     }
 
     /// ↓ and ↑ move a cursor that stays on the list; Space checks the row under it.

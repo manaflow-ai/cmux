@@ -126,10 +126,12 @@ import Testing
     /// chat with no session yet is refused with a reason.
     @Test func copyTabLinkOnAnAgentTabIsItsChatsLink() throws {
         let services = Coverage.boundServices()
-        let store = services.daemon.store
-        let chat = services.agentTabs.open(in: "pane_x", of: store, session: "sess-01.ab_c")
-        let fresh = services.agentTabs.open(in: "pane_x", of: store)
-        defer { services.agentTabs.closePane("pane_x") }
+        let chat = "tab_chat", fresh = "tab_fresh"
+        let host = AgentTabFixture.host
+        services.daemon.store.apply(snapshot: try ReopenClosedTabTests.tree([
+            AgentTabFixture.tab(20, chat, AgentSessionRef(host: host, session: "sess-01.ab_c")),
+            AgentTabFixture.tab(21, fresh, AgentSessionRef(host: host)),
+        ]))
         #expect(try services.link(agentTab: chat) == "\(services.linkScheme)://session/sess-01.ab_c")
         #expect(throws: ActionFailure(message: RefusalStrings.agentTabHasNoSession)) { try services.link(agentTab: fresh) }
         let freshRef = ActionTargetRef(kind: .tab, id: fresh)

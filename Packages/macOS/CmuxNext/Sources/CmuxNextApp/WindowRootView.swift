@@ -56,6 +56,18 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Back, Forward and the glass patch: hidden until the top row is
     /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
+    /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
+    /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
+    let cornerRegion = PassThroughView(frame: .zero)
+    private(set) lazy var cornerReveal = HoverReveal(region: cornerRegion)
+    /// The sidebar is hidden (WindowController follows the sidebar model).
+    var sidebarHidden = false {
+        didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
+    }
+    /// The traffic lights and band are collapsed: strips under them keep no room.
+    var windowControlsCollapsed = false
+    /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
+    var onWindowControlsChange: ((Bool) -> Void)?
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -82,6 +94,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(trafficLightsGlass)
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
+        addSubview(cornerRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             sidebar.topAnchor.constraint(equalTo: topAnchor),
@@ -103,6 +116,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         self.titleHeight = titleHeight
         applyTokens()
         setUpTitlebarReveal()
+        setUpCornerReveal()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
@@ -191,8 +205,13 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         return titlebarBadgeFrame.map { band.union($0) } ?? band
     }
 
+    var onHintGeometryChange: (() -> Void)?
+
     override func layout() {
+        defer { onHintGeometryChange?() }
         super.layout()
+        // A reorder that added no view passed no add hook: the agent cursor goes back on top.
+        if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() }
         // The sidebar stays above Chromium pages and pane overlays (R126): an occluder of the window's overlay host.
         if let window {
             let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
@@ -215,6 +234,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? toolbarBand.frame.maxX + Metrics.space2 : Metrics.space3
         layoutTitlebarReveal(rowHeight: rowHeight)
+        layoutCornerReveal(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }
@@ -245,6 +265,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+    }
+
+    /// A later subview must not cover the window's agent cursor while it
+    /// lives here (the overlay panel is detached): the host raises it again.
+    /// The positioned add places the view after `didAddSubview`, so it
+    /// raises once more when the add returns.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(subview) }
+    }
+
+    /// A `subviews =` assignment adds through no hook above.
+    override var subviews: [NSView] {
+        didSet { if let window { WindowOverlayHost.existingHost(for: window)?.repairAgentCursorOrder() } }
+    }
+
+    override func addSubview(_ view: NSView, positioned place: NSWindow.OrderingMode, relativeTo otherView: NSView?) {
+        super.addSubview(view, positioned: place, relativeTo: otherView)
+        if let window { WindowOverlayHost.existingHost(for: window)?.contentViewDidAddSubview(view) }
     }
 
     override func viewDidChangeEffectiveAppearance() {

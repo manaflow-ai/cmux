@@ -97,6 +97,13 @@ mark {
   padding: 14px 10px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  transition: border-color var(--motion-hover);
+}
+
+/* nxdog41: while the window's sidebar is hidden (the host sets data-app-sidebar), the section
+   list's edge fades out and comes back while the pointer is over the list. */
+:root[data-app-sidebar="hidden"] .sidebar:not(:hover) {
+  border-right-color: transparent;
 }
 
 .content {
@@ -139,11 +146,14 @@ mark {
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  transition: background var(--motion-hover);
 }
 
+/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
+   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
+   section when the tab shows again. */
 .section-link:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .section-link[aria-current] {
@@ -325,6 +335,27 @@ mark {
 .number {
   width: 64px;
   text-align: right;
+}
+
+/* A number field as wide as the text it shows (its value, else its default label): the hidden
+   copy in the same grid cell sets the column width; at least the old 64 px. */
+.number-sizer {
+  display: inline-grid;
+  min-width: 64px;
+}
+
+.number-sizer::after {
+  content: attr(data-value);
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+}
+
+.number-sizer > .number {
+  grid-area: 1 / 1;
+  width: 100%;
 }
 
 .number-field,
@@ -873,4 +904,36 @@ mark {
   font-size: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* Folder lists (picker.pinned, files.roots). */
+.folder-list {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.folder-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-path {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.icon-up {
+  transform: rotate(180deg);
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

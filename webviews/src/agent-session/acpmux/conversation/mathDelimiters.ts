@@ -24,18 +24,25 @@ export function normalizeMath(lines: string[]): string[] {
         body.push(rest);
         rest = lines[++j]!;
       }
-      if (/\\\]\s*$/.test(rest)) {
-        body.push(rest.replace(/\\\]\s*$/, ""));
-        const tex = body
-          .map((b) => b.trim())
-          .filter(Boolean)
-          .join(" ");
+      const tex = [...body, rest.replace(/\\\]\s*$/, "")]
+        .map((b) => b.trim())
+        .filter(Boolean)
+        .join(" ");
+      // `\[This bracket is escaped.\]` on one line is escaped Markdown brackets around prose,
+      // not an equation: three or more plain words with nothing TeX-like.
+      const prose = j === i && /^[A-Za-z'’,]+(?:\s+[A-Za-z'’,]+){2,}[.!?:]?$/.test(tex);
+      if (/\\\]\s*$/.test(rest) && !prose) {
         out.push(`${open[1]}$$${tex}$$`);
         i = j;
         continue;
       }
     }
-    out.push(line.replace(/\\\((.+?)\\\)/g, (_, tex: string) => `$${tex.trim()}$`));
+    // Inline code keeps its text: `\(x\)` between backticks is not math.
+    out.push(
+      line.replace(/(`+)[^`]*?\1|\\\((.+?)\\\)/g, (match, ticks: string | undefined, tex: string | undefined) =>
+        ticks ? match : `$${tex!.trim()}$`,
+      ),
+    );
   }
   return out;
 }

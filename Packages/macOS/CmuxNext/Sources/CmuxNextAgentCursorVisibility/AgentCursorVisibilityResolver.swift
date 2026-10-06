@@ -3,7 +3,8 @@ public import CoreGraphics
 /// The pure visibility rules for an agent cursor target (a browser tab).
 /// No AppKit: the App builds an `AgentCursorVisibilitySnapshot` from the live
 /// models and asks here. Shared vectors: schemas/agent-cursor-visibility.
-public nonisolated enum AgentCursorVisibilityResolver {
+public nonisolated struct AgentCursorVisibilityResolver {
+    public nonisolated init() {}
     /// Thickness of an edge anchor (column edge, window edge).
     public static let edgeThickness: CGFloat = 4
 
@@ -91,22 +92,5 @@ public nonisolated enum AgentCursorVisibilityResolver {
     static func shows(_ rect: CGRect, in clip: CGRect) -> Bool {
         let overlap = rect.intersection(clip)
         return !overlap.isNull && overlap.width > 0.5 && overlap.height > 0.5
-    }
-
-    /// `rect` moved into `bounds` so the overlay plane can draw it: the part
-    /// inside when there is one, else a zero-thickness rect on the nearest
-    /// edge (a sidebar row sits left of the layout root, so its indicator
-    /// draws on the content's leading edge at the row's height).
-    public static func drawableRect(_ rect: CGRect, in bounds: CGRect) -> CGRect {
-        let inside = rect.intersection(bounds)
-        if !inside.isNull, inside.width > 0, inside.height > 0 { return inside }
-        func project(_ lo: CGFloat, _ hi: CGFloat, _ b0: CGFloat, _ b1: CGFloat) -> (CGFloat, CGFloat) {
-            if hi <= b0 { return (b0, b0) }
-            if lo >= b1 { return (b1, b1) }
-            return (max(lo, b0), min(hi, b1))
-        }
-        let (x0, x1) = project(rect.minX, rect.maxX, bounds.minX, bounds.maxX)
-        let (y0, y1) = project(rect.minY, rect.maxY, bounds.minY, bounds.maxY)
-        return CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0)
     }
 }
