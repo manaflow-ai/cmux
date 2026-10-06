@@ -305,13 +305,13 @@ final class SidebarItemRowView: NSView {
             return
         }
         switch accessory {
-        case .update:
-            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: Strings.updateAvailable)?
+        case .update(let title):
+            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: title)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
             accessoryView.contentTintColor = performWithTheme { Palette.accent }
-            accessoryView.toolTip = Strings.updateAvailable
+            accessoryView.toolTip = title
             accessoryView.isHidden = false
-            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: Strings.updateAvailable) { [weak self] in
+            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: title) { [weak self] in
                 self?.onAccessory?()
                 return true
             }])

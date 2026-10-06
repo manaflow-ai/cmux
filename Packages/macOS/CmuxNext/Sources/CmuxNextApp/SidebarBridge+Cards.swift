@@ -85,6 +85,6 @@ enum SidebarCardFeed {
         let text = card.presentation
         return SidebarCard(id: updateCardID, title: text.title, detail: text.detail, progress: text.progress,
                            buttons: text.buttons.map { SidebarCard.Button(id: $0.rawValue, title: $0.title) },
-                           dismissible: false, alwaysVisible: true, accent: text.accent)
+                           dismissible: false, alwaysVisible: true)
     }
 }

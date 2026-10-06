@@ -9,9 +9,9 @@ import Testing
 /// once it is ready), and one click on the badge installs it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct SettingsUpdateBadgeTests {
     @Test func settingsCarriesTheUpdateBadgeOnlyWhileAnUpdateIsAvailable() {
-        let with = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateAvailable: true)
-        let without = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateAvailable: false)
-        #expect(with[LayoutItemID("itm_settings")]?.accessory == .update)
+        let with = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateBadge: "Restart to Update")
+        let without = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateBadge: nil)
+        #expect(with[LayoutItemID("itm_settings")]?.accessory == .update(title: "Restart to Update"))
         #expect(with[LayoutItemID("itm_home")]?.accessory == nil)
         #expect(without[LayoutItemID("itm_settings")]?.accessory == nil)
     }
@@ -55,7 +55,7 @@ import Testing
 
     /// The Settings row as the sidebar draws it for `updater`'s state.
     private static func settingsRow(_ updater: UpdaterService) throws -> SidebarItemRowView {
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateAvailable: updater.showsSettingsBadge)
+        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, updateBadge: updater.settingsBadgeTitle)
         let info = try #require(infos[LayoutItemID("itm_settings")])
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 240, height: 28))
         row.configure(info, style: .builtIn)
