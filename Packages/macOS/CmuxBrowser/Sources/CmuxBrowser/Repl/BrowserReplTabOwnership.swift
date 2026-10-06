@@ -325,6 +325,29 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return true
     }
 
+    /// Whether a navigation recorded here was started by the input of a
+    /// session that is no longer attached: the download it may still
+    /// become is that session's, and cancelled (``downloadRoute(startedBy:source:policy:fileRoots:)``).
+    public var holdsDepartedNavigations: Bool {
+        latestNavigations.values.contains { start in
+            start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        }
+    }
+
+    /// The tab's record of what no session drives any more: only the
+    /// navigations a departed session's input started
+    /// (``holdsDepartedNavigations``), no sessions, no creator. The tab
+    /// keeps it when its last session leaves, so a download such a
+    /// navigation becomes later is still claimed for that session; a later
+    /// navigation in the same frame replaces the record as here.
+    public func departedNavigations() -> BrowserReplTabOwnership {
+        var kept = BrowserReplTabOwnership()
+        kept.latestNavigations = latestNavigations.filter { _, start in
+            start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        }
+        return kept
+    }
+
     /// The live session that created the tab, when that is not `sessionID`:
     /// `sessionID` may not drive the tab. `nil` for the creator itself and
     /// for a user's tab (one no live session created).

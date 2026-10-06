@@ -53,6 +53,51 @@ final class BrowserReplTabAttachments {
         return attachment
     }
 
+    /// The attachment that records `panelID`'s navigations for the downloads
+    /// they may become: the live one, or one no session drives any more
+    /// that still holds a navigation a departed session's input started
+    /// (``BrowserReplTabAttachment/holdsDepartedNavigations``). Such a
+    /// download is claimed for that session and cancelled, never kept for
+    /// the user as one nobody started.
+    private func navigationRecorder(for panelID: UUID) -> BrowserReplTabAttachment? {
+        guard let attachment = attachments[panelID] else { return nil }
+        guard attachment.isAttached || attachment.holdsDepartedNavigations else {
+            attachments.removeValue(forKey: panelID)
+            return nil
+        }
+        return attachment
+    }
+
+    /// Drops `panelID`'s attachment once no session drives it and it holds
+    /// no departed session's navigation.
+    private func dropIfUnused(_ panelID: UUID) {
+        guard let attachment = attachments[panelID], !attachment.isAttached, !attachment.holdsDepartedNavigations else { return }
+        attachments.removeValue(forKey: panelID)
+    }
+
+    /// Records a navigation of `panelID` WebKit asks about
+    /// (``BrowserReplTabAttachment/noteNavigationAction(_:)``).
+    func noteNavigationAction(_ action: WKNavigationAction, panelID: UUID) {
+        navigationRecorder(for: panelID)?.noteNavigationAction(action)
+        dropIfUnused(panelID)
+    }
+
+    /// Binds `download`, which WebKit made of `action` in `panelID`, to the
+    /// session whose input started it
+    /// (``BrowserReplTabAttachment/claimDownload(_:fromNavigationAction:)``).
+    func claimDownload(_ download: WKDownload, panelID: UUID, fromNavigationAction action: WKNavigationAction) {
+        navigationRecorder(for: panelID)?.claimDownload(download, fromNavigationAction: action)
+        dropIfUnused(panelID)
+    }
+
+    /// Binds `download`, which WebKit made of `response` in `panelID`, to
+    /// the session whose input started that frame's latest navigation
+    /// (``BrowserReplTabAttachment/claimDownload(_:fromResponse:)``).
+    func claimDownload(_ download: WKDownload, panelID: UUID, fromResponse response: WKNavigationResponse) {
+        navigationRecorder(for: panelID)?.claimDownload(download, fromResponse: response)
+        dropIfUnused(panelID)
+    }
+
     /// Why a client outside the browser REPL (the older `browser.*` socket
     /// methods: `cmux browser eval`, `click`, `snapshot`, `screenshot`,
     /// `navigate` and the rest) may not use tab `panelID`, or nil. Those
@@ -138,10 +183,10 @@ final class BrowserReplTabAttachments {
         contextRuleGenerations.removeValue(forKey: sessionID)
         Self.typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
-            attachment.removeSink(sessionID: sessionID)
-            if !attachment.isAttached {
-                attachments.removeValue(forKey: panelID)
-            }
+            // One no session drives keeps only departed navigations; there
+            // is nothing of the session's to remove.
+            if attachment.isAttached { attachment.removeSink(sessionID: sessionID) }
+            dropIfUnused(panelID)
         }
     }
 
@@ -159,7 +204,7 @@ final class BrowserReplTabAttachments {
     func panelDidChangeWorkspace(_ panelID: UUID) {
         guard let attachment = attachments[panelID], attachment.isAttached else { return }
         if !attachment.workspaceDidChange() {
-            attachments.removeValue(forKey: panelID)
+            dropIfUnused(panelID)
         }
     }
 
@@ -389,6 +434,9 @@ final class BrowserReplTabAttachment {
     }
 
     var isAttached: Bool { !sinks.isEmpty }
+    /// Whether a navigation recorded here was started by a session that
+    /// left (``BrowserReplTabOwnership/holdsDepartedNavigations``).
+    var holdsDepartedNavigations: Bool { ownership.holdsDepartedNavigations }
     var sessionIDs: [String] { Array(sinks.keys).sorted() }
     var targetID: String { panelID.uuidString }
 
@@ -895,7 +943,9 @@ final class BrowserReplTabAttachment {
     func detachAll() {
         panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.removeAll())
         sinks.removeAll()
-        ownership = BrowserReplTabOwnership()
+        // What a departed session's input started is kept: the download it
+        // may still become is that session's, and cancelled.
+        ownership = ownership.departedNavigations()
         syncClipboardOwner()
         httpCredentials = BrowserReplHTTPCredentials()
         // Playwright dismisses dialogs nobody handles; do the same so a page

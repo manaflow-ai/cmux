@@ -362,7 +362,7 @@ import WebKit
         // only when that session's own input started it (a user's tab); the
         // claim is bound to this navigation, not its URL.
         if let owner {
-            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.noteNavigationAction(navigationAction)
+            BrowserReplTabAttachments.shared.noteNavigationAction(navigationAction, panelID: owner.id)
         }
 
         // A tab a browser REPL session created loads nothing while the
@@ -1174,7 +1174,7 @@ import WebKit
         didBecomeDownload?(webView, isMainFrame, restoreAttemptID)
         if isMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         if let owner {
-            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.claimDownload(download, fromNavigationAction: navigationAction)
+            BrowserReplTabAttachments.shared.claimDownload(download, panelID: owner.id, fromNavigationAction: navigationAction)
         }
         download.delegate = downloadDelegate
     }
@@ -1188,7 +1188,7 @@ import WebKit
         didBecomeDownload?(webView, navigationResponse.isForMainFrame, restoreAttemptID)
         if navigationResponse.isForMainFrame { pendingMainFrameDownloadRestoreAttemptID = nil }
         if let owner {
-            BrowserReplTabAttachments.shared.attachment(for: owner.id)?.claimDownload(download, fromResponse: navigationResponse)
+            BrowserReplTabAttachments.shared.claimDownload(download, panelID: owner.id, fromResponse: navigationResponse)
         }
         download.delegate = downloadDelegate
     }

@@ -100,7 +100,11 @@ picked, so a session that leaves the tab either cancels a download it
 recorded or is gone before the route is made. A download a session's
 input started whose session left the tab before then (also every
 session, or a tab no session drives any more) is cancelled with no event,
-never saved to the user's download location.
+never saved to the user's download location. That holds also when the
+session left before WebKit turned the navigation into a download: the tab
+keeps the navigation's record naming the session (past its 60-second
+claim window too) until the download claims it or a later navigation in
+the same frame replaces it.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the
