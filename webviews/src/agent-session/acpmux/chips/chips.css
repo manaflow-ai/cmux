@@ -31,3 +31,44 @@
   outline-offset: 1px;
   border-radius: 3px;
 }
+.cv-chip__lock {
+  vertical-align: -1px;
+  margin: 0 0 0 3px;
+  color: var(--cv-link);
+}
+.cv-chip__favicon {
+  border-radius: 3px;
+  object-fit: contain;
+}
+/* A web image before it loads (chips/ReplyImage.tsx, decision D5). */
+.cv-image-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
+  border-radius: 8px;
+  vertical-align: middle;
+}
+.cv-image-placeholder__host {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-image-placeholder__note {
+  color: var(--cv-link);
+}
+.cv-image-placeholder__load {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--cv-fg) 20%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--cv-text);
+  font: inherit;
+  cursor: pointer;
+}
+.cv-image-placeholder__load:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
