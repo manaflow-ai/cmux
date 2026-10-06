@@ -369,21 +369,21 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.uiScale.increase", defaultValue: "Increase Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "bigger", "zoom"],
                 defaultShortcut: Shortcut("=", modifiers: [.control, .command]), category: .settings,
-                symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], mainMenu: .view
+                symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings increase-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.decrease",
                 title: String(localized: "action.appearance.uiScale.decrease", defaultValue: "Decrease Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "smaller", "zoom"],
                 defaultShortcut: Shortcut("-", modifiers: [.control, .command]), category: .settings,
-                symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], mainMenu: .view
+                symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings decrease-interface-scale", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.uiScale.reset",
                 title: String(localized: "action.appearance.uiScale.reset", defaultValue: "Reset Interface Scale", bundle: .module),
                 keywords: ["appearance", "scale", "chrome", "default", "zoom"],
                 defaultShortcut: Shortcut("0", modifiers: [.control, .command]), category: .settings,
-                symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], mainMenu: .view
+                symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard, .menu], cliName: "settings reset-interface-scale", mainMenu: .view
             ),
         ]
     }
