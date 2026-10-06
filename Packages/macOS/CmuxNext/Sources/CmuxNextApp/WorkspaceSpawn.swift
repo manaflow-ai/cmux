@@ -61,6 +61,7 @@ struct WorkspaceSpawn: Sendable {
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             env = object.compactMapValues { $0 as? String }
         }
+        opensNewTabPage = invocation.origin == .user && command == nil
     }
 
     /// The name of a workspace opened in `directory`: the folder's name
@@ -74,7 +75,8 @@ struct WorkspaceSpawn: Sendable {
 }
 
 extension WindowManager {
-    /// Creates a workspace with one terminal and returns its id. The
+    /// Creates a workspace with one terminal (or the New Tab page,
+    /// `opensNewTabPage`) and returns its id. The
     /// terminal gets this app's launch identity plus `CMUX_WORKSPACE_ID` and
     /// `CMUX_SURFACE_ID` (its reserved terminal id), so `cmux` and agent
     /// hooks inside it know where they run.
@@ -121,6 +123,13 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        if spawn.opensNewTabPage, spawn.command == nil, services.agentTabs.canHost(on: daemon) {
+            let agentTabs = services.agentTabs
+            return try await WorkspaceCreation.createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
+                _ = try await agentTabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon)
+                return created.key.rawValue
+            }
+        }
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(created), command: spawn.command, cwd: cwd,

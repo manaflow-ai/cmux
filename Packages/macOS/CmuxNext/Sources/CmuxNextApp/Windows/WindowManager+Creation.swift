@@ -13,23 +13,26 @@ extension WindowManager {
     /// daemon), placed in window `windowID` when given (see `claimNew`).
     /// Returns its id.
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil, into windowID: String? = nil,
-                         frame: CGRect? = nil) async -> String? {
+                         frame: CGRect? = nil, newTabPage: Bool = false) async -> String? {
         let daemon = daemon ?? services.daemon
+        var spawn = WorkspaceSpawn(cwd: cwd)
+        spawn.opensNewTabPage = newTabPage
         do {
-            return try await createWorkspace(WorkspaceSpawn(cwd: cwd), on: daemon, into: windowID, frame: frame)
+            return try await createWorkspace(spawn, on: daemon, into: windowID, frame: frame)
         } catch {
             daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
 
-    /// New workspace in `state`'s window when it is open, else in a new
-    /// window (the app has no open window: Dock, CLI, menu).
+    /// New workspace, on the New Tab page, in `state`'s window when it is
+    /// open, else in a new window (the app has no open window: Dock, CLI, menu).
     /// `slot` places it in that window's sidebar once it is reported.
     func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil) {
         let target = targetWindow(preferring: state?.id)
         var spawn = WorkspaceSpawn()
         spawn.slot = slot
+        spawn.opensNewTabPage = true
         Task {
             do {
                 _ = try await createWorkspace(spawn, on: daemon, into: target)
@@ -44,7 +47,7 @@ extension WindowManager {
     @discardableResult
     func newWindow(frame: CGRect? = nil) -> String {
         let windowID = UUID().uuidString.lowercased()
-        Task { await createWorkspace(into: windowID, frame: frame) }
+        Task { await createWorkspace(into: windowID, frame: frame, newTabPage: true) }
         return windowID
     }
 
