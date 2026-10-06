@@ -171,6 +171,25 @@ class TerminalHistoryTests(unittest.TestCase):
                 self.assertEqual(shared.count('echo ONCE_13766'), 3, shared)
                 self.assertEqual(shared.count('echo OTHER_TERMINAL'), 1, shared)
 
+    def test_zsh_history_survives_no_clobber(self):
+        # NO_CLOBBER is a common user and plugin setting (zsh's APPEND_CREATE
+        # is off by default, so it governs whether `>>` may create a missing
+        # file). Under it the first append to a fresh surface history failed
+        # with ENOENT, and because the file was never created every later
+        # prompt repeated that error and the surface recorded nothing at all.
+        with tempfile.TemporaryDirectory(prefix='cmux13766-noclobber-') as temp:
+            directory = Path(temp)
+            self.global_startup('/bin/zsh', directory, extra=['setopt NO_CLOBBER'])
+            self.run_shell('/bin/zsh', directory, 'a', [b'echo ALPHA_13766\n'])
+            self.assertTrue(
+                (directory / 'a').exists(),
+                'surface history file was never created under NO_CLOBBER',
+            )
+            recorded = (directory / 'a').read_bytes()
+            self.assertEqual(recorded.count(b'echo ALPHA_13766'), 1, recorded)
+            output = self.run_shell('/bin/zsh', directory, 'a', [b'\x1b[A\n'])[0]
+            self.assertIn(b'ALPHA_13766', output)
+
     def test_zsh_unset_savehist_is_not_persisted(self):
         # macOS's native session hooks can save global history even with
         # SAVEHIST unset. Match that baseline; cmux must add no persistence.
