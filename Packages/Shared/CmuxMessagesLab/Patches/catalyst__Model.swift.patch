@@ -1,0 +1,28 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
+@@ -213,7 +213,13 @@
+     }()
+     /// Timestamps keep the conversation's offset (-07:00) so rendering is
+     /// independent of the machine's zone.
+-    static let zone = TimeZone(secondsFromGMT: -7 * 3600)!
++    /// cmux: a live Home transcript shows the user's zone and locale; it
++    /// sets `liveZone` / `liveLocale` before the first date is formatted.
++    /// Unset (fixtures, the differential harness), the conversation's -07:00.
++    static var liveZone: TimeZone?
++    static var liveLocale: Locale?
++    static let zone = liveZone ?? TimeZone(secondsFromGMT: -7 * 3600)!
++    static let locale = liveLocale ?? Locale(identifier: "en_US")
+     private static let writer: ISO8601DateFormatter = {
+         let f = ISO8601DateFormatter()
+         f.formatOptions = [.withInternetDateTime]
+@@ -264,7 +270,9 @@
+ enum Fixtures {
+     /// conversation.json and assets/ from shared/ are bundled (not copied
+     /// into this variant's sources).
+-    static var sharedDirectory: URL { Bundle.main.resourceURL! }
++    /// cmux: fixtures are not in the app bundle; the harness sets `root`.
++    static var root: URL?
++    static var sharedDirectory: URL { root ?? Bundle.main.resourceURL! }
+     /// The repo's shared/ directory, for the large generated stores that are
+     /// not bundled.
+     static var repoShared: URL {

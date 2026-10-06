@@ -25,6 +25,7 @@ import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashM
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
+import { remoteComposer } from "./remoteEditing";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -241,6 +242,7 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   const commands = snapshot.commands;
+  const remote = remoteComposer(snapshot);
   const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
     .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
     .map((mode) => ({
@@ -301,6 +303,8 @@ export function Composer({
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
+    // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
+    if (!remote.canSend) return false;
     const prompt = unwrapped().trim();
     if (!prompt && attachments.length === 0) {
       plusDraft.current = undefined;
@@ -428,6 +432,11 @@ export function Composer({
             </li>
           ))}
         </ol>
+      )}
+      {remote.note && (
+        <p className="acpmux-composer-remote-note" role="note">
+          {t(remote.note)}
+        </p>
       )}
       <ComposerContext
         projectChoices={projectChoices}
@@ -597,7 +606,7 @@ export function Composer({
               >
                 <StopIcon />
               </button>
-            ) : (
+            ) : remote.canSend ? (
               <button
                 key="send"
                 ref={sendButton}
@@ -608,7 +617,7 @@ export function Composer({
               >
                 <ArrowUpIcon />
               </button>
-            )}
+            ) : null}
           </span>
         </div>
       </div>

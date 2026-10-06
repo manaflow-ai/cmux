@@ -39,9 +39,10 @@ enum SidebarStyle {
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
-    /// Where workspace titles start: past the leading type glyph every row
-    /// reserves. Group headers start their name here too.
-    static var titleLeading: CGFloat { horizontalInset + iconBox + Metrics.space3 }
+    /// Where a workspace title without a custom icon starts: rows draw no
+    /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
+    /// their name here too.
+    static var titleLeading: CGFloat { horizontalInset }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.

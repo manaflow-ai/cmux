@@ -30,23 +30,20 @@ final class SidebarBridge {
     private var seed = SidebarSeed()
     /// The saved space bar, shown until the local daemon reports its spaces.
     private var seededProfiles: (profiles: [SidebarProfile], active: SidebarProfileKey?)?
-    /// What was last saved for this window, and the order of saves.
-    private var lastRecorded: SidebarSnapshot?
-    private var recordSequence: UInt64 = 0
-    /// Once incognito, never saved, even after the window leaves the
-    /// incognito set on its way out.
-    private var everIncognito = false
+    /// Saves what the sidebar shows (`SidebarSnapshotStore`).
+    private var snapshotRecorder = SidebarSnapshotRecorder()
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
-    var sectionStepCursor: (item: LayoutItemID, workspace: String?)?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
-        model.ungroupedFirst = true
+        // Loose rows come before every group unless the home session places
+        // groups among them (`personal-mixed-order-v1`); refreshed on show.
+        model.ungroupedFirst = !services.machines.local.store.supportsPersonalMixedOrder
         // Synchronous, before the hide animation starts: focus leaves the
         // sidebar in the same turn (plans/cmux-next/focus.md).
         model.onPresentationChange = { [weak state] presentation in
@@ -56,7 +53,6 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
-        SidebarHelpMenuProvider.install(on: container.sidebarView, services: services)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -122,13 +118,13 @@ final class SidebarBridge {
             }
         }
         selectionObservation = Task { [weak self] in
-            // While a top page shows, no workspace row is selected (its item is).
-            for await id in Observations({ state.page == nil ? state.workspaceID : nil }) {
+            // One selection: the shown page's top item, else the shown workspace.
+            for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
+                                                                                layout: layout.document) }) {
                 guard let self else { return }
-                let selected = id.map { SidebarWorkspaceID($0) }
-                if self.model.activeWorkspaceID != selected {
-                    self.model.activeWorkspaceID = selected
-                    self.model.selection = selected.map { [$0] } ?? []
+                if self.model.selectedItem != selected {
+                    self.model.selectedItem = selected
+                    self.model.selection = self.model.activeWorkspaceID.map { [$0] } ?? []
                 }
             }
         }
@@ -159,6 +155,7 @@ final class SidebarBridge {
     /// Shows `live` with loading sections filled from the seed, then saves it.
     private func show(_ live: [SidebarRowSection], launching: Bool, failed: Set<MachineID>) {
         let sections = seed.merge(live, launching: launching, failed: failed)
+        model.ungroupedFirst = !usesMixedOrder
         if model.sections != sections { model.sections = sections }
         if !launching || sections.contains(where: { $0.workspaces.contains { $0.rowState != .placeholder } }) { markReadyForReveal() }
         recordSnapshot()
@@ -176,21 +173,9 @@ final class SidebarBridge {
         recordSnapshot()
     }
 
-    /// Saves what the sidebar shows (placeholders and live-only detail
-    /// left out) once the launch is over, only for an open registered
-    /// window and never an incognito one (a closing incognito window leaves
-    /// the incognito set before its sidebar goes away).
     private func recordSnapshot() {
-        let registry = services.windows.registry
         guard let state else { return }
-        if registry.value.isIncognito(state.id) { everIncognito = true }
-        guard !everIncognito, !registry.isLaunching, registry.value.window(state.id)?.isOpen == true else { return }
-        let snapshot = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
-        guard snapshot != lastRecorded else { return }
-        lastRecorded = snapshot
-        recordSequence += 1
-        let store = services.sidebarSnapshots, window = state.id, sequence = recordSequence
-        Task { await store.record(snapshot, window: window, sequence: sequence) }
+        snapshotRecorder.record(model, window: state.id, services: services)
     }
 
     private func markReadyForReveal() {

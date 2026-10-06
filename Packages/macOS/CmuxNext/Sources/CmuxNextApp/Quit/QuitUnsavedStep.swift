@@ -3,15 +3,36 @@ import CmuxNextDesign
 import os
 
 /// The quit's unsaved-changes step (R96 quit hook), before the terminals
-/// question. An interactive quit asks "Save changes before quitting?"
-/// (Save, Don't Save, Cancel) and loops on failures with their reasons;
-/// signal, power-off and update save unattended (3 s cap) and keep the
-/// drafts of what failed; a scripted quit refuses when a save fails.
+/// question. An interactive or explicit quit asks "Save changes before
+/// quitting?" (Save, Don't Save, Cancel) only while a document has unsaved
+/// edits, and loops on failures with their reasons; signal and power-off
+/// save unattended (3 s cap) and keep the drafts of what failed; a scripted
+/// quit refuses when a save fails.
 @MainActor
 enum QuitUnsavedStep {
     static let unattendedCap: Duration = .seconds(3)
     static let saveID = "save"
     static let dontSaveID = "dont-save"
+
+    /// True when the quit may continue. Cmd-Q, the Quit menu items and the
+    /// update relaunch (which quits as explicit keep sessions, from the
+    /// footer's update pill) show the question only while a document has
+    /// unsaved user edits: with none, nothing shows and the quit goes on
+    /// (SIDEBAR-FOOTER-MINIMAL). The question stays for real edits, so an
+    /// update never drops them. Signal, power-off and scripted quits save
+    /// unattended.
+    static func resolve(_ origin: QuitOrigin, registry: QuitUnsavedRegistry, scope: CmuxDialogScope,
+                        center: CmuxDialogCenter = .shared,
+                        writeDrafts: () async -> Void = { await RecoveryDraftStore.shared.writePending() }) async -> Bool {
+        switch origin {
+        case .interactive, .explicit:
+            return await resolveInteractive(registry, scope: scope, center: center)
+        case .scripted, .powerOff, .signal:
+            await writeDrafts()
+            _ = await saveUnattended(registry)
+            return true
+        }
+    }
 
     /// True when the quit may continue. A failed save asks again, with
     /// its reason; each turn waits for the person's answer.

@@ -23,6 +23,7 @@ use cmux_layout_reducer::LayoutOpKind;
 
 mod batch_close;
 mod column_update;
+mod emptied_workspace;
 mod layout_projection;
 mod pane_browser;
 mod published_screen;
@@ -164,6 +165,8 @@ pub(super) struct TerminalExitDetachProjection {
     pub(super) changes: Value,
     changed_screens: Vec<ScreenId>,
     selection_resync: bool,
+    /// The workspace the detach emptied, closed in the same commit.
+    pub(super) workspace_close: Option<ResourceWorkspaceClose>,
 }
 
 pub(super) struct TerminalExitDetachEffects {
@@ -180,8 +183,12 @@ impl TerminalExitDetachProjection {
         mut self,
         state: &mut State,
         resource_revision: u64,
+        workspace_revision: Option<u64>,
     ) -> TerminalExitDetachEffects {
         self.state.resource_revision = resource_revision;
+        if let Some(revision) = workspace_revision {
+            self.state.workspace_revision = revision;
+        }
         let empty_revision =
             self.state.workspaces.is_empty().then_some(self.state.workspace_revision);
         *state = self.state;
@@ -3072,8 +3079,9 @@ impl Mux {
             &projection.patch,
             &projection.result,
             &projection.changes,
+            plan.workspace_close.as_ref(),
         )?;
-        let (terminal, resource) = match committed {
+        let (terminal, resource, workspace_revision) = match committed {
             TerminalResourceCloseCommit::TerminalReplay(terminal) => {
                 let result = TerminalCloseResult {
                     surface: None,
@@ -3107,7 +3115,9 @@ impl Mux {
                 drop(_creation_handoff);
                 return Ok(Some(result));
             }
-            TerminalResourceCloseCommit::Committed { terminal, resource } => (terminal, resource),
+            TerminalResourceCloseCommit::Committed { terminal, resource, workspace_revision } => {
+                (terminal, resource, workspace_revision)
+            }
         };
         #[cfg(test)]
         if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
@@ -3116,9 +3126,10 @@ impl Mux {
         if !terminal.replayed && !terminal.result["already_closed"].as_bool().unwrap_or(false) {
             self.emit_terminal_registry_changed(&registry, terminal.revision);
         }
-        let effects = plan.install(&mut state, resource.revision, None);
+        let mut effects = plan.install(&mut state, resource.revision, workspace_revision);
         let pending = effects.terminal_runtime.is_none() && self.terminal_is_pending(terminal_id);
         drop(state);
+        self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
@@ -3188,7 +3199,14 @@ impl Mux {
             !projected.terminal_catalog.contains_key(terminal_public_id),
             "terminal exit retained its catalog runtime"
         );
-        let selection_resync = selection_before != active_tree_selection(&projected);
+        // A process end detaches the last view: the tab closes, and so does
+        // the workspace it emptied (LAST-TAB-CLOSES-WORKSPACE).
+        let workspace_close =
+            self.close_emptied_workspaces_locked(registry, state, &mut projected, None)?;
+        let selection_resync = match &workspace_close {
+            Some(emptied) => emptied.was_active && !projected.workspaces.is_empty(),
+            None => selection_before != active_tree_selection(&projected),
+        };
         let mut projection =
             self.resource_effect_projection_locked(registry, &mut projected, json!({}))?;
 
@@ -3245,6 +3263,7 @@ impl Mux {
             changes: projection.changes,
             changed_screens,
             selection_resync,
+            workspace_close: workspace_close.map(|emptied| emptied.close),
         }))
     }
 
@@ -3328,19 +3347,7 @@ impl Mux {
         if close.terminal_batch.closed != 0 {
             self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
         }
-        if matches!(
-            &effects.tree_publication,
-            ResourceCloseTreePublication::PendingDelta(delta)
-                if delta.workspace_revision.is_some()
-        ) {
-            let ResourceCloseTreePublication::PendingDelta(delta) = std::mem::replace(
-                &mut effects.tree_publication,
-                ResourceCloseTreePublication::Published,
-            ) else {
-                unreachable!("revisioned workspace close publication was checked above");
-            };
-            self.emit_committed_workspace_delta(&registry, delta, effects.selection_resync);
-        }
+        self.publish_revisioned_workspace_delta(&registry, &mut effects);
         drop(registry);
         drop(workspace_lifecycle);
         Ok(CommittedResourceClose { commit: close.resource, effects })
@@ -3398,7 +3405,7 @@ impl Mux {
         let ResourceCloseInputs {
             surface_ids,
             mut delta,
-            changed_screens,
+            mut changed_screens,
             workspace_metadata,
             terminal_runtime,
             terminal_batch,
@@ -3562,39 +3569,24 @@ impl Mux {
         let mut workspace_close = None;
         let mut workspace_was_active = false;
         if let Some((workspace, index, workspace_key)) = workspace_metadata {
-            // `home_not_closable`: refused before any terminal ends.
-            registry.read_state(|connection| {
-                crate::state::home_store::refuse_close_key(connection, &workspace_key)
-            })?;
-            workspace_was_active = projected.active_workspace == index;
-            let previous_active = projected.active_pane();
-            let active_id =
-                projected.workspaces.get(projected.active_workspace).map(|workspace| workspace.id);
-            anyhow::ensure!(
-                projected.workspaces.get(index).is_some_and(|item| item.id == workspace),
-                "workspace disappeared while planning close"
-            );
-            projected.remove_workspace(index);
-            projected.active_workspace = active_id
-                .and_then(|id| projected.workspace_index(id))
-                .unwrap_or_else(|| projected.workspaces.len().saturating_sub(1));
-            stamp_changed_active_pane(self, &mut projected, previous_active);
-            let active_workspace = projected
-                .workspaces
-                .get(projected.active_workspace)
-                .map(|workspace| workspace.public_id.clone());
-            workspace_close = Some(ResourceWorkspaceClose {
-                workspace_key: workspace_key.clone(),
-                remaining_workspaces: self.registry_projection(&projected),
-                active_workspace,
-                legacy_result: json!({
-                    "workspace":workspace,
-                    "key":workspace_key,
-                    "index":index,
-                    "changed":true,
-                }),
-            });
+            workspace_was_active = self.remove_workspace_for_close(
+                registry,
+                &mut projected,
+                workspace,
+                &workspace_key,
+            )?;
+            workspace_close =
+                Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             split_index_changed = true;
+        } else if let Some(emptied) = self.close_emptied_workspaces_locked(
+            registry,
+            state,
+            &mut projected,
+            Some(notifications),
+        )? {
+            (delta, changed_screens, workspace_was_active) =
+                (emptied.delta, emptied.changed_screens, emptied.was_active);
+            workspace_close = Some(emptied.close);
         }
         if split_index_changed {
             Self::rebuild_split_screen_index(&mut projected);

@@ -160,6 +160,13 @@ public struct DaemonCapabilities: Sendable {
     /// commands and their `cloud-*` events. Advertised only when the daemon
     /// has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
+    /// Groups placed among the loose personal workspaces: `top_index` on
+    /// `list-personal` groups and on `workspace_group.update`, and a personal
+    /// row for every new workspace (cmux-tui `personal_order.rs`).
+    public let personalMixedOrder = "personal-mixed-order-v1"
+    /// `attachment` parts and their bytes on the local conversation owner:
+    /// `conversation-attachment-upload` and `conversation-attachment-read`.
+    public let localAttachments = "local-attachments-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -214,9 +221,9 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations,
+                                            workspaceKind, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead] }
+                                            terminalClipboardRead, personalMixedOrder] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

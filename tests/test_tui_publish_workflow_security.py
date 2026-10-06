@@ -2163,10 +2163,6 @@ def test_npm_builder_accepts_relay_release_candidate_versions() -> None:
     assert not version_re.fullmatch("0.12.1-rc.0.extra")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> str:
     """Renders a group string with `${{ ... }}` expressions (cmux-tui-artifacts.yml).
 
@@ -2217,3 +2213,7 @@ def test_cmux_tui_artifacts_supersedes_queued_runs_of_an_older_branch_head() -> 
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
+
+
+if __name__ == "__main__":
+    unittest.main()
