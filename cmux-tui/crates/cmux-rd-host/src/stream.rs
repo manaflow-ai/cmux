@@ -254,7 +254,7 @@ impl MediaSession {
                 .map(|ev| Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h })
                 .reduce(Rect::union);
             if let Some(r) = merged {
-                let req = self.engine.damage(r, now_us());
+                let req = self.engine.damage(0, r, now_us());
                 trace(&format!("damage {r:?} -> {req:?}"));
                 if let Some(req) = req {
                     if let Err(e) = self.encode(stream, &req) {
