@@ -55,8 +55,9 @@
         const target = `${start}:${ed.colName(c0 + width - 1)}${r0 + values.length - 1}`;
         // Sheets' paste parser ends a row at CR, LF or CRLF and a cell at
         // a tab: any of them in a value would write cells the draft does
-        // not show.
-        if (values.some((row) => row.some((v) => /[\n\r\t]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab, a line break or a carriage return; Sheets cells are typed and cannot hold one this way`);
+        // not show. U+2028, U+2029 and U+0085 are line terminators too, so
+        // they are refused the same way.
+        if (values.some((row) => row.some((v) => /[\n\r\t\u2028\u2029\u0085]/.test(String(v === null || v === undefined ? "" : v))))) throw new S.SiteError("invalid", `${name}: a value contains a tab, a line break (LF, U+2028, U+2029 or U+0085) or a carriage return; Sheets cells are typed and cannot hold one this way`);
         // The confirmed range and one more row and column: after the
         // write, the cells outside the range must be as they were.
         const wide = `${start}:${ed.colName(c0 + width)}${r0 + values.length}`;
