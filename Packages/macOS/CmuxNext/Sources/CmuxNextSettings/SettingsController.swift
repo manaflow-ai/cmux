@@ -50,6 +50,8 @@ public final class SettingsController {
     @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
     @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
+    /// The launch's read (`readAtLaunch`), adopted by the first load.
+    @ObservationIgnored private var launchRead: LaunchRead?
     /// Writes `setSetting` validated and made, by dotted key (tests check
     /// that palette actions write through it).
     @ObservationIgnored var validatedWrites: [String: Int] = [:]
@@ -72,9 +74,11 @@ public final class SettingsController {
         design: DesignSettings = .shared,
         fileURL: URL = CmuxConfigFile.defaultURL(),
         managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
-        managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles()
+        managedWatchFiles: [URL] = ManagedPreferenceLocation.watchedFiles(),
+        launch: LaunchRead? = nil
     ) {
         self.file = CmuxConfigFile(url: fileURL)
+        self.launchRead = launch
         self.applier = SettingsApplier(design: design, registry: registry)
         self.managedReader = managedReader
         self.managedWatchFiles = managedWatchFiles
@@ -261,7 +265,23 @@ public final class SettingsController {
                           configDirectory: file.url.deletingLastPathComponent()))
     }
 
-    private typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
+    /// The launch's first load, read before the controller exists so the
+    /// terminal runtime starts in the file's appearance; the controller
+    /// adopts it (`init(launch:)`) instead of reading the file again.
+    public nonisolated struct LaunchRead: Sendable {
+        fileprivate let loaded: Loaded
+        public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
+    }
+
+    public static func readAtLaunch(
+        fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader()
+    ) -> LaunchRead {
+        let source = Result { try CmuxConfigFile.source(at: fileURL) }
+        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
+                                         configDirectory: fileURL.deletingLastPathComponent()))
+    }
+
+    fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
     private static var validValues: (densities: Set<String>, metrics: Set<String>) {
         (SettingsApplier.validDensities, SettingsApplier.validMetrics)
     }
