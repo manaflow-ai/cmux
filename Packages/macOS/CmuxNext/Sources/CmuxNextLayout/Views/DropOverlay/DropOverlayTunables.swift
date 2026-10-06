@@ -100,6 +100,9 @@ public nonisolated enum LayoutTunables {
     public static let dropEdgeMaximum = Tunable<CGFloat>.number(
         "drop.edgeMaximum", .tabDrag, "Edge zone maximum", help: "The edge band is at most this wide.", default: 180, range: 20...600, step: 1,
         unit: .points, code: "LayoutTunables.dropEdgeMaximum")
+    public static let dropZoneHysteresis = Tunable<CGFloat>.number(
+        "drop.zoneHysteresis", .tabDrag, "Zone hysteresis", help: "How far past a zone line the pointer goes before the preview changes zone.",
+        default: 12, range: 0...60, step: 1, unit: .points, code: "LayoutTunables.dropZoneHysteresis")
     public static let newColumnDropWidth = Tunable<CGFloat>.number(
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",
         default: 36, range: 8...160, step: 1, unit: .points, code: "LayoutTunables.newColumnDropWidth")
@@ -141,7 +144,7 @@ public nonisolated enum LayoutTunables {
         default: .pinned, code: "LayoutTunables.prototypeDockMode")
 
     public static var all: [TunableDescriptor] {
-        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, newColumnDropWidth, inactivePaneDimming,
+        [prototypeModel.descriptor, prototypeDockEdge.descriptor, prototypeOrientation.descriptor, prototypeDockMode.descriptor] + DropOverlayTunables.all + [dropEdgeFraction, dropEdgeMinimum, dropEdgeMaximum, dropZoneHysteresis, newColumnDropWidth, inactivePaneDimming,
                                    minimumContentWidth, minimumContentHeight, focusRingAlpha, focusGlowAlpha, focusGlowRadiusFactor].map(\.descriptor)
     }
 }

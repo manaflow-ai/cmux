@@ -61,6 +61,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dropEdgeFraction: CGFloat = 0.28
     /// Clamp for the edge drop band.
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
+    /// How far past a zone line the pointer goes before the drop preview
+    /// leaves the zone it shows (`DropZoneGeometry.zone`).
+    public var dropZoneHysteresis: CGFloat = 12
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
     /// Height of the band at a screen's top and bottom edge that opens a
@@ -132,6 +135,7 @@ extension LayoutStyle {
             let lower = edgeMinimum ?? style.dropEdgeRange.lowerBound
             style.dropEdgeRange = lower...max(lower, edgeMaximum ?? style.dropEdgeRange.upperBound)
         }
+        if let value = LayoutTunables.dropZoneHysteresis.override { style.dropZoneHysteresis = value }
         if let value = LayoutTunables.newColumnDropWidth.override { style.newColumnDropWidth = value }
         if let width = LayoutTunables.minimumContentWidth.override { style.minimumPaneContentSize.width = width }
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
