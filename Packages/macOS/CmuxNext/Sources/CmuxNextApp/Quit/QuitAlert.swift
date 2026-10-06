@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// The quit question as one cmux dialog (R96, R138: no system alerts;
 /// #17501: never a second step). "Quit cmux?" keeps the terminals by
 /// default (Keep Sessions Running, Return), Cancel (Escape), and Quit
-/// Everything and End Everything end them (no key). "Don't ask again" is a
+/// Everything ends them (no key). "Don't ask again" is a
 /// check box. The dialog blocks the window `QuitCoordinator` picks, or
 /// shows app-wide when no window is open (the app host, which activates
 /// the app).
@@ -90,14 +90,21 @@ final class QuitAlert {
     /// Clicks the button `id` ("keep", "quit", "cancel",
     /// "confirm-quit-everything", "end-everything"; the old "end-keep-layout"
     /// and "quit-everything" press Quit Everything). "end" opened the old
-    /// second step: it now only reports whether the end choices show, so
-    /// scripts that press "end" and then an end choice still work. False
-    /// when the dialog shown has no such button.
+    /// second step: it now only reports whether Quit Everything shows, so
+    /// scripts that press "end" and then an end choice still work;
+    /// "end-everything" answers End Everything, which has no button. False
+    /// when the dialog shown has no such choice.
     @discardableResult
     func press(_ id: String) -> Bool {
         guard let dialogID else { return false }
         let ids = buttons.map(\.id)
-        if id == "end" { return ids.contains(QuitAlertContent.Button.endEverything.rawValue) }
+        let ends = ids.contains(QuitAlertContent.Button.confirmQuitEverything.rawValue)
+        if id == "end" { return ends }
+        if id == QuitAlertContent.Button.endEverything.rawValue {
+            guard ends else { return false }
+            finish(.quit(.endEverything, remember: false))
+            return true
+        }
         let resolved = switch id {
         case "quit" where !ids.contains("quit"): "keep"
         case "end-keep-layout", "quit-everything": "confirm-quit-everything"

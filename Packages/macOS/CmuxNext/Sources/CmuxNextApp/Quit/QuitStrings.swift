@@ -47,10 +47,6 @@ enum QuitStrings {
         String(localized: "quit.button.quitEverything", defaultValue: "Quit Everything", table: "Quit", bundle: .module)
     }
 
-    static var endEverythingDeletes: String {
-        String(localized: "quit.end.body", defaultValue: "End Everything also deletes your workspaces.", table: "Quit", bundle: .module)
-    }
-
     static var endEverything: String {
         String(localized: "quit.button.endEverything", defaultValue: "End Everything", table: "Quit", bundle: .module)
     }

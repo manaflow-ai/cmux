@@ -1,6 +1,7 @@
 /// What the quit dialog says (R96, R138: a cmux dialog, minimal and plain).
-/// One step (#17501): Keep Sessions Running is the default, and both end
-/// choices sit beside it, so a quit never opens a second dialog.
+/// One step (#17501): Keep Sessions Running is the default and Quit
+/// Everything sits beside it, so a quit never opens a second dialog. End
+/// Everything (also delete the workspaces) is the File menu's.
 struct QuitAlertContent: Equatable {
     enum Button: String, Equatable {
         /// Keep Sessions Running (the default).
@@ -10,7 +11,7 @@ struct QuitAlertContent: Equatable {
         case cancel
         /// End every local terminal, keep the layout.
         case confirmQuitEverything = "confirm-quit-everything"
-        /// Also delete the workspaces.
+        /// Also delete the workspaces (no button; `debug.quit` presses it).
         case endEverything = "end-everything"
     }
 
@@ -42,8 +43,7 @@ struct QuitAlertContent: Equatable {
         if prompt.agentsInTurn > 0 { lines.append(QuitStrings.agentsKeepWorking(prompt.agentsInTurn)) }
         if !prompt.incognitoPrograms.isEmpty { lines.append(QuitStrings.incognitoCloses) }
         if prompt.remoteSessions { lines.append(QuitStrings.remote) }
-        lines.append(QuitStrings.endEverythingDeletes)
-        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything, .endEverything],
+        return QuitAlertContent(title: QuitStrings.title, lines: lines, buttons: [.keep, .cancel, .confirmQuitEverything],
                                 showsSuppression: true)
     }
 

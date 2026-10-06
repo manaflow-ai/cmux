@@ -38,9 +38,9 @@ struct QuitDialogTests {
     @Test func keepSessionsRunningIsTheDefaultAndTheEndChoicesNeedNoSecondStep() throws {
         let (alert, center, answers) = Self.open()
         let main = try #require(center.records.first)
-        #expect(main.spec.buttons.map(\.id) == ["confirm-quit-everything", "end-everything", "cancel", "keep"])
+        #expect(main.spec.buttons.map(\.id) == ["confirm-quit-everything", "cancel", "keep"])
         #expect(main.spec.defaultButton?.id == "keep", "Return never confirms a destructive choice")
-        #expect(main.spec.buttons.prefix(2).allSatisfy { $0.role == .destructive })
+        #expect(main.spec.buttons.first?.role == .destructive)
         alert.remembers = true
         #expect(alert.press("confirm-quit-everything"))
         #expect(answers() == [.quit(.endKeepLayout, remember: true)])
