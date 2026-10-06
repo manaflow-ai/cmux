@@ -700,7 +700,12 @@ virtual clipboard, 32 items and 64 MiB of Base64), the values typed
 secrets left in pages (4,096 in the whole app, shared by sessions on
 purpose so each masks the others'), the session registry (32 sessions),
 and the scripts the page agent runs in the page's world (`page.evaluate`,
-bounded only by the 64 MiB result).
+bounded only by the 64 MiB result). The runtime keeps at most 1,000
+download records for `session.downloads()` (past that the oldest finished
+or failed one goes, the oldest running one when none ended) and tracks at
+most 1,000 running downloads a tab (past that the oldest one's
+`failure()` and `path()` read that it is gone); a dropped download's id
+never names another.
 
 ## Hibernated and crashed tabs
 
