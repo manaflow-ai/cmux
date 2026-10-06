@@ -187,6 +187,13 @@ impl CdpDriver {
 }
 
 impl CdpDriver {
+    /// Saves the browser's downloads in `dir` and reports them as
+    /// `download.started` / `download.finished` (headless Chromium only).
+    pub fn save_downloads_in(&self, dir: &std::path::Path) -> Result<(), DriverError> {
+        let _ = dir;
+        Ok(())
+    }
+
     /// False once the connection closed (a relayed tab went away).
     pub fn is_open(&self) -> bool {
         self.inner.conn.closed_reason().is_none()

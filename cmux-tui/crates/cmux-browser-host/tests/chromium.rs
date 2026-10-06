@@ -65,6 +65,8 @@ fn serve() -> u16 {
                     ),
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
                     "/cross" => "<!doctype html><p id=c>cross-origin frame</p><input id=ci>".to_owned(),
+                    "/dl" => "<!doctype html><title>Downloads</title><a id=d href=\"/report.txt\" download=\"report.txt\">Report</a>".to_owned(),
+                    "/report.txt" => "report body".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
@@ -671,4 +673,64 @@ fn the_focused_field_is_found_in_a_cross_origin_frame() {
     let inner = call("frame.focused", json!({"targetId": target}));
     assert_eq!(inner["url"], format!("http://localhost:{port}/cross"), "{inner}");
     assert_eq!(inner["frameId"], cross["frameId"]);
+}
+
+/// Downloads on headless Chromium: `download.started` and
+/// `download.finished` reach the session, the file lands in the host's own
+/// directory, and `download.path` answers once it completed.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_download_is_reported_and_saved() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
+    let tx = Mutex::new(tx);
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        AGENT,
+        Arc::new(move |event| {
+            if event.name.starts_with("download.") {
+                let _ = tx.lock().unwrap().send(event);
+            }
+        }),
+    )
+    .expect("attach to Chromium");
+    driver.save_downloads_in(chromium.downloads_dir()).expect("downloads go to the host");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/dl")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/dl"), "waitUntil": "load"}),
+    );
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#d').click()"}),
+    );
+    let started = rx.recv_timeout(Duration::from_secs(10)).expect("download.started");
+    assert_eq!(started.name, "download.started");
+    assert_eq!(started.payload["targetId"], target);
+    assert_eq!(started.payload["url"], format!("{origin}/report.txt"));
+    assert_eq!(started.payload["suggestedFilename"], "report.txt");
+    let id = started.payload["downloadId"].clone();
+    let path = call("download.path", json!({"downloadId": id, "timeoutMs": 10_000}));
+    let path = path["path"].as_str().expect("a path").to_owned();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "report body");
+    let finished = rx.recv_timeout(Duration::from_secs(10)).expect("download.finished");
+    assert_eq!(finished.name, "download.finished");
+    assert_eq!(finished.payload["downloadId"], id);
+    assert_eq!(finished.payload["path"], path.as_str());
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::path::Path::new(&path).parent().unwrap();
+    assert_eq!(dir, chromium.downloads_dir());
+    assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
 }

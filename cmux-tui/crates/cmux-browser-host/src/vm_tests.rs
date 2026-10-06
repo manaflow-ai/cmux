@@ -240,6 +240,39 @@ fn fs_is_sandboxed_to_the_session_root() {
     assert_eq!(lines(&out), vec![r#"["aGk=",["a.txt:file"],true,"EACCES","EACCES"]"#]);
 }
 
+/// A file the driver reported through `download.finished` is readable
+/// (driver-protocol.md, native fs contract); its neighbours and writes to it
+/// stay outside the session's files.
+#[test]
+fn reported_downloads_are_readable_and_nothing_else_outside() {
+    let dir = std::env::temp_dir().join(format!("vm-download-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("guid-1");
+    let other = dir.join("guid-2");
+    std::fs::write(&file, "report body").unwrap();
+    std::fs::write(&other, "not reported").unwrap();
+    let (vm, _) = session(0);
+    let script = format!(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         return [fs('readFile', {{path: {file:?}}}).ok || fs('readFile', {{path: {file:?}}}).error.code,\n\
+         fs('readFile', {{path: {other:?}}}).error.code,\n\
+         fs('writeFile', {{path: {file:?}, base64: ''}}).error.code];",
+        file = file.display().to_string(),
+        other = other.display().to_string(),
+    );
+    let before = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(lines(&before), vec![r#"["EACCES","EACCES","EACCES"]"#]);
+    vm.event(
+        "download.finished",
+        json!({"targetId": "T", "downloadId": "guid-1", "path": file.display().to_string()}),
+    );
+    let after = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(after.error, None, "{after:?}");
+    assert_eq!(lines(&after), vec![r#"["cmVwb3J0IGJvZHk=","EACCES","EACCES"]"#]);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "report body");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn native_fetch_is_the_gates_net_fetch() {
     let (vm, host) = session(0);
