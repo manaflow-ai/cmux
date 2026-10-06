@@ -528,3 +528,37 @@ fn an_escaped_operation_name_still_meets_gate_a2() {
         assert_a2_refusal(&reply, "agent");
     }
 }
+
+/// `workspace.agent_folder.set` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): only
+/// the user sets where a workspace's agents run. An agent connection (a Web
+/// or Peer client reaches the daemon no other way), a page relay and an app
+/// are refused by gate A2 before the request is parsed; a verified app passes.
+fn agent_folder(origin: Option<Value>) -> Value {
+    v2(
+        "workspace.agent_folder.set",
+        json!({"machine": "current", "session": "current", "workspace": "current", "path": null}),
+        Some("folder-1"),
+        origin,
+    )
+}
+
+#[test]
+fn only_a_verified_app_sets_a_workspace_agent_folder() {
+    let mux = mux("agent-folder");
+    let agent = connect(&mux);
+    assert_a2_refusal(&send(&mux, &agent, &agent_folder(None)), "agent");
+    let main = connect(&mux);
+    set_role_for_test(&mux, main.client, "main");
+    assert_a2_refusal(&send(&mux, &main, &agent_folder(None)), "agent");
+    let relay = relay(&mux, "token:30.1");
+    assert_forbidden(&send(&mux, &relay, &agent_folder(None)));
+    assert_forbidden(&send(&mux, &relay, &agent_folder(Some(json!({"claim": "user"})))));
+    let app = verified_app(&mux, "token:30.1");
+    assert_forbidden(&send(&mux, &app, &agent_folder(Some(json!({"claim": "app"})))));
+    assert_not_forbidden(&send(&mux, &app, &agent_folder(None)));
+    // Any spelling of the name meets the gate.
+    let line = agent_folder(None).to_string().replace("agent_folder", "agent\\u005ffolder");
+    assert!(handle_connection_message(&mux, agent.client, &line, &agent.writer, &agent.scheduler));
+    let reply: Value = serde_json::from_str(&agent.outbound.try_pop().unwrap()).unwrap();
+    assert_a2_refusal(&reply, "agent");
+}

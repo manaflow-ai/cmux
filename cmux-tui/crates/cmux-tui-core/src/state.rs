@@ -10,6 +10,8 @@
 //! [`commit`], which writes the rows, the replay record and the
 //! `session.events` batch in one transaction.
 
+#[cfg(test)]
+mod agent_folder_tests;
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_query;
 pub(crate) mod closed_history_store;
