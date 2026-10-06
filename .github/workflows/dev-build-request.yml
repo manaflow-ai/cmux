@@ -8,6 +8,13 @@ on:
     branches:
       - main
       - feat-cmux-next
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why this one-shot dev build is being verified"
+        required: false
+        type: string
+        default: "manual verification"
 
 permissions:
   contents: read
