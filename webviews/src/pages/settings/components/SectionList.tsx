@@ -35,7 +35,9 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
               <span className={`badge badge-${mark}`} data-badge={mark}>
                 <Icon name={mark} />
                 <span className="visually-hidden">
-                  {mark === "warning" ? t("settingsPage.problems", settingsFileName(state.host)) : t("settingsPage.managed")}
+                  {mark === "warning"
+                    ? t("settingsPage.problems", settingsFileName(state.host))
+                    : t("settingsPage.managed")}
                 </span>
               </span>
             )}
