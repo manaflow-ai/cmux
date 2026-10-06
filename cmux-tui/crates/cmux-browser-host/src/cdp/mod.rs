@@ -6,6 +6,7 @@
 
 mod browser_pages;
 mod capture;
+mod closed_roots;
 mod connection;
 mod cookies;
 mod cors;
