@@ -250,6 +250,63 @@ extension BrowserReplPasteboardTests {
             #expect(system.changeCount == systemBefore, "the stand-in let a write reach the real system pasteboard")
         }
 
+        /// cmux replaces a tab's web view (a restore of a page it unloaded, a
+        /// crash recovery) with one that has fresh preferences and a fresh
+        /// user content controller. A tab a session created keeps its page
+        /// clipboard guard for its whole life, also after its session left,
+        /// so the replacement gets the guard again before it loads; a tab
+        /// that never had it gets nothing.
+        @Test func aReplacedWebViewOfAGuardedTabGetsTheGuardAgain() async throws {
+            let shim = try Self.shim()
+            let system = NSPasteboard.general
+            let systemBefore = system.changeCount
+            let guarded = UUID()
+            let other = UUID()
+            var clipboard = BrowserReplPageClipboard(shim: shim)
+            var routed: [[[String: Any]]] = []
+            var outcome: (reinstalled: Bool?, standInChanged: Bool, otherReinstalled: Bool?, otherInstalled: Bool, closedReinstalled: Bool?)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                _ = try await Self.load(Self.page) { webView in
+                    clipboard.install(on: webView, tab: guarded) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                var reinstalled: Bool?
+                let replacement = try await Self.load(Self.page) { webView in
+                    reinstalled = clipboard.reinstall(on: webView, tab: guarded)
+                }
+                let standInBefore = standIn.changeCount
+                try await Self.click("write-text", in: replacement)
+                _ = try await Self.waitForDone(in: replacement)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                var otherReinstalled: Bool?
+                let unguarded = try await Self.load(Self.page) { webView in
+                    otherReinstalled = clipboard.reinstall(on: webView, tab: other)
+                }
+                clipboard.tabClosed(guarded)
+                var closedReinstalled: Bool?
+                _ = try await Self.load(Self.page) { webView in
+                    closedReinstalled = clipboard.reinstall(on: webView, tab: guarded)
+                }
+                outcome = (
+                    reinstalled,
+                    standIn.changeCount != standInBefore,
+                    otherReinstalled,
+                    BrowserReplPageClipboard.isInstalled(on: unguarded),
+                    closedReinstalled
+                )
+            }
+            let result = try #require(outcome)
+            #expect(result.reinstalled == true, "the replacement web view of a guarded tab did not get the guard")
+            #expect(!result.standInChanged, "the replaced page's writeText reached the system pasteboard")
+            #expect(routed.count == 1, "the replaced page's write did not reach the tab's clipboard")
+            #expect(system.changeCount == systemBefore)
+            #expect(result.otherReinstalled == nil, "a tab that never had the guard got it")
+            #expect(!result.otherInstalled)
+            #expect(result.closedReinstalled == nil, "a closed tab's id kept the guard")
+        }
+
         // MARK: - Helpers
 
         static let personsClipboard = "the person's clipboard"
