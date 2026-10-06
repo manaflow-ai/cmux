@@ -19,6 +19,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public let variables: [String: String]
     /// `dark` or `light`.
     public let colorScheme: String
+    /// The macOS "Show scroll bars" setting as `overlay` or `legacy` (``SystemScrollers/pageValue``):
+    /// `data-scrollers` on `<html>`, so pages with their own scrollers (Monaco, the diff and file
+    /// tree libraries) show them at rest only for "Always".
+    public let scrollers: String
 
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
@@ -26,9 +30,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     ///   page): its background override (`appearance.surfaces`, R55)
     ///   replaces the page background. Nil: no override applies.
     /// - Parameter backgrounds: The per-surface overrides (the app's).
+    /// - Parameter scrollers: `overlay` or `legacy`; nil reads the system setting.
     @MainActor
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
-                backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) {
+                backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil) {
         let pageOpaque = WindowBackdrop(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens) }
@@ -45,11 +50,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-selection": Self.css(tokens.selectionFill),
         ]
         colorScheme = tokens.isDark ? "dark" : "light"
+        self.scrollers = "overlay"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme}`.
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers}`.
     public var payloadJSON: String {
-        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme]
+        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
