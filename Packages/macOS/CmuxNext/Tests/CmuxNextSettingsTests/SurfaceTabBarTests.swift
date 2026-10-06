@@ -132,9 +132,6 @@ import Testing
             #expect(entry.flatMap { registry.descriptor(for: ActionID(rawValue: $0.actionID)) } != nil, "\(id)")
         }
         #expect(SurfaceTabBarConfig.defaultButtons.isEmpty)
-        for spec in SurfaceTabBarConfig.builtInButtons {
-            #expect(registry.descriptor(for: ActionID(rawValue: spec.actionID)) != nil)
-        }
     }
 
     @Test func aliasesResolveToTheCanonicalEntry() {

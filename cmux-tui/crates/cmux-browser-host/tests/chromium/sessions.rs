@@ -135,7 +135,7 @@ fn held_input_is_released_when_the_last_session_leaves() {
     assert_eq!(log, "keyup A true;keyup Shift true;mouseup 0 true;", "{log}");
 }
 
-fn headless_session(
+pub(crate) fn headless_session(
     source: &Arc<cmux_browser_host::headless_source::HeadlessSource>,
     browsers: &cmux_browser_host::headless_source::HeadlessBrowsers,
     name: &str,

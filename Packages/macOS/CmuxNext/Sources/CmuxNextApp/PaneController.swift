@@ -37,7 +37,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
-    private var buttonsObservation: Task<Void, Never>?
 
     struct Snapshot: Equatable {
         var items: [StripTabItem]
@@ -67,7 +66,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func teardown() {
         observation?.cancel()
-        buttonsObservation?.cancel()
         services.presentation.cancel(self)
         // No-op for a tab that moved to another pane: its new pane owns it.
         services.cache.removePresenter(self)
@@ -91,13 +89,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             }
         }
         apply(snapshot())
-        let buttons = services.tabBarButtons!
-        buttonsObservation = Task { [weak self] in
-            for await list in Observations({ buttons.buttons }) {
-                guard let self else { return }
-                if self.stripModel.trailingButtons != list { self.stripModel.trailingButtons = list }
-            }
-        }
     }
 
     func snapshot() -> Snapshot {
