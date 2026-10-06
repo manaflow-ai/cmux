@@ -3057,12 +3057,12 @@
     },
     "tabs.claim-other-workspace": {
       "value": {
-        "listedAll": true,
+        "known": true,
+        "listedAll": false,
         "inOwnList": false,
-        "otherWorkspace": true,
-        "count": "Count 1"
+        "useRefused": true
       },
-      "ms": 510
+      "ms": 213
     },
     "edge.sessions-two-tabs": {
       "value": {

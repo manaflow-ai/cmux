@@ -15,7 +15,8 @@ export default [
     // in its own workspace: tabs.list({ all: true }) does not list a user's
     // tab of another workspace, and tabs.use(id) refuses it (a person must
     // grant such a tab, and cmux has no such grant yet). The user's tab of
-    // the session's own workspace is claimed by tabs.attach.
+    // the session's own workspace is claimed by tabs.attach. `known` proves
+    // the id names the tab, so the refusal is not a wrong id.
     custom: {
       async cmux(ctx) {
         const url = `${ctx.origins.primary}/diff/lab.html?claim=${Date.now()}`;
@@ -29,12 +30,14 @@ export default [
             id = JSON.parse(made.out).surface_id ?? null;
           } catch {}
           if (!id) return { error: `new-surface printed no surface id: ${made.out.trim()} ${made.err.trim()}`.slice(0, 300) };
+          // The id names the user's tab: the older socket methods reach it.
+          const known = (await ctx.cli(["browser", id, "eval", "1"])).code === 0;
           const r = await ctx.repl(ctx.wrap({ path: null, code: `const mine = (t) => t.id === ${JSON.stringify(id)} || t.url === ${JSON.stringify(url)};
 const listedAll = (await tabs.list({ all: true })).some(mine);
 const inOwnList = (await tabs.list()).some(mine);
 const used = await E(() => tabs.use(${JSON.stringify(id)}));
-return { listedAll, inOwnList, useRefused: !!used.error && /in another workspace/.test(used.error) };` }));
-          return r.value ?? r;
+return { listedAll, inOwnList, useRefused: !!used.error && /No open tab|in another workspace/.test(used.error) };` }));
+          return r.value ? { known, ...r.value } : r;
         } finally {
           await ctx.cli(["workspace", "close", "--workspace", wsRef, "--force"]);
         }
@@ -50,10 +53,10 @@ return { listedAll, inOwnList, useRefused: !!used.error && /in another workspace
     better: {
       "reference-b": {
         reason: "a session stays inside its workspace: a user's tab of another workspace is neither listed nor attachable without a person's grant, where reference B lets an agent claim any user tab",
-        check: (c) => c.listedAll === false && c.inOwnList === false && c.useRefused === true,
+        check: (c) => c.known === true && c.listedAll === false && c.inOwnList === false && c.useRefused === true,
       },
     },
-    expect: { listedAll: false, inOwnList: false, useRefused: true },
+    expect: { known: true, listedAll: false, inOwnList: false, useRefused: true },
   },
   {
     id: "tabs.legacy-socket-refused",
