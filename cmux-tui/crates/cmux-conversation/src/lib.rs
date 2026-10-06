@@ -64,6 +64,6 @@ pub const MAX_PREVIEW_BYTES: usize = 4096;
 pub const MAX_EMOJI_BYTES: usize = 64;
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod link_preview_tests;
+#[cfg(test)]
+mod tests;

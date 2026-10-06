@@ -27,9 +27,10 @@ pub fn valid_link_url(url: &str) -> bool {
     if url.is_empty() || url.len() > MAX_LINK_URL_BYTES {
         return false;
     }
-    if url.chars().any(|character| {
-        character.is_control() || character.is_whitespace() || character == '\\'
-    }) {
+    if url
+        .chars()
+        .any(|character| character.is_control() || character.is_whitespace() || character == '\\')
+    {
         return false;
     }
     let lower = url.get(..8).unwrap_or(url).to_ascii_lowercase();

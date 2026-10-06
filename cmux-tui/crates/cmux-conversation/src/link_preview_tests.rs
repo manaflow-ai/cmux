@@ -71,7 +71,10 @@ fn link_preview_part_round_trips_and_is_accepted() {
     let bare = json!({"type":"link_preview","url":"http://example.com"});
     let commit = send(bare.clone()).unwrap();
     assert_eq!(serde_json::to_value(&commit.message.unwrap().parts[0]).unwrap(), bare);
-    assert!(send(preview(json!({"image":{"hash":HASH,"mime_type":"image/webp","byte_count":1}}))).is_ok());
+    assert!(
+        send(preview(json!({"image":{"hash":HASH,"mime_type":"image/webp","byte_count":1}})))
+            .is_ok()
+    );
     assert!(send(preview(json!({"title":"é".repeat(300),"site":"s".repeat(253)}))).is_ok());
     let longest = format!("https://example.com/{}", "a".repeat(2048 - 20));
     assert_eq!(longest.len(), 2048);
@@ -108,7 +111,10 @@ fn link_preview_part_refuses_bad_urls_text_and_images() {
     for over in cases {
         assert_eq!(send(preview(over.clone())).unwrap_err(), Reject::InvalidParts, "{over}");
     }
-    assert!(send(preview(json!({"url":"HTTPS://Example.com"}))).is_ok(), "the scheme is case-insensitive");
+    assert!(
+        send(preview(json!({"url":"HTTPS://Example.com"}))).is_ok(),
+        "the scheme is case-insensitive"
+    );
 }
 
 #[test]
