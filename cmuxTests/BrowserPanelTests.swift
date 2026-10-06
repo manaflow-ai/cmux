@@ -774,6 +774,21 @@ final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testRemoteTuiPublicNavigationDoesNotWaitForLegacyProxyEndpoint() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            renderInitialNavigation: false,
+            isRemoteWorkspace: true,
+            allowsLocalNavigationWithoutRemoteProxy: true
+        )
+
+        let navigation = panel.navigateWithoutInsecureHTTPPrompt(to: url, recordTypedNavigation: false)
+
+        XCTAssertNotNil(navigation)
+        XCTAssertFalse(panel.hasPendingRemoteNavigation)
+    }
+
     func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
         let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
         let panel = BrowserPanel(

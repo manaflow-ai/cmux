@@ -11,6 +11,16 @@ struct PrivateAddressRouteSelectorTests {
         #expect(selector.machine(forHost: "127.0.0.1", owner: "ssh:a", addresses: addresses) == "ssh:a")
     }
 
+    @Test(arguments: ["localhost", "::1", "127.0.0.1"])
+    func ownerLoopbackAliasesRouteToSSHMachine(host: String) {
+        #expect(selector.machine(forHost: host, owner: "ssh:a", addresses: ["ssh:a": "127.0.0.1"]) == "ssh:a")
+    }
+
+    @Test(arguments: ["localhost", "::1"])
+    func loopbackAliasesAreNotRoutedWithoutOwner(host: String) {
+        #expect(selector.machine(forHost: host, owner: nil, addresses: ["ssh:a": "127.0.0.1"]) == nil)
+    }
+
     @Test(arguments: [nil, "cloud-x"] as [String?])
     func loopbackIsNotRoutedForABrowserTheMachineDoesNotOwn(owner: String?) {
         #expect(selector.machine(forHost: "127.0.0.1", owner: owner, addresses: ["ssh:a": "127.0.0.1"]) == nil)
