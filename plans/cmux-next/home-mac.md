@@ -8,6 +8,18 @@ the render core and its AppKit host; the Home lead owns the data (daemon
 conversation tabs, the home workspace, the chief conversation, the ops) and
 wires the view to it through this protocol.
 
+Update 2026-10-04 (Lawrence: "using the code behind MessagesLabAppKitNative
+is very important, since the animation is significantly better"): on the
+Mac the view is MessagesLabAppKitNative's own code, vendored at MessagesLab
+3a53206 in `Packages/Shared/CmuxMessagesLab` (vendor.tsv;
+`scripts/cmux-next/check-messageslab-vendor.sh` lists the blocker edits).
+`HomeProjection` replaces `HomeStoreBinding` on the Mac: HomeStore
+snapshots become MessagesLab actions on a projection store, sends and
+tapbacks become the intents in section 2. The data protocol below is
+unchanged; `HomeController` names apply to iOS, which keeps
+CmuxHomeRender until the Mac passes the harness
+(`scripts/cmux-next/home-messageslab-harness.sh`).
+
 Rules: OWNERSHIP-PRINCIPLES.md (single writer per entity, typed ops with
 idempotency keys, clients are mirror + intent log, client view state stays
 client). The view adds no model type: it reads CmuxHomeCore types only.
