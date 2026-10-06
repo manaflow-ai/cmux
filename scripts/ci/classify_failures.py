@@ -65,7 +65,7 @@ import os
 import re
 import sys
 import urllib.parse
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -473,11 +473,13 @@ def classify_run(gh: GitHub, run: Mapping) -> dict:
             "macos_ran": macos_ran(jobs), "macos_blocked": macos_blocked(jobs)}
 
 
-def run_pull(gh: GitHub, run: Mapping) -> tuple[int | None, dict]:
-    """The run's pull request and its state. pr_number() finds an open one; a pull request merged
-    before its CI finished (#17074, #17232, #17233 on 2026-10-05) is closed by the time the run
-    completes, and its run lists no pull request, so a merged one at this head is looked up too."""
-    pr = pr_number(gh, run)
+def run_pull(gh: GitHub, run: Mapping, pr: int | None = ...) -> tuple[int | None, dict]:  # type: ignore[assignment]
+    """The run's pull request and its state. pr_number() finds an open one (pass `pr` when it was
+    already looked up); a pull request merged before its CI finished (#17074, #17232, #17233 on
+    2026-10-05) is closed by the time the run completes, and its run lists no pull request, so a
+    merged one at this head is looked up too."""
+    if pr is ...:
+        pr = pr_number(gh, run)
     if pr:
         return pr, gh.pull(pr)
     owner = str((run.get("head_repository") or {}).get("full_name") or "").split("/")[0]
@@ -781,8 +783,9 @@ def mark_pending(writer: Writer, repo: str, pr: int, existing: list[dict], head:
 # ---------------------------------------------------------------- acting
 
 
-def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
-    """Whether to re-run the failed jobs, and the line that says so."""
+def rerun_decision(report: Mapping, latest: Mapping | Callable[[], Mapping]) -> tuple[bool, str]:
+    """Whether to re-run the failed jobs, and the line that says so. `latest` is the run as it is
+    now, or a function that reads it: only a run whose every failure is the machine's needs it."""
     jobs = report["jobs"]
     if not jobs:
         return False, "Not re-run automatically: only gate jobs failed."
@@ -792,6 +795,8 @@ def rerun_decision(report: Mapping, latest: Mapping) -> tuple[bool, str]:
                        + (" is not a machine failure." if len(blockers) == 1 else " are not machine failures."))
     if report.get("conclusion") != "failure":
         return False, "Every failure is a machine failure; a cancelled run is not re-run automatically."
+    if callable(latest):
+        latest = latest()
     if int(latest.get("run_attempt") or 0) != report["attempt"] or latest.get("status") != "completed":
         return False, "Every failure is a machine failure; the run has been re-run already."
     # Attempt 1, whose re-run (attempt 2) goes back to the minis; attempt 2, which an online but broken mini
@@ -822,14 +827,44 @@ def own_failures(gh: GitHub, pr: int, report: dict, files: list[str] | None) -> 
     return files
 
 
+def reports_only_where_commented(report: Mapping) -> bool:
+    """A run that writes nothing on a pull request without this bot's comment: green with the macOS
+    jobs run, or cancelled before a job failed. act() reads the pull request only when it has one."""
+    if report.get("conclusion") == "success":
+        return not report.get("macos_blocked")
+    return report.get("conclusion") == "cancelled" and not report["jobs"]
+
+
+def write_summary(body: str) -> None:
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(body.replace(MARKER + "\n", ""))
+
+
 def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     """Summary, comment and re-run for the run's pull request, when the run is still its latest word."""
-    pr, pull = run_pull(gh, run)
+    existing: list[dict] | None = None
+    if reports_only_where_commented(report):
+        # Most runs are green. Without this bot's comment on the pull request there is nothing to
+        # update or mark pending, so the comments are read first and the pull request only when one
+        # is there (every workflow shares GITHUB_TOKEN's API budget; it ran out on 2026-10-06).
+        pr = pr_number(gh, run)
+        if pr:
+            existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+            if not any(MARKER in str(c.get("body") or "") for c in existing):
+                if report.get("conclusion") == "success":
+                    write_summary(render_comment(report, ""))
+                return {"pr": pr, "rerun": False, "line": "skipped: nothing reported on this pull request"}
+        pr, pull = run_pull(gh, run, pr)
+    else:
+        pr, pull = run_pull(gh, run)
     merged = bool(pull.get("merged_at"))
     if not pr or (pull.get("state") != "open" and not merged):
         return {"pr": pr, "rerun": False, "line": "skipped: no open pull request at this head"}
     # Only this workflow's own comment: anyone can post one carrying the marker.
-    existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    if existing is None:
+        existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
     current = next((c for c in existing if MARKER in str(c.get("body") or "")), None)
     head = str((pull.get("head") or {}).get("sha") or "")
     if head != report.get("head_sha"):
@@ -846,7 +881,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
     rerun, line = False, ""
     if report.get("conclusion") != "success":
-        rerun, line = rerun_decision(report, gh.run(int(report["run_id"])))
+        rerun, line = rerun_decision(report, lambda: gh.run(int(report["run_id"])))
         if merged and rerun:
             rerun, line = False, "Not re-run: this PR has merged."
     if rerun:
@@ -864,10 +899,7 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
             except RuntimeError as error:
                 print(f"::warning::could not start {ui_tests_dispatch.DISPATCH_WORKFLOW_FILE}: {code(error)}", flush=True)
     body = render_comment(report, line, rerun)
-    summary = os.environ.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(body.replace(MARKER + "\n", ""))
+    write_summary(body)
     # A green run says so only where a failure was reported before; a green run whose macOS jobs
     # never ran says that even where nothing was reported, since it looks green. A machine-only
     # failure that is being re-run asks nothing of the author, so it posts no new comment either.
@@ -881,11 +913,17 @@ def act_requested(gh: GitHub, writer: Writer, run: Mapping) -> dict:
     """A CI run started for a new head: an existing comment about an older head says pending.
     Metadata only: the PR, its head and the bot's comments; no log, nothing of the PR runs."""
     pr = pr_number(gh, run)
-    pull = gh.pull(pr) if pr else {}
-    head = str((pull.get("head") or {}).get("sha") or "")
-    if not pr or pull.get("state") != "open" or head != run.get("head_sha"):
+    if not pr:
         return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
+    # The comments first: without this bot's comment there is nothing to mark, and the pull
+    # request is not read.
     existing = [c for c in gh.comments(pr) if (c.get("user") or {}).get("login") == BOT]
+    if not any(MARKER in str(c.get("body") or "") for c in existing):
+        return {"pr": pr, "rerun": False, "line": "nothing to mark"}
+    pull = gh.pull(pr)
+    head = str((pull.get("head") or {}).get("sha") or "")
+    if pull.get("state") != "open" or head != run.get("head_sha"):
+        return {"pr": pr, "rerun": False, "line": "skipped: not the open pull request's head"}
     changed = mark_pending(writer, gh.repo, pr, existing, head, str(run.get("html_url") or "") or None)
     return {"pr": pr, "rerun": False, "line": f"marked pending on {head[:10]}" if changed else "nothing to mark"}
 
