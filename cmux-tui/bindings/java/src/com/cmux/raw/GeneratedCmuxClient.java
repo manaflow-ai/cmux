@@ -1007,6 +1007,10 @@ public abstract class GeneratedCmuxClient {
         return openStream(Commands.SUBSCRIBE, request.toWire());
     }
 
+    public final CmuxStream<ProtocolEvent> subscribeActivity() throws CmuxException {
+        return openStream(Commands.SUBSCRIBE_ACTIVITY, Map.of());
+    }
+
     public final EmptyResult swapPane(SwapPaneRequest request) throws CmuxException {
         Object result = execute(Commands.SWAP_PANE, request.toWire());
         return EmptyResult.fromWire(result);

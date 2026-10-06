@@ -609,6 +609,9 @@ class GeneratedClientMixin:
     def subscribe(self, surface: Union[Id, None, MissingType] = MISSING, *, tree_events: Union[Literal['coarse', 'deltas'], None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('subscribe', SubscribeRequest(surface=surface, tree_events=tree_events))
 
+    def subscribe_activity(self) -> Any:
+        return self._open_command_stream('subscribe-activity', SubscribeActivityRequest())
+
     def swap_pane(self, pane: Id, *, dir: Union[PaneDirection, None, MissingType] = MISSING, target: Union[Id, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('swap-pane', SwapPaneRequest(pane=pane, dir=dir, target=target))
 
@@ -896,6 +899,7 @@ GeneratedClientMixin.sidebar_plugin.__cmux_command__ = COMMANDS['sidebar-plugin'
 GeneratedClientMixin.snapshot_request.__cmux_command__ = COMMANDS['snapshot-request']
 GeneratedClientMixin.split.__cmux_command__ = COMMANDS['split']
 GeneratedClientMixin.subscribe.__cmux_command__ = COMMANDS['subscribe']
+GeneratedClientMixin.subscribe_activity.__cmux_command__ = COMMANDS['subscribe-activity']
 GeneratedClientMixin.swap_pane.__cmux_command__ = COMMANDS['swap-pane']
 GeneratedClientMixin.terminal_clipboard_reply.__cmux_command__ = COMMANDS['terminal-clipboard-reply']
 GeneratedClientMixin.terminal_clipboard_subscribe.__cmux_command__ = COMMANDS['terminal-clipboard-subscribe']
