@@ -21,10 +21,7 @@ on:
         default: "25"
         type: string
 
-permissions:
-  actions: write
-  contents: read
-  pull-requests: read
+permissions: {}
 
 # Scheduled and manually dispatched janitors share the same Actions control
 # plane.  Serialize them so a second inventory cannot race the first run's
@@ -35,6 +32,10 @@ concurrency:
 
 jobs:
   janitor:
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
     runs-on: ubuntu-24.04 # github-hosted-required: trusted Actions control-plane token
     timeout-minutes: 15
     steps:
