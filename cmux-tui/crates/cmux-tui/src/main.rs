@@ -10,6 +10,7 @@
 mod acp;
 #[cfg(unix)]
 mod agent_browser_provider;
+mod private_mode;
 mod agent_hook_install;
 mod app;
 #[cfg(unix)]
@@ -1670,9 +1671,8 @@ fn run_main() {
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
     let mut raw_args = std::env::args().skip(1).collect::<Vec<_>>();
-    #[cfg(unix)]
-    if raw_args.first().map(String::as_str) == Some("__agent-browser-provider") {
-        client_log::exit(agent_browser_provider::run());
+    if let Some(code) = private_mode::run(&raw_args) {
+        client_log::exit(code);
     }
     // Private process mode used by the daemon when it launches one durable
     // terminal host per PTY. Keep this out of public help and dispatch it

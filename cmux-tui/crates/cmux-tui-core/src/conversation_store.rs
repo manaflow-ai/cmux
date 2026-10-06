@@ -30,7 +30,7 @@ pub(crate) use import::ImportedMessage;
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 /// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop
 /// guard lives in `agent_guard`. Version 1 ledger rows are not consulted.
-const SCHEMA_VERSION: i64 = 2;
+pub(crate) const SCHEMA_VERSION: i64 = 2;
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
