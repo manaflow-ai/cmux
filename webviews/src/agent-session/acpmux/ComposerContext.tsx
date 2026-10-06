@@ -7,6 +7,7 @@ import { ChevronIcon } from "./ComposerPickers";
 import type { Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
+import { registerPicker } from "./pickerOpeners";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -69,6 +70,7 @@ export function ComposerContext({
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <LocationPicker
         label={t(CONTEXT_LABELS.computer)}
+        menu="Computer"
         value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
         options={computers}
         selected={selectedComputer}
@@ -87,6 +89,7 @@ export function ComposerContext({
       {!readOnly && selectedComputer === "local" && projectChoices ? (
         <FolderMenu
           label={t(CONTEXT_LABELS.folder)}
+          menu="Location"
           folders={folders}
           current={currentFolder}
           onPick={(cwd) => onProject?.(cwd)}
@@ -95,6 +98,7 @@ export function ComposerContext({
       ) : (
         <LocationPicker
           label={t(CONTEXT_LABELS.folder)}
+          menu="Location"
           value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
           options={folders}
           selected={currentFolder}
@@ -194,23 +198,42 @@ function FolderIcon() {
   );
 }
 
+/// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
+/// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)
+/// registers nothing.
+function useLocationOpener(name: string | undefined, open: () => void) {
+  const latest = useRef(open);
+  latest.current = open;
+  useEffect(() => {
+    if (!name) return;
+    return registerPicker(name, () => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      latest.current();
+    });
+  }, [name]);
+}
+
 /// The new chat's folder menu: the recent folders (the current one checked), then Choose folder…,
 /// which asks the host for its folder panel from the click itself. Base UI owns the menu's roles,
 /// focus, arrows, typeahead and Escape. The full path is the control's tooltip.
 function FolderMenu({
   label,
+  menu,
   folders,
   current,
   onPick,
   onBrowse,
 }: {
   label: string;
+  /// The name automation opens it by (`openPicker`).
+  menu: string;
   folders: Location[];
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
 }) {
   const [open, setOpen] = useState(false);
+  useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
     <span className="acpmux-location-picker" title={current}>
@@ -266,6 +289,7 @@ function FolderMenu({
 /// absolute or `~/` path is offered too.
 function LocationPicker({
   label,
+  menu,
   value,
   options,
   selected,
@@ -275,6 +299,8 @@ function LocationPicker({
   onPick,
 }: {
   label: string;
+  /// The name automation opens it by (`openPicker`).
+  menu: string;
   value: string;
   options: Location[];
   selected?: string;
@@ -286,6 +312,7 @@ function LocationPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
+  useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return options.filter((option) =>
