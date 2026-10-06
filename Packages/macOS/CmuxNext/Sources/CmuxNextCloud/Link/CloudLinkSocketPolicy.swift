@@ -1,4 +1,4 @@
-public import Darwin
+import Darwin
 import Foundation
 
 /// The check a link socket path passes before the app connects to it. The
@@ -10,7 +10,7 @@ import Foundation
 /// that others can write keeps the sticky bit (`/private/tmp`). Nobody else
 /// can then replace the socket between the check and the connect. The name
 /// rule keeps a wrong answer off the local daemon's and other sockets.
-public enum CloudLinkSocketPolicy {
+enum CloudLinkSocketPolicy {
     /// `sun_path` holds 104 bytes with the terminating NUL.
     static let maxPathBytes = 103
 
