@@ -18,7 +18,14 @@ In the app, calls are synchronous-looking JSON messages between the REPL's
 JavaScriptCore context and Swift; results are JSON. Errors are
 `{ code, message }`, with codes `not_found`, `stale`, `timeout`,
 `unsupported`, `invalid`, `closed`, `blocked`, `hibernated` and `crashed`
-(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)).
+(see [Hibernated and crashed tabs](#hibernated-and-crashed-tabs)), and the
+host's `cancelled` (FETCH-CANCEL-CODE, 2026-10-05): a fetch the host stopped,
+because the cell that started it timed out (message, classic's text: "fetch:
+cancelled because the cell that started it timed out") or its session ended
+("fetch: the session ended"). Compatibility: readers treat a code they do not
+know as an error with that code and its message (the runtime compares code
+strings; the Rust `ErrorCode` decodes an unknown code as `Unknown`), so an
+older reader of `cancelled` still reports the error and its message.
 
 Coordinates are CSS pixels relative to the top-left of the tab's viewport
 (main frame), matching Playwright `page.mouse` and screenshots at scale 1.
