@@ -9,6 +9,7 @@
 pub mod acpmux;
 pub mod acpmux_daemon;
 pub mod agents;
+pub mod backup;
 pub mod brain;
 pub mod browse;
 pub mod claude_import;

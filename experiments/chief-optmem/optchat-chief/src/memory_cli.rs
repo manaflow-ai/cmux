@@ -77,8 +77,10 @@ pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
                 .map_err(|e| e.to_string())?
                 .unwrap_or_else(|| "none".to_owned());
             let bytes = std::fs::metadata(&paths.memory_db).map_or(0, |m| m.len());
+            let backup = std::fs::read_to_string(paths.root.join("backup.json"))
+                .unwrap_or_else(|_| "no attempt yet".to_owned());
             Ok(format!(
-                "{}: {} messages, {} nodes, schema {SCHEMA_VERSION}, {bytes} bytes\nmigration: {migration}",
+                "{}: {} messages, {} nodes, schema {SCHEMA_VERSION}, {bytes} bytes\nmigration: {migration}\nbackup: {backup}",
                 paths.memory_db.display(),
                 counts.messages,
                 counts.nodes

@@ -4,13 +4,16 @@
 //! day files, `optchat_host::db::Exporter`, through a read-only connection)
 //! and commits it: the chat directory is a git repository, as before the
 //! move to SQLite, so its history goes on unchanged. One thread exports and
-//! commits, in turn order, so the brain never waits on either. The commits
-//! are local; pushing them elsewhere (the backup) is the user's choice of
-//! remote.
+//! commits, in turn order, so the brain never waits on either. Then the
+//! commits are pushed to the Chief's private backup repository
+//! (`crate::backup`: secret scan first, retried with backoff, never forced).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc::{Sender, channel};
+use std::sync::mpsc::{RecvTimeoutError, Sender, channel};
+use std::time::Instant;
+
+use crate::backup::{Backup, Outcome};
 
 use optchat_host::db::{Exporter, ReadOnly};
 
@@ -19,28 +22,60 @@ pub struct Persister {
 }
 
 impl Persister {
-    /// Exports the database `db` into `dir` and commits `dir` after each
-    /// `turn_ended`. Failures are logged; a missing git is said once.
-    pub fn start(dir: PathBuf, db: PathBuf, log: crate::brain::Log) -> std::io::Result<Persister> {
+    /// Exports the database `db` into `dir`, commits `dir` and pushes it
+    /// (`backup`, when given) after each `turn_ended`; a failed push is
+    /// tried again when it is due. Failures are logged; a missing git is
+    /// said once.
+    pub fn start(
+        dir: PathBuf,
+        db: PathBuf,
+        backup: Option<Backup>,
+        log: crate::brain::Log,
+    ) -> std::io::Result<Persister> {
         let (tx, rx) = channel::<String>();
         std::thread::Builder::new()
             .name("persist".into())
             .spawn(move || {
                 let mut told = false;
                 let mut export = Export::new(&dir, &db);
-                for key in rx {
-                    if let Err(e) = export.sync() {
-                        log(&format!(
-                            "exporting the memory after turn {key} failed: {e}"
-                        ));
+                let mut backup = backup;
+                let mut last: Option<Outcome> = None;
+                loop {
+                    let due = backup.as_ref().and_then(Backup::due);
+                    let key = match due {
+                        Some(at) => {
+                            match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                                Ok(key) => Some(key),
+                                Err(RecvTimeoutError::Timeout) => None,
+                                Err(RecvTimeoutError::Disconnected) => break,
+                            }
+                        }
+                        None => match rx.recv() {
+                            Ok(key) => Some(key),
+                            Err(_) => break,
+                        },
+                    };
+                    if let Some(key) = &key {
+                        if let Err(e) = export.sync() {
+                            log(&format!(
+                                "exporting the memory after turn {key} failed: {e}"
+                            ));
+                        }
+                        if let Err(e) = snapshot(&dir, key)
+                            && !told
+                        {
+                            told = true;
+                            log(&format!(
+                                "committing the memory after turn {key} failed: {e} (said once)"
+                            ));
+                        }
                     }
-                    if let Err(e) = snapshot(&dir, &key)
-                        && !told
-                    {
-                        told = true;
-                        log(&format!(
-                            "committing the memory after turn {key} failed: {e} (said once)"
-                        ));
+                    if let Some(backup) = backup.as_mut() {
+                        let outcome = backup.run(&dir);
+                        if let Some(line) = describe(&outcome, last.as_ref()) {
+                            log(&line);
+                        }
+                        last = Some(outcome);
                     }
                 }
             })?;
@@ -49,6 +84,24 @@ impl Persister {
 
     pub fn turn_ended(&self, key: &str) {
         let _ = self.tx.send(key.to_owned());
+    }
+}
+
+/// The host.log line of a backup outcome: a hold or a failure each time it
+/// changes, a push after a hold or a failure.
+fn describe(outcome: &Outcome, last: Option<&Outcome>) -> Option<String> {
+    match outcome {
+        Outcome::Held { what, rule } if last != Some(outcome) => Some(format!(
+            "backup held: possible secret in {what} ({rule}); allow it in backup-allow.txt to push"
+        )),
+        Outcome::Failed { error, retry } => Some(format!(
+            "backup push failed (retrying in {} s): {error}",
+            retry.as_secs()
+        )),
+        Outcome::Pushed { head } if !matches!(last, Some(Outcome::Pushed { .. }) | None) => {
+            Some(format!("backup pushed {head} again"))
+        }
+        _ => None,
     }
 }
 
@@ -79,7 +132,7 @@ impl Export {
     }
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)

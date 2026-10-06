@@ -455,9 +455,14 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
+    let backup = crate::backup::Backup::new(crate::backup::BackupConfig::for_home(
+        paths,
+        &crate::paths::home_id(home),
+    ));
     let persister = crate::persist::Persister::start(
         paths.chat.clone(),
         paths.memory_db.clone(),
+        Some(backup),
         brain_log.clone(),
     )
     .map_err(|e| format!("starting the persister: {e}"))?;
