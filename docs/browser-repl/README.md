@@ -620,7 +620,7 @@ checks nothing stays reserved after the session ends.
 | fs file changes over the session's life | 100,000 | `EDQUOT` |
 | One `readFile` / `readdir` | 64 MiB / 10,000 entries | `ERR_FS_FILE_TOO_LARGE` / `ERR_FS_DIR_TOO_LARGE` |
 | One fs path (`path`, `from`, `to`) | 1,024 bytes (`PATH_MAX`) | `ENAMETOOLONG`, before any work |
-| A page read (snapshot, Markdown and its `exportContent`, extract, locator reads, …) | 250,000 nodes, 2,000,000 characters, 8 s | cut, with a note |
+| A page read (snapshot, Markdown and its `exportContent`, extract, locator reads, …) | 250,000 nodes, 2,000,000 characters, 8 s | cut, with a note; a string cut at the size budget (or a name past 2,000 characters) also loses the 53,248 characters before its cut, so it never ends inside a value masked as a secret |
 | The localStorage one `storageState` reads, over all frames | 250,000 items, 2,000,000 characters of names and values | the call fails with the page-read note |
 | One reply from the page agent's world | 10,000,000 characters (the page-read budget's characters plus 32 per node) | the call fails with the page-read note |
 | Handles one `queryAll` makes | 250,000 | without a limit, the call fails with the page-read note |

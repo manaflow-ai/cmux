@@ -792,10 +792,12 @@
         let piece = (text && b !== lastBlock ? "\n" : "") + n.data.replace(/[\s\u00a0]+/g, " ");
         lastBlock = b;
         piece = B.fit(piece);
-        if (B.truncated) piece = piece.replace(/…$/, "");
         nodes.push(n);
         starts.push(text.length + (piece[0] === "\n" ? 1 : 0));
         text += piece;
+        // Matches and their contexts are cut from this text, so a cut in
+        // it is settled now (A.budget().settle) and its mark dropped.
+        if (B.truncated) text = B.settle(text).replace(/…$/, "");
       } else if (n.nodeType === 1 && !SKIP.has(n.tagName.toUpperCase())) {
         const child = firstOf(n);
         if (child) stack.push(child);

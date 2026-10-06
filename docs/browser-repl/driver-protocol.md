@@ -510,6 +510,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   by printing guesses: value masking keeps a value out of what pages and
   files hand back, not away from an agent that guesses it. Capture masks
   still mask the exact values and codes.
+  Masking matches whole values, so where the page agent cuts a page
+  string (the page-read budget, a long name) it drops the 53,248
+  characters before the cut (4,096 bytes in their longest escaped form)
+  before the reply leaves the page: a cut never hands on a value's prefix.
+  Text the agent's own page scripts cut or search (a `searchText` context
+  window, a regex group, `page.evaluate`) is outside this, as other
+  transforms are.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session. Redaction is best-effort
