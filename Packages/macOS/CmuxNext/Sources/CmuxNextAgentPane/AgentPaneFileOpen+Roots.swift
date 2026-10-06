@@ -23,6 +23,9 @@ extension AgentPaneModel {
         roots() + transport.addedRoots
     }
 
+    /// The active session's own folder, when the session is in the pane's scope.
+    func sessionRoots() -> [String] { [] }
+
     /// The file a page's `file.open` may open for `target`, or the refusal: under a root
     /// (``AgentPaneFileOpen/resolve(_:roots:)``), a type the target may show, and a real user
     /// gesture in the pane, spent by this open (page script cannot make one).

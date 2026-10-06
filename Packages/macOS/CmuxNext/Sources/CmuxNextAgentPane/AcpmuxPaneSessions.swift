@@ -36,6 +36,12 @@ public nonisolated final class AcpmuxPaneSessions: Sendable {
 
     public func contains(_ session: String) -> Bool { state.withLock { $0.sessions.contains(session) } }
 
+    /// The folder (cwd) the daemon reported for `session`, from ``observeFolder(_:replyTo:)``.
+    public func folder(of session: String) -> String? { nil }
+
+    /// A daemon reply to `method`: the session folder it reports.
+    func observeFolder(_ object: [String: Any], replyTo method: String?) {}
+
     /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).
     public static let handoffRecords: Set<String> = [
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
