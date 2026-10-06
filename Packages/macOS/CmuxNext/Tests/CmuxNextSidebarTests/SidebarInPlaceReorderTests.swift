@@ -44,9 +44,9 @@ import Testing
         #expect(try #require(list.displayed.row(for: .workspace(id("c")))).y == slot, "settles in the slot, no second jump")
     }
 
-    /// nxdog30: the row is held with its card mostly over the row above
-    /// (the pointer a little below that row's middle). The slot goes under
-    /// the card, never below it: the row above moves down out of the way.
+    /// nxdog30: the slot goes under the card, never below it. With drag to
+    /// group the pointer decides: in the top quarter of the row above, that
+    /// row moves down out of the way (its middle would group instead).
     @Test func theSlotFollowsTheCardWhenItCoversMostOfTheRowAbove() throws {
         let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("a"))
         let sidebar = SidebarView(model: model)
@@ -71,11 +71,11 @@ import Testing
         let press = NSPoint(x: list.frame(for: y).minX + 40, y: list.frame(for: y).midY)
         list.beginDrag(SidebarListView.Press(key: .workspace(id("y")), point: press))
         for step in 1...12 {
-            let target = list.frame(for: x).midY + 2.5
+            let target = list.frame(for: x).minY + list.frame(for: x).height * 0.15
             let py = press.y + (target - press.y) * CGFloat(step) / 12
             list.updateDrag(windowPoint: list.convert(NSPoint(x: press.x, y: py), to: nil))
         }
-        #expect(order() == ["y", "x"], "the card covers most of x, so x moves down")
+        #expect(order() == ["y", "x"], "the pointer is in x's top quarter, so x moves down")
         let card = try #require(list.drag?.lift.frame)
         let slot = list.frame(for: try #require(list.displayed.row(for: .workspace(id("y")))))
         #expect(card.intersection(slot).height > card.height / 2, "the slot is under the card")
