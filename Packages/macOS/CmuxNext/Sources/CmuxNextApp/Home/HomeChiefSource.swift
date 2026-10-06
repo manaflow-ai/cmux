@@ -8,7 +8,7 @@ import Foundation
 @MainActor
 enum HomeChiefSource {
     /// The Chief tab's conversation: the placed chief's main conversation, else `local`.
-    nonisolated static func choose(local: String?, placed: CloudChief?) -> String? {
+    nonisolated static func choose(local: String?, localHasHistory: Bool = false, placed: CloudChief?) -> String? {
         placed?.mainConversation ?? local
     }
 
@@ -28,6 +28,10 @@ enum HomeChiefSource {
         }
         return (close, pane)
     }
+
+    /// The tabs that show a placed chief's conversation while the Chief is
+    /// another one (red-test stub).
+    static func staleChiefTabs(placed: String?, chief: String, in workspaces: [WorkspaceModel]) -> [SurfaceID] { [] }
 
     /// The placed chief (`CloudChiefs.placed`) with a main conversation, or
     /// nil: signed out, no chief placed, or the read failed (Home then keeps

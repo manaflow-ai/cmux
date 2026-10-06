@@ -21,6 +21,20 @@ import Testing
         #expect(HomeChiefSource.choose(local: nil, placed: nil) == nil)
     }
 
+    /// One history (home-state-ownership.md): a placed chief whose cloud
+    /// conversation does not hold the local Chief's history never hides it.
+    /// On nxchief1 (cmux-lawrence-2, 2026-10-06) a relaunch signed in to an
+    /// account with a placed chief moved the Chief tab to that chief's empty
+    /// cloud conversation: the two messages the local Chief held vanished
+    /// from Home and a send went nowhere. Until the brain move imports the
+    /// conversation (DESIGN-cmux-lawrence.md section 5 step 3), the local
+    /// Chief with history stays the Chief tab.
+    @Test func aPlacedChiefNeverHidesTheLocalChiefsHistory() {
+        let placed = CloudChief.parse(Self.chief("agent_A", isDefault: true, main: "conv_A", placed: true))
+        #expect(HomeChiefSource.choose(local: "local-1", localHasHistory: true, placed: placed) == "local-1")
+        #expect(HomeChiefSource.choose(local: "local-1", localHasHistory: false, placed: placed) == "conv_A")
+    }
+
     @Test func readPlacedListsChiefsAndPicksThePlacedOne() async throws {
         var calls: [(String, [String: Any])] = []
         let chiefs = [Self.chief("agent_U", isDefault: true, main: "conv_U", placed: false),
