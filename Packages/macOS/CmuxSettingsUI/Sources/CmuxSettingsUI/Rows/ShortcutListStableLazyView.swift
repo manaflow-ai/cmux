@@ -12,7 +12,7 @@ import SwiftUI
 struct ShortcutListStableLazyView: View {
     /// Keep a burst of keystrokes from rebuilding the virtualized row tree for
     /// every character. Matching is still immediate when the query is cleared.
-    private static let searchDebounce: Duration = .milliseconds(180)
+    private static let searchDebounce: Duration = .milliseconds(80)
 
     @Environment(\.controlActiveState) private var controlActiveState
 
