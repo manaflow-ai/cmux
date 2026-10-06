@@ -57902,6 +57902,28 @@
           }
         }
       }
+    },
+    "settings.appearance.uiScale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface Scale"
+          }
+        }
+      }
+    },
+    "settings.appearance.uiScale.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

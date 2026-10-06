@@ -105,6 +105,15 @@ nonisolated enum AppearanceSettingsSchema {
                 default: "compact", keywords: ["size", "spacing"]
             ),
             SettingDescriptor(
+                UIScaleSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
+                help: SettingsText.keyed("settings.appearance.uiScale.help",
+                                        "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."),
+                kind: .number(SettingNumber(UIScaleSetting.range, step: UIScaleSetting.step, unit: .fraction, placeholder: UIScaleSetting.fallback)),
+                default: .number(UIScaleSetting.fallback),
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
+            ),
+            SettingDescriptor(
                 InterfaceSizeSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.keyed("settings.appearance.interfaceSize.help",

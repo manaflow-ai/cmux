@@ -13,6 +13,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
+    /// Applies the live app-wide scale to a chrome metric.
+    public static func scale(_ value: CGFloat) -> CGFloat { value * DesignSettings.shared.uiScale }
     /// Active density, read from `DesignSettings.shared`. Reading any metric
     /// inside an Observation-tracked scope (view layout, `withObservationTracking`)
     /// registers a dependency, so a density or override change re-lays out live.
@@ -29,8 +31,8 @@ public struct Metrics {
 
     /// Default sidebar width when visible.
     public static var sidebarWidth: CGFloat { MetricTunables.sidebarWidth.value }
-    public static var sidebarMinWidth: CGFloat { ChromeTunables.sidebarMinWidth.value }
-    public static var sidebarMaxWidth: CGFloat { ChromeTunables.sidebarMaxWidth.value }
+    public static var sidebarMinWidth: CGFloat { scale(ChromeTunables.sidebarMinWidth.value) }
+    public static var sidebarMaxWidth: CGFloat { scale(ChromeTunables.sidebarMaxWidth.value) }
 
     /// Height of the unified titlebar area. The tab strip sits beside the
     /// traffic lights inside it.
@@ -40,7 +42,7 @@ public struct Metrics {
     public static var tabStripHeight: CGFloat { MetricTunables.tabStripHeight.value }
 
     /// Space reserved at the leading edge of the titlebar for traffic lights.
-    public nonisolated static var trafficLightInset: CGFloat { ChromeTunables.trafficLightInset.value }
+    public nonisolated static var trafficLightInset: CGFloat { scale(ChromeTunables.trafficLightInset.value) }
 
     // MARK: Rows and tabs
 
@@ -62,12 +64,12 @@ public struct Metrics {
 
     // MARK: Spacing (2 pt grid)
 
-    public nonisolated static var space1: CGFloat { ChromeTunables.space1.value }
-    public nonisolated static var space2: CGFloat { ChromeTunables.space2.value }
-    public nonisolated static var space3: CGFloat { ChromeTunables.space3.value }
-    public nonisolated static var space4: CGFloat { ChromeTunables.space4.value }
-    public nonisolated static var space5: CGFloat { ChromeTunables.space5.value }
-    public nonisolated static var space6: CGFloat { ChromeTunables.space6.value }
+    public nonisolated static var space1: CGFloat { scale(ChromeTunables.space1.value) }
+    public nonisolated static var space2: CGFloat { scale(ChromeTunables.space2.value) }
+    public nonisolated static var space3: CGFloat { scale(ChromeTunables.space3.value) }
+    public nonisolated static var space4: CGFloat { scale(ChromeTunables.space4.value) }
+    public nonisolated static var space5: CGFloat { scale(ChromeTunables.space5.value) }
+    public nonisolated static var space6: CGFloat { scale(ChromeTunables.space6.value) }
 
     /// Inset between the window edge and floating glass panels.
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
@@ -83,18 +85,18 @@ public struct Metrics {
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
 
-    public nonisolated static var dividerThickness: CGFloat { ChromeTunables.dividerThickness.value }
+    public nonisolated static var dividerThickness: CGFloat { scale(ChromeTunables.dividerThickness.value) }
     /// Width of the sidebar's resting edge line (`sidebar.border`,
     /// `sidebar.borderWidth`); 0 when off or under `appearance.borders` none.
     public static var sidebarBorderWidth: CGFloat {
         let border = DesignSettings.shared.sidebarBorder
-        return border.shows ? lineWidth(border.width ?? dividerThickness) : 0
+        return border.shows ? lineWidth(border.width.map(scale) ?? dividerThickness) : 0
     }
-    public nonisolated static var dividerHitWidth: CGFloat { ChromeTunables.dividerHitWidth.value }
+    public nonisolated static var dividerHitWidth: CGFloat { scale(ChromeTunables.dividerHitWidth.value) }
 
     /// Inset around every pane's tab strip and content (`layout.panePadding`;
     /// 0 is edge to edge).
-    public static var panePadding: CGFloat { ChromeTunables.panePadding.resolve(codePanePadding) }
+    public static var panePadding: CGFloat { scale(ChromeTunables.panePadding.resolve(codePanePadding)) }
     /// `layout.panePadding`, else the density default (no Debug Settings override).
     static var codePanePadding: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
@@ -125,7 +127,7 @@ public struct Metrics {
     /// exactly edge to edge unless the radius is set explicitly.
     public static var paneCornerRadius: CGFloat {
         let chrome = DesignSettings.shared.paneChrome
-        if let radius = chrome.cornerRadius { return radius }
+        if let radius = chrome.cornerRadius { return scale(radius) }
         if panePadding == 0 && paneBorder == .none { return 0 }
         return densityPaneCornerRadius
     }
@@ -146,7 +148,7 @@ public struct Metrics {
     public static func lineWidth(_ width: CGFloat) -> CGFloat { Borders.width(width) }
     /// Pane border width in points (`layout.paneBorderWidth`); nil is one
     /// device pixel.
-    public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth }
+    public static var paneBorderWidth: CGFloat? { DesignSettings.shared.paneChrome.borderWidth.map(scale) }
 
     /// Corner radius for floating glass panels (sidebar, palette).
     public static var panelCornerRadius: CGFloat { MetricTunables.panelCornerRadius.value }
@@ -171,8 +173,8 @@ public struct Typography {
     private static var compact: Bool { Metrics.density == .compact }
     /// User override for chrome body size; other styles scale from it.
     private static var scale: CGFloat {
-        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return 1 }
-        return body / (compact ? 12 : 13)
+        guard let body = DesignSettings.shared.overrides[.chromeFontSize] else { return DesignSettings.shared.uiScale }
+        return body / (compact ? 12 : 13) * DesignSettings.shared.uiScale
     }
     /// The user's text size relative to the density's body size (1 when
     /// Interface Size is not overridden). Surfaces with their own type scale

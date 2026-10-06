@@ -69430,6 +69430,39 @@
           }
         }
       }
+    },
+    "action.appearance.uiScale.increase": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase Interface Scale"
+          }
+        }
+      }
+    },
+    "action.appearance.uiScale.decrease": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decrease Interface Scale"
+          }
+        }
+      }
+    },
+    "action.appearance.uiScale.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Interface Scale"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

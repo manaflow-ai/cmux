@@ -27,6 +27,9 @@ enum AppearanceHandlers {
         }
         registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
         registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
+        registry.bind("appearance.uiScale.increase", run: { _ in try stepUIScale(by: UIScaleSetting.step, context) })
+        registry.bind("appearance.uiScale.decrease", run: { _ in try stepUIScale(by: -UIScaleSetting.step, context) })
+        registry.bind("appearance.uiScale.reset", run: { _ in try resetUIScale(context) })
         registry.bind("appearance.paneBorder.toggle", run: { _ in try togglePaneBorder(context) })
         registry.bind("appearance.panePadding.toggle", run: { _ in try togglePanePadding(context) })
         registry.bind("appearance.paneCorners.toggle", run: { _ in try togglePaneCorners(context) })
@@ -50,6 +53,7 @@ enum AppearanceHandlers {
     }
 
     private static let fontSizePath = InterfaceSizeSetting().configPath
+    private static let uiScalePath = UIScaleSetting.configPath
 
     private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
         try requireUnmanaged(["appearance", "density"], context)
@@ -148,6 +152,20 @@ enum AppearanceHandlers {
         design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
         let size = interfaceSize(design)
         context.writeSetting("set interface size", fontSizePath, .number(size), reloadOnFailure: true)
+    }
+
+    private static func stepUIScale(by delta: Double, _ context: AppActionContext) throws {
+        try requireUnmanaged(uiScalePath, context)
+        let design = context.design
+        let next = DesignSettings.clampedUIScale(design.uiScale + CGFloat(delta))
+        design.uiScale = next
+        context.writeSetting("set interface scale", uiScalePath, .number(Double(next)), reloadOnFailure: true)
+    }
+
+    private static func resetUIScale(_ context: AppActionContext) throws {
+        try requireUnmanaged(uiScalePath, context)
+        context.design.uiScale = CGFloat(UIScaleSetting.fallback)
+        context.writeSetting("reset interface scale", uiScalePath, nil, reloadOnFailure: true)
     }
 
     /// Refuses before anything is applied when an MDM profile or the team

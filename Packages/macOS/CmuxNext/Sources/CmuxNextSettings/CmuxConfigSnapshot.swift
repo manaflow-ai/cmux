@@ -43,6 +43,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var root: JSONValue
     /// `appearance.density`, when present and valid.
     public var density: String?
+    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    public var uiScale: Double = UIScaleSetting.fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -315,6 +317,23 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
+
+        if let app = root["app"] {
+            if case .object(let members) = app {
+                if let uiScale = members["uiScale"] {
+                    if let value = uiScale.doubleValue, value.isFinite {
+                        snapshot.uiScale = value
+                        if !UIScaleSetting.range.contains(value) {
+                            snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a scale from 0.85 to 1.5; clamped"))
+                        }
+                    } else {
+                        snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app.uiScale", message: "expected a number from 0.85 to 1.5"))
+                    }
+                }
+            } else {
+                snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "app", message: "expected an object"))
+            }
+        }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
