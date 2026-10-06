@@ -377,7 +377,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the tab's workspace as it is then, before every script it runs and every
   input it guards, the driver before each native mouse, drag, key and text
   step, and again before it hands back a result, so the moved tab is
-  neither read nor sent input and the call fails with `denied`. It closes only tabs it created and user tabs it is attached
+  neither read nor sent input and the call fails with `denied`. A
+  navigation the session started there (`tab.navigate`, `tab.history`,
+  `tab.reload`) that has not committed when the session leaves the tab
+  (the move, or the session ending) is stopped before it commits, and the
+  call fails with `denied`. It closes only tabs it created and user tabs it is attached
   to. Navigation-time decisions in tabs a session created (the navigation
   delegate, popups and downloads) still apply the creating session's
   policy and file roots through their own checks (`BrowserReplNavigationGuard`,

@@ -1355,10 +1355,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // is this session's doing; while the new page loads, it is not.
         let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
             let ticket = try self.beginNavigation(panel, to: url, raw: raw)
-            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            return try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "navigating to \"\(raw)\"")
         }
+        try checkTabUse(panel)
         do {
             try Self.check(outcome, url: raw)
         } catch {
@@ -1422,10 +1421,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
             let navigation = delta < 0 ? webView.goBack() : webView.goForward()
             panel.automationNavigationCoordinator.didStart(ticket, navigationID: navigation.map { ObjectIdentifier($0) })
-            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating history") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            return try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "navigating history")
         }
+        try checkTabUse(panel)
         // A history entry is the user's and every session's: only the tab's
         // live creator reads its credential values.
         try Self.check(outcome, url: tabAddress(panel, address: item.url.absoluteString).string(for: sessionID))
@@ -1447,11 +1445,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             guard let (ticket, target) = panel.beginAutomationReloadFromCLI() else {
                 throw Self.error("invalid", "Nothing to reload")
             }
-            let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "reloading") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            let outcome = try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "reloading")
             return (outcome, target)
         }
+        try checkTabUse(panel)
         try Self.check(outcome, url: tabAddress(panel, address: target.absoluteString).string(for: sessionID))
         try await waitForLoadState(
             panel,
@@ -1461,6 +1458,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Like goto, reload answers with the main document's HTTP status.
         if let status = attachment(panel).mainDocumentStatus { return ["status": status] }
         return nil
+    }
+
+    /// Waits for the session's navigation `ticket` of `panel` to commit,
+    /// at most `milliseconds`. When the session leaves the tab meanwhile
+    /// (the user moved it to another workspace) the navigation is stopped
+    /// before it commits (``BrowserReplTabAttachment/whileNavigating(sessionID:stop:_:)``).
+    @MainActor
+    private func waitForNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        in panel: BrowserPanel,
+        milliseconds: Int,
+        what: String
+    ) async throws -> BrowserAutomationNavigationOutcome {
+        try await attachment(panel).whileNavigating(sessionID: sessionID, stop: { [weak panel] in
+            guard let panel else { return }
+            panel.automationNavigationCoordinator.stop(ticket, loading: panel.webView)
+        }) {
+            try await withTimeoutThrowing(milliseconds: milliseconds, what: what) {
+                await panel.finishAutomationNavigation(ticket)
+            }
+        }
+    }
+
+    /// Throws `denied` when the session may no longer use `panel` (the
+    /// user moved it to another workspace while a navigation waited).
+    @MainActor
+    private func checkTabUse(_ panel: BrowserPanel) throws {
+        try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: .use)).check()
     }
 
     private static func check(_ outcome: BrowserAutomationNavigationOutcome, url: String) throws {
