@@ -87,8 +87,8 @@ struct AgentFeedQuestionComposer: View {
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(String(
-                    format: L10n.string(
-                        "mobile.agentFeed.question.pageLabel",
+                    format: String(
+                        localized: "mobile.agentFeed.question.pageLabel",
                         defaultValue: "Question %lld",
                         bundle: .module
                     ),

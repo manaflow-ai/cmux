@@ -26,8 +26,8 @@ struct AgentFeedQuestionControls: View {
                     .padding(.vertical, 4)
                     .background(Color.secondary.opacity(0.12), in: Capsule())
                     .accessibilityLabel(Text(String(
-                        format: L10n.string(
-                            "mobile.agentFeed.question.progress",
+                        format: String(
+                            localized: "mobile.agentFeed.question.progress",
                             defaultValue: "Question %lld of %lld",
                             bundle: .module
                         ),
