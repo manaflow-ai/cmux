@@ -134,6 +134,13 @@ class OpenPrsQuery(unittest.TestCase):
         with mock.patch.object(nb.subprocess, "run", side_effect=replies), mock.patch.object(nb.time, "sleep"):
             self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
 
+    def test_a_truncated_reply_is_retried_once(self):
+        gh = nb.GitHub("o/r")
+        replies = [subprocess.CompletedProcess([], 1, "", "unexpected end of JSON input"),
+                   subprocess.CompletedProcess([], 0, '{"data": {"ok": 1}}', "")]
+        with mock.patch.object(nb.subprocess, "run", side_effect=replies), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
+
 
 class Debounce(unittest.TestCase):
     def test_waits_for_quiet_but_not_past_the_hard_max(self):
