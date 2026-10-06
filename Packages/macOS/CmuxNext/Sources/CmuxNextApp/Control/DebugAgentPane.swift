@@ -73,7 +73,7 @@ enum DebugAgentPane {
         if action == "gesture_state" {
             // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
             let state = view.model.transport.gestures.debugState
-            var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "tickets": .number(Double(state.tickets))]
+            var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
             fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
             return .object(fields)
         }

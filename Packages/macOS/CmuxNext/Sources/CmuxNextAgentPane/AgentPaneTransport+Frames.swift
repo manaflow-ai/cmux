@@ -254,10 +254,10 @@ extension AgentPaneTransport {
 
     /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds
     /// nothing: only an attach the user made (a click in the session list) brings a session in.
-    /// An attach is not a grant, so it reads the gesture and never spends it: the prompt the
-    /// same click sends still has it.
+    /// An attach is not a grant: it uses the click's scope-add credit, one session per click, and
+    /// leaves its grant credit for the prompt the same click sends.
     func noteSent(_ facts: Facts, relayID: Int?) {
-        if let session = facts.attachSession, !sessions.contains(session), gestures.isAvailable {
+        if let session = facts.attachSession, !sessions.contains(session), gestures.consumeScope() {
             sessions.add(session)
         }
         if let method = facts.method, AcpmuxPaneSessions.starting.contains(method) {

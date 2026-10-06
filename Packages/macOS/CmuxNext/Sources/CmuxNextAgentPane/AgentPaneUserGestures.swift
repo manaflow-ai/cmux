@@ -2,13 +2,16 @@ public import Foundation
 import Synchronization
 
 /// The host's record of the user's last real gesture in a pane (a key or mouse event in its web
-/// view, or a native action such as a permission shortcut). A frame that GRANTS something
-/// (``AcpmuxPaneMethods/needsGesture(_:options:)``) consumes it: one gesture per grant, and the
-/// record is cleared when used. A gesture older than ``lifetime`` is gone (it covers a prompt held
-/// while a harness starts). Page script cannot set it.
+/// view, or a native action such as a permission shortcut). Each gesture gives two single-use
+/// credits: one GRANT (a frame that grants something, ``AcpmuxPaneMethods/needsGesture(_:options:)``,
+/// ``consume()``) and one SCOPE-ADD (one attach of a session that is not yet the pane's,
+/// ``consumeScope()``). Using one leaves the other. A gesture older than ``lifetime`` is gone (it
+/// covers a prompt held while a harness starts). Page script cannot set it.
 @MainActor public final class AgentPaneUserGestures {
     public static let lifetime: TimeInterval = 30
     private var last: TimeInterval?
+    /// The same gesture's scope-add credit.
+    private var lastScope: TimeInterval?
     private let now: @MainActor () -> TimeInterval
 
     public init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
@@ -16,7 +19,10 @@ import Synchronization
     }
 
     /// A real user event reached the pane.
-    public func record() { last = now() }
+    public func record() {
+        last = now()
+        lastScope = last
+    }
 
     /// Uses the gesture: true once per recorded gesture, false when there is none or it expired.
     public func consume() -> Bool {
@@ -27,16 +33,24 @@ import Synchronization
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
+    /// Uses the gesture's scope-add credit (one attach of a session that is not yet the pane's):
+    /// true once per recorded gesture; the grant credit stays.
+    public func consumeScope() -> Bool {
+        guard let lastScope else { return false }
+        self.lastScope = nil
+        return now() - lastScope <= Self.lifetime
+    }
+
     /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
     /// is available, its age in seconds, and the outstanding tickets. Never a ticket value.
-    public var debugState: (available: Bool, ageSeconds: Double?, tickets: Int) {
-        (isAvailable, last.map { now() - $0 }, tickets.count)
+    public var debugState: (available: Bool, scopeAvailable: Bool, ageSeconds: Double?, tickets: Int) {
+        (isAvailable, lastScope.map { now() - $0 <= Self.lifetime } ?? false, last.map { now() - $0 }, tickets.count)
     }
 
     /// ``debugState`` as one log field.
     public var debugDescription: String {
         let age = last.map { String(format: "%.3f", now() - $0) } ?? "none"
-        return "gestureAvailable=\(isAvailable) gestureAge=\(age) tickets=\(tickets.count)"
+        return "gestureAvailable=\(isAvailable) scopeAvailable=\(debugState.scopeAvailable) gestureAge=\(age) tickets=\(tickets.count)"
     }
 
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
