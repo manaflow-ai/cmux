@@ -31,7 +31,7 @@ public actor DaemonConnection {
     private enum Phase {
         case idle
         case connecting
-        case ready(LineTransport, serial: UInt64)
+        case ready(LineTransport, serial: UInt64, userOriginAllowed: Bool)
         case waiting
         case closed
     }
@@ -54,12 +54,8 @@ public actor DaemonConnection {
 
     /// Identity of the current (or last) daemon.
     public private(set) var identity: DaemonIdentity?
-    /// Whether the daemon accepts origin `user` on the current connection:
-    /// the last `client-hello` reply's `user_origin_allowed`. False until a
-    /// handshake reports true, after a disconnect, and for an older daemon.
-    /// A caller sends origin `user` only when it is true and never resends a
-    /// refused `user` request with origin `script`.
-    public private(set) var userOriginAllowed = false
+    /// The ready connection's `client-hello` `user_origin_allowed` (`HandshakeLines.Replies`); false when not ready.
+    public var userOriginAllowed: Bool { if case .ready(_, _, let allowed) = phase { allowed } else { false } }
     public private(set) var endpoint: DaemonEndpoint?
 
     public init(
@@ -98,7 +94,7 @@ public actor DaemonConnection {
         healthy.cancel()
         reconnectTask?.cancel()
         reconnectTask = nil
-        if case .ready(let transport, _) = phase { transport.close() }
+        if case .ready(let transport, _, _) = phase { transport.close() }
         phase = .closed
         continuation.finish()
     }
@@ -141,7 +137,7 @@ public actor DaemonConnection {
     }
 
     public func request<R: DaemonRequest>(_ request: R, timeout: Duration?) async throws -> R.Response {
-        guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
+        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
         let response = try await Self.perform(request, on: transport, timeout: timeout)
         if let scope = DaemonCommandScope.current, let creating = request as? any DaemonCreatingRequest {
             scope.noteCreated(creating.createdObjects(inAny: response))
@@ -155,7 +151,7 @@ public actor DaemonConnection {
     /// every event the daemon emitted before that reply (the reply's
     /// `eventBarrier` is at most this). Sequences grow across reconnects.
     public func eventSequence() -> UInt64? {
-        guard case .ready(let transport, let serial) = phase else { return nil }
+        guard case .ready(let transport, let serial, _) = phase else { return nil }
         return DaemonEventEnvelope.sequence(serial: serial, index: transport.routedEventCount)
     }
 
@@ -163,7 +159,7 @@ public actor DaemonConnection {
     /// on the control socket and decodes its `result`; `timeout` replaces the request deadline.
     func resourceRequest<R: Decodable>(_ envelope: @escaping @Sendable (UInt64) -> ResourceRequestEnvelope,
                                        as type: R.Type, timeout: Duration? = nil) async throws -> R {
-        guard case .ready(let transport, _) = phase else { throw DaemonError.notConnected }
+        guard case .ready(let transport, _, _) = phase else { throw DaemonError.notConnected }
         let response = try await transport.request(cmd: envelope(0).operation, timeout: timeout ?? configuration.requestTimeout) { id in
             try envelope(id).line()
         }
@@ -175,7 +171,7 @@ public actor DaemonConnection {
 
     /// The ready transport and its connection serial, or nil when not connected.
     var ready: (transport: LineTransport, serial: UInt64)? {
-        guard case .ready(let transport, let serial) = phase else { return nil }
+        guard case .ready(let transport, let serial, _) = phase else { return nil }
         return (transport, serial)
     }
 
@@ -221,13 +217,12 @@ public actor DaemonConnection {
                 transport.close()
                 throw DaemonError.connectionClosed(reason: "superseded")
             }
-            self.userOriginAllowed = userOriginAllowed
             let generationChanged = self.identity.map {
                 $0.generation != identity.generation || $0.registryID != identity.registryID
             } ?? false
             self.identity = identity
             self.endpoint = endpoint
-            phase = .ready(transport, serial: serial)
+            phase = .ready(transport, serial: serial, userOriginAllowed: userOriginAllowed)
             wake.watch(file: endpoint.socketPath)
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             let connected = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
@@ -243,10 +238,7 @@ public actor DaemonConnection {
         }
     }
 
-    private var isClosedPhase: Bool {
-        if case .closed = phase { return true }
-        return false
-    }
+    private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
 
     /// `identify`, `set-client-info` and `subscribe` go out together (one
     /// round trip, with `client-hello` when configured: `HandshakeLines`);
@@ -281,7 +273,6 @@ public actor DaemonConnection {
         if case .closed = phase { return }
         if case .ready = phase {} else if case .connecting = phase {} else { return }
         phase = .waiting
-        userOriginAllowed = false
         healthy.cancel()
         let detail: String = switch reason {
         case .closedByClient: "closed"
