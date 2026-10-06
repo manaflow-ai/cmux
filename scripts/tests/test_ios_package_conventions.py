@@ -53,6 +53,15 @@ class NamespaceLintTests(unittest.TestCase):
 ''')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_unscoped_lint_still_recurses_into_package_sources(self):
+        result = self.lint('''import Combine
+public struct UsesCombine {
+    public let value = 1
+}
+''')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('combine', result.stdout)
+
     def test_cases_in_comments_and_strings_do_not_hide_namespace_enum(self):
         result = self.lint('''public enum HiddenNamespace {
     // case imaginary

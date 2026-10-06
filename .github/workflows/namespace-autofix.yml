@@ -66,7 +66,8 @@ jobs:
           fi
 
           git fetch --no-tags origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"
-          git checkout --detach "$HEAD_SHA"
+          # Never run hooks from a reused checkout: the PR tree is untrusted.
+          git -c core.hooksPath=/dev/null checkout --detach "$HEAD_SHA"
 
           # Restore every executable and baseline from the trusted base before
           # inspecting PR source. No PR-controlled script is executed here.
@@ -109,13 +110,13 @@ jobs:
 
           git config user.name "cmux namespace autofix"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "lint: apply namespace autofix"
+          git -c core.hooksPath=/dev/null commit -m "lint: apply namespace autofix"
           auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+            git -c core.hooksPath=/dev/null push --quiet "https://github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
           echo "Applied safe namespace fixes and pushed lint: apply namespace autofix." >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$lint_status" -ne 0 ]; then

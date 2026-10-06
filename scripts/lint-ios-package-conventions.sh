@@ -87,6 +87,12 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
   local rule="$1" sev="$2" pat="$3" carve="$4"; shift 4
   local paths=("$@")
   if [ -n "$FILES_FROM" ]; then paths=("${TARGET_FILES[@]}"); fi
+  local grep_args
+  if [ -n "$FILES_FROM" ]; then
+    grep_args=(-nHE "$pat" "${paths[@]}")
+  else
+    grep_args=(-rnE "$pat" "${paths[@]}" --include='*.swift' --exclude-dir=.build)
+  fi
   while IFS=: read -r f n text; do
     [ -z "$f" ] && continue
     case "$f" in */Tests/*|*Tests.swift|*/.build/*) continue ;; esac
@@ -97,7 +103,7 @@ scan() { # rule severity pattern carveout(0/1) pathspec...
     if report "$rule" "$sev" "$f" "$n" "$(echo "$text" | sed 's/^[[:space:]]*//' | cut -c1-90)"; then
       [ "$sev" = ERROR ] && fail=1
     fi
-  done < <(grep -nHE "$pat" "${paths[@]}" 2>/dev/null)
+  done < <(grep "${grep_args[@]}" 2>/dev/null)
 }
 
 echo "== singletons (no shared-singleton accessors) =="
