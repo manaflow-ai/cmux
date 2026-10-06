@@ -13,6 +13,9 @@ extension SidebarView {
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
+        }
+        list.trailer.view = trailRegion
+        for region in regions {
             region.liftHost = self
             region.onActivateWithModifiers = { [weak self] id, flags in
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
@@ -42,9 +45,14 @@ extension SidebarView {
         // its share of the height (then it scrolls inside).
         let available = max(0, b.height - y - footerHeight)
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
-        let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
+        let room = model.activeProfileID?.rawValue
+        let (above, below) = model.layout.bands(room: room)
+        let trail = model.layout.listTrail(room: room)
+        let trailIDs = Set(trail.map(\.id))
         let apps = model.suppressedApps
-        let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
+        let bands = (above: above.presenting(hidingItems: hidden, apps: apps),
+                     trail: trail.presenting(hidingItems: hidden, apps: apps),
+                     below: below.filter { !trailIDs.contains($0.id) }.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         // The one selection marks its top item active (its glyph, accessibility).
@@ -55,6 +63,10 @@ extension SidebarView {
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: b.width))
         }
         aboveRegion.update(content(bands.above), width: b.width)
+        trailRegion.update(content(bands.trail), width: b.width)
+        // Recents under the list's last row (no gap); it scrolls with the list.
+        list.trailer.height = trailRegion.layoutResult.height
+        list.updateDocumentHeight()
         belowRegion.update(content(bands.below), width: b.width)
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,

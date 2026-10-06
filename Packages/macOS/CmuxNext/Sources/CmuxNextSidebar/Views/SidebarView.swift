@@ -42,6 +42,11 @@ public final class SidebarView: NSView {
     /// share of the height.
     let aboveRegion = SidebarRegionView(region: .top)
     let belowRegion = SidebarRegionView(region: .bottom)
+    /// The middle sections after the workspaces (Recents), drawn in the
+    /// list right under its last row (`SidebarListView.trailer`).
+    let trailRegion = SidebarRegionView(region: .middle)
+    /// Every band, in order down the sidebar.
+    var regions: [SidebarRegionView] { [aboveRegion, trailRegion, belowRegion] }
     let aboveScroll = NSScrollView()
     let belowScroll = NSScrollView()
     /// Fade the bands' rows out at an edge while more are hidden there.
@@ -142,7 +147,7 @@ public final class SidebarView: NSView {
     public var appSections: (any SidebarAppSectionProvider)? {
         didSet {
             appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
-            for region in [aboveRegion, belowRegion] {
+            for region in regions {
                 region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
             }
             needsLayout = true
@@ -166,8 +171,7 @@ public final class SidebarView: NSView {
         set {
             list.contextMenuProvider = newValue
             profileBar.contextMenuProvider = newValue
-            aboveRegion.contextMenuProvider = newValue
-            belowRegion.contextMenuProvider = newValue
+            for region in regions { region.contextMenuProvider = newValue }
         }
     }
 

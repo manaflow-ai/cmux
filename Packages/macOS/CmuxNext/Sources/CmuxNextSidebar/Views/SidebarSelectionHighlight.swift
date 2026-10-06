@@ -50,7 +50,7 @@ final class SidebarSelectionHighlight {
     private func frame(in sidebar: SidebarView) -> CGRect? {
         switch sidebar.model.selectedItem {
         case .topItem(let id)?:
-            for region in [sidebar.aboveRegion, sidebar.belowRegion] {
+            for region in sidebar.regions {
                 guard let item = region.itemView(id), !item.isHiddenOrHasHiddenAncestor,
                       !item.drawsOwnSelection else { continue }
                 return clip(item.convert(item.selectionRect, to: view), to: region.enclosingScrollView)

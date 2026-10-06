@@ -42,7 +42,11 @@ public final class SidebarModel {
     /// (`AppsService.presence`). The layout keeps their places.
     public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
-    public var collapsedLayoutSections: Set<LayoutSectionID> = []
+    public var collapsedLayoutSections: Set<LayoutSectionID> = [] {
+        didSet { if collapsedLayoutSections != oldValue { onCollapsedLayoutSectionsChange?(collapsedLayoutSections) } }
+    }
+    /// Told the new set when a layout section collapses or expands (the App saves it).
+    @ObservationIgnored public var onCollapsedLayoutSectionsChange: ((Set<LayoutSectionID>) -> Void)?
     /// Search field contents. Non-empty text filters rows and disables drag.
     public var filterText = ""
     /// The card stack above the bottom band (R114): update, what's new, announcements.

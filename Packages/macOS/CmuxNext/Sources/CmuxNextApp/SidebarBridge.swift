@@ -41,6 +41,9 @@ final class SidebarBridge {
         self.state = state
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
+        let collapsed = SidebarCollapsedSections(defaults: .standard)
+        model.collapsedLayoutSections = collapsed.load()
+        model.onCollapsedLayoutSectionsChange = { collapsed.save($0) }
         // Loose rows come before every group unless the home session places
         // groups among them (`personal-mixed-order-v1`); refreshed on show.
         model.ungroupedFirst = !services.machines.local.store.supportsPersonalMixedOrder

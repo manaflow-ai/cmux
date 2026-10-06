@@ -22,6 +22,8 @@ final class SidebarListView: NSView {
     var sections: [SectionID: SidebarSection] = [:]
     /// Pill and gap CALayers, under the rows.
     let decorations = SidebarDecorationView()
+    /// Recents and the other sections after the workspaces, under the last row.
+    let trailer = SidebarListTrailer()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
@@ -131,27 +133,8 @@ final class SidebarListView: NSView {
         applyKeepingViewport(displayLayout(), animated: animated)
         inlineRename.follow()
     }
-    func options(includeGap: Bool) -> SidebarLayoutOptions {
-        var o = model.listOptions()
-        o.showsSoleMachineHeader = true
-        if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
-            o.gap = DropPosition(section: section, group: group, index: index)
-            o.gapHeight = metrics.rowHeight
-        }
-        guard let drag else { return o }
-        switch drag.payload {
-        case let .workspaces(ids):
-            o.excludedWorkspaces = Set(ids)
-            o.showEmptyPinned = true
-        case let .group(group):
-            o.excludedGroup = group
-        }
-        if includeGap, case let .position(position) = drag.target {
-            o.gap = position
-            o.gapHeight = drag.gapHeight
-        }
-        return o
-    }
+    /// The model's options with this drag's exclusions and drop gap.
+    func options(includeGap: Bool) -> SidebarLayoutOptions { .list(self, includeGap: includeGap) }
     func frame(for row: SidebarRow) -> NSRect {
         NSRect(x: inset, y: row.y, width: max(0, bounds.width - inset * 2), height: row.height)
     }
@@ -293,8 +276,9 @@ final class SidebarListView: NSView {
     }
     func updateDocumentHeight() {
         let clipHeight = enclosingScrollView?.contentView.bounds.height ?? 0
-        let height = max(displayed.totalHeight, clipHeight)
+        let height = max(displayed.totalHeight + trailer.height, clipHeight)
         if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
+        trailer.place(in: self)
     }
     /// Exactly as wide as the visible clip, and as tall as the rows or the
     /// clip, whichever is taller, on every clip resize too (nxdog56: a clip
@@ -316,6 +300,7 @@ final class SidebarListView: NSView {
             view.frame = target
         }
         decorations.frame = bounds
+        trailer.place(in: self)
         decorations.setPill(activePillFrame(in: displayed), animated: false)
     }
     /// Adds views for rows scrolled into range and drops far-away ones.
