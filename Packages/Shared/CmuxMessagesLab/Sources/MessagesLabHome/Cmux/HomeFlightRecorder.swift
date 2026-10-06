@@ -32,11 +32,18 @@ public enum HomeFlightRecorder {
 
     // MARK: Helpers from MessagesLab files that are not vendored
 
-    /// FlashCheck.coverageGaps(_:minGap:presented: true).
+    /// FlashCheck.coverageGaps(_:minGap:presented: true), except that the
+    /// empty space above the loaded transcript's first row is no gap: a
+    /// conversation shorter than the pane leaves it (MessagesLab's checks run
+    /// on a full fixture transcript; a new Chief conversation dumped on its
+    /// first send).
     static func coverageGaps(_ view: MessagesWindowView, minGap: CGFloat = 40) -> [(CGFloat, CGFloat)] {
         let top = Fixture.headerHeight, bottom = view.fieldTop - 4
+        let firstKey = view.model.rows.first?.spec.key
+        var showsFirst = false
         var spans: [(CGFloat, CGFloat)] = []
         for case let cell as RowCell in view.collection.visibleCells where !cell.isHidden {
+            if cell.spec?.key == firstKey { showsFirst = true }
             let l = cell.layer.presentation() ?? cell.layer
             let f = l.convert(l.bounds, to: view.layer.presentation() ?? view.layer)
             spans.append((f.minY, f.maxY))
@@ -50,6 +57,7 @@ public enum HomeFlightRecorder {
             if y >= bottom { break }
         }
         if bottom - y > minGap { gaps.append((y, bottom)) }
+        if showsFirst { gaps.removeAll { $0.0 == top } }
         return gaps.filter { $0.1 - $0.0 > minGap }
     }
 
