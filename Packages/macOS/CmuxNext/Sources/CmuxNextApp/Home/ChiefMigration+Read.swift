@@ -6,19 +6,35 @@ import SQLite3
 /// SQLite files (a live daemon keeps writing the original), the memory from
 /// its JSON lines, the host's cursor from `host.json`.
 extension ChiefMigration {
-    nonisolated static func readSource(_ old: Old) -> ChiefMigrationSource? {
-        let log = readLog(old.muxHome.appendingPathComponent("optchat/chat/main", isDirectory: true))
+    /// An old Chief: its memory through the store's export when it has the
+    /// SQLite store (`memory.sqlite3`), else its JSONL day files; its host
+    /// cursor from the store's state table or `host.json`.
+    nonisolated static func readSource(_ old: Old, tool: (any ChiefMemoryTool)? = nil, scratch: URL? = nil) -> ChiefMigrationSource? {
+        let optchat = old.muxHome.appendingPathComponent("optchat", isDirectory: true)
+        let database = optchat.appendingPathComponent("memory.sqlite3")
+        var textDir = optchat.appendingPathComponent("chat", isDirectory: true)
         var hostConversation: String?
         var loggedSeq: UInt64 = 0
-        if let data = try? Data(contentsOf: old.muxHome.appendingPathComponent("optchat/host.json")),
-           let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+        if FileManager.default.fileExists(atPath: database.path) {
+            guard let tool, let scratch else { return nil }
+            let exported = scratch.appendingPathComponent("export-\(old.tag)", isDirectory: true)
+            do { try tool.exportText(muxHome: old.muxHome, to: exported) } catch { return nil }
+            textDir = exported
+            let state = Dictionary(uniqueKeysWithValues: (readStoreRows(database, "SELECT key, value FROM state WHERE key LIKE 'host/%'") ?? [])
+                .compactMap { row in row.count == 2 ? (row[0], row[1]) : nil })
+            hostConversation = state["host/conversation"].flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8), options: .fragmentsAllowed) as? String }
+            loggedSeq = state["host/logged_seq"].flatMap { UInt64($0) } ?? 0
+        } else if let data = try? Data(contentsOf: optchat.appendingPathComponent("host.json")),
+                  let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             hostConversation = state["conversation"] as? String
             loggedSeq = (state["logged_seq"] as? NSNumber)?.uint64Value ?? 0
         }
+        let log = readLog(textDir.appendingPathComponent("main", isDirectory: true))
         let store = readStore(old.store)
         guard store != nil || !log.isEmpty else { return nil }
         return ChiefMigrationSource(name: old.tag, muxHome: old.muxHome, conversationID: store?.id, conversationCreatedAt: store?.createdAt,
-                                    messages: store?.messages ?? [], log: log, loggedSeq: loggedSeq, hostConversation: hostConversation)
+                                    messages: store?.messages ?? [], log: log, textDir: textDir, loggedSeq: loggedSeq,
+                                    hostConversation: hostConversation)
     }
 
     nonisolated static func readLog(_ main: URL) -> [ChiefMigrationSource.LogEntry] {
@@ -42,8 +58,13 @@ extension ChiefMigration {
         var messages: [ChiefMigrationSource.Message]
     }
 
-    /// The Chief conversation of a store (the oldest with agent_mux) and its messages.
-    nonisolated static func readStore(_ path: URL) -> StoredChief? {
+    /// The rows of `sql` over a copy of the database at `path` (with its
+    /// -wal and -shm files: a live writer keeps the original), or nil.
+    nonisolated static func readStoreRows(_ path: URL, _ sql: String, bind: [String] = []) -> [[String]]? {
+        withCopy(of: path) { db in rows(db, sql, bind: bind) }
+    }
+
+    nonisolated private static func withCopy<T>(of path: URL, _ body: (OpaquePointer) -> T) -> T? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path.path) else { return nil }
         let scratch = fm.temporaryDirectory.appendingPathComponent("chief-migration-\(UUID().uuidString)", isDirectory: true)
@@ -58,6 +79,15 @@ extension ChiefMigration {
         var db: OpaquePointer?
         guard sqlite3_open_v2(copy.path, &db, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let db else { return nil }
         defer { sqlite3_close(db) }
+        return body(db)
+    }
+
+    /// The Chief conversation of a store (the oldest with agent_mux) and its messages.
+    nonisolated static func readStore(_ path: URL) -> StoredChief? {
+        withCopy(of: path) { db in readChief(db) } ?? nil
+    }
+
+    nonisolated private static func readChief(_ db: OpaquePointer) -> StoredChief? {
         let conversations = rows(db, "SELECT id, participants_json, created_at FROM conversation")
         let chief = conversations
             .filter { $0[1].contains("\"agent_mux\"") }

@@ -36,6 +36,8 @@ nonisolated struct ChiefMigrationSource: Sendable, Equatable {
     var conversationCreatedAt: String?
     var messages: [Message]
     var log: [LogEntry]
+    /// Where `log` was read: the old JSONL memory, or an export of the SQLite one.
+    var textDir: URL? = nil
     var loggedSeq: UInt64
     var hostConversation: String?
 

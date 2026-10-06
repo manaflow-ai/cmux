@@ -30,10 +30,11 @@ extension HomeService {
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
+        let tool = BundledChiefMemoryTool.bundled()
         chief.prepare = { [weak self] connection in
             let outcome: ChiefMigration.Outcome
             do {
-                outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds)
+                outcome = try await ChiefMigration.run(home: home, owner: ChiefOwnerMigrationAdapter(connection: connection, create: create), olds: olds, tool: tool)
             } catch {
                 logger.error("chief migration failed: \(String(describing: error), privacy: .public)")
                 return true

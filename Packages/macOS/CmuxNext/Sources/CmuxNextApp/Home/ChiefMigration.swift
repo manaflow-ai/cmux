@@ -65,7 +65,7 @@ nonisolated enum ChiefMigration {
 
     /// Runs the move for `home`. Idempotent: a finished move is recorded in
     /// `<home>/migration.json`, and the owner skips what it already holds.
-    static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old]) async throws -> Outcome {
+    static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old], tool: (any ChiefMemoryTool)? = nil) async throws -> Outcome {
         let record = home.root.appendingPathComponent(recordName)
         if home.isolated || FileManager.default.fileExists(atPath: record.path) { return .nothingToDo }
         let blocking = olds.filter { lockHeld(at: $0.muxHome.appendingPathComponent("state/host.lock")) }.map(\.tag)
@@ -74,7 +74,10 @@ nonisolated enum ChiefMigration {
         try FileManager.default.createDirectory(at: lockPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let lock = HostLock(path: lockPath) else { return .blocked([home.root.lastPathComponent]) }
         defer { lock.release() }
-        let sources = olds.compactMap(readSource)
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("chief-migration-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+        let sources = olds.compactMap { readSource($0, tool: tool, scratch: scratch) }
         let plan = ChiefMigrationPlan.make(sources)
         var outcome = Outcome.nothingToDo
         if !plan.items.isEmpty {
@@ -87,7 +90,7 @@ nonisolated enum ChiefMigration {
                 return .refused(message)
             }
             let entries = try writeMemory(home: home, plan: plan, sources: sources, conversation: conversation,
-                                          loggedSeq: result.conversation.lastSeq)
+                                          loggedSeq: result.conversation.lastSeq, tool: tool, scratch: scratch)
             outcome = .done(messages: plan.items.count, memoryEntries: entries)
         }
         try writeRecord(record, olds: olds, status: "done")
@@ -97,14 +100,21 @@ nonisolated enum ChiefMigration {
     // MARK: Memory
 
     /// Writes the merged OptChat memory and host state when the Chief home
-    /// has no memory yet; returns the number of log entries.
+    /// has no memory yet; returns the number of log entries. The memory goes
+    /// through the store's own import (`memory import`) from JSONL day files
+    /// staged here; a build without the tool leaves the day files where the
+    /// host imports them at its first start. `host.json` binds the host to
+    /// the Chief conversation with every imported message logged (the store
+    /// takes it in once, at attach).
     static func writeMemory(home: ChiefHome, plan: ChiefMigrationPlan, sources: [ChiefMigrationSource],
-                            conversation: String, loggedSeq: UInt64) throws -> Int {
+                            conversation: String, loggedSeq: UInt64, tool: (any ChiefMemoryTool)? = nil,
+                            scratch: URL? = nil) throws -> Int {
         let fm = FileManager.default
         let optchat = home.root.appendingPathComponent("optchat", isDirectory: true)
         let chat = optchat.appendingPathComponent("chat", isDirectory: true)
-        let main = chat.appendingPathComponent("main", isDirectory: true)
-        if let existing = try? fm.contentsOfDirectory(atPath: main.path), existing.contains(where: { $0.hasSuffix(".jsonl") }) {
+        let hasMemory = fm.fileExists(atPath: optchat.appendingPathComponent("memory.sqlite3").path)
+            || ((try? fm.contentsOfDirectory(atPath: chat.appendingPathComponent("main").path)) ?? []).contains { $0.hasSuffix(".jsonl") }
+        if hasMemory {
             // A memory from an interrupted move: keep it; the host state must
             // still say every imported message is logged.
             if !fm.fileExists(atPath: optchat.appendingPathComponent("host.json").path) {
@@ -113,12 +123,18 @@ nonisolated enum ChiefMigration {
             return 0
         }
         try fm.createDirectory(at: optchat, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let staging = (tool != nil ? scratch : nil)?.appendingPathComponent("memory", isDirectory: true) ?? chat
+        let main = staging.appendingPathComponent("main", isDirectory: true)
         var entries: [ChiefMigrationSource.LogEntry] = []
         switch plan.memory {
         case .none:
             break
         case .copy(let index):
-            try copyRegularFiles(from: sources[index].muxHome.appendingPathComponent("optchat/chat", isDirectory: true), to: chat)
+            if let text = sources[index].textDir {
+                for part in ["main", "tree"] where fm.fileExists(atPath: text.appendingPathComponent(part).path) {
+                    try copyRegularFiles(from: text.appendingPathComponent(part, isDirectory: true), to: staging.appendingPathComponent(part, isDirectory: true))
+                }
+            }
             entries = sources[index].log
             for name in ["AGENTS.md", "engine.json"] {
                 let source = sources[index].muxHome.appendingPathComponent("optchat/\(name)")
@@ -126,16 +142,20 @@ nonisolated enum ChiefMigration {
             }
         case .interleave:
             let all = sources.flatMap(\.log).sorted { ChiefMigrationPlan.time($0.date) < ChiefMigrationPlan.time($1.date) }
+            try fm.createDirectory(at: main, withIntermediateDirectories: true)
             for (index, entry) in all.enumerated() {
                 try append(ChiefMigrationPlan.logLine(i: index, kind: entry.kind, text: entry.text, date: entry.date), day: entry.date, in: main)
             }
             entries = all
         }
         try fm.createDirectory(at: main, withIntermediateDirectories: true)
-        try fm.createDirectory(at: chat.appendingPathComponent("tree", isDirectory: true), withIntermediateDirectories: true)
+        try fm.createDirectory(at: staging.appendingPathComponent("tree", isDirectory: true), withIntermediateDirectories: true)
         for (offset, item) in plan.unlogged.enumerated() {
             let date = ChiefMigrationPlan.localDate(item.message.createdAt)
             try append(ChiefMigrationPlan.logLine(i: entries.count + offset, kind: "user", text: item.message.text, date: date), day: date, in: main)
+        }
+        if let tool, staging != chat, entries.count + plan.unlogged.count > 0 {
+            try tool.importText(muxHome: home.muxHome, from: staging)
         }
         try writeHostState(optchat: optchat, conversation: conversation, loggedSeq: loggedSeq)
         return entries.count + plan.unlogged.count

@@ -136,3 +136,54 @@ import Testing
         #expect(olds.isEmpty)
     }
 }
+
+/// The SQLite memory store (feat-cmux-next d489934e0a53): an old Chief whose
+/// memory is `memory.sqlite3` is read through `memory export --text`, never
+/// its database file, and the Chief home's memory is written through
+/// `memory import`.
+@Suite struct ChiefMigrationStoreTests {
+    final class FakeTool: ChiefMemoryTool, @unchecked Sendable {
+        let exports: [String: URL]
+        var imported: [URL] = []
+        var exported: [URL] = []
+        let lock = NSLock()
+        init(exports: [String: URL]) { self.exports = exports }
+
+        func exportText(muxHome: URL, to directory: URL) throws {
+            lock.withLock { exported.append(muxHome) }
+            try FileManager.default.copyItem(at: try #require(exports[muxHome.lastPathComponent]), to: directory)
+        }
+
+        func importText(muxHome: URL, from directory: URL) throws {
+            lock.withLock { imported.append(directory) }
+            let chat = muxHome.appendingPathComponent("optchat/chat", isDirectory: true)
+            try FileManager.default.createDirectory(at: chat.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: directory, to: chat)
+            FileManager.default.createFile(atPath: muxHome.appendingPathComponent("optchat/memory.sqlite3").path, contents: Data())
+        }
+    }
+
+    @Test func aSQLiteMemoryIsReadThroughItsExportAndTheHomeIsWrittenThroughImport() async throws {
+        let root = ChiefMigrationTests.temp()
+        var olds = ChiefMigrationTests.lawrenceLike(root)
+        // hmchief3 ran the SQLite store: its day files moved into the database.
+        let three = olds[1].muxHome
+        let export = root.appendingPathComponent("export-fixture", isDirectory: true)
+        try FileManager.default.moveItem(at: three.appendingPathComponent("optchat/chat"), to: export)
+        try FileManager.default.removeItem(at: three.appendingPathComponent("optchat/host.json"))
+        var db: OpaquePointer?
+        sqlite3_open(three.appendingPathComponent("optchat/memory.sqlite3").path, &db)
+        sqlite3_exec(db, #"CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL); INSERT INTO state VALUES ('host/conversation', '"conv_B"'), ('host/logged_seq', '2');"#, nil, nil, nil)
+        sqlite3_close(db)
+        olds[1] = ChiefMigration.Old(tag: olds[1].tag, muxHome: three, store: olds[1].store)
+        let tool = FakeTool(exports: ["hmchief3": export])
+        let home = ChiefHome(root: root.appendingPathComponent("chief/default", isDirectory: true), isolated: false)
+        let owner = ChiefMigrationTests.FakeOwner()
+        let outcome = try await ChiefMigration.run(home: home, owner: owner, olds: olds, tool: tool)
+        #expect(outcome == .done(messages: 4, memoryEntries: 3))
+        #expect(tool.exported.map(\.lastPathComponent) == ["hmchief3"], "only the SQLite memory goes through export")
+        #expect(tool.imported.count == 1, "the Chief home's memory is written through the store's import")
+        #expect(ChiefMigrationTests.userEntries(home) == ["hi", "What are my agents doing right now?"],
+                "hmchief3's logged 'hi' is not appended twice: its cursor came from the store's state")
+    }
+}
