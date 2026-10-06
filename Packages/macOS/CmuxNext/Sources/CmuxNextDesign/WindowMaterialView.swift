@@ -30,11 +30,21 @@ public final class WindowMaterialView: NSView {
     private var loadedTexture: BackdropTexture?
     private var artImage: NSImage?
     private let textureCache = BackdropTextureCache()
+    private let images: BackdropImageStore
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
     /// - Parameter frameRect: The initial frame.
-    override public init(frame frameRect: NSRect) {
+    override public convenience init(frame frameRect: NSRect) {
+        self.init(frame: frameRect, images: .shared)
+    }
+
+    /// Creates an opaque backdrop whose art comes from `images`.
+    ///
+    /// - Parameter frameRect: The initial frame.
+    /// - Parameter images: Where decoded backdrop images are shared.
+    public init(frame frameRect: NSRect, images: BackdropImageStore) {
+        self.images = images
         super.init(frame: frameRect)
         artView.wantsLayer = true
         artView.frame = bounds
@@ -55,6 +65,9 @@ public final class WindowMaterialView: NSView {
         super.layout()
         updateArtCrop()
     }
+
+    /// Waits until the art the last `apply` asked for has loaded (tests).
+    func artLoaded() async {}
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
