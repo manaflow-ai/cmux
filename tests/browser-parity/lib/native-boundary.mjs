@@ -23,6 +23,8 @@ export class BoundaryError extends Error {
 
 import { isPublicSuffixName, siteOf } from "./public-suffix.mjs";
 
+// As BrowserReplHostName.isLoopback.
+const isLoopbackName = (host) => host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -323,11 +325,16 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     return policyJSON();
   }
 
-  // As BrowserReplDomainPattern.covers: every URL `other` lets load is on `p`.
+  // As BrowserReplDomainPattern.covers(_:secure:) for a secret scope:
+  // every URL `other` lets load is on `p`, and on https (or a loopback host)
+  // when `p` names no scheme.
   const hostOf = (p, host) => p.host === "*" || (p.host.startsWith("*.") ? host === p.host.slice(2) || host.endsWith("." + p.host.slice(2)) : host === p.host || (p.host.split(".").length === 2 && host === "www." + p.host));
+  // As BrowserReplDomainPattern.loadsOnlySecurely.
+  const loadsOnlySecurely = (p) => (p.host !== "*" && !p.host.startsWith("*.") && isLoopbackName(p.host)) || p.scheme === "https" || p.scheme === "wss";
   function covers(p, other) {
     if (p.port !== null && other.port !== p.port) return false;
     if (p.scheme && !(other.scheme && new RegExp("^" + p.scheme.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$").test(other.scheme))) return false;
+    if (!p.scheme && !loadsOnlySecurely(other)) return false;
     if (p.host === "*") return true;
     if (other.host === "*") return false;
     if (other.host.startsWith("*.")) return p.host.startsWith("*.") && hostOf(p, other.host.slice(2));
@@ -348,10 +355,10 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
       const s = store.get(name);
       if (!s) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} was deleted`);
       // As BrowserReplBoundary.secretTypingRefusal.
-      if (!policy.allowed) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([${s.domains.map((d) => JSON.stringify(d.raw)).join(", ")}]) first`);
+      if (!policy.allowed) throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([${s.domains.map((d) => JSON.stringify(!d.scheme && !loadsOnlySecurely(d) ? "https://" + d.raw : d.raw)).join(", ")}]) first`);
       if (!keeps(policy.allowed, s.domains)) {
         const outside = policy.allowed.filter((a) => !s.domains.some((d) => covers(d, a))).map((a) => a.raw).join(", ");
-        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}); the policy also allows ${outside}`);
+        throw new BoundaryError("invalid", `secret ${JSON.stringify(name)} is typed only while the domain policy keeps the session's tabs on its domains (${s.domains.map((d) => d.raw).join(", ")}); the policy also allows ${outside} (a domain without a scheme also allows http; name it with https://, such as https://example.com)`);
       }
       if (!typedSecretDomains.includes(s.domains)) typedSecretDomains.push(s.domains);
       p.text = s.totp ? T.totp(s.value, now()) : s.value;

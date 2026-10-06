@@ -91,4 +91,24 @@ struct BrowserReplFetchSetCookieTests {
         let stored = await fetch("http://shop.cookie-scope.co.uk/x?secure,plain")
         #expect(stored == ["plain"], "\(stored.sorted())")
     }
+
+    /// r16 native#2: the transport rule is the REPL's own admission check,
+    /// not only a side effect of Foundation's header parser (which today
+    /// drops a Secure cookie from plain http): a Secure cookie, which goes
+    /// back only to secure origins, is stored only from https or a
+    /// loopback host, whatever produced it.
+    @Test("The REPL's Set-Cookie check refuses a Secure cookie from plain http")
+    func secureAdmissionIsTheReplsOwn() throws {
+        let cookie = try #require(HTTPCookie(properties: [
+            .name: "sec", .value: "7", .domain: "shop.example.com", .path: "/", .secure: "TRUE",
+        ]))
+        #expect(cookie.isSecure)
+        let suffixes = BrowserReplPublicSuffixList.system
+        #expect(!cookie.browserReplMaySet(from: URL(string: "http://shop.example.com/x")!, publicSuffixes: suffixes))
+        #expect(cookie.browserReplMaySet(from: URL(string: "https://shop.example.com/x")!, publicSuffixes: suffixes))
+        let loopback = try #require(HTTPCookie(properties: [
+            .name: "sec", .value: "7", .domain: "localhost", .path: "/", .secure: "TRUE",
+        ]))
+        #expect(loopback.browserReplMaySet(from: URL(string: "http://localhost:8080/x")!, publicSuffixes: suffixes))
+    }
 }

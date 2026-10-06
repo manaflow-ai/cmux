@@ -149,7 +149,9 @@ struct BrowserReplSessionRegistryTests {
             made.append(try registry.session(for: key, owner: "owner-\(index)") { _ in makeSession(name) })
         }
 
-        #expect(throws: BrowserReplSessionRegistry.Refusal.tooManySessions(limit: 3)) {
+        // Its own refusal: only its owner resets a private session, so the
+        // app cannot tell the caller to reset one by name.
+        #expect(throws: BrowserReplSessionRegistry.Refusal.tooManyPrivateSessions(limit: 3)) {
             try registry.session(for: .init(workspaceID: first, name: "cli-4-d"), owner: "owner-4") { _ in
                 makeSession("cli-4-d")
             }

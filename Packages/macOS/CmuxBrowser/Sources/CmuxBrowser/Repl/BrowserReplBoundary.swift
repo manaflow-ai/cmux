@@ -275,14 +275,14 @@ final class BrowserReplBoundary: @unchecked Sendable {
             guard let allowed = policy.allowed else {
                 return BrowserReplDriverError(
                     code: "invalid",
-                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([\(domains.map { "\"\($0.raw)\"" }.joined(separator: ", "))]) first"
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains, so the page cannot send it elsewhere; call session.allowedDomains([\(domains.map { "\"\(Self.secureRaw($0))\"" }.joined(separator: ", "))]) first"
                 )
             }
             guard Self.keeps(allowed, within: domains) else {
-                let outside = allowed.filter { pattern in !domains.contains { $0.covers(pattern) } }.map(\.raw).joined(separator: ", ")
+                let outside = allowed.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
                 return BrowserReplDriverError(
                     code: "invalid",
-                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)"
+                    message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)\(Self.httpsHint)"
                 )
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
@@ -309,11 +309,11 @@ final class BrowserReplBoundary: @unchecked Sendable {
         return lock.withLock {
             guard let allowed = policy.allowed, Self.keeps(allowed, within: domains) else {
                 let also = policy.allowed.map { list in
-                    "; the policy also allows " + list.filter { pattern in !domains.contains { $0.covers(pattern) } }.map(\.raw).joined(separator: ", ")
+                    "; the policy also allows " + list.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
                 } ?? ""
                 return .failure(BrowserReplDriverError(
                     code: "invalid",
-                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw)\(also). Call session.allowedDomains([\"\(domain.raw)\"]) (or narrower) first"
+                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) (or narrower) first"
                 ))
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
@@ -321,11 +321,20 @@ final class BrowserReplBoundary: @unchecked Sendable {
         }
     }
 
+    /// `domain` as an allowed pattern that keeps pages where it is typed:
+    /// with https when it names no scheme and is not a loopback host.
+    private static func secureRaw(_ domain: BrowserReplDomainPattern) -> String {
+        domain.scheme == nil && !domain.loadsOnlySecurely ? "https://" + domain.raw : domain.raw
+    }
+
+    private static let httpsHint = " (a domain without a scheme also allows http; name it with https://, such as https://example.com)"
+
     /// Whether a policy's `allowed` list keeps pages on `domains`: it is set,
-    /// and each of its patterns is covered by one of them.
+    /// and each of its patterns is covered by one of them, on https unless
+    /// a domain names its scheme (``BrowserReplDomainPattern/covers(_:secure:)``).
     private static func keeps(_ allowed: [BrowserReplDomainPattern]?, within domains: [BrowserReplDomainPattern]) -> Bool {
         guard let allowed else { return false }
-        return allowed.allSatisfy { pattern in domains.contains { $0.covers(pattern) } }
+        return allowed.allSatisfy { pattern in domains.contains { $0.covers(pattern, secure: true) } }
     }
 
     /// Whether the secret an `input.insertText` call carries (its

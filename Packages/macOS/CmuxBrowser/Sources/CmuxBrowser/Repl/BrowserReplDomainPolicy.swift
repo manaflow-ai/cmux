@@ -381,12 +381,17 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
 
     /// Whether every URL `other` lets load is on this pattern's hosts (and
     /// its scheme and port, when it names them): a domain policy whose
-    /// allowed patterns this covers keeps pages on them. A pattern without
-    /// a scheme covers either; secret scopes add https themselves.
-    func covers(_ other: BrowserReplDomainPattern) -> Bool {
+    /// allowed patterns this covers keeps pages on them. `secure`: this
+    /// pattern is a secret scope, which without a scheme matches https only
+    /// (http only on a loopback host; ``matches(_:secure:)``), so it covers
+    /// only patterns that load nothing else; otherwise a pattern without a
+    /// scheme covers either.
+    func covers(_ other: BrowserReplDomainPattern, secure: Bool = false) -> Bool {
         if let port, other.port != port { return false }
         if let scheme {
             guard let theirs = other.scheme, Self.glob(scheme, matches: theirs) else { return false }
+        } else if secure, !other.loadsOnlySecurely {
+            return false
         }
         if host == "*" { return true }
         if other.host == "*" { return false }
@@ -394,6 +399,14 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         guard hostMatches(other.host) else { return false }
         // A root domain also lets its www host load.
         return other.host.split(separator: ".").count != 2 || hostMatches("www." + other.host)
+    }
+
+    /// Whether every URL this pattern lets load is one a secret scope
+    /// without a scheme matches: it names https (or wss), or only a
+    /// loopback host.
+    var loadsOnlySecurely: Bool {
+        if host != "*", !host.hasPrefix("*."), BrowserReplHostName.isLoopback(host) { return true }
+        return scheme == "https" || scheme == "wss"
     }
 
     /// Whether a host this pattern names receives cookies set on `domain`

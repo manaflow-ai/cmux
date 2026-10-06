@@ -25,9 +25,14 @@ extension HTTPCookie {
     /// it, and that Domain is not a public suffix (`co.uk`) other than the
     /// host itself. Foundation's header parser keeps a cookie whatever its
     /// Domain, so the REPL's `fetch` checks this before it writes a
-    /// response's cookies into the tab's store.
+    /// response's cookies into the tab's store. A Secure cookie only from
+    /// https or a loopback host.
     public func browserReplMaySet(from url: URL, publicSuffixes: BrowserReplPublicSuffixList) -> Bool {
         guard let host = url.host?.lowercased(), browserReplDomainMatches(host) else { return false }
+        // A Secure cookie goes back only to https and loopback hosts
+        // (``browserReplMatches(_:)``), so only they may set one (RFC 6265bis
+        // section 5.7 step 9), whatever the header parser kept.
+        if isSecure, url.scheme?.lowercased() != "https", !Self.browserReplIsLoopback(host) { return false }
         let domain = self.domain.lowercased()
         guard domain.hasPrefix(".") else { return true }
         let bare = String(domain.dropFirst())

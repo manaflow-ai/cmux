@@ -272,6 +272,14 @@ extension TerminalController {
                 defaultValue: "Too many browser REPL sessions are open; reset one with `cmux browser repl reset NAME` (`cmux browser repl list --all-workspaces` lists them)"
             )
             return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
+        } catch BrowserReplSessionRegistry.Refusal.tooManyPrivateSessions(let limit) {
+            // Only the client that made a private session resets it, so
+            // `cmux browser repl reset NAME` cannot free one.
+            let prefix = String(
+                localized: "cli.browser.repl.error.tooManyPrivateSessions",
+                defaultValue: "Too many private browser REPL sessions are open (runs without --session); only the client that started one can reset it, so quit REPL clients you no longer use or wait 30 minutes for idle ones to end, or pass --session NAME to use a named session"
+            )
+            return .err(code: "unavailable", message: "\(prefix) (\(limit))", data: nil)
         } catch BrowserReplSessionRegistry.Refusal.ownedByAnotherClient {
             return .err(code: "invalid_params", message: Self.browserReplOwnedSessionMessage, data: nil)
         } catch BrowserReplSessionRegistry.Refusal.invalidOwner {
