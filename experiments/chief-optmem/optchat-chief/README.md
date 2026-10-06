@@ -475,31 +475,74 @@ passes a device message only when all of these hold:
    person and the Chief, a DM, a mention of the Chief or a reply to one of
    its messages. A device message in a group without a mention is not logged.
 
+A turn that a device message started, or that supersedes such a turn (a
+local message that stops a remote-origin turn mid-way), runs with acpmux
+policy `ask` instead of `MUX_POLICY` (approve-all): the strictest origin of
+the turn wins until it ends.
+
+- Every permission request of that turn session waits. The memory tools
+  (`mcp__optchat__zoom`, `mcp__optchat__date`) are allowed at once: they only
+  read the OptChat memory. Plain replies need nothing.
+- Any other request (a shell command, a file write or edit, a workspace or
+  subagent spawn through `cmux` or `chief`, computer use) is posted in the
+  Chief chat with the tool and its input: "Approval needed ... Reply allow or
+  deny." The next message `allow` or `deny` from a person the gate admits (the
+  Mac user or their own paired device) answers the oldest request, with the
+  allow-once or reject-once option (never "always"), and is logged; it is not
+  a new message and does not interrupt the turn. Any other new message denies
+  the pending requests so the turn can stop and the next one answers.
+- Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
+  `approval`: turn, permission, tool, decision, option, approver, install,
+  delivered); the approver is the answering participant (`user_local` or
+  `remote_<install>`, with the install), or why it was denied.
+- The native engine cannot ask the chat yet: in such a turn it refuses its
+  bash and editor tools and says so to the model.
+- Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
+  codex those need an approval too.
+
+`remote.autoApprove` (per Chief, `optchat/settings.json`, default false; the
+Chief settings sidebar shows it later; `optchat-chief settings set
+remote.autoApprove true|false` today) runs remote-origin turns with
+`MUX_POLICY` instead. The host owns the value: it reads the file at start and
+changes it only through `Brain::set_setting`, which refuses to turn it on
+while remote-origin work runs, settles or waits in the queue, whoever asks (a
+command an approved remote turn runs reaches the host the same way). No chat
+message changes it. With the host stopped, the CLI edits the file directly
+(no turn can run then). Turning it off is always allowed.
+
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 
 - Local command or content execution. The gate adds no relay command, no
   allowlist entry and no parameter: the device still uses only the relay's
-  existing conversation commands (`message.send` with text parts), whose
-  gate refuses command-bearing params and non-text parts. The Chief reads
-  only the message's text and passes it to a turn as the user's words, the
-  same bytes and the same authority as a message typed on the Mac. That is
-  the intended effect (the user directing their own agent from their phone),
-  and it is why the gate admits only the owner's own person: a second account
-  can never reach a turn. A stolen or compromised paired device has the
-  user's authority until it is revoked; revocation removes it from the relay
-  (new streams refused after 24 hours offline, all closed after 72 hours or
-  at once on `host.revoke`).
+  existing conversation commands (`message.send` with text parts), whose gate
+  refuses command-bearing params and non-text parts. A device message reaches
+  a turn as the user's words, and that turn runs with policy `ask`: no local
+  effect happens without an approval the user sees in the Chief chat, with
+  the command or input shown. Only the owner's own person reaches a turn at
+  all; a second account never does.
+- Residual risks. An approval is full authority for the shown call: an
+  approved command can start a background process that outlives the turn,
+  spawn an approve-all child agent (children keep `MUX_POLICY`), or edit
+  `settings.json` by hand (read at the next host start). A stolen or
+  compromised paired device can approve its own turn's requests until it is
+  revoked; revocation removes it from the relay (new streams refused after
+  24 hours offline, all closed after 72 hours or at once on `host.revoke`).
+  With `remote.autoApprove` on, remote-origin turns are as powerful as local
+  ones; it is off by default and only the Mac turns it on.
 - Access to unowned objects. The gate opens nothing: the relay already
-  scopes every id to conversations that list the install, and the Chief only
-  answers in the conversation the message came from.
-- Local-state exposure. The Chief's replies go to that conversation, which
-  the device already reads; the gate sends nothing else to the device. What
-  a turn says can include local state (file contents, command output) as it
-  does for a local message; this is the same exposure the device already has
-  as a participant of the conversation.
+  scopes every id to conversations that list the install, and the Chief
+  answers and asks only in the conversation the message came from.
+- Local-state exposure. Replies and approval questions go to that
+  conversation, which the device already reads. An approval question shows
+  the requested call's input (up to 1,000 characters), and a turn's reply
+  can include local state (file contents, command output) as it does for a
+  local message: the same exposure the device already has as a participant.
 
 Tests: `tests/remote_wake.rs` (every refusal above, the mention rule, and a
-device message logged and answered end to end).
+device message logged and answered end to end) and `tests/remote_policy.rs`
+(a remote turn cannot run a shell without an approval, zoom needs none, the
+approver is traced; a remote turn cannot turn on `remote.autoApprove`; a
+mixed-origin turn stays `ask`; a local turn keeps approve-all).
 
 ## Deviations from the spec
 

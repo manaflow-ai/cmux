@@ -9,8 +9,10 @@
 pub mod acpmux;
 pub mod acpmux_daemon;
 pub mod agents;
+pub mod approval;
 pub mod brain;
 pub mod browse;
+pub mod chief_settings;
 pub mod claude_import;
 pub mod cli;
 pub mod compactor;

@@ -179,6 +179,16 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Answers a pending permission request of `session`
+    /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
+    fn respond_permission(
+        &self,
+        _session: &str,
+        _permission: &str,
+        _option: Option<&str>,
+    ) -> Result<(), String> {
+        Err("answering permissions is not supported".into())
+    }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
         false
@@ -625,6 +635,22 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = json!({"sessionId": session, "permissionId": permission});
+        if let Some(option) = option {
+            params["optionId"] = json!(option);
+        }
+        self.client()?
+            .request("_acpmux/permission_respond", params)
+            .map(|_| ())
+            .map_err(|e| format!("permission_respond: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

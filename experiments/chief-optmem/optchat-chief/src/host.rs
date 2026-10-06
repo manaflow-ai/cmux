@@ -369,7 +369,29 @@ fn start(
         )
         .map_err(|e| format!("opening the memory: {e}"))?,
     );
-    crate::tools::serve(&paths.tools_socket, chat.clone())
+    // `optchat-chief settings` reaches the brain, which owns the settings.
+    let settings_tx = Mutex::new(tx.clone());
+    let control: crate::tools::Control = Arc::new(move |set: Option<(String, String)>| {
+        let tx = settings_tx.lock().expect("settings tx").clone();
+        let stopping = |_| "the host is stopping".to_owned();
+        let late = |_| "the host did not answer".to_owned();
+        match set {
+            Some((key, value)) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Setting { key, value, reply }).map_err(stopping)?;
+                answer.recv_timeout(Duration::from_secs(30)).map_err(late)?
+            }
+            None => {
+                let (reply, answer) = channel();
+                tx.send(Input::Settings { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(Duration::from_secs(30))
+                    .map(|v| format!("{v:#}"))
+                    .map_err(late)
+            }
+        }
+    });
+    crate::tools::serve_with(&paths.tools_socket, chat.clone(), Some(control))
         .map_err(|e| format!("serving the memory tools: {e}"))?;
     let status = chat.status();
     // Section 10: on start, print the view, so the log shows what the agent sees.
@@ -451,6 +473,8 @@ fn start(
         turn_preset: claude.then_some(turn_preset_name),
         chief_id: crate::paths::home_id(home),
         system_text,
+        settings_file: paths.root.join("settings.json"),
+        trace_dir: Some(paths.root.join("traces")),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

@@ -47,9 +47,13 @@ impl Brain {
             AgentEvent::SessionChanged(session) => self.on_session(session),
             AgentEvent::Permission {
                 session_id,
-                permission_id: _,
+                permission_id,
                 request,
             } => {
+                if self.is_turn_session(&session_id) {
+                    self.turn_permission(session_id, permission_id, request);
+                    return;
+                }
                 // A child can ask before its session_changed reached us.
                 let known = self.sessions.get(&session_id).cloned();
                 let session = match known {

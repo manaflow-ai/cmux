@@ -14,6 +14,8 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
+optchat-chief settings [show | set remote.autoApprove true|false] [--mux-home DIR]
+                                                           per-Chief settings (on only from the Mac, outside a remote-origin turn)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
@@ -90,6 +92,43 @@ fn main() {
                 1
             }
         },
+        Some("settings") => {
+            let paths = Paths::new(&home(&flags));
+            let set = match (flags.words.get(1).map(String::as_str), flags.words.get(2), flags.words.get(3)) {
+                (None | Some("show"), None, None) => Ok(None),
+                (Some("set"), Some(key), Some(value)) => Ok(Some((key.as_str(), value.as_str()))),
+                _ => Err(USAGE.to_owned()),
+            };
+            let result = set.and_then(|set| {
+                match optchat_chief::tools::ask_settings(&paths.tools_socket, set) {
+                    // No host: no turn runs, so the Mac's own CLI edits the file.
+                    Err(e) if e.contains("not running") => {
+                        let file = paths.root.join("settings.json");
+                        let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
+                        if let Some((key, value)) = set {
+                            if key != optchat_chief::chief_settings::REMOTE_AUTO_APPROVE {
+                                return Err(format!("unknown setting {key:?}"));
+                            }
+                            s.remote_auto_approve =
+                                optchat_chief::chief_settings::parse_bool(value)?;
+                            s.save(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+                        }
+                        Ok(format!("{:#}", s.to_json()))
+                    }
+                    other => other,
+                }
+            });
+            match result {
+                Ok(text) => {
+                    println!("{text}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("optchat-chief settings: {e}");
+                    1
+                }
+            }
+        }
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
             let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {

@@ -81,9 +81,25 @@ impl Call {
     }
 }
 
+/// The host's per-Chief settings over the socket (`optchat-chief settings`):
+/// `Some((key, value))` sets one, None shows them all. Not a model tool:
+/// the MCP server never offers it, and the host refuses turning
+/// `remote.autoApprove` on during remote-origin work.
+pub type Control =
+    Arc<dyn Fn(Option<(String, String)>) -> Result<String, String> + Send + Sync>;
+
 /// Serves the tools on `path` until the process ends. The host holds the
 /// host lock, so a socket file left by an earlier host is stale and replaced.
 pub fn serve(path: &Path, memory: Arc<dyn Memory>) -> std::io::Result<()> {
+    serve_with(path, memory, None)
+}
+
+/// `serve`, with the host's settings `control`.
+pub fn serve_with(
+    path: &Path,
+    memory: Arc<dyn Memory>,
+    control: Option<Control>,
+) -> std::io::Result<()> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
     std::thread::Builder::new()
@@ -91,15 +107,16 @@ pub fn serve(path: &Path, memory: Arc<dyn Memory>) -> std::io::Result<()> {
         .spawn(move || {
             for conn in listener.incoming().flatten() {
                 let memory = memory.clone();
+                let control = control.clone();
                 let _ = std::thread::Builder::new()
                     .name("tools-conn".into())
-                    .spawn(move || connection(conn, &*memory));
+                    .spawn(move || connection(conn, &*memory, control.as_ref()));
             }
         })?;
     Ok(())
 }
 
-fn connection(conn: UnixStream, memory: &dyn Memory) {
+fn connection(conn: UnixStream, memory: &dyn Memory, control: Option<&Control>) {
     let Ok(mut out) = conn.try_clone() else {
         return;
     };
@@ -109,6 +126,26 @@ fn connection(conn: UnixStream, memory: &dyn Memory) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
                 // Not a model tool: the `browse` command asks the live host.
+                if tool == "settings" {
+                    let ask = req
+                        .get("key")
+                        .and_then(Value::as_str)
+                        .map(|k| {
+                            let v = req.get("value").and_then(Value::as_str).unwrap_or("");
+                            (k.to_owned(), v.to_owned())
+                        });
+                    let answer = match control {
+                        Some(control) => match control(ask) {
+                            Ok(text) => json!({"text": text}),
+                            Err(e) => json!({"error": e}),
+                        },
+                        None => json!({"error": "settings are not served here"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "browse" {
                     let answer = json!({"text": memory.browse()});
                     if writeln!(out, "{answer}").is_err() {
@@ -132,6 +169,15 @@ fn connection(conn: UnixStream, memory: &dyn Memory) {
 /// Asks the host on `path`; Err when it does not answer.
 pub fn ask(path: &Path, call: Call) -> Result<String, String> {
     ask_json(path, &call.to_json())
+}
+
+/// Shows (None) or sets (`Some((key, value))`) the live host's settings.
+pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, String> {
+    let request = match set {
+        Some((key, value)) => json!({"tool": "settings", "key": key, "value": value}),
+        None => json!({"tool": "settings"}),
+    };
+    ask_json(path, &request)
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

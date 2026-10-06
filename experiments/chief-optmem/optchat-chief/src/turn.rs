@@ -30,6 +30,9 @@ pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
 #[derive(Default)]
 pub struct Interrupt {
     wanted: AtomicBool,
+    /// The turn has a remote origin and no auto-approve: the native engine
+    /// refuses its local effects (README "Remote-origin messages").
+    gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
 }
@@ -48,6 +51,15 @@ impl Interrupt {
 
     pub fn is_set(&self) -> bool {
         self.wanted.load(Ordering::SeqCst)
+    }
+
+    /// Sets whether the turn's local effects need an approval.
+    pub fn set_gate(&self, on: bool) {
+        self.gate.store(on, Ordering::SeqCst);
+    }
+
+    pub fn gated(&self) -> bool {
+        self.gate.load(Ordering::SeqCst)
     }
 
     /// The queued messages were delivered (native engine).

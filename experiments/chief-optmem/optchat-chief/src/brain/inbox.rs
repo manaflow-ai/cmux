@@ -170,8 +170,33 @@ impl Brain {
         if !text.trim().is_empty()
             && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
-            self.queue(text, Source::Message { seq: message.seq });
-            return;
+            // An answer to a pending approval of the running turn: it
+            // answers, is logged, and is not a new message (it neither
+            // queues nor interrupts the turn).
+            match crate::approval::Answer::parse(&text) {
+                Some(answer) if !self.approvals.is_empty() => {
+                    self.answer_approval(answer, &message);
+                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
+                        (self.log)(&format!("logging an approval failed: {e}"));
+                    }
+                }
+                _ => {
+                    let remote = match &message.origin {
+                        Some(cmux_conversation::Origin::Remote { install }) => {
+                            Some(install.clone())
+                        }
+                        None => None,
+                    };
+                    self.queue(
+                        text,
+                        Source::Message {
+                            seq: message.seq,
+                            remote,
+                        },
+                    );
+                    return;
+                }
+            }
         }
         if !self
             .queue
