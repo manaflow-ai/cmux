@@ -385,6 +385,8 @@ fn pair_begins_waits_and_stores_the_install_and_the_placed_chief() {
             .unwrap()
             .starts_with("optchat-chief/")
     );
+    // The app knows a Chief brain by this capability, not by the version string.
+    assert_eq!(info["capabilities"], serde_json::json!(["optchat-chief-brain"]));
     assert!(begin.1["public_jwk"].get("d").is_none());
     assert_eq!(begin.1["wg_public_key"], file.wg_public().unwrap());
 }

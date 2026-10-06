@@ -30,6 +30,9 @@ use tungstenite::{Message, WebSocket};
 
 use super::auth::{self, Http, InstallFile, InstallTokens, Lease, TokenSource};
 
+/// The pairing capability of a server that runs a user's Chief; the app checks it.
+pub const CHIEF_BRAIN_CAPABILITY: &str = "optchat-chief-brain";
+
 /// What `cloud pair` was asked for.
 #[derive(Clone, Debug)]
 pub struct PairOptions {
@@ -284,6 +287,8 @@ fn pairing_info(name: Option<&str>) -> Value {
         "os_version": os_version(),
         "arch": if cfg!(target_arch = "aarch64") { "aarch64" } else { "x86_64" },
         "cmux_version": format!("optchat-chief/{}", env!("CARGO_PKG_VERSION")),
+        // The approving app offers to run the user's Chief here (pairing info, kept on the install).
+        "capabilities": [CHIEF_BRAIN_CAPABILITY],
     })
 }
 
