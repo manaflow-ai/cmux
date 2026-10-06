@@ -137,3 +137,47 @@ console.log(JSON.stringify(out));`,
     await servers.close();
   }
 });
+
+// An annotated screenshot reads the refs, then draws them in each frame. A
+// frame that navigated in between has a new document whose agent numbers its
+// refs from the start again (another session that shares the tab reads it
+// from its own base): the old labels are never drawn on its elements.
+test("an annotated screenshot draws no labels in a frame that navigated after the refs were read", async () => {
+  const servers = await startFixtureServers();
+  const { primary } = servers.origins;
+  try {
+    const [out] = results(await runDevCells([
+      {
+        code: `
+await page.goto(${JSON.stringify(primary)} + "/index.html?one");
+await page.evaluate(${buttons()}, "old");
+const frame = page._mainFrame;
+const agent = frame._agent;
+const drawn = [];
+let navigate = false;
+frame._agent = async function (name, ...args) {
+  if (name === "annotate" && navigate) {
+    navigate = false;
+    await page.goto(${JSON.stringify(primary)} + "/index.html?two");
+    await page.evaluate(${buttons()}, "new");
+    // Another session reads the new document first: its agent hands out
+    // refs from that session's base, the same numbers as the old ones.
+    await agent.call(this, "snapshot", { base: 0 });
+  }
+  const r = await agent.call(this, name, ...args);
+  if (name === "annotate") drawn.push(r);
+  return r;
+};
+await screenshot({ annotate: true });
+navigate = true;
+await screenshot({ annotate: true });
+frame._agent = agent;
+console.log(JSON.stringify({ drawn }));`,
+      },
+    ]));
+    assert.ok(out.drawn[0] > 0, `the first screenshot draws labels: ${JSON.stringify(out.drawn)}`);
+    assert.equal(out.drawn[1], 0, `no stale label drawn in the new document: ${JSON.stringify(out.drawn)}`);
+  } finally {
+    await servers.close();
+  }
+});
