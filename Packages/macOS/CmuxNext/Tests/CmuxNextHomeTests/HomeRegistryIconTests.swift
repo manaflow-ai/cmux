@@ -1,5 +1,4 @@
 import AppKit
-import CmuxHomeCore
 import CmuxNextDesign
 import CmuxNextIcons
 import Testing
@@ -35,17 +34,10 @@ import Testing
     }
 
     @Test func chiefConversationRowsUseTheRegistryMarkAndKeepTheirChromeBreathingRoom() throws {
-        let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "Me")
-        let chief = Participant(id: ParticipantID("chief"), kind: .agent, displayName: "Chief", agentClass: .chief,
-                                ownerUser: ParticipantID("me"))
-        let now = Date(timeIntervalSince1970: 1_790_000_000)
-        let summary = ConversationSummary(id: ConversationID("chief"), title: "Chief", participants: [me, chief],
-                                          lastSeq: Seq(1), createdAt: now, updatedAt: now)
-        let row = InboxRow(summary: summary, kind: .chief, title: "Chief", preview: "Worked for 3s",
-                           previewAttachments: nil, previewAuthor: nil, timestamp: now, unread: 0, mentions: 0,
-                           isPinned: false, isSending: false, hasFailedSend: false, isTyping: false)
-        let cell = HomeConversationCellView(frame: NSRect(x: 0, y: 0, width: 320, height: HomeConversationCellView.height))
-        cell.show(row, me: me.id)
+        let list = HomeConversationListView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
+        list.update(rows: HomeConversationListTests.rows, me: HomeConversationListTests.me)
+        let index = try #require(list.lines.firstIndex { list.row(at: $0)?.kind == .chief })
+        let cell = try #require(list.tableView(list.table, viewFor: nil, row: index) as? HomeConversationCellView)
         cell.layoutSubtreeIfNeeded()
 
         let icon = try #require(cell.avatarGlyph.image)
