@@ -248,7 +248,7 @@ fn agent_rate_is_retried_once_after_the_gap() {
 }
 
 #[test]
-fn a_second_agent_rate_and_agent_budget_are_dropped() {
+fn agent_rate_is_never_dropped_and_agent_budget_is() {
     let mut h = Harness::new(default_script());
     h.owner.lock().unwrap().rejects = [
         Some("agent_rate".to_string()),
@@ -259,8 +259,13 @@ fn a_second_agent_rate_and_agent_budget_are_dropped() {
     h.say("user_local", "hello");
     h.settle();
     timer(&mut h);
+    assert_eq!(h.brain.state().outbox.len(), 1, "a second agent_rate waits again (G11)");
+    timer(&mut h);
     assert!(h.brain.state().outbox.is_empty());
-    assert_eq!(h.owner.lock().unwrap().sends().len(), 2);
+    let owner = h.owner.lock().unwrap();
+    assert_eq!(owner.sends().len(), 3, "the same reply, retried until the owner took it");
+    assert_eq!(owner.messages.last().unwrap().author, "agent_mux");
+    drop(owner);
 
     let mut h = Harness::new(default_script());
     h.owner.lock().unwrap().rejects = [Some("agent_budget".to_string())].into();
