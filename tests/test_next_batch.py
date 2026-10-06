@@ -550,6 +550,12 @@ class NotifyOwners(unittest.TestCase):
             args = nb.main(["serve", "--worktree", tempfile.mkdtemp() + "/w"])
         self.assertFalse(args.land)
 
+    def test_a_local_run_notifies_and_an_actions_run_lands(self):
+        with mock.patch.object(nb, "cmd_run", lambda args: args), mock.patch.object(nb.subprocess, "run"):
+            worktree = tempfile.mkdtemp() + "/w"
+            self.assertFalse(nb.main(["run", "--local", "--worktree", worktree]).land)
+            self.assertTrue(nb.main(["run", "--worktree", worktree]).land)
+
     def test_notify_posts_a_receipt_and_merges_nothing(self):
         controller = self.controller(notify=True)
         prs = [pr(1), pr(2)]
