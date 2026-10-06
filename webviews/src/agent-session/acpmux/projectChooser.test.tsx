@@ -1,8 +1,11 @@
 import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxSnapshot } from "./model";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", {
+// The row's own stylesheet, so a test reads the truncation the cascade gives the label.
+const locationCss = readFileSync(new URL("./composerLocation.css", import.meta.url), "utf8");
+const dom = new JSDOM(`<!doctype html><style>${locationCss}</style><div id=root></div>`, {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
@@ -54,14 +57,21 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 const doc = dom.window.document;
 let root: ReturnType<typeof createRoot>;
 let picked: Array<[string, string | undefined]>;
+let browsed = 0;
 
 beforeEach(() => {
   root = createRoot(doc.getElementById("root")!);
   picked = [];
+  browsed = 0;
 });
 afterEach(async () => act(async () => root.unmount()));
 
-const render = (summary: Partial<Summary> = {}, started = false) =>
+const render = (
+  summary: Partial<Summary> = {},
+  started = false,
+  projectChoices?: { cwd: string; label: string }[],
+  chats: AcpmuxSnapshot["sessions"] = sessions,
+) =>
   act(async () =>
     root.render(
       createElement(ComposerContext, {
@@ -72,8 +82,10 @@ const render = (summary: Partial<Summary> = {}, started = false) =>
           hostKind: "local",
           ...summary,
         },
-        sessions,
+        sessions: chats,
         started,
+        projectChoices,
+        onBrowseProject: () => browsed++,
         onProject: (cwd: string, peer?: string) => picked.push([cwd, peer]),
       }),
     ),
@@ -83,9 +95,11 @@ test("renders plain right-aligned computer and folder pickers without context ch
   await render();
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
-    "This Mac⌄",
-    "cmux⌄",
+    "This Mac",
+    "cmux",
   ]);
+  // Two chevrons and the folder's icon: every part of the row is the same text menu button.
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(3);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -147,4 +161,110 @@ test("folder rows show the project name over its path, and typing filters on bot
   expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
   await type("nothing-matches");
   expect(rows()).toEqual([]);
+});
+
+const freshFolders = [
+  { cwd: "/Users/me/code/cmux", label: "cmux" },
+  { cwd: "/Users/me/Projects/relay", label: "relay" },
+];
+const folderButton = () => doc.querySelector<HTMLButtonElement>('[aria-label="Folder"]')!;
+const folderRows = () =>
+  [...doc.querySelectorAll('.acpmux-location-menu [role="menuitemradio"]')].map((row) => [
+    row.querySelector(".acpmux-menu-label")?.textContent,
+    row.querySelector(".acpmux-menu-description")?.textContent,
+    row.getAttribute("aria-checked"),
+  ]);
+const menuItems = () =>
+  [...doc.querySelectorAll('.acpmux-location-menu [role="menuitem"]')].map((item) => item.textContent);
+
+test("the fresh-chat folder menu lists the recent folders, the current one checked, then Choose folder…", async () => {
+  await render({}, false, freshFolders);
+  const button = folderButton();
+  expect(button.textContent).toBe("cmux");
+  expect(button.closest("[title]")?.getAttribute("title")).toBe("/Users/me/code/cmux");
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([
+    ["cmux", "/Users/me/code/cmux", "true"],
+    ["relay", "/Users/me/Projects/relay", "false"],
+  ]);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+  // The folder list comes first and Choose folder… last, under a separator.
+  const menu = doc.querySelector(".acpmux-location-menu")!;
+  const order = [...menu.querySelectorAll('[role="menuitemradio"], [role="separator"], [role="menuitem"]')].map(
+    (node) => node.getAttribute("role"),
+  );
+  expect(order).toEqual(["menuitemradio", "menuitemradio", "separator", "menuitem"]);
+  await act(async () => doc.querySelectorAll<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')[1]!.click());
+  expect(picked).toEqual([["/Users/me/Projects/relay", undefined]]);
+});
+
+test("Choose folder… asks the host for its folder panel from the click", async () => {
+  await render({}, false, freshFolders);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitem"]')!.click());
+  expect(browsed).toBe(1);
+  expect(picked).toEqual([]);
+  expect(doc.querySelector(".acpmux-location-menu")).toBeNull();
+});
+
+test("picking the current folder only closes the menu", async () => {
+  await render({}, false, freshFolders);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!.click());
+  expect(picked).toEqual([]);
+});
+
+test("with no folder the button reads Choose folder in the same face, and its menu offers only Choose folder…", async () => {
+  await render({ cwd: undefined }, false, [], []);
+  const button = folderButton();
+  expect(button.textContent).toBe("Choose folder");
+  expect(button.className).toBe(doc.querySelector('[aria-label="Computer"]')!.className);
+  expect(button.querySelector(".acpmux-location-label")).not.toBeNull();
+  expect(button.closest("[title]")).toBeNull();
+  await act(async () => button.click());
+  expect(folderRows()).toEqual([]);
+  expect(doc.querySelectorAll('.acpmux-location-menu [role="separator"]')).toHaveLength(0);
+  expect(menuItems()).toEqual(["Choose folder…"]);
+});
+
+test("a long folder name is cut with an ellipsis on one line, and the tooltip keeps the full path", async () => {
+  const cwd = "/Users/me/code/a-really-long-project-folder-name-that-overflows-the-row";
+  await render({ cwd }, false, [{ cwd, label: "a-really-long-project-folder-name-that-overflows-the-row" }]);
+  const label = folderButton().querySelector<HTMLElement>(".acpmux-location-label")!;
+  expect(label.textContent).toBe("a-really-long-project-folder-name-that-overflows-the-row");
+  const style = dom.window.getComputedStyle(label);
+  expect([style.overflow, style.textOverflow, style.whiteSpace]).toEqual(["hidden", "ellipsis", "nowrap"]);
+  expect(folderButton().closest("[title]")?.getAttribute("title")).toBe(cwd);
+});
+
+test("the keyboard opens the folder menu, moves through it and picks with Enter", async () => {
+  await render({}, false, freshFolders);
+  const button = folderButton();
+  await act(async () => button.focus());
+  expect(doc.activeElement).toBe(button);
+  await act(async () => {
+    button.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+  });
+  expect(doc.querySelector(".acpmux-location-menu")).not.toBeNull();
+  const key = (name: string) =>
+    act(async () => {
+      (doc.activeElement ?? button).dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }),
+      );
+    });
+  await key("ArrowDown");
+  await key("ArrowDown");
+  await key("ArrowDown");
+  expect((doc.activeElement as HTMLElement | null)?.textContent).toBe("Choose folder…");
+  await key("Enter");
+  expect(browsed).toBe(1);
+});
+
+test("keeps the root project selectable", async () => {
+  await render({ cwd: undefined }, false, [{ cwd: "/", label: "Root" }]);
+  await act(async () => folderButton().click());
+  await act(async () => doc.querySelector<HTMLElement>('.acpmux-location-menu [role="menuitemradio"]')!.click());
+  expect(picked).toEqual([["/", undefined]]);
 });

@@ -31,6 +31,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // The section's kind, not its nodes: comparing 1,000 children per
         // reload would defeat the point.
         var kind: SidebarSection.Kind
+        var titlesProjects: Bool
         var collapsed: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
@@ -38,13 +39,13 @@ final class SectionHeaderRowView: SidebarRowView {
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, collapsed: row.isCollapsed,
+            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
         collapsed = row.isCollapsed
         let symbol: String
-        let title: String
+        var title: String
         switch section.kind {
         case .pinned:
             symbol = "pin.fill"
@@ -91,7 +92,16 @@ final class SectionHeaderRowView: SidebarRowView {
             setAccessibilityLabel(label)
             setAccessibilityHelp(machine.detail)
         }
-        if section.kind == .pinned { setAccessibilityLabel(title) }
+        // The only machine needs no name or status: the header heads the
+        // workspace list, apart from the destinations above it.
+        if row.titlesProjects {
+            title = Strings.projects
+            statusTone = nil
+            badgeText = nil
+            toolTip = nil
+            setAccessibilityHelp(nil)
+        }
+        if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
         name.stringValue = title

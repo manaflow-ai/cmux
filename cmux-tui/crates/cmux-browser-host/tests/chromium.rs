@@ -64,7 +64,20 @@ fn serve() -> u16 {
                          <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
                     ),
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
-                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
+                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p><input id=ci>".to_owned(),
+                    "/dl" => "<!doctype html><title>Downloads</title><a id=d href=\"/report.txt\" download=\"report.txt\">Report</a>".to_owned(),
+                    "/report.txt" => "report body".to_owned(),
+                    "/closed" => format!(
+                        "<!doctype html><title>Closed</title><div id=h></div><p id=out></p>\
+                         <iframe id=xc src=\"http://localhost:{port}/cross-closed\" style=\"width:300px;height:80px\"></iframe>\
+                         <script>const r = document.getElementById('h').attachShadow({{mode: 'closed'}});\
+                         r.innerHTML = '<label>Closed input <input id=ci></label>\
+                         <input type=password aria-label=\"Closed password\" value=\"hunter2-closed\">\
+                         <button onclick=\"document.getElementById(&quot;out&quot;).textContent = &quot;clicked&quot;\">Closed button</button>';</script>"
+                    ),
+                    "/cross-closed" => "<!doctype html><div id=h></div><script>document.getElementById('h')\
+                         .attachShadow({mode: 'closed'}).innerHTML = '<button>Cross closed button</button>';</script>"
+                        .to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
@@ -621,4 +634,178 @@ fn a_manual_redirect_reports_its_address() {
         .expect("net.fetch");
     assert_eq!(out["redirect"]["status"], 302, "{out}");
     assert_eq!(out["remoteIPAddress"], "127.0.0.1", "the redirect's address is gone: {out}");
+}
+
+/// The host's focus check for secret typing: a field focused inside an
+/// out-of-process (cross-origin) frame is reported with that frame's URL.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_focused_field_is_found_in_a_cross_origin_frame() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/"), "waitUntil": "load"}),
+    );
+
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#i').focus()"}),
+    );
+    let top = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(top["url"], format!("{origin}/"), "{top}");
+
+    let frames = call("frames.list", json!({"targetId": target}));
+    let cross = frames
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["url"].as_str().is_some_and(|u| u.ends_with("/cross")))
+        .expect("the out-of-process frame is listed")
+        .clone();
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "frameId": cross["frameId"], "world": "page", "source": "() => document.querySelector('#ci').focus()"}),
+    );
+    let inner = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(inner["url"], format!("http://localhost:{port}/cross"), "{inner}");
+    assert_eq!(inner["frameId"], cross["frameId"]);
+}
+
+/// Downloads on headless Chromium: `download.started` and
+/// `download.finished` reach the session, the file lands in the host's own
+/// directory, and `download.path` answers once it completed.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_download_is_reported_and_saved() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
+    let tx = Mutex::new(tx);
+    let driver = CdpDriver::attach_browser(
+        chromium.connection().clone(),
+        AGENT,
+        Arc::new(move |event| {
+            if event.name.starts_with("download.") {
+                let _ = tx.lock().unwrap().send(event);
+            }
+        }),
+    )
+    .expect("attach to Chromium");
+    driver.save_downloads_in(chromium.downloads_dir()).expect("downloads go to the host");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/dl")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/dl"), "waitUntil": "load"}),
+    );
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#d').click()"}),
+    );
+    let started = rx.recv_timeout(Duration::from_secs(10)).expect("download.started");
+    assert_eq!(started.name, "download.started");
+    assert_eq!(started.payload["targetId"], target);
+    assert_eq!(started.payload["url"], format!("{origin}/report.txt"));
+    assert_eq!(started.payload["suggestedFilename"], "report.txt");
+    let id = started.payload["downloadId"].clone();
+    let path = call("download.path", json!({"downloadId": id, "timeoutMs": 10_000}));
+    let path = path["path"].as_str().expect("a path").to_owned();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "report body");
+    let finished = rx.recv_timeout(Duration::from_secs(10)).expect("download.finished");
+    assert_eq!(finished.name, "download.finished");
+    assert_eq!(finished.payload["downloadId"], id);
+    assert_eq!(finished.payload["path"], path.as_str());
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::path::Path::new(&path).parent().unwrap();
+    assert_eq!(dir, chromium.downloads_dir());
+    assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
+}
+
+/// Closed shadow roots on headless Chromium (closed-shadow design): the
+/// snapshot, refs and locators reach inside them, in the main frame and in a
+/// cross-origin frame; a password value inside stays redacted; a secret
+/// typed into a closed-root field is hidden in captures.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn closed_shadow_roots_are_read_redacted_and_masked() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-closed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let code = format!(
+        r##"secrets.set("k", "sk-closed-4242", {{ domains: ["127.0.0.1"] }});
+await page.goto("http://127.0.0.1:{port}/closed");
+await page.frameLocator("#xc").locator("body").waitFor();
+const s = await snapshot();
+console.log("main:" + s.tree.includes('textbox "Closed input"'));
+console.log("frame:" + s.tree.includes('button "Cross closed button"'));
+console.log("redacted:" + !s.tree.includes("hunter2-closed"));
+await page.getByRole("button", {{ name: "Closed button" }}).click({{ timeout: 3000 }}).catch(() => {{}});
+console.log("click:" + await page.locator("#out").textContent());
+const ref = (s.tree.match(/textbox "Closed input" \[ref=(\w+)\]/) || [])[1] || "#missing";
+const shot = async (text) => {{ await page.locator(ref).fill(text, {{ timeout: 3000 }}); await page.locator(ref).evaluate((e) => e.blur()); return (await page.locator(ref).screenshot()).toString("base64"); }};
+try {{
+  const shotSecret = await shot(secret("k"));
+  const shotText = await shot("xx-xxxx-xxxxxx");
+  secrets.set("d", "xx-xxxx-xxxxxx", {{ domains: ["127.0.0.1"] }});
+  const shotDecoy = (await page.locator(ref).screenshot()).toString("base64");
+  console.log("masked:" + (shotSecret === shotDecoy && shotSecret !== shotText));
+}} catch (e) {{ console.log("masked:error " + e.message); }}
+const info = await page._session.call("tab.info", {{ targetId: page._targetId }});
+const cr = info.closedRoots;
+console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0 && typeof cr.domEvents === "number"));
+"##
+    );
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+        .args(["eval", "--engine", "headless", "--socket"])
+        .arg(&socket)
+        .arg("-")
+        .current_dir(&dir)
+        .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run cmux-browser-host eval");
+    child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let out =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    for line in
+        ["main:true", "frame:true", "redacted:true", "click:clicked", "masked:true", "stats:true"]
+    {
+        assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
+    }
 }

@@ -34,7 +34,7 @@ pub(super) struct Inner {
     /// sink that answers an event with a driver call cannot block the reader.
     events: Mutex<mpsc::Sender<DriverEvent>>,
     state: Mutex<State>,
-    changed: Condvar,
+    pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
     /// that decides paused requests.
     pub(super) request_filter: Arc<Mutex<Option<crate::driver::RequestFilter>>>,
@@ -209,11 +209,32 @@ impl Driver for CdpDriver {
             "tab.info" => inner.info(params),
             "tab.setViewport" => inner.set_viewport(params),
             "frames.list" => inner.frames_list(params),
-            "frame.evaluate" => inner.evaluate(params),
-            "frame.observe" => inner.evaluate(&crate::observe::evaluate_params(params)?),
+            "frame.evaluate" => {
+                // The host's capture mask also hides secrets in closed shadow roots.
+                if params.get("closedRoots").and_then(Value::as_bool) == Some(true)
+                    && params.get("world").and_then(Value::as_str) == Some("host")
+                {
+                    inner.sync_closed_roots_for(params, super::state::World::Host)?;
+                }
+                inner.evaluate(params)
+            }
+            "frame.observe" => {
+                let evaluate = crate::observe::evaluate_params(params)?;
+                // Reads that walk the DOM see closed shadow roots; without
+                // them the read misses closed-root content but still runs.
+                if params
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .is_some_and(|m| super::closed_roots::WALKING_OBSERVE_METHODS.contains(&m))
+                {
+                    let _ = inner.sync_closed_roots_for(params, super::state::World::Agent);
+                }
+                inner.evaluate(&evaluate)
+            }
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),
+            "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.mouse(params),
             "input.key" => inner.key(params),
             "input.insertText" => inner.insert_text(params),
@@ -230,6 +251,7 @@ impl Driver for CdpDriver {
             "net.fetch.cancel" => inner.net_fetch_cancel(params),
             "net.fetch.done" => inner.net_fetch_done(params),
             "dialog.respond" => inner.dialog_respond(params),
+            "download.path" => inner.download_path(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
             "cookies.clear" => inner.cookies_clear(params),
