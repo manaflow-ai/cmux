@@ -43,16 +43,17 @@ import Testing
         _ = action?.handler?()
         #expect(accessory == 1)
     }
-    /// The update control takes the theme's call-to-action color
-    /// (`Palette.highlight`), not the neutral accent: small, but noticeable.
-    @Test func theUpdateControlUsesTheThemeHighlight() throws {
+    /// The update control takes the theme foreground at full strength
+    /// (`Palette.textPrimary`), not the faint neutral accent: it stands out
+    /// by weight, not hue.
+    @Test func theUpdateControlUsesTheThemeForeground() throws {
         let row = settingsRow(accessory: .update(title: "Restart to Update"))
         let tint = try #require(row.accessoryTint?.usingColorSpace(.sRGB))
-        let expected = try #require(row.performWithTheme { Palette.highlight }.usingColorSpace(.sRGB))
+        let expected = try #require(row.performWithTheme { Palette.textPrimary }.usingColorSpace(.sRGB))
         let neutral = try #require(row.performWithTheme { Palette.accent }.usingColorSpace(.sRGB))
         func same(_ a: NSColor, _ b: NSColor) -> Bool {
             abs(a.redComponent - b.redComponent) < 0.01 && abs(a.greenComponent - b.greenComponent) < 0.01
-                && abs(a.blueComponent - b.blueComponent) < 0.01
+                && abs(a.blueComponent - b.blueComponent) < 0.01 && abs(a.alphaComponent - b.alphaComponent) < 0.01
         }
         #expect(same(tint, expected))
         #expect(!same(tint, neutral))

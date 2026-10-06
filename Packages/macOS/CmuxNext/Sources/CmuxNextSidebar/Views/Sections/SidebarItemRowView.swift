@@ -36,6 +36,9 @@ final class SidebarItemRowView: NSView {
     var isAccessoryShown: Bool { !accessoryView.isHidden }
     /// The accessory's frame while it draws (tests).
     var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The update control's color: the theme foreground at full strength
+    /// (it stands out by weight, not hue; no blue).
+    static var updateTint: NSColor { Palette.textPrimary }
     /// The accessory glyph's tint (tests).
     var accessoryTint: NSColor? { accessoryView.contentTintColor }
     /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
@@ -164,7 +167,7 @@ final class SidebarItemRowView: NSView {
             chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
             // Again here so a theme or appearance change recolors the update control.
-            if !accessoryView.isHidden { accessoryView.contentTintColor = Palette.highlight }
+            if !accessoryView.isHidden { accessoryView.contentTintColor = Self.updateTint }
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
@@ -313,7 +316,7 @@ final class SidebarItemRowView: NSView {
             accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: title)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
             // The theme's call-to-action color: small, but noticeable.
-            accessoryView.contentTintColor = performWithTheme { Palette.highlight }
+            accessoryView.contentTintColor = performWithTheme { Self.updateTint }
             accessoryView.toolTip = title
             accessoryView.isHidden = false
             setAccessibilityCustomActions([NSAccessibilityCustomAction(name: title) { [weak self] in
