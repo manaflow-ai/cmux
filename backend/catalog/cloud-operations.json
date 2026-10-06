@@ -361,6 +361,25 @@
         }
       }
     },
+    "ChiefBrainPlace": {
+      "kind": "object",
+      "fields": {
+        "host": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HostId"
+          }
+        },
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        }
+      }
+    },
     "ChiefId": {
       "kind": "primitive",
       "name": "string",
@@ -2340,6 +2359,16 @@
             "values": [
               "cloud"
             ]
+          }
+        },
+        "brain_place": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "ChiefBrainPlace"
+            }
           }
         },
         "main_conversation": {
@@ -13540,6 +13569,32 @@
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
           "ConversationId": {
             "type": "string",
             "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
@@ -13570,6 +13625,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -13668,6 +13733,13 @@
               "name": "boolean"
             }
           },
+          "brain_place": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefBrainPlace"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -13719,7 +13791,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
+      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -13731,10 +13803,40 @@
           },
           "is_default": {
             "type": "boolean"
+          },
+          "brain_place": {
+            "$ref": "#/$defs/ChiefBrainPlace"
           }
         },
         "additionalProperties": true,
-        "$defs": {}
+        "$defs": {
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          }
+        }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
@@ -13742,6 +13844,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           },
           "ConversationId": {
             "type": "string",
@@ -13773,6 +13901,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -13993,6 +14131,32 @@
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
+          },
           "ConversationId": {
             "type": "string",
             "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
@@ -14023,6 +14187,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
@@ -14170,6 +14344,16 @@
               ]
             }
           },
+          "brain_place": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "ref",
+                "name": "ChiefBrainPlace"
+              }
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14224,7 +14408,7 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
+      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -14274,6 +14458,16 @@
             "enum": [
               false
             ]
+          },
+          "brain_place": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ChiefBrainPlace"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -14285,6 +14479,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           }
         }
       },
@@ -14294,6 +14514,32 @@
           "ChiefId": {
             "type": "string",
             "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "ChiefBrainPlace": {
+            "type": "object",
+            "properties": {
+              "host": {
+                "$ref": "#/$defs/HostId"
+              },
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              }
+            },
+            "required": [
+              "host",
+              "install"
+            ],
+            "additionalProperties": true
           },
           "ConversationId": {
             "type": "string",
@@ -14325,6 +14571,16 @@
                 "type": "string",
                 "enum": [
                   "cloud"
+                ]
+              },
+              "brain_place": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ChiefBrainPlace"
+                  },
+                  {
+                    "type": "null"
+                  }
                 ]
               },
               "main_conversation": {
