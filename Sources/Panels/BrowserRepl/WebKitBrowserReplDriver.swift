@@ -2363,10 +2363,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             defer { capture?.closePasteboardWindow() }
             try send()
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
-            await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+            try await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
         case .leftMouseUp:
             if attachment.drag?.drop == nil {
-                await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+                try await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
             }
             if let drop = attachment.drag?.drop {
                 try frameGate.checkTab(in: webView)
@@ -2395,19 +2395,30 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// WebKit starts a drag asynchronously after the page's `dragstart`; once
-    /// it has, enter the web view as the drop destination.
+    /// it has, enter the web view as the drop destination. A drag WebKit
+    /// started after its pasteboard window was diverted (the page's handler
+    /// ran past the window's bound, or the tab's drag state was reset)
+    /// wrote its data to a discard: it ends without a drop and the call
+    /// fails.
     @MainActor
     private func startDropIfDragBegan(
         webView: CmuxWebView,
         window: NSWindow,
         location: NSPoint,
         attachment: BrowserReplTabAttachment
-    ) async {
+    ) async throws {
         guard let state = attachment.drag, state.drop == nil else { return }
         if !state.capture.didBegin {
             await BrowserReplNativeInput.roundTrip(webView)
         }
         guard state.capture.didBegin else { return }
+        if state.capture.lostDragData {
+            webView.automationDragCapture = nil
+            attachment.drag = nil
+            webView.endAutomationDrag(at: location, operation: [])
+            await BrowserReplNativeInput.roundTrip(webView)
+            throw Self.error("timeout", "The page started the drag after its 5 s pasteboard window, so its drag data was discarded (never put on the system's drag pasteboard) and the drag ended without a drop; make the page's dragstart handler return sooner")
+        }
         dragSequence += 1
         let drop = BrowserAutomationDraggingInfo(
             window: window,

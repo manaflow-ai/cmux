@@ -43,6 +43,7 @@ extension BrowserReplPasteboardTests {
             // WebKit writes the drag data, then asks AppKit for the session.
             capture.begin()
             #expect(capture.didBegin)
+            #expect(!capture.lostDragData, "a drag started in its open window lost its data")
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil, "the drag's window outlived the drag's start")
         }
 
@@ -140,6 +141,7 @@ extension BrowserReplPasteboardTests {
             // WebKit wrote the data (to the discard), then starts the drag.
             capture.begin()
             #expect(capture.didBegin)
+            #expect(capture.lostDragData, "a drag started past its window's bound was taken as carrying the page's data")
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
         }
 

@@ -129,8 +129,10 @@ private final class DragCaptureKey: NSObject, @unchecked Sendable {
 /// `mouseDragged` events that may start the drag) WebKit's lookups of the
 /// drag pasteboard get it (``BrowserReplDragPasteboardRedirect``). The window
 /// closes when WebKit starts the drag, which it does after writing the
-/// data, or at ``closePasteboardWindow()``. A drag WebKit starts after its
-/// window closed carries no data to the drop.
+/// data, or at ``closePasteboardWindow()``. Past the window's 5 s bound, or
+/// once the capture ended (``finish()``), WebKit's lookups get a private
+/// discard until the driver closes the window, and a drag WebKit starts
+/// then carries no data (``lostDragData``): the driver ends it.
 @MainActor
 public final class BrowserAutomationDragCapture: NSObject {
     /// Called once WebKit asks AppKit to begin the drag session.
@@ -143,6 +145,10 @@ public final class BrowserAutomationDragCapture: NSObject {
     private var finished = false
     /// Whether the capture ended (``finish()``); its window no longer opens.
     public var isFinished: Bool { finished }
+    /// Whether WebKit started the drag after its window was diverted (past
+    /// its bound, or the capture ended): its data went to a discard, so the
+    /// drag carries nothing and must end without a drop.
+    public private(set) var lostDragData = false
 
     public override init() {
         super.init()
@@ -168,20 +174,23 @@ public final class BrowserAutomationDragCapture: NSObject {
         BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard)
     }
 
-    /// Ends the capture: closes its window and empties and releases its
-    /// pasteboard. Called when the web view's capture is replaced or cleared.
+    /// Ends the capture: diverts its window (WebKit may still be handling
+    /// the event that opened it; the driver closes it once WebKit did) and
+    /// empties and releases its pasteboard. Called when the web view's
+    /// capture is replaced or cleared.
     public func finish() {
         guard !finished else { return }
         finished = true
-        closePasteboardWindow()
+        BrowserReplDragPasteboardRedirect.shared.expireDragWindow(pasteboard)
         pasteboard.clearContents()
         pasteboard.releaseGlobally()
     }
 
     func begin() {
         didBegin = true
-        // WebKit wrote the drag data before asking AppKit for the session.
-        closePasteboardWindow()
+        // WebKit wrote the drag data before asking AppKit for the session;
+        // into the discard when the window was diverted.
+        if !BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard) { lostDragData = true }
         let callback = onBegin
         onBegin = nil
         callback?()
