@@ -232,8 +232,12 @@ struct CoderouterSidebarSectionTests {
 
         #expect(added.providers == [.claude])
         #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
-        #expect(CoderouterProvider.codex.addCommand(for: "17a2ba34-5a88-412e-8380-0ea4118139c3") == "cmux cr add codex --team '17a2ba34-5a88-412e-8380-0ea4118139c3'")
-        #expect(CoderouterProvider.claude.addCommand(for: "team's-id") == "cmux cr add claude --team 'team'\\''s-id'")
+        let teamScopedCodex = CoderouterProvider.codex.addCommand(for: "17a2ba34-5a88-412e-8380-0ea4118139c3")
+        #expect(teamScopedCodex.contains("cmux cr org switch '17a2ba34-5a88-412e-8380-0ea4118139c3'"))
+        #expect(teamScopedCodex.contains("cmux cr add codex"))
+        #expect(teamScopedCodex.contains("CODEROUTER_DATA_DIR=\"$tmp\""))
+        let quotedTeam = CoderouterProvider.claude.addCommand(for: "team's-id")
+        #expect(quotedTeam.contains("cmux cr org switch 'team'\\''s-id'"))
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
