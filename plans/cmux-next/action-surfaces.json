@@ -7574,6 +7574,9 @@
       "context_menus" : [
 
       ],
+      "default_aliases" : [
+
+      ],
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "home.saveFlightRecording",
@@ -16364,6 +16367,32 @@
       },
       "title" : "Grant Screen Recording Access",
       "title_key" : "action.palette.computerUse.screenRecording",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "noObject",
+      "cli_name" : "action agent-open-session-workspace",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agent.openSessionWorkspace",
+      "mcp" : "noObject",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Agent Session in New Workspace",
+      "title_key" : "action.agent.openSessionWorkspace",
       "title_table" : "ActionCatalog"
     },
     {
