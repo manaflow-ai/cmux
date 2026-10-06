@@ -8,7 +8,7 @@ import Foundation
 /// and network volumes. Measured on macOS 27: listing or opening inside one
 /// raises the prompt; a `stat` of a path does not. Scans still never look.
 public nonisolated enum PrivacyFolder: String, CaseIterable, Sendable {
-    case desktop, documents, downloads, iCloudDrive, cloudStorage, volumes
+    case desktop, documents, downloads, pictures, music, movies, iCloudDrive, cloudStorage, appData, volumes, network
 
     /// The folders of this kind for the user whose home is `home`.
     func roots(home: URL) -> [String] {
@@ -17,9 +17,15 @@ public nonisolated enum PrivacyFolder: String, CaseIterable, Sendable {
         case .desktop: [inHome("Desktop")]
         case .documents: [inHome("Documents")]
         case .downloads: [inHome("Downloads")]
+        case .pictures: [inHome("Pictures")]
+        case .music: [inHome("Music")]
+        case .movies: [inHome("Movies")]
         case .iCloudDrive: [inHome("Library/Mobile Documents")]
         case .cloudStorage: [inHome("Library/CloudStorage")]
+        case .appData: ["Library/Containers", "Library/Group Containers", "Library/Mail", "Library/Messages",
+                        "Library/Safari", "Library/Calendars"].map(inHome)
         case .volumes: ["/Volumes"]
+        case .network: ["/Network", "/net"]
         }
     }
 

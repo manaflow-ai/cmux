@@ -93,7 +93,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         while !queue.isEmpty, found.count < 200 {
             let (directory, depth) = queue.removeFirst()
             // `~/Projects` and `~/projects` are one folder on a disk that ignores case.
-            guard seen.insert(directory.path.lowercased()).inserted,
+            guard seen.insert(directory.path.lowercased()).inserted, isLookable(directory),
                   fileSystem.isDirectory(directory.path) else { continue }
             if fileSystem.exists(directory.appending(path: ".git").path) {
                 found.append(directory)
@@ -108,7 +108,7 @@ public nonisolated struct AgentProjectScan: Sendable {
     }
 
     /// How deep below a Projects root a repository is looked for.
-    static let maxRepositoryDepth = Int.max
+    static let maxRepositoryDepth = 3
 
     /// Recency first, with session count as weight: a project used daily
     /// outranks one used heavily months ago.
@@ -133,7 +133,7 @@ public nonisolated struct AgentProjectScan: Sendable {
 
     /// True when a scan may look at `folder`: it is not, and does not lead
     /// into, a privacy-protected location.
-    func isLookable(_ folder: URL) -> Bool { privacyFolder(of: folder) == nil }
+    func isLookable(_ folder: URL) -> Bool { protectedFolder(of: folder) == nil }
 
     private func keeps(_ project: AgentProject) -> Bool { keeps(folder: project.folder) }
 
@@ -151,7 +151,7 @@ public nonisolated struct AgentProjectScan: Sendable {
         for agentHome in [claude, codex, pi, opencode] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
             return false
         }
-        if privacyFolder(of: folder) != nil { return true }
+        if protectedFolder(of: folder) != nil { return true }
         return fileSystem.isDirectory(path)
     }
 

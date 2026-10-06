@@ -20,7 +20,8 @@ enum ImportKit {
     /// nothing found. Nil once there is a list.
     static func emptyText(_ model: ImportStepModel) -> String? {
         switch model.phase {
-        case .idle, .detecting: OnboardingStrings.detecting
+        case .idle: OnboardingStrings.findBrowsersHint
+        case .detecting: OnboardingStrings.detecting
         default: model.profiles.isEmpty ? OnboardingStrings.noBrowsers : nil
         }
     }

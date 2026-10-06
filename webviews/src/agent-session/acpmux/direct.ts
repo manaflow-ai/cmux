@@ -16,6 +16,7 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
+import { isWarmableCwd } from "./warmFolders";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -1327,14 +1328,16 @@ export class AcpmuxDirectClient {
     return this.selectedSessionId;
   }
 
-  /// Starts one live agent child for each of the most recent project sessions.
+  /// Starts one live agent child for each of the most recent project sessions whose folder an
+  /// agent may use unasked (`isWarmableCwd`).
   /// Old daemons simply reject this extension, so warming never blocks chat.
   async warmRecentProjects(limit = 3): Promise<void> {
     const ids: string[] = [];
     const seen = new Set<string>();
     for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
       const cwd = typeof session.cwd === "string" ? session.cwd : "";
-      if (!cwd || seen.has(cwd)) continue;
+      // Never the home folder or a privacy-protected one (warmFolders.ts).
+      if (!cwd || seen.has(cwd) || !isWarmableCwd(cwd)) continue;
       seen.add(cwd);
       ids.push(session.sessionId);
       if (ids.length >= limit) break;
