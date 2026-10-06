@@ -65,5 +65,5 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
 nonisolated extension CmuxConfigSnapshot {
     /// `agentPane.links.outsideRoots` and `agentPane.images.remote` (its diagnostics join the
     /// snapshot's in `parse`).
-    public var agentPaneReplies: AgentPaneReplySetting { .fallback }
+    public var agentPaneReplies: AgentPaneReplySetting { AgentPaneReplySetting.parse(root).0 }
 }
