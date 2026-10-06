@@ -260,7 +260,9 @@ final class ScrollPrefetcher {
     private var lastY = CGFloat.nan, lastT: CFTimeInterval = 0
     private(set) var velocity: CGFloat = 0
     static var requests = 0
-    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+    // cmux: settable: the Home harness turns it off (its velocity comes from the wall clock,
+    // so two runs in one test process got different lead cells off screen).
+    static var enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
     static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
     func update(_ r: RowRecycler) {
         guard ScrollPrefetcher.enabled else { return }
