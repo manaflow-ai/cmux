@@ -81,14 +81,28 @@ if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
-  /^  decide:/ { in_decide=1; next }
-  in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner=1 }
-  END { exit !saw_runner }
+  /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
+  in_download && /^      - name:/ { in_download=0 }
+  in_download && /id: signing-inputs-parallel/ { saw_id=1 }
+  in_download && /download-run-artifact.py/ { downloads++ }
+  in_download && /app_ok=/ { saw_app_output=1 }
+  in_download && /daemon_ok=/ { saw_daemon_output=1 }
+  in_download && /helper_ok=/ { saw_helper_output=1 }
+  END { exit !(saw_id && downloads == 3 && saw_app_output && saw_daemon_output && saw_helper_output) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the short nightly decide gate must stay on the GitHub-hosted Linux runner instead of waiting for the paid pool"
+  echo "FAIL: nightly signers must fetch the app, daemon, and helper artifacts concurrently"
   exit 1
 fi
+
+for fallback in \
+  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly signing input fallback is missing: $fallback"
+    exit 1
+  fi
+done
 
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
