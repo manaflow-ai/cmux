@@ -3391,6 +3391,15 @@ class TerminalController {
             result["bundle_identifier"] = bundleIdentifier
         }
         result["app_bundle_path"] = Bundle.main.bundleURL.path
+        // Lets a CLI from another build explain an unknown method
+        // (`CLIVersionSkew`): product, version, and build of this process.
+        result["app"] = "cmux"
+        if let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            result["version"] = version
+        }
+        if let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String {
+            result["build"] = build
+        }
         if let executablePath = Bundle.main.executableURL?.path {
             result["app_executable_path"] = executablePath
         }

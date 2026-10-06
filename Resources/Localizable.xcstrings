@@ -1,6 +1,655 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.versionSkew.helpHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Note: the app on %@ is a different build from this CLI. Some commands above may not work there."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinweis: Die App an %@ ist ein anderer Build als diese CLI. Einige der oben genannten Befehle funktionieren dort möglicherweise nicht."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remarque : l’app sur %@ est un build différent de cette CLI. Certaines commandes ci-dessus risquent de ne pas y fonctionner."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملاحظة: التطبيق على %@ إصدار مختلف عن واجهة سطر الأوامر هذه. قد لا تعمل بعض الأوامر أعلاه هناك."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nota: la app en %@ es una compilación distinta de esta CLI. Es posible que algunos comandos de arriba no funcionen allí."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：%@ 上的 App 與此 CLI 為不同的建置版本，上方部分指令在該處可能無法使用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意：%@ 上的 App 与此 CLI 为不同的构建版本，上方部分命令在该处可能无法使用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "참고: %@의 앱은 이 CLI와 다른 빌드입니다. 위의 일부 명령은 해당 앱에서 작동하지 않을 수 있습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "注意: %@ のアプリはこの CLI とは異なるビルドです。上記の一部のコマンドはそのアプリでは動作しない場合があります。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.header": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is not supported by the app on %2$@. The CLI and the app come from different builds."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ wird von der App an %2$@ nicht unterstützt. CLI und App stammen aus unterschiedlichen Builds."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ n’est pas pris en charge par l’app sur %2$@. La CLI et l’app proviennent de builds différents."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ غير مدعوم من التطبيق على %2$@. واجهة سطر الأوامر والتطبيق من إصدارين مختلفين."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app en %2$@ no admite %1$@. La CLI y la app proceden de compilaciones distintas."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上的 App 不支援 %1$@。CLI 與 App 來自不同的建置版本。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ 上的 App 不支持 %1$@。CLI 与 App 来自不同的构建版本。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@의 앱은 %1$@을(를) 지원하지 않습니다. CLI와 앱의 빌드가 서로 다릅니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$@ のアプリは %1$@ に対応していません。CLI とアプリのビルドが異なります。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.cliLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This CLI: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese CLI: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette CLI : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة سطر الأوامر هذه: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta CLI: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 CLI: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この CLI: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.appLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected app: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbundene App: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App connectée : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيق المتصل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App conectada: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已連線的 App：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已连接的 App：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결된 앱: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続先アプリ: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fixLine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lösung: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solution : %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الحل: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solución: %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解決方式：%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解决方法：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해결 방법: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対処: %@"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.otherProduct": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This socket belongs to %1$@, which has its own CLI. Run %2$@, or put its directory first on PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Socket gehört zu %1$@, das eine eigene CLI hat. Führe %2$@ aus oder setze dessen Verzeichnis an den Anfang von PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce socket appartient à %1$@, qui a sa propre CLI. Exécutez %2$@ ou placez son dossier en tête du PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتمي هذا المقبس إلى %1$@، وله واجهة سطر أوامر خاصة به. شغّل %2$@، أو ضع مجلده أولًا في PATH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este socket pertenece a %1$@, que tiene su propia CLI. Ejecuta %2$@ o pon su carpeta al principio de PATH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 屬於 %1$@，它有自己的 CLI。請執行 %2$@，或將其目錄放在 PATH 的最前面。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 属于 %1$@，它有自己的 CLI。请运行 %2$@，或将其目录放在 PATH 的最前面。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 소켓은 자체 CLI가 있는 %1$@의 것입니다. %2$@을(를) 실행하거나 해당 디렉터리를 PATH 맨 앞에 두세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このソケットは独自の CLI を持つ %1$@ のものです。%2$@ を実行するか、そのディレクトリを PATH の先頭に置いてください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.otherProductNoPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This socket belongs to %@, which has its own CLI. Run the cmux CLI inside that app's bundle (Contents/Resources/bin/cmux)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Socket gehört zu %@, das eine eigene CLI hat. Führe die cmux-CLI im Bundle dieser App aus (Contents/Resources/bin/cmux)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce socket appartient à %@, qui a sa propre CLI. Exécutez la CLI cmux incluse dans le bundle de cette app (Contents/Resources/bin/cmux)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ينتمي هذا المقبس إلى %@، وله واجهة سطر أوامر خاصة به. شغّل واجهة cmux الموجودة داخل حزمة ذلك التطبيق (Contents/Resources/bin/cmux)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este socket pertenece a %@, que tiene su propia CLI. Ejecuta la CLI de cmux incluida en el paquete de esa app (Contents/Resources/bin/cmux)."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 屬於 %@，它有自己的 CLI。請執行該 App 套件內的 cmux CLI（Contents/Resources/bin/cmux）。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 socket 属于 %@，它有自己的 CLI。请运行该 App 包内的 cmux CLI（Contents/Resources/bin/cmux）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 소켓은 자체 CLI가 있는 %@의 것입니다. 해당 앱 번들 안의 cmux CLI(Contents/Resources/bin/cmux)를 실행하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このソケットは独自の CLI を持つ %@ のものです。そのアプリのバンドル内の cmux CLI（Contents/Resources/bin/cmux）を実行してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.cliOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This CLI is older than the app. Run the app's CLI, %@, or remove the older cmux from PATH."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese CLI ist älter als die App. Führe die CLI der App aus (%@) oder entferne die ältere cmux-CLI aus PATH."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette CLI est plus ancienne que l’app. Exécutez la CLI de l’app, %@, ou retirez l’ancienne cmux du PATH."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهة سطر الأوامر هذه أقدم من التطبيق. شغّل واجهة التطبيق %@، أو أزل نسخة cmux الأقدم من PATH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta CLI es más antigua que la app. Ejecuta la CLI de la app, %@, o quita la cmux antigua de PATH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI 比 App 舊。請執行 App 的 CLI（%@），或從 PATH 移除較舊的 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 CLI 比 App 旧。请运行 App 的 CLI（%@），或从 PATH 中移除较旧的 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 CLI는 앱보다 오래되었습니다. 앱의 CLI(%@)를 실행하거나 PATH에서 이전 cmux를 제거하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この CLI はアプリより古いです。アプリの CLI（%@）を実行するか、古い cmux を PATH から外してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.fix.appOlder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The running app is older than this CLI. Quit and reopen cmux to finish an installed update, or update it with cmux > Check for Updates."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die laufende App ist älter als diese CLI. Beende cmux und öffne es erneut, um ein installiertes Update abzuschließen, oder aktualisiere es über cmux > Nach Updates suchen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’app en cours d’exécution est plus ancienne que cette CLI. Quittez puis rouvrez cmux pour terminer une mise à jour installée, ou mettez-la à jour via cmux > Rechercher les mises à jour."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التطبيق قيد التشغيل أقدم من واجهة سطر الأوامر هذه. أغلق cmux وأعد فتحه لإكمال تحديث مثبّت، أو حدّثه من cmux > التحقق من وجود تحديثات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La app en ejecución es más antigua que esta CLI. Cierra y vuelve a abrir cmux para terminar una actualización instalada, o actualízala con cmux > Buscar actualizaciones."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "執行中的 App 比此 CLI 舊。請結束並重新開啟 cmux 以完成已安裝的更新，或透過 cmux > 檢查更新 進行更新。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在运行的 App 比此 CLI 旧。请退出并重新打开 cmux 以完成已安装的更新，或通过 cmux > 检查更新 进行更新。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 앱이 이 CLI보다 오래되었습니다. 설치된 업데이트를 마치려면 cmux를 종료했다가 다시 열거나, cmux > 업데이트 확인으로 업데이트하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のアプリはこの CLI より古いです。インストール済みのアップデートを完了するには cmux を終了して開き直すか、cmux > アップデートを確認 で更新してください。"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.app.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown (it does not answer system.identify)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannt (antwortet nicht auf system.identify)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inconnue (elle ne répond pas à system.identify)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير معروف (لا يستجيب لـ system.identify)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "desconocida (no responde a system.identify)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知（不回應 system.identify）"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知（不响应 system.identify）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없음(system.identify에 응답하지 않음)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明（system.identify に応答しません）"
+          }
+        }
+      }
+    },
+    "cli.versionSkew.app.noVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, a build that does not report its version"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, ein Build, der seine Version nicht meldet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, un build qui n’indique pas sa version"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@، إصدار لا يُبلغ عن رقم نسخته"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, una compilación que no indica su versión"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，此建置版本不回報其版本號"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@，此构建版本不报告其版本号"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@, 버전을 보고하지 않는 빌드"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（バージョンを報告しないビルド）"
+          }
+        }
+      }
+    },
     "browser.omnibar.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {

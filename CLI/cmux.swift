@@ -5016,6 +5016,18 @@ struct CMUXCLI {
            shouldDispatchCmuxSubcommandHelp(command: command, commandArgs: commandArgs),
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
+                // Help stays offline; only a socket the caller pinned (inside a
+                // cmux terminal or with --socket) is asked who it is.
+                if let pinned = explicitSocketPath ?? (try? CLISocketEnvironment.socketPath(in: processEnv)),
+                   let note = CLIVersionSkew.helpNote(
+                       socketPath: pinned,
+                       cliVersion: versionSummary(),
+                       cliShortVersion: resolvedVersionInfo()["CFBundleShortVersionString"],
+                       cliPath: resolvedExecutableURL()?.path
+                   ) {
+                    print("")
+                    print(note)
+                }
                 return
             }
             throw unknownCommandError(command)
@@ -8401,7 +8413,13 @@ struct CMUXCLI {
             if !capturesSocketErrorsInsideCommand {
                 captureSocketTransportError(telemetry: cliTelemetry, stage: "socket_command", error: error, client: client)
             }
-            throw error
+            throw CLIVersionSkew.diagnose(
+                error,
+                client: client,
+                cliVersion: versionSummary(),
+                cliShortVersion: resolvedVersionInfo()["CFBundleShortVersionString"],
+                cliPath: resolvedExecutableURL()?.path
+            )
         }
     }
 
@@ -43111,7 +43129,7 @@ export default {
     }
 
 
-    private func versionSummary() -> String {
+    func versionSummary() -> String {
         let info = resolvedVersionInfo()
         let commit = info["CMUXCommit"].flatMap { normalizedCommitHash($0) }
         let baseSummary: String

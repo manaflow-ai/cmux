@@ -81,7 +81,8 @@ extension SocketClient {
                     isStructuredProtocolResponse: true,
                     v2Retryable: data?["retryable"] as? Bool == true,
                     vmBackendCode: data?["backend_code"] as? String,
-                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
+                    vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue,
+                    v2Method: method
                 )
                 // Admission rejects these before dispatch: `rate_limited` for
                 // polling reads, and `overloaded` for any method (the server
