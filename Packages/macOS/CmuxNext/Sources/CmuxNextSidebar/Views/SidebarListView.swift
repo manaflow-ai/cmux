@@ -28,6 +28,7 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
+    let middleClick = SidebarMiddleClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []

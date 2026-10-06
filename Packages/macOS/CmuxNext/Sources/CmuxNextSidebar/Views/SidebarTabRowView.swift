@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// A compact tab row shown below a workspace when tab listing is enabled.
@@ -40,8 +41,7 @@ final class SidebarTabRowView: SidebarRowView {
         kind = tab.kind
         unread = tab.isUnread
         groupColor = row.groupColor
-        icon.image = NSImage(systemSymbolName: tab.kind.symbolName, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: SidebarStyle.tabIconSize, weight: .regular))
+        icon.image = NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityLabel(tab.title)

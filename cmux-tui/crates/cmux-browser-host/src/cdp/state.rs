@@ -91,6 +91,9 @@ pub struct TabState {
     /// driver resolves the input's agent handle first): input calls wait
     /// for zero, so the event comes before their reply.
     pub pending_choosers: usize,
+    /// A session drives the tab on a headful browser: its file choosers
+    /// are intercepted (`choosers.rs`).
+    pub choosers_on: bool,
     /// The tab's virtual clipboard: `[{ type, base64 }]` (`clipboard.rs`).
     pub clipboard: Vec<Value>,
     /// The Copy, Cut or Paste running now: a dialog then is dismissed.
@@ -157,6 +160,7 @@ impl TabState {
             crashed: false,
             open_dialogs: 0,
             pending_choosers: 0,
+            choosers_on: false,
             clipboard: Vec::new(),
             clipboard_command: None,
             download_seq: 0,

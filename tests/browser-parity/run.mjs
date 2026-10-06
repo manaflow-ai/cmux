@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
 import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
+import { startOwnHost } from "./lib/parity-host.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -141,6 +142,9 @@ for (const engine of HOST_ENGINES) {
     const viaCli = process.env.PARITY_HOST_CLI;
     const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
     const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    // The run's own host (lib/parity-host.mjs), one for all scenarios;
+    // `cmux browser repl` manages the daemon's host itself.
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
     return runCliCells(cells, scenario, {
       evalArgv: viaCli
         ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
@@ -149,6 +153,20 @@ for (const engine of HOST_ENGINES) {
       exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
     });
   };
+}
+
+// The run's own `cmux-browser-host serve`, started on first use and stopped
+// when main ends (stopOwnHost), also when the run fails.
+let ownHostStarted = null;
+function ownHost(bin) {
+  ownHostStarted ??= startOwnHost({ cmd: bin });
+  return ownHostStarted;
+}
+async function stopOwnHost() {
+  if (!ownHostStarted) return;
+  const started = ownHostStarted;
+  ownHostStarted = null;
+  await started.then((host) => host.stop(), () => {});
 }
 
 // One CLI call per cell; output lines without the CLI's status line.
@@ -320,6 +338,7 @@ async function main() {
       } else console.log(`PASS ${scenario.name}`);
     }
   } finally {
+    await stopOwnHost();
     await server.close();
   }
   if (args.mode !== "run") {

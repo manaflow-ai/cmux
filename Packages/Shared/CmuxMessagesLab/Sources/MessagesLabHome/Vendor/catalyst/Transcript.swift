@@ -462,7 +462,7 @@ final class RowCell: UICollectionViewCell {
             guard let spec else { return nil }
             switch spec.kind {
             case let .part(p): return p.text?.text ?? p.part.plainText
-            case let .separator(b, r): return b + " " + r
+            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
             default: return nil
