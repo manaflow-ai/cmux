@@ -32,6 +32,7 @@ fn serve(listener: UnixListener, saved: Arc<Mutex<BTreeMap<String, Value>>>, set
                     let id = req["id"].clone();
                     let reply = match req["method"].as_str().unwrap_or("") {
                         "_acpmux/sessions" => json!({"jsonrpc": "2.0", "id": id, "result": {"sessions": []}}),
+                        "session/new" => json!({"jsonrpc": "2.0", "id": id, "result": {"sessionId": "s-1"}}),
                         "_acpmux/presets" if req["params"].get("set").is_some() => {
                             sets.lock().unwrap().push(req["params"].clone());
                             let name = req["params"]["name"].as_str().unwrap().to_owned();
@@ -109,7 +110,8 @@ fn a_codex_host_installs_the_compactor_preset_a_claude_host_saved() {
         preset: Some("optchat-compact-1a2b3c4d-slot-0".into()),
         tags: Default::default(),
     };
-    assert!(codex.new_session(&spec).is_ok(), "the compactor session starts on codex");
+    let started = codex.new_session(&spec);
+    assert_eq!(started, Ok("s-1".into()), "the compactor session starts on codex");
     let saved = saved.lock().unwrap();
     let kept = &saved["optchat-compact-1a2b3c4d-slot-0"];
     assert_eq!(kept["harness"], "codex");
