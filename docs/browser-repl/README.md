@@ -464,7 +464,10 @@ rest. Measurements: [performance.md](performance.md).
   sends a random owner token with every call, and without that token no
   other client sees it in `cmux browser repl list`, attaches to it or
   resets it, also when it knows the name or the client was killed before
-  its session ended (it then idles out after 30 minutes). Named sessions
+  its session ended (it then idles out after 30 minutes). When such a
+  session ends by itself (its heap limit), its name stays its client's
+  until it idles out: only that token makes the next session under it.
+  Named sessions
   are shared by name: an owner token is taken only with a client-made
   name (`cli-`, `mcp-`, `oneshot-`), and one sent with any other name is
   refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
@@ -484,7 +487,9 @@ rest. Measurements: [performance.md](performance.md).
   resets every one. A run without `--session`, the interactive REPL and
   `mcp` from outside cmux bind to the focused workspace; the interactive
   REPL and `mcp` keep the workspace their first call bound, so a change of
-  focus does not switch sessions. Pass `--workspace` to use a workspace's
+  focus does not switch sessions; with a `--session` name from outside cmux
+  they keep using the session callers outside cmux share, never the
+  workspace's session of that name. Pass `--workspace` to use a workspace's
   own session from outside cmux. A `--workspace` that
   names no workspace of this cmux instance (unknown, blank, or a ref that
   does not resolve) is refused; it never falls back to another workspace.

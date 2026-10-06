@@ -105,6 +105,37 @@ struct BrowserReplSessionRegistryTests {
         #expect(owned.isClosed)
     }
 
+    /// A private session can end by itself (its JavaScript heap passed its
+    /// limit) and stay in the registry, closed, until its idle timer
+    /// removes it. Its name is still its owner's then: another client that
+    /// knows or guesses the name makes no session under it.
+    @Test("A private session that ended by itself is made again only for its owner token")
+    func endedPrivateSessionKeepsItsOwner() throws {
+        let registry = BrowserReplSessionRegistry()
+        let key = BrowserReplSessionKey(workspaceID: first, name: "cli-123-abc")
+        let owned = try registry.session(for: key, owner: "token-a") { _ in makeSession(key.name) }
+        owned.close()
+        #expect(owned.isClosed)
+
+        var made = 0
+        for intruder in [nil, "token-b"] as [String?] {
+            #expect(throws: BrowserReplSessionRegistry.Refusal.ownedByAnotherClient) {
+                try registry.session(for: key, owner: intruder) { _ in
+                    made += 1
+                    return makeSession(key.name)
+                }
+            }
+            #expect(!registry.reset(key, owner: intruder))
+            #expect(registry.list(workspaceID: first, owner: intruder).isEmpty)
+        }
+        #expect(made == 0)
+
+        let again = try registry.session(for: key, owner: "token-a") { _ in makeSession(key.name) }
+        defer { again.close() }
+        #expect(again !== owned && !again.isClosed)
+        #expect(registry.list(workspaceID: first, owner: "token-a").map(\.name) == [key.name])
+    }
+
     /// A named session is shared by name: an owner token on it would hide
     /// it from every other client's list, attach and reset while it holds
     /// the name (and a session slot). A token is taken only with a name a

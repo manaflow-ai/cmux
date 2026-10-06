@@ -101,7 +101,8 @@ extension CMUXCLI {
         let session = sessionOption ?? ownSession?.name ?? ""
         // A session belongs to a workspace; once the first cell bound one,
         // every later call names it, so a change of focus never reaches
-        // another workspace's session.
+        // another workspace's session. A session callers outside cmux share
+        // stays unpinned (see `pinBrowserReplWorkspace(from:in:)`).
         var callParams = baseParams
         if let ownSession { callParams["session_owner"] = ownSession.owner }
         defer {
@@ -130,14 +131,21 @@ extension CMUXCLI {
             params["code"] = line
             params["session"] = session
             let outcome = try evaluateBrowserRepl(params: params, client: client, jsonOutput: jsonOutput, timeoutMilliseconds: timeoutMilliseconds)
-            Self.pinBrowserReplWorkspace(outcome.workspaceID, in: &callParams)
+            Self.pinBrowserReplWorkspace(from: outcome.payload, in: &callParams)
         }
     }
 
-    /// Makes later calls name `workspaceID`, the workspace the app bound the
-    /// session to, instead of the caller's or the focused one.
-    private static func pinBrowserReplWorkspace(_ workspaceID: String?, in params: inout [String: Any]) {
-        guard let workspaceID, params["workspace_id"] == nil else { return }
+    /// Makes later calls name the workspace the app bound the session to
+    /// (`payload`'s `workspace_id`), instead of the caller's or the focused
+    /// one. A session callers outside cmux share (`outside_cmux`) is left
+    /// unpinned: the app finds it by name whatever workspace is focused, and
+    /// a call that named its workspace would count as one of that
+    /// workspace's own callers and reach the workspace's session of that
+    /// name instead.
+    private static func pinBrowserReplWorkspace(from payload: [String: Any], in params: inout [String: Any]) {
+        guard payload["outside_cmux"] as? Bool != true,
+              let workspaceID = payload["workspace_id"] as? String,
+              params["workspace_id"] == nil else { return }
         params["workspace_id"] = workspaceID
         params.removeValue(forKey: "caller_workspace_id")
     }
@@ -288,7 +296,7 @@ extension CMUXCLI {
             if let maxOutput { params["max_output"] = maxOutput }
             let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
             // The session's workspace, for every later call (see the interactive loop).
-            Self.pinBrowserReplWorkspace(payload["workspace_id"] as? String, in: &baseParams)
+            Self.pinBrowserReplWorkspace(from: payload, in: &baseParams)
             return payload
         }
         let resetParams = { Self.browserReplWorkspaceScope(of: baseParams).merging(["session": session]) { _, new in new } }
@@ -355,20 +363,19 @@ extension CMUXCLI {
 
     /// Sends one cell and prints its output, then `[ok | Nms]` or `[error | Nms]`.
     /// - Returns: Whether the cell finished without an uncaught error, and
-    ///   the workspace the session is bound to.
+    ///   the app's answer (the session's workspace and namespace).
     private func evaluateBrowserRepl(
         params: [String: Any],
         client: SocketClient,
         jsonOutput: Bool,
         timeoutMilliseconds: Int
-    ) throws -> (ok: Bool, workspaceID: String?) {
+    ) throws -> (ok: Bool, payload: [String: Any]) {
         let responseTimeout = TimeInterval(timeoutMilliseconds) / 1000 + 15
         let payload = try client.sendV2(method: "browser.repl.eval", params: params, responseTimeout: responseTimeout)
         let ok = payload["ok"] as? Bool ?? false
-        let workspaceID = payload["workspace_id"] as? String
         if jsonOutput {
             print(jsonString(payload))
-            return (ok, workspaceID)
+            return (ok, payload)
         }
         for line in payload["output"] as? [[String: Any]] ?? [] {
             print(Self.browserReplTerminalText(line["text"] as? String ?? ""))
@@ -382,7 +389,7 @@ extension CMUXCLI {
             print(color ? "\u{1B}[2m[ok | \(duration)ms]\u{1B}[0m" : "[ok | \(duration)ms]")
         }
         fflush(stdout)
-        return (ok, workspaceID)
+        return (ok, payload)
     }
 
     /// `text` with every control character except newline and tab made

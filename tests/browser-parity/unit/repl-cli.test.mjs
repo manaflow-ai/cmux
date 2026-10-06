@@ -16,7 +16,7 @@ const CLI = process.env.PARITY_CMUX_CLI;
 const skip = !CLI && "set PARITY_CMUX_CLI";
 const WORKSPACE = "11111111-2222-3333-4444-555555555555";
 
-function fakeSocket(file, calls, sessions) {
+function fakeSocket(file, calls, sessions, { outsideCmux = false } = {}) {
   const server = net.createServer((conn) => {
     readline.createInterface({ input: conn, crlfDelay: Infinity }).on("line", (line) => {
       let req;
@@ -31,7 +31,7 @@ function fakeSocket(file, calls, sessions) {
       let result = {};
       if (req.method === "browser.repl.list") result = { sessions };
       else if (req.method === "browser.repl.eval") {
-        result = { ok: true, output: [{ level: "log", text: `ran ${String(p.code).length}` }], duration_ms: 1, workspace_id: WORKSPACE };
+        result = { ok: true, output: [{ level: "log", text: `ran ${String(p.code).length}` }], duration_ms: 1, workspace_id: WORKSPACE, outside_cmux: outsideCmux };
       } else if (req.method === "browser.repl.reset") result = { session: p.session, existed: true };
       conn.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
     });
@@ -140,6 +140,54 @@ test("repl --workspace: a blank workspace is refused and nothing is sent", { ski
     assert.notEqual(code, 0);
     assert.match(stderr, /workspace/i);
     assert.deepEqual(calls.filter((c) => String(c.method).startsWith("browser.repl")), []);
+  } finally {
+    server.close();
+    removeTestDir(dir);
+  }
+});
+
+// A caller outside cmux that names a shared session gets the one session
+// such callers share (the app answers `outside_cmux: true`), never the
+// session of that name a workspace's own callers share. The interactive
+// REPL must not turn the workspace that session's tabs open in into an
+// explicit `workspace_id`: the app would then resolve the next line as a
+// caller inside that workspace and attach to the workspace's session.
+test("repl (interactive): an outside-cmux shared session is not pinned to its workspace", { skip, timeout: 120000 }, async () => {
+  const dir = makeTestDir("cmux-repl-cli-");
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls, [], { outsideCmux: true });
+  // A pseudo-terminal as stdin: one line, then the next after its output.
+  const driver = `
+import os, pty, select, subprocess, sys
+master, slave = pty.openpty()
+child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=subprocess.PIPE, stderr=sys.stderr)
+os.close(slave)
+out = b""
+for line, want in ((b"1\\n", b"ran 1"), (b"22\\n", b"ran 2")):
+    os.write(master, line)
+    while want not in out:
+        ready, _, _ = select.select([child.stdout], [], [], 90)
+        if not ready:
+            break
+        data = os.read(child.stdout.fileno(), 65536)
+        if not data:
+            break
+        out += data
+os.close(master)
+out += child.stdout.read()
+sys.stdout.write(out.decode())
+sys.exit(child.wait())
+`;
+  try {
+    const { stdout, stderr } = await run("python3", ["-c", driver, CLI, "browser", "repl", "--session", "shared"], cliEnv(socket));
+    assert.match(stdout, /ran 2/, stderr.slice(-500));
+    const evals = calls.filter((c) => c.method === "browser.repl.eval");
+    assert.equal(evals.length, 2);
+    for (const call of evals) {
+      assert.equal(call.params.session, "shared");
+      assert.equal(call.params.workspace_id, undefined, "an outside-cmux session stays in the outside namespace");
+    }
   } finally {
     server.close();
     removeTestDir(dir);
