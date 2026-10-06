@@ -1365,6 +1365,8 @@ describe("direct client session state", () => {
     ScriptedSocket.held.add("session/prompt");
     const sending = client.send("not yet").catch(() => "refused");
     await settle();
+    const pendingRow = latest().rows.find((row) => row.text === "not yet")!;
+    expect(pendingRow.pending).toBe(true);
     ScriptedSocket.current.fail("session/prompt", {
       code: -32601,
       message: "Refused by the cmux host",
@@ -1372,6 +1374,9 @@ describe("direct client session state", () => {
     });
     expect(await sending).toBe("refused");
     const failed = latest().rows.find((row) => row.text === "not yet")!;
+    // A new row object: MessageRow is memoized on the row's identity and version, so a row
+    // changed in place would keep drawing as a plain bubble.
+    expect(failed).not.toBe(pendingRow);
     expect(failed.failed).toBe(true);
     expect(failed.error).toBe(translate("prompt.notSentGesture"));
     expect(latest().connection).toBe("connected");
