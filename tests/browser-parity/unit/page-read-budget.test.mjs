@@ -313,6 +313,46 @@ test("dropdownOptions: ARIA options are read one at a time within the node budge
   }
 });
 
+test("markdown { main: true }: <main> and <article> candidates are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest candidate list the read asks
+  // for. The page holds 260,000 empty <article>s; the budget is 250,000
+  // nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<p>Outside</p>' + '<article></article>'.repeat(260000);
+          window.__candidates = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (/(main|article)/.test(String(selector))) window.__candidates = Math.max(window.__candidates, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`await page.markdown({ main: true }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__candidates)));`);
+      assert.ok(Number(r.value) <= 250000, `the main-content lookup listed ${r.value} candidates at once with a budget of 250,000 nodes`);
+      // Below the budget it still finds the main content.
+      const pick = async (body) => (await run(`await page.evaluate((b) => { document.body.innerHTML = b; }, ${JSON.stringify(body)}); console.log("@@" + JSON.stringify(await page.markdown({ main: true })));`)).value;
+      const main = JSON.parse(await pick('<nav>Menu</nav><main style="display:none">Hidden</main><div role="main">Shown main</div>'));
+      assert.match(main, /Shown main/);
+      assert.doesNotMatch(main, /Menu/);
+      const one = JSON.parse(await pick("<nav>Menu</nav><article>Only article</article>"));
+      assert.match(one, /Only article/);
+      assert.doesNotMatch(one, /Menu/);
+      const two = JSON.parse(await pick("<p>Intro</p><article>One</article><article>Two</article>"));
+      assert.match(two, /Intro/);
+      assert.match(two, /Two/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
   const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
   const server = http.createServer((req, res) => {
