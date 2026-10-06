@@ -28,6 +28,8 @@ public final class MockOnboardingServices: OnboardingServices {
         .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
     /// Whether the classic cmux session import is offered.
     public var canImportClassicSessions = false
+    /// What the classic cmux session scan finds.
+    public var classicWorkspaces: [ClassicSessionWorkspace] = []
     /// The computer use step's grants; nil leaves the step out.
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
@@ -75,6 +77,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
+    public func scanClassicSessions() async -> [ClassicSessionWorkspace] { classicWorkspaces }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
