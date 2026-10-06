@@ -1986,15 +1986,23 @@
   // `position` in window.frames (framePosition() in the child), as handles,
   // which the caller confirms with the driver: the light-DOM element whose
   // window is that one; else (a frame in a shadow tree) the frames in
-  // shadow trees, found by a walk of at most MAX_NODES elements (the
-  // snapshot's budget), as the page sets their number. `truncated` says the
-  // walk stopped at the budget.
+  // shadow trees, found by a walk of the elements. Both count against one
+  // budget of at most MAX_NODES (the snapshot's), as the page sets their
+  // number: each light-DOM <iframe> and <frame> checked (read one at a time
+  // from the document's live collections, never listed whole), then each
+  // element walked. `truncated` says the lookup stopped at the budget.
   function iframeHandles(position, maxNodes) {
     const target = Number.isInteger(position) && position >= 0 && position < window.length ? window[position] : null;
-    if (target) {
-      for (const el of document.querySelectorAll("iframe, frame")) if (el.contentWindow === target) return { handles: [handleFor(el)], truncated: false };
-    }
     let left = Math.min(MAX_NODES, maxNodes > 0 ? Math.floor(maxNodes) : MAX_NODES);
+    if (target) {
+      for (const tag of ["iframe", "frame"]) {
+        const owners = document.getElementsByTagName(tag);
+        for (let i = 0, el = owners[0]; el; el = owners[++i]) {
+          if (--left < 0) return { handles: [], truncated: true };
+          if (el.contentWindow === target) return { handles: [handleFor(el)], truncated: false };
+        }
+      }
+    }
     let truncated = false;
     const out = [];
     const roots = [document];
