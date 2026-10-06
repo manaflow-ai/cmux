@@ -1990,11 +1990,13 @@ describe("acpmux turn diff", () => {
         dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
       });
       expect(document.querySelector(".acpmux-diff-panel")).not.toBeNull();
+      expect(name.isConnected).toBe(true);
       name.focus();
+      expect(document.activeElement === name).toBe(true);
       await act(async () => {
         dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
       });
-      expect(document.querySelector(".acpmux-diff-panel")).toBeNull();
+      expect(document.querySelectorAll(".acpmux-diff-panel").length).toBe(0);
     } finally {
       await act(async () => root.unmount());
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
