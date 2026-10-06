@@ -109,6 +109,24 @@ queues the prompt; claude-sr has no steering), not between its tool calls.
 No cache marker is added to a subagent's first message: one spawn's subagents
 start together, so none could read another's entry.
 
+## Engine: harness, model and effort per turn
+
+`$MUX_HOME/optchat/engine.json` (0600) holds `harness`, `model`, `effort`,
+`compactor_harness` and `compactor_model`; a missing field is the env default.
+The host reads the turn fields at EACH turn start, so a change applies from
+the next turn and a running turn finishes on its engine. A turn on a Claude
+harness gets the cached layout and the `optchat-chief-<home id>` preset; on
+codex, AGENTS.md (always written) and `optchat-chief-codex-<home id>`; both
+presets are installed at start. A harness acpmux does not know keeps the
+default. Each change is a `note` in the memory ("engine changed to
+harness=... model=... effort=... (was ...)") and an `engine` trace event;
+`turn.start`/`turn.end` record the engine that answered. The compactor fields
+apply at the next host start. `optchat-chief engine show|set` (and `chief
+engine ...` inside a turn) read and write the file; the app's Home shows an
+engine bar over the Chief conversation (harness, model and effort pickers,
+the last turn's engine, latency, tool calls, cache hit rate and cost) that
+writes the same file.
+
 ## Monitoring: trace and stats
 
 Every turn (`turn.start`, `turn.end`), every model request in a turn
@@ -188,7 +206,7 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] "task"
 optchat-chief agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
-optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts as messages (host stopped)
 optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
 optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
@@ -216,8 +234,11 @@ resumed session copied (same uuid) and a user message of 500 or more
 characters seen before. `dry-run` prints the counts and the date range and
 writes nothing; `write` appends the items through the chat (`OptChat`'s
 append, the store seam), so it needs the host stopped, and the items get
-their ids from the end of the log. Sessions go in order of their first line,
-so import into an empty memory to keep the history in time order.
+their ids from the end of the log. Sessions go in order of their first line.
+Old history must not land after live messages: on a memory that already
+holds messages, `write` refuses and writes nothing unless
+`--append-after-live` accepts that the history appears after the current
+messages, and `dry-run` warns about it.
 
 ## Environment
 
@@ -606,6 +627,19 @@ after `session/new` (a session that cannot be tagged is killed), so quit
 counts and endAgents can exclude the Chief's own sessions. Children keep
 `mux.parent` only.
 
+**One subrouter account per Chief role.** Each turn is a fresh `claude -p`
+with a new `X-Claude-Code-Session-Id`, so the subrouter placed turns on any
+account and a turn often read nothing of the cache the previous turn wrote
+(first-request hit 40% over 8 turns on cmux-lawrence-2, 2026-10-06; 0% in 4
+of them). The turn, compactor and subagent presets set
+`SUBROUTER_SESSION_KEY=optchat-<home id>-turn|compact|sub`, which `sr claude
+proxy` (subrouter v0.1.137, PR 511) sends as `X-Subrouter-Session`; the
+server keeps each key on one sticky account (failover still moves it). After
+the change, 6 consecutive turns: the first wrote 17,950, each later one read
+9,965 (55%) and wrote about 8,000, the part after Claude Code's system
+breakpoint (the view below the 50k mark, the new message, Claude Code's own
+context). Trade-off: one busy Chief concentrates on one account until failover.
+
 ## Compactor routes
 
 The team subrouter serves Claude Code clients: a raw Messages API call for a
@@ -779,31 +813,99 @@ passes a device message only when all of these hold:
    person and the Chief, a DM, a mention of the Chief or a reply to one of
    its messages. A device message in a group without a mention is not logged.
 
+A turn that a device message started, or that supersedes such a turn (a
+local message that stops a remote-origin turn mid-way), runs with acpmux
+policy `ask` instead of `MUX_POLICY` (approve-all): the strictest origin of
+the turn wins until it ends.
+
+- Every permission request of that turn session waits. The memory tools
+  (`mcp__optchat__zoom`, `mcp__optchat__date`) are allowed at once: they only
+  read the OptChat memory. Plain replies need nothing.
+- Any other request (a shell command, a file write or edit, a workspace or
+  subagent spawn through `cmux` or `chief`, computer use) is posted in the
+  Chief chat with the tool and its input: "Approval needed ... Reply allow or
+  deny." The next message `allow` or `deny` from a person the gate admits (the
+  Mac user or their own paired device) answers the oldest request, with the
+  allow-once or reject-once option (never "always"), and is logged; it is not
+  a new message and does not interrupt the turn. Any other new message denies
+  the pending requests so the turn can stop and the next one answers.
+- Every answer goes to the trace (`optchat/traces/YYYY-MM-DD.jsonl`, event
+  `approval`: turn, permission, tool, decision, option, approver, install,
+  delivered); the approver is the answering participant (`user_local` or
+  `remote_<install>`, with the install), or why it was denied.
+- Children inherit `ask`, transitively. `chief agents spawn` asks the host
+  for its spawn floor: `ask` while an `ask` turn runs or while any child that
+  runs with `ask` is live (so whatever such a child spawns asks too; the
+  floor errs strict, and a local turn's spawn during that time asks as
+  well). The floor wins over `--policy` and `MUX_POLICY`; a host that does
+  not answer gives `ask` (fail closed). Such a child is tagged
+  `optchat.policy=ask`, its permission requests are asked in the Chief chat
+  with its name and answered by `allow`/`deny` like the turn's (the trace
+  names the child), and `chief agents allow|deny` refuses to answer them. A
+  child name that exists without `ask` is not reused by such a spawn.
+  `remote.autoApprove`, set from the Mac, removes the floor; it cannot be
+  turned on while an `ask` child is live. The host-served section 9
+  `spawn` takes the same floor (`Brain::spawn_policy` at registration): its
+  subagents start with `ask` and the tag, and their requests are asked in
+  the Chief chat with their id (`a<N>`).
+- The native engine cannot ask the chat yet: in such a turn it refuses its
+  bash and editor tools and says so to the model.
+- Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
+  codex those need an approval too.
+
+`remote.autoApprove` (per Chief, `optchat/settings.json`, default false; the
+Chief settings sidebar shows it later; `optchat-chief settings set
+remote.autoApprove true|false` today) runs remote-origin turns with
+`MUX_POLICY` instead. The host owns the value: it reads the file at start and
+changes it only through `Brain::set_setting`, which refuses to turn it on
+while remote-origin work runs, settles or waits in the queue, whoever asks (a
+command an approved remote turn runs reaches the host the same way). No chat
+message changes it. With the host stopped, the CLI edits the file directly
+(no turn can run then). Turning it off is always allowed.
+
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 
 - Local command or content execution. The gate adds no relay command, no
   allowlist entry and no parameter: the device still uses only the relay's
-  existing conversation commands (`message.send` with text parts), whose
-  gate refuses command-bearing params and non-text parts. The Chief reads
-  only the message's text and passes it to a turn as the user's words, the
-  same bytes and the same authority as a message typed on the Mac. That is
-  the intended effect (the user directing their own agent from their phone),
-  and it is why the gate admits only the owner's own person: a second account
-  can never reach a turn. A stolen or compromised paired device has the
-  user's authority until it is revoked; revocation removes it from the relay
-  (new streams refused after 24 hours offline, all closed after 72 hours or
-  at once on `host.revoke`).
+  existing conversation commands (`message.send` with text parts), whose gate
+  refuses command-bearing params and non-text parts. A device message reaches
+  a turn as the user's words, and that turn runs with policy `ask`: no local
+  effect happens without an approval the user sees in the Chief chat, with
+  the command or input shown. Only the owner's own person reaches a turn at
+  all; a second account never does.
+- Residual risk: the paired device approves its own requests. Any person
+  the gate admits answers the approvals, and that includes the device that
+  started the turn. So `ask` stops a prompt injection (content the turn
+  reads cannot approve anything) and makes every local effect visible, but
+  it does not stop a stolen or compromised paired phone: its holder can
+  approve its own turn's requests until the device is revoked. Revocation
+  removes it from the relay (new streams refused after 24 hours offline, all
+  closed after 72 hours or at once on `host.revoke`).
+- Residual risk: `remote.autoApprove` is only as protected as the user's
+  files. The host refuses to turn it on during remote-origin work, but any
+  local process of the user, and any approve-all local turn, can write
+  `optchat/settings.json` directly (the host reads it at its next start).
+  With it on, remote-origin turns are as powerful as local ones; it is off
+  by default.
+- Residual risk: an approval is full authority for the shown call. An
+  approved command can start a background process that outlives the turn,
+  or start an acpmux session directly with another policy (outside `chief
+  agents` and `spawn`).
 - Access to unowned objects. The gate opens nothing: the relay already
-  scopes every id to conversations that list the install, and the Chief only
-  answers in the conversation the message came from.
-- Local-state exposure. The Chief's replies go to that conversation, which
-  the device already reads; the gate sends nothing else to the device. What
-  a turn says can include local state (file contents, command output) as it
-  does for a local message; this is the same exposure the device already has
-  as a participant of the conversation.
+  scopes every id to conversations that list the install, and the Chief
+  answers and asks only in the conversation the message came from.
+- Local-state exposure. Replies and approval questions go to that
+  conversation, which the device already reads. An approval question shows
+  the requested call's input (up to 1,000 characters), and a turn's reply
+  can include local state (file contents, command output) as it does for a
+  local message: the same exposure the device already has as a participant.
 
 Tests: `tests/remote_wake.rs` (every refusal above, the mention rule, and a
-device message logged and answered end to end).
+device message logged and answered end to end) and `tests/remote_policy.rs`
+(a remote turn cannot run a shell without an approval, zoom needs none, the
+approver is traced; a remote turn cannot turn on `remote.autoApprove`; a
+mixed-origin turn stays `ask`; a local turn keeps approve-all; a child
+spawned from an `ask` turn asks too, and its shell call waits for a person).
 
 ## Deviations from the spec
 

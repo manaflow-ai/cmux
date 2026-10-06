@@ -150,35 +150,22 @@ impl Workspaces for AppWorkspaces {
             Duration::from_secs(60),
         ) {
             Ok(_) => Ok(key),
-            // The app answers a waiting run after about 2 s (checked live
-            // 2026-10-05) while its work goes on: the workspace still comes,
-            // under the key chosen here.
+            // The action declares that it starts a terminal, so the app
+            // waits the terminal start deadline and answers once the
+            // workspace exists; past even that, its work goes on and the
+            // workspace still comes under the key chosen here (a done
+            // rename before then fails and is logged).
             Err(e) if still_running(&e) => Ok(key),
             Err(e) => Err(e),
         }
     }
 
     fn rename(&self, key: &str, name: &str) -> Result<(), String> {
-        // The workspace can still be in creation (the open answers before
-        // the app's work ends): a few tries, one second apart.
-        let mut last = String::new();
-        for attempt in 0..RENAME_TRIES {
-            if attempt > 0 {
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            match self.rename_once(key, name) {
-                Ok(()) => return Ok(()),
-                Err(e) => last = e,
-            }
-        }
-        Err(last)
+        self.rename_once(key, name)
     }
 }
 
-/// Tries of a rename while the workspace may still be in creation.
-const RENAME_TRIES: u32 = 10;
-
-/// The app's answer to a waiting run whose work goes on past its budget.
+/// The app's answer to a waiting run whose work goes on past its deadline.
 pub fn still_running(error: &str) -> bool {
     error.contains("did not finish within")
 }

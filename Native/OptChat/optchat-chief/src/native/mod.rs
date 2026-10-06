@@ -46,6 +46,9 @@ use crate::prompt::{DATE_DESCRIPTION, ZOOM_DESCRIPTION};
 use crate::tools::Call;
 use crate::turn::{TurnOutcome, TurnStart, usage_line};
 
+/// The result of a local tool call in a remote-origin turn on this engine.
+const REMOTE_REFUSED: &str = "Refused: this turn started from a paired device, and running commands or editing files then needs the user's approval, which this engine cannot ask for. Say what you would run; the user can approve it from the Mac.";
+
 /// Breakpoints in the view; the request's own automatic one is the fourth
 /// (Anthropic allows four per request).
 const VIEW_BREAKPOINTS: usize = 3;
@@ -207,6 +210,22 @@ impl Native {
         mailbox: &dyn Fn() -> Vec<Value>,
         interrupted: &dyn Fn() -> bool,
     ) -> TurnOutcome {
+        self.run_gated(chat, start, log, mailbox, interrupted, &|| false)
+    }
+
+    /// `run`, with `gated` saying whether the turn's local effects need an
+    /// approval (a remote-origin turn): then the bash and editor tools are
+    /// refused, since this engine cannot ask the Chief chat yet; the memory
+    /// tools still answer.
+    pub fn run_gated(
+        &self,
+        chat: &OptChat,
+        start: &TurnStart,
+        log: &dyn Fn(&str),
+        mailbox: &dyn Fn() -> Vec<Value>,
+        interrupted: &dyn Fn() -> bool,
+        gated: &dyn Fn() -> bool,
+    ) -> TurnOutcome {
         let deadline = start.limit.map(|limit| Instant::now() + limit);
         let shell = Shell::new(
             &self.config.cwd,
@@ -298,7 +317,15 @@ impl Native {
                     let mut results = Vec::new();
                     for block in blocks.iter().filter(|b| b["type"] == "tool_use") {
                         let began = Instant::now();
-                        let (text, is_error) = self.run_tool(block, chat, &shell, deadline);
+                        let local = matches!(
+                            block.get("name").and_then(Value::as_str),
+                            Some("bash" | "str_replace_based_edit_tool")
+                        );
+                        let (text, is_error) = if local && gated() {
+                            (REMOTE_REFUSED.to_owned(), true)
+                        } else {
+                            self.run_tool(block, chat, &shell, deadline)
+                        };
                         tools += 1;
                         tool_errors += usize::from(is_error);
                         crate::trace::tools(

@@ -255,3 +255,47 @@ fn the_default_projects_dir_follows_claude_config_dir() {
     assert!(items.is_empty());
     assert_eq!(stats.sessions, 0);
 }
+
+/// Old history must not land after live messages: on a memory that already
+/// has messages, a write is refused unless the caller accepts that order
+/// (`--append-after-live`), and nothing is written; the dry run says so.
+#[test]
+fn a_write_after_live_messages_is_refused_unless_accepted() {
+    use optchat_chief::claude_import::{existing_messages, import_history, order_warning};
+    let dir = tempfile::tempdir().unwrap();
+    let projects = dir.path().join("projects");
+    fixture(&projects);
+    let (items, _) = convert_projects(&projects).unwrap();
+    // An empty memory takes the history.
+    let empty = dir.path().join("empty");
+    let empty_db = dir.path().join("empty.sqlite3");
+    assert_eq!(existing_messages(&empty, &empty_db).unwrap(), 0);
+    assert_eq!(order_warning(0), None);
+    assert_eq!(
+        import_history(&empty, &empty_db, &items, false).unwrap(),
+        items.len()
+    );
+    // A memory with a live message refuses, and writes nothing.
+    let live = dir.path().join("live");
+    let live_db = dir.path().join("live.sqlite3");
+    {
+        let chat = optchat_chief::browse::open_offline(&live, &live_db).unwrap();
+        chat.append(Kind::User, "a live message").unwrap();
+        chat.shutdown();
+    }
+    assert_eq!(existing_messages(&live, &live_db).unwrap(), 1);
+    let warning = order_warning(1).unwrap();
+    assert!(warning.contains("after"), "{warning}");
+    let refused = import_history(&live, &live_db, &items, false).unwrap_err();
+    assert!(refused.contains("--append-after-live"), "{refused}");
+    assert!(refused.contains("after"), "{refused}");
+    assert_eq!(existing_messages(&live, &live_db).unwrap(), 1);
+    // Accepted: appended after the live message.
+    assert_eq!(
+        import_history(&live, &live_db, &items, true).unwrap(),
+        items.len()
+    );
+    let chat = optchat_chief::browse::open_offline(&live, &live_db).unwrap();
+    assert_eq!(chat.message(0), Some((Kind::User, "a live message".into())));
+    assert_eq!(chat.status().messages, 1 + items.len() as u64);
+}

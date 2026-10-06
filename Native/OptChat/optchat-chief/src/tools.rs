@@ -128,27 +128,55 @@ impl Call {
     }
 }
 
-/// What the tools socket serves: the memory, and the subagent tools when
-/// the host runs them.
+/// The host's per-Chief settings over the socket (`optchat-chief settings`):
+/// `Some((key, value))` sets one, None shows them all. Not a model tool:
+/// the MCP server never offers it, and the host refuses turning
+/// `remote.autoApprove` on during remote-origin work.
+pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
+
+/// What `optchat-chief settings` and `chief agents spawn` ask the host.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ControlRequest {
+    /// The per-Chief settings as JSON.
+    Show,
+    /// Sets one setting.
+    Set(String, String),
+    /// The policy floor for a child spawned now: `ask`, or empty for none.
+    SpawnPolicy,
+}
+
+/// What the tools socket serves: the memory, the subagent tools when the
+/// host runs them, and the host's settings control.
 #[derive(Clone)]
 pub struct Served {
     pub memory: Arc<dyn Memory>,
     pub orchestrator: Option<Arc<dyn Orchestrator>>,
+    pub control: Option<Control>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
 /// host lock, so a socket file left by an earlier host is stale and replaced.
 pub fn serve(path: &Path, memory: Arc<dyn Memory>) -> std::io::Result<()> {
+    serve_with(path, memory, None)
+}
+
+/// `serve`, with the host's settings `control`.
+pub fn serve_with(
+    path: &Path,
+    memory: Arc<dyn Memory>,
+    control: Option<Control>,
+) -> std::io::Result<()> {
     serve_all(
         path,
         Served {
             memory,
             orchestrator: None,
+            control,
         },
     )
 }
 
-/// Serves the memory and the subagent tools on `path`.
+/// Serves the memory, the subagent tools and the settings control on `path`.
 pub fn serve_all(path: &Path, served: Served) -> std::io::Result<()> {
     let _ = std::fs::remove_file(path);
     let listener = UnixListener::bind(path)?;
@@ -167,6 +195,7 @@ pub fn serve_all(path: &Path, served: Served) -> std::io::Result<()> {
 
 fn connection(conn: UnixStream, served: &Served) {
     let memory = &*served.memory;
+    let control = served.control.as_ref();
     let Ok(mut out) = conn.try_clone() else {
         return;
     };
@@ -176,6 +205,27 @@ fn connection(conn: UnixStream, served: &Served) {
             Ok(req) => {
                 let tool = req.get("tool").and_then(Value::as_str).unwrap_or("");
                 // Not a model tool: the `browse` command asks the live host.
+                if tool == "settings" || tool == "spawn_policy" {
+                    let ask = match req.get("key").and_then(Value::as_str) {
+                        _ if tool == "spawn_policy" => ControlRequest::SpawnPolicy,
+                        Some(k) => {
+                            let v = req.get("value").and_then(Value::as_str).unwrap_or("");
+                            ControlRequest::Set(k.to_owned(), v.to_owned())
+                        }
+                        None => ControlRequest::Show,
+                    };
+                    let answer = match control {
+                        Some(control) => match control(ask) {
+                            Ok(text) => json!({"text": text}),
+                            Err(e) => json!({"error": e}),
+                        },
+                        None => json!({"error": "settings are not served here"}),
+                    };
+                    if writeln!(out, "{answer}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
                 if tool == "browse" {
                     let answer = json!({"text": memory.browse()});
                     if writeln!(out, "{answer}").is_err() {
@@ -226,6 +276,22 @@ pub fn ask_as(path: &Path, call: Call, subagent: bool) -> Result<String, String>
         request["from"] = json!("subagent");
     }
     ask_json(path, &request)
+}
+
+/// Shows (None) or sets (`Some((key, value))`) the live host's settings.
+pub fn ask_settings(path: &Path, set: Option<(&str, &str)>) -> Result<String, String> {
+    let request = match set {
+        Some((key, value)) => json!({"tool": "settings", "key": key, "value": value}),
+        None => json!({"tool": "settings"}),
+    };
+    ask_json(path, &request)
+}
+
+/// The live host's policy floor for a child spawned now (`Some("ask")`),
+/// or None. Err when no host answers: the caller fails closed.
+pub fn ask_spawn_policy(path: &Path) -> Result<Option<String>, String> {
+    let text = ask_json(path, &json!({"tool": "spawn_policy"}))?;
+    Ok((!text.is_empty()).then_some(text))
 }
 
 /// The browse page from the live host; Err when no host answers on `path`.

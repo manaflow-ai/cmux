@@ -61,6 +61,13 @@ nonisolated struct HomeBrainHost: Sendable {
                              acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
+    /// The Chief home's mux home (`ChiefHome`), the same for every build of
+    /// one account; the engine bar, sidebar and files read it.
+    static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
+                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
+    }
+
     var arguments: [String] {
         ["-c", #"set -m; "$@" >>"$MUX_HOST_LOG" 2>&1 </dev/null &"#, "mux-host-launch",
          executable.path, "host", "--daemon-socket", daemonSocket, "--mux-home", muxHome.path]
