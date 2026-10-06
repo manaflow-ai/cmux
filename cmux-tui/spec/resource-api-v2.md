@@ -304,7 +304,8 @@ mismatched token, and `origin.confirmation.issue` on a page relay fail with
 `origin.forbidden` before the request is parsed further; every transported
 operation may return it.
 
-`apps.install`, `apps.uninstall` and `apps.enable` need origin `user`. A
+`apps.install`, `apps.uninstall` and `apps.enable` need origin `user`, whatever the
+spelling of the operation name (a `\u` escape included). A
 refusal is `origin.forbidden` with the message "needs a verified cmux app
 connection" and details `{"required": "user", "derived": <origin>}`.
 
