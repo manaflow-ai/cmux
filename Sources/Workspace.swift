@@ -2547,12 +2547,6 @@ extension Workspace {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> Bool? {
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
-            panelId: panelId,
-            matching: restorableAgent
-        ) {
-            return true
-        }
         if let resumeBinding, resumeBinding.isAgentHookBinding {
             guard let bindingKindValue = Self.normalizedResumeBindingValue(resumeBinding.kind),
                   let bindingKind = RestorableAgentKind(
@@ -2602,13 +2596,6 @@ extension Workspace {
             kind: restorableAgent.kind.rawValue,
             sessionId: restorableAgent.sessionId
         )
-        if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
-            snapshot: restorableAgent,
-            binding: resumeBinding,
-            processLiveness: matchingObservation?.processLiveness
-        ) {
-            return true
-        }
         let confirmedRuntimeProcessIdentities = confirmedRuntimeAgentProcessIdentities(
             for: restorableAgent,
             panelId: panelId,

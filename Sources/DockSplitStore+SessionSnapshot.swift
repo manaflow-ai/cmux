@@ -586,12 +586,6 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
-        if restoredAgentLifecycle.hasQueuedRestoreIntent(
-            panelId: terminal.id,
-            matching: restorableAgent
-        ) {
-            return true
-        }
         let expectedKind = managedBinding != nil
             ? managedBinding?.kind.flatMap {
                 RestorableAgentKind(

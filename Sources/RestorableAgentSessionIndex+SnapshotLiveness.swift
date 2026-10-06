@@ -12,13 +12,6 @@ extension RestorableAgentSessionIndex.Entry {
         currentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         processPresence: (Int) -> PIDPresence
     ) -> Bool {
-        if CodexTurnRestoreIntentPolicy.shouldPreserveAfterOwnerExit(
-            snapshot: agentSnapshot,
-            binding: binding,
-            processLiveness: processLiveness
-        ) {
-            return true
-        }
         return processLiveness.wasRunning(
             fallingBackTo: shellActivityState,
             recordedProcessIdentities: agentProcessIdentities,
