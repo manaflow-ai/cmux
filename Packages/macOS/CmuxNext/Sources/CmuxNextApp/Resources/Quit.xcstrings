@@ -1,137 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "quit.agentsKeepWorking": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وكلاء لا يزالون يعملون: %lld. يستمرون في العمل ويعاودون الاتصال عند إعادة فتح cmux."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenti koji još rade: %lld. Nastavljaju raditi i ponovo se povezuju kada ponovo otvorite cmux."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter, der stadig arbejder: %lld. De kører videre og genforbindes, når du åbner cmux igen."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Noch arbeitende Agenten: %lld. Sie laufen weiter und verbinden sich wieder, wenn du cmux erneut öffnest."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agents still working: %lld. They keep running and reattach when you reopen cmux."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes que siguen trabajando: %lld. Siguen en ejecución y se vuelven a conectar al abrir cmux de nuevo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agents encore au travail : %lld. Ils continuent de tourner et se reconnectent à la réouverture de cmux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenti ancora al lavoro: %lld. Continuano a funzionare e si ricollegano quando riapri cmux."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "作業中のエージェント: %lld。実行は続き、cmux を再び開くと再接続します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងារដែលនៅតែធ្វើការ៖ %lld។ ពួកវាបន្តដំណើរការ ហើយភ្ជាប់ឡើងវិញនៅពេលអ្នកបើក cmux ម្តងទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "아직 작업 중인 에이전트: %lld. 계속 실행되며 cmux를 다시 열면 다시 연결됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenter som fortsatt arbeider: %lld. De fortsetter å kjøre og kobles til igjen når du åpner cmux på nytt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenty nadal pracujące: %lld. Działają dalej i połączą się ponownie po ponownym otwarciu cmux."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agentes ainda trabalhando: %lld. Eles continuam em execução e se reconectam quando você abrir o cmux de novo."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агентов ещё работает: %lld. Они продолжат работу и переподключатся, когда вы снова откроете cmux."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ที่ยังทำงานอยู่: %lld ตัว จะทำงานต่อและเชื่อมต่อใหม่เมื่อคุณเปิด cmux อีกครั้ง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hâlâ çalışan ajanlar: %lld. Çalışmaya devam ederler ve cmux'u yeniden açtığınızda tekrar bağlanırlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Агентів ще працює: %lld. Вони продовжать роботу й перепідключаться, коли ви знову відкриєте cmux."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác tử vẫn đang làm việc: %lld. Chúng tiếp tục chạy và kết nối lại khi bạn mở lại cmux."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在工作的智能体：%lld 个。它们会继续运行，并在你重新打开 cmux 时重新连接。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "仍在工作的代理程式：%lld 個。它們會繼續執行，並在你重新開啟 cmux 時重新連線。"
-          }
-        }
-      }
-    },
     "quit.title": {
       "extractionState": "manual",
       "localizations": {
@@ -259,137 +128,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "要結束 cmux 嗎？"
-          }
-        }
-      }
-    },
-    "quit.remote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sessions on other machines are not affected."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا تتأثر الجلسات على الأجهزة الأخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sesije na drugim računarima nisu pogođene."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sessioner på andre maskiner påvirkes ikke."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sitzungen auf anderen Rechnern sind nicht betroffen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Las sesiones en otras máquinas no se ven afectadas."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les sessions sur d'autres machines ne sont pas affectées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Le sessioni su altre macchine non sono interessate."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ほかのマシンのセッションには影響しません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "វគ្គនៅលើម៉ាស៊ីនផ្សេងទៀតមិនរងផលប៉ះពាល់ទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "다른 컴퓨터의 세션에는 영향이 없습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Økter på andre maskiner påvirkes ikke."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sesje na innych maszynach nie są zmieniane."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sessões em outras máquinas não são afetadas."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сеансы на других компьютерах не затрагиваются."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เซสชันบนเครื่องอื่นไม่ได้รับผลกระทบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diğer makinelerdeki oturumlar etkilenmez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сеанси на інших комп'ютерах не зачіпаються."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Phiên trên các máy khác không bị ảnh hưởng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "其他机器上的会话不受影响。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "其他機器上的工作階段不受影響。"
           }
         }
       }
@@ -652,461 +390,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "全部終止"
-          }
-        }
-      }
-    },
-    "quit.terminalsKeepRunning": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Your %lld terminal keeps running in the background."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "translated",
-                  "value": "Your %lld terminals keep running in the background."
-                }
-              }
-            }
-          }
-        },
-        "ar": {
-          "variations": {
-            "plural": {
-              "zero": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "لا توجد طرفيات قيد التشغيل في الخلفية (%lld)."
-                }
-              },
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تستمر طرفيتك (%lld) في العمل في الخلفية."
-                }
-              },
-              "two": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تستمر طرفيتاك (%lld) في العمل في الخلفية."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "تستمر طرفياتك الـ %lld في العمل في الخلفية."
-                }
-              }
-            }
-          }
-        },
-        "bs": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Vaš %lld terminal nastavlja raditi u pozadini."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Vaša %lld terminala nastavljaju raditi u pozadini."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Vaših %lld terminala nastavlja raditi u pozadini."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Vaših %lld terminala nastavlja raditi u pozadini."
-                }
-              }
-            }
-          }
-        },
-        "da": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Din %lld terminal kører videre i baggrunden."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Dine %lld terminaler kører videre i baggrunden."
-                }
-              }
-            }
-          }
-        },
-        "de": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Dein %lld Terminal läuft im Hintergrund weiter."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Deine %lld Terminals laufen im Hintergrund weiter."
-                }
-              }
-            }
-          }
-        },
-        "es": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Tu %lld terminal sigue ejecutándose en segundo plano."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Tus %lld terminales siguen ejecutándose en segundo plano."
-                }
-              }
-            }
-          }
-        },
-        "fr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Votre %lld terminal continue en arrière-plan."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Vos %lld terminaux continuent en arrière-plan."
-                }
-              }
-            }
-          }
-        },
-        "it": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Il tuo %lld terminale continua in background."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "I tuoi %lld terminali continuano in background."
-                }
-              }
-            }
-          }
-        },
-        "ja": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個のターミナルはバックグラウンドで動き続けます。"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld 個のターミナルはバックグラウンドで動き続けます。"
-                }
-              }
-            }
-          }
-        },
-        "km": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "ទែមីណាល់ %lld របស់អ្នកបន្តដំណើរការនៅផ្ទៃខាងក្រោយ។"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "ទែមីណាល់ %lld របស់អ្នកបន្តដំណើរការនៅផ្ទៃខាងក្រោយ។"
-                }
-              }
-            }
-          }
-        },
-        "ko": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "터미널 %lld개가 백그라운드에서 계속 실행됩니다."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "터미널 %lld개가 백그라운드에서 계속 실행됩니다."
-                }
-              }
-            }
-          }
-        },
-        "nb": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Din %lld terminal fortsetter å kjøre i bakgrunnen."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Dine %lld terminaler fortsetter å kjøre i bakgrunnen."
-                }
-              }
-            }
-          }
-        },
-        "pl": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Twój %lld terminal nadal działa w tle."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Twoje %lld terminale nadal działają w tle."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Twoich %lld terminali nadal działa w tle."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Twoich %lld terminala nadal działa w tle."
-                }
-              }
-            }
-          }
-        },
-        "pt-BR": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Seu %lld terminal continua rodando em segundo plano."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Seus %lld terminais continuam rodando em segundo plano."
-                }
-              }
-            }
-          }
-        },
-        "ru": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваш %lld терминал продолжает работать в фоне."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваши %lld терминала продолжают работать в фоне."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваши %lld терминалов продолжают работать в фоне."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваши %lld терминала продолжают работать в фоне."
-                }
-              }
-            }
-          }
-        },
-        "th": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "เทอร์มินัล %lld รายการของคุณยังทำงานต่อเบื้องหลัง"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "เทอร์มินัล %lld รายการของคุณยังทำงานต่อเบื้องหลัง"
-                }
-              }
-            }
-          }
-        },
-        "tr": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld terminaliniz arka planda çalışmaya devam eder."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld terminaliniz arka planda çalışmaya devam eder."
-                }
-              }
-            }
-          }
-        },
-        "uk": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваш %lld термінал працює далі у фоні."
-                }
-              },
-              "few": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваші %lld термінали працюють далі у фоні."
-                }
-              },
-              "many": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваші %lld терміналів працюють далі у фоні."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "Ваші %lld термінала працюють далі у фоні."
-                }
-              }
-            }
-          }
-        },
-        "vi": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld terminal của bạn vẫn chạy trong nền."
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "%lld terminal của bạn vẫn chạy trong nền."
-                }
-              }
-            }
-          }
-        },
-        "zh-Hans": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "你的 %lld 个终端会在后台继续运行。"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "你的 %lld 个终端会在后台继续运行。"
-                }
-              }
-            }
-          }
-        },
-        "zh-Hant": {
-          "variations": {
-            "plural": {
-              "one": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "你的 %lld 個終端機會在背景繼續執行。"
-                }
-              },
-              "other": {
-                "stringUnit": {
-                  "state": "needs_review",
-                  "value": "你的 %lld 個終端機會在背景繼續執行。"
-                }
-              }
-            }
           }
         }
       }
@@ -1693,137 +976,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無痕視窗會關閉，其中的程式會終止。"
-          }
-        }
-      }
-    },
-    "quit.incognitoOnly": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Their running programs end, and their browser data is deleted."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تنتهي برامجها قيد التشغيل وتُحذف بيانات المتصفح الخاصة بها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Njihovi pokrenuti programi se završavaju, a podaci preglednika se brišu."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Deres kørende programmer afsluttes, og deres browserdata slettes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ihre laufenden Programme werden beendet und ihre Browserdaten gelöscht."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sus programas en ejecución terminan y se eliminan sus datos del navegador."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Leurs programmes en cours s’arrêtent et leurs données de navigation sont supprimées."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I loro programmi in esecuzione terminano e i dati del browser vengono eliminati."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "実行中のプログラムは終了し、ブラウザ データは削除されます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "កម្មវិធីដែលកំពុងដំណើរការបញ្ចប់ ហើយទិន្នន័យកម្មវិធីរុករកត្រូវបានលុប។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "실행 중인 프로그램이 끝나고 브라우저 데이터가 삭제됩니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Programmene som kjører avsluttes, og nettleserdataene slettes."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ich uruchomione programy zostaną zakończone, a dane przeglądarki usunięte."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Os programas em execução são encerrados e os dados de navegação são apagados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запущенные программы завершатся, а данные браузера будут удалены."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "โปรแกรมที่กำลังทำงานจะจบลงและข้อมูลเบราว์เซอร์จะถูกลบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışan programlar sonlanır ve tarayıcı verileri silinir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Запущені програми завершаться, а дані браузера буде видалено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Các chương trình đang chạy sẽ kết thúc và dữ liệu trình duyệt bị xóa."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "正在运行的程序会结束，浏览器数据会被删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "執行中的程式會終止，瀏覽器資料會被刪除。"
           }
         }
       }
@@ -4706,6 +3858,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "打開"
+          }
+        }
+      }
+    },
+    "quit.agentsWorking": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكلاء لا يزالون يعملون: %lld."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti koji još rade: %lld."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter, der stadig arbejder: %lld."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch arbeitende Agenten: %lld."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents still working: %lld."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes que siguen trabajando: %lld."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agents encore au travail : %lld."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenti ancora al lavoro: %lld."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェント: %lld。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារដែលនៅតែធ្វើការ៖ %lld។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 작업 중인 에이전트: %lld."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenter som fortsatt arbeider: %lld."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenty nadal pracujące: %lld."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentes ainda trabalhando: %lld."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агентов ещё работает: %lld."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์ที่ยังทำงานอยู่: %lld ตัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hâlâ çalışan ajanlar: %lld."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агентів ще працює: %lld."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử vẫn đang làm việc: %lld."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在工作的智能体：%lld 个。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仍在工作的代理程式：%lld 個。"
           }
         }
       }
