@@ -626,6 +626,48 @@ struct BrowserReplFrameGateWorkspaceTests {
     }
 }
 
+extension BrowserReplFrameGateWorkspaceTests {
+    /// A read that was already running in the page when the user moved its
+    /// tab to another workspace hands back nothing: the gate asks the tab
+    /// capability again before it returns the script's result.
+    @Test(arguments: [false, true])
+    func aReadThatFinishesAfterItsTabMovedHandsBackNothing(policyActive: Bool) async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: WKWebViewConfiguration())
+        webView.loadHTMLString("<p>secret page</p>", baseURL: URL(string: "https://example.com/"))
+        let frames = try await FramePage.settle(webView) { $0.first?.url.hasPrefix("https://example.com") == true }
+        let main = try #require(frames.first)
+        let home = UUID()
+        var tabWorkspace: UUID? = home
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        if policyActive {
+            var policy = BrowserReplDomainPolicy()
+            policy.prohibited = [try BrowserReplDomainPattern.parse("blocked.test", title: "test")]
+            gate.policy = policy
+        }
+        gate.scope = { webView in
+            .init(sessionID: "s", fileRoots: nil, tab: BrowserReplTabFacts(id: UUID(), mainFrameURL: webView.url, workspaceID: tabWorkspace), workspaceID: home)
+        }
+        let read = Task { @MainActor in
+            await BrowserReplFrameGateTests.error {
+                _ = try await gate.callAsyncJavaScript(
+                    "await new Promise((resolve) => { window.release = resolve; }); return document.body.innerText",
+                    arguments: [:], in: webView, frame: main, contentWorld: .page
+                )
+            }
+        }
+        var suspended = false
+        for _ in 0..<2000 where !suspended {
+            suspended = try await webView.evaluateJavaScript("typeof window.release === 'function'") as? Bool == true
+            if !suspended { await Task.yield() }
+        }
+        try #require(suspended, "the read never reached the page")
+        tabWorkspace = UUID()
+        _ = try await webView.evaluateJavaScript("window.release(); true")
+        let error = await read.value
+        #expect(error?.code == "denied", "a read finished after its tab moved to another workspace handed back its result: \(String(describing: error))")
+    }
+}
+
 /// A call whose cell timed out or whose session was reset is cancelled
 /// while it may still wait in WebKit between native steps. Every native
 /// input step asks the gate's tab check first, so a cancelled call sends
