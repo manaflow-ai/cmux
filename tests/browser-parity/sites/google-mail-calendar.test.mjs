@@ -312,3 +312,27 @@ test("signed out: Gmail's sign-in redirect is reported, not parsed", async () =>
     await out.close();
   }
 });
+
+// r15 sites#1: with guests, Save opens Calendar's invitation dialog and
+// its Send is the click that saves the event and emails the guests. That
+// Send is pressed like Save: only the one Send button in the dialog,
+// pinned, with the form (guests included) read back again right before
+// the press. A guest added when Save was clicked, or a page's own Send
+// button placed first, sends nothing.
+test("googleCalendar.create: the invitation Send is a pinned, read-back press", async () => {
+  const created = env.state.calendarCreated.length;
+  for (const tamper of [{ guestOnSave: "eve@evil.test" }, { decoySend: true }]) {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+    assert.deepEqual(env.state.calendarCreated.slice(created).filter((e) => /eve@evil\.test/.test(JSON.stringify(e))), [], JSON.stringify(tamper));
+  }
+  assert.equal(env.state.calendarCreated.length, created, "an invitation went out after Save");
+  const ok = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+  assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(ok.id)}, { confirm: true })`)).status, "saved");
+  assert.equal(env.state.calendarCreated.length, created + 1);
+});
