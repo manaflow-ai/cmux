@@ -322,7 +322,10 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// The domains of the values the sign-in sheet fills into a page of
     /// `origin` (`auth.request`): its exact host, on https (on a loopback
     /// host, http too), never a wildcard over its site, so a sibling host
-    /// of the same site cannot receive them. Refused unless the policy
+    /// of the same site cannot receive them. A two-label host takes the
+    /// exact-host form (`=https://example.com`), which leaves out its www
+    /// host in the matcher, the content rules and the frame checks, so the
+    /// policy must name it so too. Refused unless the policy
     /// keeps the session's tabs on that host, as for a typed secret, and
     /// kept from then on (``policyOperation(_:_:)``).
     private func credentialDomains(origin raw: Any?) -> Result<[BrowserReplDomainPattern], BrowserReplDriverError> {
@@ -333,7 +336,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
         // A loopback host is matched on http and https without a scheme
         // (``BrowserReplDomainPattern/loadsOnlySecurely``); any other only
         // on https.
-        let exact = BrowserReplHostName.isLoopback(host) ? host : "https://\(host)"
+        let exact = (host.split(separator: ".").count == 2 ? "=" : "") + (BrowserReplHostName.isLoopback(host) ? host : "https://\(host)")
         guard let domain = try? BrowserReplDomainPattern.parse(exact, title: "auth.request", publicSuffixes: publicSuffixes) else {
             return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no host a domain policy can name"))
         }
@@ -358,7 +361,10 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// `domain` as an allowed pattern that keeps pages where it is typed:
     /// with https when it names no scheme and is not a loopback host.
     private static func secureRaw(_ domain: BrowserReplDomainPattern) -> String {
-        domain.scheme == nil && !domain.loadsOnlySecurely ? "https://" + domain.raw : domain.raw
+        guard domain.scheme == nil, !domain.loadsOnlySecurely else { return domain.raw }
+        let written = domain.raw.trimmingCharacters(in: .whitespaces)
+        // The exact-host mark stays in front (`=https://example.com`).
+        return written.hasPrefix("=") ? "=https://" + written.dropFirst() : "https://" + written
     }
 
     private static let httpsHint = " (a domain without a scheme also allows http; name it with https://, such as https://example.com)"

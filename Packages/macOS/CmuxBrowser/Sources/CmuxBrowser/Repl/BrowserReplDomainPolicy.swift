@@ -219,12 +219,17 @@ enum Punycode {
 
 /// A domain pattern in reference C's syntax: `example.com` (and
 /// `www.example.com`), `*.example.com` (subdomains and the bare domain),
-/// `http*://example.com`, `https://example.com:8443`, `*`.
+/// `http*://example.com`, `https://example.com:8443`, `*`. A leading `=`
+/// names the exact host only (`=https://example.com`, never its www host):
+/// the form the sign-in sheet's credentials take (``exactHost``).
 public struct BrowserReplDomainPattern: Sendable, Equatable {
     public let raw: String
     public let scheme: String?
     public let host: String
     public let port: String?
+    /// Whether the pattern names its host alone: a two-label host does not
+    /// cover its www host too (`=example.com`).
+    public let exactHost: Bool
 
     /// The most UTF-8 bytes a pattern may have.
     public static let maximumBytes = 1_024
@@ -264,6 +269,8 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             )
         }
         var text = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        let exactHost = text.hasPrefix("=")
+        if exactHost { text.removeFirst() }
         guard !text.isEmpty else {
             throw BrowserReplDriverError(code: "invalid", message: "\(title): expected domain patterns as non-empty strings, got \(quoted)")
         }
@@ -293,6 +300,9 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             }
         }
         var host = text
+        if exactHost, host.contains("*") {
+            throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): = names one exact host; it takes no wildcard")
+        }
         if host != "*" {
             if host.filter({ $0 == "*" }).count > 1 {
                 throw BrowserReplDriverError(code: "invalid", message: "\(title): \(quoted): only one wildcard is allowed")
@@ -339,7 +349,7 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
                 )
             }
         }
-        return BrowserReplDomainPattern(raw: raw, scheme: scheme, host: host, port: port)
+        return BrowserReplDomainPattern(raw: raw, scheme: scheme, host: host, port: port, exactHost: exactHost)
     }
 
     /// Whether `url` matches. `secure`: a pattern without a scheme matches
@@ -375,8 +385,14 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
             return host == base || host.hasSuffix("." + base)
         }
         if host == self.host { return true }
-        // A root domain also covers www.
-        return self.host.split(separator: ".").count == 2 && host == "www." + self.host
+        // A root domain also covers www, unless the pattern names its exact host.
+        return coversWWW && host == "www." + self.host
+    }
+
+    /// Whether the pattern's host is a root domain that also covers its www
+    /// host: two labels, and not written as an exact host.
+    var coversWWW: Bool {
+        !exactHost && !host.hasPrefix("*") && host.split(separator: ".").count == 2
     }
 
     /// Whether every URL `other` lets load is on this pattern's hosts (and
@@ -398,7 +414,7 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         if other.host.hasPrefix("*.") { return coversSubdomains(of: String(other.host.dropFirst(2))) }
         guard hostMatches(other.host) else { return false }
         // A root domain also lets its www host load.
-        return other.host.split(separator: ".").count != 2 || hostMatches("www." + other.host)
+        return !other.coversWWW || hostMatches("www." + other.host)
     }
 
     /// Whether every URL this pattern lets load is one a secret scope
@@ -682,7 +698,7 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             host = "[^/@:]+"
         } else if pattern.host.hasPrefix("*.") {
             host = "([^/@:]*\\.)?" + escape(String(pattern.host.dropFirst(2))) + "\\.?"
-        } else if pattern.host.split(separator: ".").count == 2 {
+        } else if pattern.coversWWW {
             // A root domain also covers www (`hostMatches`).
             host = "(www\\.)?" + escape(pattern.host) + "\\.?"
         } else {
