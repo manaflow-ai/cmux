@@ -138,6 +138,38 @@ test("frame owner lookup: light-DOM <iframe>s are checked within the node budget
   }
 });
 
+test("snapshot and markdown: a link URL longer than the size budget left is cut and charged before it is parsed", async () => {
+  // The dev driver's agent world is the page world, so a URL constructor
+  // the page installs records what the reads parse (in the app the agent
+  // world is the session's own; this only observes the parser's input).
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          const href = "https://other.example/?q=" + "a".repeat(200000);
+          document.body.innerHTML = '<p>Intro</p><a id="long">Long link</a>';
+          document.getElementById("long").setAttribute("href", href);
+          const Native = URL;
+          window.__parsed = 0;
+          window.URL = new Proxy(Native, { construct(target, args) { window.__parsed = Math.max(window.__parsed, String(args[0]).length + (args[1] === undefined ? 0 : String(args[1]).length)); return Reflect.construct(target, args); } });
+        });`);
+      const r = await run(`await snapshot({ maxChars: Infinity, _maxSize: 1000 });
+        const snap = await page.evaluate(() => window.__parsed);
+        await page.evaluate(() => { window.__parsed = 0; });
+        const md = await page.markdown({ _maxSize: 1000 });
+        const mark = await page.evaluate(() => window.__parsed);
+        console.log("@@" + JSON.stringify({ snap, mark, cut: /too large to read whole/.test(md) }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.snap <= 2000, `the snapshot parsed a ${v.snap}-character URL with 1,000 characters of budget`);
+      assert.ok(v.mark <= 2000, `the Markdown read parsed a ${v.mark}-character URL with 1,000 characters of budget`);
+      assert.ok(v.cut, "the Markdown read did not say it was cut");
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("locators: past the page-read budget, labels are not read by a whole-document scan", async () => {
   const servers = await startFixtureServers();
   try {
