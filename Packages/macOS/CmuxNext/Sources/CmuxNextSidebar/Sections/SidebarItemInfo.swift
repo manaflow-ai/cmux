@@ -3,8 +3,10 @@ import Foundation
 
 /// A small control on an item's trailing edge with its own action.
 public nonisolated enum SidebarItemAccessory: Hashable, Sendable {
-    /// An app update is available: a click opens the updater (on Settings).
-    case update
+    /// An app update is available: a click installs it (on Settings).
+    /// `title` is the control's tooltip and VoiceOver label, from the
+    /// App ("Restart to Update" for a staged update).
+    case update(title: String)
 }
 
 /// How a layout item draws. The sidebar knows built-ins; the App resolves

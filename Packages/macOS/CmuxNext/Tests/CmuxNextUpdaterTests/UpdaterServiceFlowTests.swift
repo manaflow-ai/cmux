@@ -32,17 +32,17 @@ import Testing
         #expect(service.card == nil)
     }
 
-    @Test func aStagedUpdateShowsTheBadgeAndTheCard() {
+    @Test func aStagedUpdateShowsTheSettingsControlAndNoCard() {
         let (service, _) = service()
         service.debugIndicatorPhase = .ready(version: "1.0.0-nightly.7")
-        #expect(service.showsSettingsBadge)
-        #expect(service.card == .ready(version: "1.0.0-nightly.7"))
+        #expect(service.settingsBadgeTitle == UpdaterStrings.restartToUpdate)
+        #expect(service.card == nil)
     }
 
-    @Test func aClickOnTheCardInstallsAtOnce() {
+    @Test func aClickOnTheSettingsControlInstallsAtOnce() {
         let (service, calls) = service()
         service.debugIndicatorPhase = .ready(version: "2")
-        service.cardClicked()
+        service.installClicked()
         #expect(calls.installs == 1)
     }
 
@@ -50,7 +50,7 @@ import Testing
         let (service, calls) = service()
         service.debugIndicatorPhase = .ready(version: "2")
         service.blockersChanged(UpdateBlockers(busyAgents: 2))
-        service.cardClicked()
+        service.installClicked()
         #expect(calls.installs == 0)
         #expect(service.card == .waiting(version: "2", busyAgents: 2))
         service.installNow()
@@ -65,7 +65,7 @@ import Testing
         service.confirmInterrupt = nil
         service.debugIndicatorPhase = .ready(version: "2")
         service.blockersChanged(UpdateBlockers(busyAgents: 1))
-        service.cardClicked()
+        service.installClicked()
         service.installNow()
         #expect(calls.installs == 0)
         #expect(service.card == .waiting(version: "2", busyAgents: 1))
@@ -77,7 +77,7 @@ import Testing
         let (service, calls) = service()
         service.debugIndicatorPhase = .ready(version: "2")
         service.blockersChanged(UpdateBlockers(busyAgents: 1))
-        service.cardClicked()
+        service.installClicked()
         service.blockersChanged(.none)
         #expect(calls.installs == 1)
     }
@@ -92,7 +92,7 @@ import Testing
         #expect(calls.cancels == 1)
     }
 
-    @Test func quietHoursHideTheCardButNotTheBadge() {
+    @Test func quietHoursKeepTheSettingsControl() {
         let (service, _) = service()
         service.debugIndicatorPhase = .ready(version: "2")
         service.preferences.quietHours = UpdateQuietHours(start: 0, end: 1439)
@@ -101,12 +101,17 @@ import Testing
         #expect(service.showsSettingsBadge)
     }
 
-    /// Scripts (update-e2e, `cmux update status`) read the card from the status.
-    @Test func statusCarriesTheCard() {
+    /// Scripts (update-e2e, `cmux update status`) read the card and the
+    /// Settings control from the status.
+    @Test func statusCarriesTheCardAndTheSettingsControl() {
         let (service, _) = service()
         #expect(service.status.card == nil)
+        #expect(service.status.badge == nil)
         service.debugIndicatorPhase = .ready(version: "2")
-        #expect(service.status.card == .ready(version: "2"))
-        #expect(UpdateCard.ready(version: "2").kind == "ready")
+        #expect(service.status.card == nil)
+        #expect(service.status.badge == UpdaterStrings.restartToUpdate)
+        service.blockersChanged(UpdateBlockers(busyAgents: 1))
+        service.installClicked()
+        #expect(service.status.card?.kind == "waiting")
     }
 }
