@@ -40,3 +40,29 @@ emitCmux("list-cut-ref-resolves", printed.includes(`[ref=${hidden}]`) ? "printed
 emitCmux("list-all", String(await snapshot(page.locator("nav"), { maxChars: Infinity })).length > 100000);
 await page.goto(stress("select", 5000));
 emitCmux("select-inline", (await snapshot()).tree.split("\n").find((l) => l.includes('combobox "Pick"')));
+
+// ---- cell session=stress cmux-only
+// A page nested deeper than the walk reads (1,000 elements over all
+// stitched frames, as in classic, on WebKit and Chromium alike): the deeper
+// part prints as one generic with a ref and the cut note, a snapshot of
+// that ref reads on, and page.markdown ends with its note. Every level a
+// named group: the stitched tree itself is 1,000 levels deep.
+const cutOf = (tree) => {
+  const line = tree.split("\n").find((l) => l.includes("[not read: nested deeper"));
+  return line ? line.trim().replace(/ref=e\d+/, "ref=eN") : null;
+};
+await page.goto(stress("deep", 1200));
+const deep = await snapshot();
+emitCmux("deep-cut-line", cutOf(deep.tree));
+emitCmux("deep-cut-hides-deepest", !/Deepest/.test(deep.tree));
+const cutRef = (/\[ref=(e\d+)\] \[not read: nested deeper/.exec(deep.tree) || [])[1];
+emitCmux("deep-cut-ref-reads-on", !!cutRef && /button "Deepest"/.test((await snapshot(cutRef)).tree));
+const deepMarkdown = await page.markdown();
+emitCmux("deep-markdown-note", deepMarkdown.trim().split("\n").pop());
+emitCmux("deep-markdown-hides-bottom", !deepMarkdown.includes("bottom text"));
+await page.goto(stress("deep", 1200, "&every=1"));
+const named = await snapshot();
+emitCmux("deep-named-cut-line", cutOf(named.tree));
+emitCmux("deep-named-levels", (named.tree.match(/group "level \d+"/g) || []).length);
+emitCmux("deep-named-printed-within-budget", String(named).length <= 20000);
+emitCmux("deep-named-interactive-hides-deepest", !/Deepest/.test((await snapshot({ interactive: true })).tree));

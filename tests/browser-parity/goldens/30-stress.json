@@ -25,6 +25,15 @@
     "list-cut-line": "- … N more listitem (N refs): snapshot(\"eN\")",
     "list-cut-ref-resolves": "Item 4000",
     "list-all": true,
-    "select-inline": "  - combobox \"Pick\" [ref=e5002] [options: Option 0, Option 1, Option 2, Option 3, Option 4, Option 5, Option 6, Option 7, Option 8, Option 9, +4990 more]: \"Option 0\""
+    "select-inline": "  - combobox \"Pick\" [ref=e5002] [options: Option 0, Option 1, Option 2, Option 3, Option 4, Option 5, Option 6, Option 7, Option 8, Option 9, +4990 more]: \"Option 0\"",
+    "deep-cut-line": "- generic [ref=eN] [not read: nested deeper than 1000 elements; snapshot this ref to read it]",
+    "deep-cut-hides-deepest": true,
+    "deep-cut-ref-reads-on": true,
+    "deep-markdown-note": "<!-- not read: parts of the page nested deeper than 1000 elements -->",
+    "deep-markdown-hides-bottom": true,
+    "deep-named-cut-line": "- generic [ref=eN] [not read: nested deeper than 1000 elements; snapshot this ref to read it]",
+    "deep-named-levels": 999,
+    "deep-named-printed-within-budget": true,
+    "deep-named-interactive-hides-deepest": true
   }
 }
