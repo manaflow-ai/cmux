@@ -76,6 +76,11 @@ import Testing
             let colors = try #require(header.fade.colors).map { $0 as! CGColor }
             #expect(colors.first?.alpha ?? 0 >= 0.8 && colors.last?.alpha == 0)
         }
+        // batch capture b1: the fade ran bottom-up (opaque at the header's
+        // lower edge). The backdrop is not flipped, so the gradient starts at
+        // its layer's top (y = 1).
+        #expect(!header.backdrop.isFlipped)
+        #expect(header.fade.startPoint.y == 1 && header.fade.endPoint.y == 0, "the fade starts at the top edge")
     }
 
     /// Leo's first-launch capture: the truncating name read "Ch...". The
