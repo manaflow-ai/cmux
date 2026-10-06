@@ -9,6 +9,8 @@ For each test it writes, under <out>/<Class>/<method>/:
     frames/NN-<action>.jpg    the screen right after that action
     sheet-N.jpg               3x4 contact sheets, each tile captioned with its action
     attachments/<name>        text a test attached (a dogfood tour's trees, socket replies, step log)
+    index.html                 an interactive local-first UI mirror of the run
+    mirror.json                the mirror's machine-readable manifest
 
 A frame is the last screenshot XCUITest saved under a top-level action. On hosts
 where XCTest keeps a screen recording of a failing test instead, the recording
@@ -17,8 +19,10 @@ at that moment. Named captures (XCTAttachment) become their own steps.
 
 A run id or URL first downloads the run's `ui-frames` artifact, which UI runs
 of test-e2e.yml build in CI; for older runs it falls back to the `test-results`
-xcresult. `--summary FILE` appends a Markdown report (CI passes
-$GITHUB_STEP_SUMMARY). Needs `gh` for runs, and xcrun, sips and ffmpeg to build.
+xcresult. A local extracted `ui-frames` directory is accepted too, so a copied
+artifact can be reviewed without another dispatch or a native toolchain.
+`--summary FILE` appends a Markdown report (CI passes `$GITHUB_STEP_SUMMARY`).
+Needs `gh` for runs, and xcrun, sips and ffmpeg to build from xcresults.
 """
 
 from __future__ import annotations
@@ -385,6 +389,21 @@ def markdown(summary: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def write_mirror(out: Path, quiet: bool = False) -> None:
+    """Build the interactive mirror next to the extracted frames."""
+    mirror = Path(__file__).with_name("ui-mirror.py")
+    result = subprocess.run(
+        [sys.executable, str(mirror), str(out)],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.returncode == 0 and not quiet:
+        print(result.stdout.strip())
+    elif result.returncode != 0:
+        print(f"warning: could not build UI mirror: {result.stderr.strip()[:240]}", file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("source", help="run id, run URL, an .xcresult, or a directory of them")
@@ -399,9 +418,19 @@ def main() -> int:
     run_id = None if local.exists() else parse_run_id(args.source)
     if not local.exists() and not run_id:
         parser.error("source must be a run id, a run URL, an .xcresult, or a directory of them")
-    out = args.out or Path(tempfile.gettempdir()) / "cmux-ui-frames" / (run_id or local.stem)
+    local_built = local.is_dir() and any(local.rglob("steps.md"))
+    if local_built:
+        out = args.out or local
+        if out.resolve() != local.resolve():
+            # Keep an explicitly supplied output directory's unrelated files;
+            # this command only refreshes the artifact's own paths.
+            shutil.copytree(local, out, dirs_exist_ok=True)
+    else:
+        out = args.out or Path(tempfile.gettempdir()) / "cmux-ui-frames" / (run_id or local.stem)
 
-    if run_id and download(run_id, args.repo, FRAMES_ARTIFACT, out):
+    if local_built:
+        summary = load_built(out, args.test)
+    elif run_id and download(run_id, args.repo, FRAMES_ARTIFACT, out):
         summary = load_built(out, args.test)
     else:
         if run_id:
@@ -417,6 +446,7 @@ def main() -> int:
             with args.summary.open("a") as handle:
                 handle.write(markdown(summary))
 
+    write_mirror(out, quiet=args.json)
     if args.json:
         print(json.dumps(summary, indent=2))
         return 0
