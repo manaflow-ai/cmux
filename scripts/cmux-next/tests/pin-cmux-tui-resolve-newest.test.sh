@@ -82,6 +82,8 @@ grep -qx "commit=$published" <<<"$out" || fail "expected commit=$published (newe
 grep -qx "key=$(key "$published")" <<<"$out" || fail "expected the published tree's key, got:" "$out"
 grep -qx "source_commit=$published" <<<"$out" || fail "expected source_commit=$published, got:" "$out"
 grep -qx "tip_key=$(key "$tip")" <<<"$out" || fail "expected tip_key of the checkout, got:" "$out"
+grep -Eqx "behind=[0-9]+" <<<"$out" && grep -Eqx "behind_hours=[0-9]+" <<<"$out" \
+  || fail "expected behind= (commits) and behind_hours= lines, got:" "$out"
 grep -q "manifest" <<<"$err" && grep -q "${mismatch:0:12}" <<<"$err" \
   || fail "the manifest sha256 mismatch of ${mismatch:0:12} must be reported:" "$err"
 
@@ -106,5 +108,19 @@ git_q clone --depth 1 "file://$src" "$TMP/shallow"
 status=0
 out=$(cd "$TMP/shallow" && env -u GITHUB_STEP_SUMMARY PATH="$TMP/bin:$PATH" bash scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published 2>"$TMP/err") || status=$?
 [[ "$status" == 0 ]] && grep -qx "commit=$published" <<<"$out" || fail "a shallow checkout must deepen and resolve $published (exit $status):" "$out" "$(cat "$TMP/err")"
+# Never ship a stale build: a newest published tree more than
+# CMUX_TUI_TREE_MAX_AGE_HOURS (default 24) behind the tip fails the nightly.
+echo app2 > "$src/App.swift"; git_q -C "$src" add -A
+future=$(( $(git -C "$src" log -1 --format=%ct) + 30 * 3600 ))
+GIT_COMMITTER_DATE="@$future +0000" git_q -C "$src" commit -m "app 30 h later"
+resolve
+[[ "$status" != 0 ]] || fail "a published tree 30 h behind the tip must fail the 24 h bound, got:" "$out"
+grep -q 'h behind the tip' <<<"$err" && grep -q 'bound 24 h' <<<"$err" \
+  || fail "the stale refusal needs a clear message:" "$err"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=48
+[[ "$status" == 0 ]] && grep -qx "commit=$published" <<<"$out" && grep -qx "behind_hours=30" <<<"$out" \
+  || fail "with a 48 h bound the 30 h old tree resolves with behind_hours=30 (exit $status):" "$out" "$err"
+resolve CMUX_TUI_TREE_MAX_AGE_HOURS=x
+[[ "$status" == 2 ]] || fail "CMUX_TUI_TREE_MAX_AGE_HOURS=x must exit 2, got $status:" "$err"
 : "$old"
 echo "PASS: resolve-newest-published picks the newest verified published tree without waiting"
