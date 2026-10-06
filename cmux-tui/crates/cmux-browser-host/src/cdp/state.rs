@@ -61,6 +61,8 @@ pub struct TabState {
     pub responses: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
+    /// Closed shadow roots per CDP session (`closed_roots`).
+    pub closed_roots: HashMap<String, super::closed_roots::SessionRoots>,
     /// Loader of the main frame's current document.
     pub loader: Option<String>,
     /// Lifecycle events (`DOMContentLoaded`, `load`, `networkIdle`) seen for `loader`.
@@ -100,6 +102,7 @@ impl TabState {
             request_order: std::collections::VecDeque::new(),
             responses: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
+            closed_roots: HashMap::new(),
             loader: None,
             lifecycle: HashSet::new(),
             nav_seq: 0,
@@ -222,6 +225,7 @@ impl State {
                         self.parent_sessions.remove(session_id);
                         if let Some(tab) = self.tabs.get_mut(&target_id) {
                             tab.frame_sessions.retain(|_, session| session.as_str() != session_id);
+                            tab.closed_roots.remove(session_id);
                             tab.contexts.retain(|_, (session, _)| session.as_str() != session_id);
                         }
                     }
@@ -358,6 +362,14 @@ impl State {
         params: &Value,
         applied: &mut Applied,
     ) {
+        if method.starts_with("DOM.") {
+            if let Some(roots) =
+                self.tabs.get_mut(target_id).and_then(|tab| tab.closed_roots.get_mut(session_id))
+            {
+                roots.dom_changed();
+            }
+            return;
+        }
         if method == "Inspector.targetCrashed" {
             self.crashed(target_id, applied);
             return;
