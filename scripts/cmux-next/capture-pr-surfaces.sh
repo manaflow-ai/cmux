@@ -60,9 +60,14 @@ cleanup() {
     command="$(remote "ps -p $owned_pid -o command= 2>/dev/null || true")" || command=""
     if [[ "$command" == *"$owned_app/Contents/MacOS/"* ]]; then
       remote "kill -TERM $owned_pid" >/dev/null 2>&1 || true
+      if remote "test -z \"\$(ps -p $owned_pid -o pid= 2>/dev/null)\""; then
+        owned_app=""
+        owned_pid=""
+      else
+        echo "capture-pr-surfaces: refusing to release lease while PID $owned_pid is alive" >&2
+        lease=""
+      fi
     fi
-    owned_app=""
-    owned_pid=""
   fi
   if [[ -n "$lease" ]]; then
     # The lease helper owns the remote lock. Releasing it is safe only after
@@ -90,12 +95,13 @@ cli() {
   remote "env -i HOME=\"\$HOME\" USER=\"\$USER\" PATH=/usr/bin:/bin TMPDIR=\"\${TMPDIR:-/tmp}\" CMUX_TAG=$(printf '%q' "$TAG") CMUX_SOCKET_PATH=$(printf '%q' "/tmp/cmux-debug-$TAG.sock") $(printf '%q' "$app/Contents/Resources/bin/cmux")$args"
 }
 launch_owned() {
-  local app=$1
-  remote "test -x $(printf '%q' "$app/Contents/Resources/bin/cmux") && open -n $(printf '%q' "$app") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"
-  local pid
-  pid="$(remote "for i in {1..30}; do pgrep -f $(printf '%q' "$app/Contents/MacOS/") | head -1 && break; sleep 1; done")"
+  local app=$1 pid
+  pid="$(remote "set -e; test -x $(printf '%q' "$app/Contents/Resources/bin/cmux"); exe=\$(find $(printf '%q' "$app/Contents/MacOS") -maxdepth 1 -type f -perm -111 -print -quit); test -n \"\$exe\"; nohup env CMUX_NEXT_SHOWCASE=1 CMUX_TAG=$(printf '%q' "$TAG") CMUX_NEXT_SOCKET_MODE=automation \"\$exe\" --showcase >/tmp/cmux-next-capture-$TAG.log 2>&1 </dev/null & printf '%s' \$!")"
   [[ "$pid" =~ ^[0-9]+$ ]] || die "could not identify the launched app PID"
   remote "test \"\$(ps -p $pid -o command=)\" = *$(printf '%q' "$app/Contents/MacOS/")*" || die "PID $pid is not the launched app"
+  # The tagged CLI response is the app-owned readiness signal. It is also the
+  # completion point for the first RPC, so no elapsed-time settle is needed.
+  cli "$app" list-workspaces >/dev/null || die "launched app PID $pid did not open its control socket"
   printf '%s' "$pid"
 }
 quit_owned() {
@@ -103,11 +109,7 @@ quit_owned() {
   command="$(remote "ps -p $pid -o command= 2>/dev/null || true")"
   [[ "$command" == *"$app/Contents/MacOS/"* ]] || die "refusing to quit unrelated PID $pid"
   remote "kill -TERM $pid"
-  for _ in {1..30}; do
-    remote "kill -0 $pid 2>/dev/null" || return 0
-    sleep 1
-  done
-  die "owned app PID $pid did not exit"
+  remote "test -z \"\$(ps -p $pid -o pid= 2>/dev/null)\"" || die "owned app PID $pid did not exit"
 }
 still() {
   local side=$1 name=$2
@@ -123,21 +125,19 @@ capture_set() {
   pid="$(launch_owned "$app")"
   owned_app="$app"
   owned_pid="$pid"
-  sleep "${CMUX_CAPTURE_SETTLE_SECONDS:-4}"
   # New Tab is opened through the public action. The showcase seed supplies a real terminal
   # workspace and deterministic Home content; the agent seed adds the worked
   # turn before the dedicated agent capture.
   cli "$app" action run newTab --focus
-  sleep 1
   still "$side" 01-new-tab
   cli "$app" rpc debug.showcase.seed '{"focus":true}'
-  sleep 1; still "$side" 02-terminal-workspace
+  still "$side" 02-terminal-workspace
   cli "$app" rpc debug.agent_pane '{"action":"seed_rows","fixture":"worked-turn"}'
-  sleep 1; still "$side" 03-agent-pane
+  still "$side" 03-agent-pane
   cli "$app" action run home.show --focus
-  sleep 1; still "$side" 04-home
+  still "$side" 04-home
   cli "$app" action run openSettings --focus
-  sleep 1; still "$side" 05-settings
+  still "$side" 05-settings
   quit_owned "$app" "$pid"
   owned_app=""
   owned_pid=""
