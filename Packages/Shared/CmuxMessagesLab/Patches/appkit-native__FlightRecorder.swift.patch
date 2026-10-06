@@ -35,7 +35,7 @@
          }
      }
  
-@@ -124,10 +130,11 @@
+@@ -127,10 +133,11 @@
              let b = m.bubble.presentation() ?? m.bubble
              return (k, b.convert(b.bounds, to: root))
          }
@@ -50,7 +50,7 @@
      }
  
      private var previous: Sample?
-@@ -177,7 +184,8 @@
+@@ -180,7 +187,8 @@
          guard let c else { return }
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
@@ -60,7 +60,7 @@
          try? FileManager.default.createDirectory(atPath: dir + "/frames", withIntermediateDirectories: true)
          let samples = (0..<ring.count).map { ring[(ringStart + $0) % ring.count] }
          let t0 = samples.first?.t ?? CACurrentMediaTime()
-@@ -193,20 +201,23 @@
+@@ -196,20 +204,23 @@
              if let d = try? JSONSerialization.data(withJSONObject: obj), let l = String(data: d, encoding: .utf8) { lines.append(l) }
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
@@ -91,7 +91,7 @@
          let q = DispatchQueue(label: "flight.burst", qos: .utility)
          let start = CACurrentMediaTime()
          var i = 0
-@@ -214,7 +225,8 @@
+@@ -217,7 +228,8 @@
          timer.schedule(deadline: .now(), repeating: 1.0 / 60)
          timer.setEventHandler {
              let t = CACurrentMediaTime() - start

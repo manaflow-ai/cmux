@@ -1,0 +1,25 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
+@@ -28,7 +28,10 @@
+     /// Fetches running now (tests).
+     var inFlight: Int { waiting.count }
+     private let dir: URL = {
+-        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MessagesLab/link-previews", isDirectory: true)
++        // cmux: the app's own caches folder (MessagesLab's would be shared with the MessagesLab app's index).
++        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
++            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "MessagesLab", isDirectory: true)
++            .appendingPathComponent("link-previews", isDirectory: true)
+         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+         return d
+     }()
+@@ -41,6 +44,10 @@
+     }
+     private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String? }
+ 
++    /// cmux: a fetched preview without fetching (nil: not fetched, or it failed). A
++    /// HomeStore rebuild maps a link part again; it shows what was already fetched.
++    func cached(_ url: String) -> LinkMetadata? { cache[url] ?? nil }
++
+     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
+         dispatchPrecondition(condition: .onQueue(.main))
+         if let hit = cache[url] { done(hit); return }

@@ -906,6 +906,67 @@ device message logged and answered end to end).
 - **Reply keys.** `turn:optchat:<first id>:<its stamp>`: the stamp keeps keys
   unique after a memory reset or a restored backup.
 
+## Always-on brain (cloud conversation source)
+
+Design: `brains/DESIGN-cmux-lawrence.md` in the OptChat lab. The host can answer the
+chief's CLOUD main conversation instead of the app's local one, so the Chief keeps
+running when the laptop sleeps and every device sees it through its cloud Home source:
+
+```
+optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH --mux-home DIR
+```
+
+It connects to a cmux-tui daemon of its own that has `cloud-conversations-v1`
+(feat-cmux-next), leases a chief token to it (`cloud-session-set`), subscribes to the
+chief's main conversation and answers as `agent_<chief>`; inside the brain that id is
+`agent_mux`, so the wake rule, cursor and outbox are unchanged (`src/cloud/idmap.rs`).
+The token lives 600 s and is renewed 150 s before it expires and on
+`cloud-session-needed`. The lease is daemon-wide: every unbound client of that daemon
+acts as the chief, so never point it at a shared daemon.
+
+Identity (once per brain host; the install key never leaves `install.json`, 0600). The
+brain pairs like a cmux server (plans/cmux-next/server.md 6.2), so no session token
+reaches it:
+
+```
+optchat-chief cloud pair   --install $B/cloud/install.json --api-base https://<api origin>
+optchat-chief cloud status --install $B/cloud/install.json     # mints a test chief token
+```
+
+`cloud pair` makes the P-256 install key and a WireGuard key, proves the key to
+`POST /v1/pair/begin`, and prints a code and four check words (never the collect
+secret). In the cmux app, "Server > Add Server…" takes the code, shows the same words,
+and approves it: `server.pair.approve` registers the key under the user as a `daemon`
+install and adds the host to the team. The brain hears the result on the
+`/v1/pair/wait` WebSocket, then waits (`--wait-chief`, default 300 s) for the app to
+place a chief on it (`brain_place: {host, install}` in `chief.list`); only that chief's
+token gets the rights a brain needs. `--chief default` falls back to the default chief
+when none is placed (a backend without `brain_place`). A paired file without a chief
+resumes at the chief step when `cloud pair` runs again.
+
+Fallback without the app (a session token once, from where the Stack session lives):
+
+```
+optchat-chief cloud enroll   --install $B/cloud/install.json --api-base https://<api origin>
+CMUX_CLOUD_SESSION_TOKEN=<the user's session token> \
+optchat-chief cloud register --install $B/cloud/install.json     # install.register (session only)
+optchat-chief cloud chief    --install $B/cloud/install.json --create   # default chief + main conversation
+```
+
+Memory move (both hosts stopped; `--seal` last):
+
+```
+optchat-chief memory export --mux-home OLD --out chief-memory.tar --seal
+optchat-chief memory import --mux-home NEW chief-memory.tar
+```
+
+The archive is a git bundle of `optchat/chat/` (messages and summaries), AGENTS.md and a
+manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts a host.
+
+`deploy/brain/install.sh` installs three user LaunchAgents
+(`ai.manaflow.chief-brain.{daemon,acpmux,host}`) under `~/.cmux/brains/chief` with
+pinned binaries; `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
 ## Tests
 
 Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
