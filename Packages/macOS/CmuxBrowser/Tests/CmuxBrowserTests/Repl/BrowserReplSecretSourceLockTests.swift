@@ -167,6 +167,72 @@ struct BrowserReplSecretSourceReadTests {
     }
 }
 
+/// r19 native#2: `fsgetpath` takes the volume's `statfs` `f_fsid`, not a
+/// value made from `st_dev`. A volume where the two differ must not make a
+/// live protected file look gone (and so reclaimed at the bound, letting
+/// a tab load it). The lookup is injected: a volume that names the file
+/// only under its own `f_fsid` and answers `ENOENT` for any other id.
+@Suite("Browser REPL secret source volume id")
+struct BrowserReplSecretSourceVolumeTests {
+    private static func scratch() throws -> String {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brepl-secret-volume-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        return BrowserReplFileSandbox.canonicalize(directory.path)
+    }
+
+    private static func write(_ path: String) throws {
+        try Data(#"{"example.com":{"pw":"volume-test-secret"}}"#.utf8).write(to: URL(fileURLWithPath: path))
+    }
+
+    /// A volume that knows only `real` and the files that still exist on it.
+    private static func strictVolume(_ real: fsid_t) -> BrowserReplVolumeLookup {
+        { volume, inode in
+            guard volume.val.0 == real.val.0, volume.val.1 == real.val.1 else { return ENOENT }
+            return BrowserReplFileIdentity.volumePath(volume, inode)
+        }
+    }
+
+    private static func volume(of path: String) throws -> fsid_t {
+        var info = statfs()
+        try #require(statfs(path, &info) == 0)
+        return info.f_fsid
+    }
+
+    @Test("A live protected file is never reclaimed when the volume's id is not st_dev")
+    func liveFileIsKeptOnAVolumeWhoseIdIsNotTheDevice() throws {
+        let directory = try Self.scratch()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let first = directory + "/first.json", second = directory + "/second.json"
+        try Self.write(first)
+        try Self.write(second)
+        let sources = BrowserReplSecretSources(maximumSources: 1, volumeLookup: Self.strictVolume(try Self.volume(of: first)))
+        try sources.protect(try #require(BrowserReplFileIdentity(path: first)))
+        let secondIdentity = try #require(BrowserReplFileIdentity(path: second))
+        // Refused: the bound is reached and the protected file still exists.
+        #expect(throws: BrowserReplFileSystemError.self) { try sources.protect(secondIdentity) }
+        #expect(sources.contains(path: first), "the live protected file lost its protection")
+        // Gone under every name: its room is reclaimed by the same lookup.
+        try FileManager.default.removeItem(atPath: first)
+        try sources.protect(secondIdentity)
+        #expect(sources.contains(path: second))
+    }
+
+    @Test("A file whose volume id is unknown counts as existing")
+    func unknownVolumeFailsClosed() throws {
+        let directory = try Self.scratch()
+        defer { try? FileManager.default.removeItem(atPath: directory) }
+        let path = directory + "/secrets.json"
+        try Self.write(path)
+        var info = stat()
+        try #require(stat(path, &info) == 0)
+        // Made from stat alone: no volume id was taken.
+        let identity = BrowserReplFileIdentity(info)
+        let judgedExisting = identity.exists(lookup: { _, _ in ENOENT })
+        #expect(judgedExisting, "a file with no known volume id was judged gone")
+    }
+}
+
 /// A value one thread sets and another reads after a semaphore.
 private final class NavigationOutcome: @unchecked Sendable {
     private let lock = NSLock()

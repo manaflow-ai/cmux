@@ -409,11 +409,14 @@ final class BrowserReplSecretSources: @unchecked Sendable {
 
     /// The most files protected at once (4,096 for the app).
     let maximumSources: Int
+    /// Asks a volume for a file by its id (``BrowserReplFileIdentity/volumePath(_:_:)``).
+    private let volumeLookup: BrowserReplVolumeLookup
     private let lock = NSLock()
     private var identities: Set<BrowserReplFileIdentity> = []
 
-    init(maximumSources: Int = 4096) {
+    init(maximumSources: Int = 4096, volumeLookup: @escaping BrowserReplVolumeLookup = BrowserReplFileIdentity.volumePath) {
         self.maximumSources = maximumSources
+        self.volumeLookup = volumeLookup
     }
 
     /// Protects `identity`. The caller holds
@@ -432,7 +435,7 @@ final class BrowserReplSecretSources: @unchecked Sendable {
         try lock.withLock {
             guard !identities.contains(identity) else { return }
             if identities.count >= maximumSources {
-                identities = identities.filter(\.exists)
+                identities = identities.filter { $0.exists(lookup: volumeLookup) }
             }
             guard identities.count < maximumSources else {
                 throw BrowserReplFileSystemError(
@@ -478,10 +481,24 @@ struct BrowserReplFileIdentity: Hashable, Sendable {
     /// no object has this identity (`fsgetpath` fails with `ENOENT`, as for
     /// a file removed under every name). A volume that cannot tell counts
     /// as yes.
-    var exists: Bool {
-        var volume = fsid_t(val: (Int32(truncatingIfNeeded: Int64(bitPattern: device)), 0))
+    var exists: Bool { exists(lookup: Self.volumePath) }
+
+    /// ``exists`` with `lookup` asking the volume.
+    func exists(lookup: BrowserReplVolumeLookup) -> Bool {
+        let volume = fsid_t(val: (Int32(truncatingIfNeeded: Int64(bitPattern: device)), 0))
+        return lookup(volume, inode) != ENOENT
+    }
+
+    /// `fsgetpath` for the object `inode` on the volume `volume`: 0 when the
+    /// volume names a path for it, else the `errno` it failed with.
+    static func volumePath(_ volume: fsid_t, _ inode: UInt64) -> Int32 {
+        var volume = volume
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let length = buffer.withUnsafeMutableBufferPointer { fsgetpath($0.baseAddress, $0.count, &volume, inode) }
-        return length >= 0 || errno != ENOENT
+        return length >= 0 ? 0 : errno
     }
 }
+
+/// Asks the volume `fsid_t` (a `statfs` `f_fsid`) for the object with an
+/// inode number: 0 when it names a path for it, else an `errno`.
+typealias BrowserReplVolumeLookup = @Sendable (fsid_t, UInt64) -> Int32
