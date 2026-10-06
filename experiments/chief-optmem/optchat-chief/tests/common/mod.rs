@@ -485,7 +485,13 @@ impl AgentPort for FakeAgents {
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {
-        Ok(self.inner.lock().unwrap().catalog.clone().unwrap_or_else(catalog))
+        Ok(self
+            .inner
+            .lock()
+            .unwrap()
+            .catalog
+            .clone()
+            .unwrap_or_else(catalog))
     }
 
     fn session(&self, id: &str) -> Result<Option<cmux_chief::acp::SessionSummary>, String> {
@@ -496,7 +502,10 @@ impl AgentPort for FakeAgents {
         let Some(spec) = inner.specs.get(n.wrapping_sub(1)) else {
             return Ok(None);
         };
-        let harness = inner.session_harness.clone().unwrap_or_else(|| spec.harness.clone());
+        let harness = inner
+            .session_harness
+            .clone()
+            .unwrap_or_else(|| spec.harness.clone());
         Ok(Some(serde_json::from_value(json!({
             "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": "running",
         })).unwrap()))

@@ -21,7 +21,10 @@ fn trace_events(dir: &std::path::Path) -> Vec<Value> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let text = std::fs::read_to_string(entry.path()).unwrap();
-        out.extend(text.lines().map(|l| serde_json::from_str::<Value>(l).unwrap()));
+        out.extend(
+            text.lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap()),
+        );
     }
     out
 }
@@ -70,7 +73,10 @@ fn the_route_is_found_by_kind_and_command_not_by_name() {
         "claude": {"kind": "claude-stdio", "argv": ["/x/sr", "claude", "proxy"]},
     }});
     let a = admit(&answer, "claude-sr").unwrap();
-    assert_eq!((a.requested.as_str(), a.profile.as_str()), ("claude-sr", "claude"));
+    assert_eq!(
+        (a.requested.as_str(), a.profile.as_str()),
+        ("claude-sr", "claude")
+    );
     assert_eq!(a.argv0, "/x/sr");
     // `claude` asks for the `claude` executable: an sr profile named
     // claude is not the direct route.
@@ -91,7 +97,10 @@ fn a_claude_family_harness_of_another_name_must_be_claude_stdio() {
     }});
     assert!(admit(&answer, "work").is_err());
     let mine = admit(&answer, "mine").unwrap();
-    assert_eq!((mine.kind.as_str(), mine.argv0.as_str()), ("claude-stdio", "/opt/cc"));
+    assert_eq!(
+        (mine.kind.as_str(), mine.argv0.as_str()),
+        ("claude-stdio", "/opt/cc")
+    );
     assert!(admit(&answer, "missing").is_err());
 }
 
@@ -118,7 +127,10 @@ fn a_turn_on_an_acp_adapter_is_refused_in_the_chat_and_the_trace() {
     assert!(sends[0].1.contains("refused"), "{sends:?}");
     assert!(sends[0].1.contains("claude-stdio"), "{sends:?}");
     let events = trace_events(&traces);
-    let refused: Vec<&Value> = events.iter().filter(|e| e["ev"] == "harness.refused").collect();
+    let refused: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["ev"] == "harness.refused")
+        .collect();
     assert_eq!(refused.len(), 1, "{events:?}");
     assert_eq!(refused[0]["role"], "turn");
     assert_eq!(refused[0]["harness"], "claude-sr");
@@ -177,7 +189,10 @@ fn a_session_acpmux_moved_onto_an_acp_adapter_is_ended_and_refused() {
     let sends = h.owner.lock().unwrap().sends();
     assert!(sends[0].1.contains("refused"), "{sends:?}");
     let events = trace_events(&traces);
-    assert!(events.iter().any(|e| e["ev"] == "harness.refused"), "{events:?}");
+    assert!(
+        events.iter().any(|e| e["ev"] == "harness.refused"),
+        "{events:?}"
+    );
 }
 
 fn compactor_spec(dir: &std::path::Path) -> CompactorSpec {

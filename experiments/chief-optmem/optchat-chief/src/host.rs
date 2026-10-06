@@ -232,18 +232,47 @@ fn start(
     // command), never its name. Only the native engine with the API
     // compactor runs without acpmux.
     let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
-    let (family, compactor_family, sub_family) = if uses_acpmux {
+    // Claude only through acpmux's own Claude Code adapter (harness_gate):
+    // each harness is found by kind and command, and a refused one leaves
+    // the host up with each of its sessions refused in the chat.
+    let (family, compactor_family, sub_family, profiles) = if uses_acpmux {
         let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
             .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
-        let (family, compactor_family) = harness_families(&answer, &harness, &compactor_harness)?;
+        let plan = |name: &str, role: &str| {
+            let plan = crate::harness_gate::plan(&answer, name);
+            match &plan.admitted {
+                Ok(a) => log(format!("{role} harness: {}", a.describe())),
+                Err(e) => log(format!(
+                    "{role} harness {name} refused: {e}; its sessions are refused until acpmux has the adapter"
+                )),
+            }
+            plan
+        };
+        let (turn, compactor, sub) = (
+            plan(&harness, "turn"),
+            plan(&compactor_harness, "compactor"),
+            plan(&sub_harness, "subagent"),
+        );
         (
-            family,
-            compactor_family,
-            crate::acpmux::harness_family(&answer, &sub_harness)?,
+            turn.family,
+            compactor.family,
+            sub.family,
+            [turn.profile, compactor.profile, sub.profile],
         )
     } else {
-        (Family::Other, Family::Other, Family::Other)
+        (
+            Family::Other,
+            Family::Other,
+            Family::Other,
+            [
+                harness.clone(),
+                compactor_harness.clone(),
+                sub_harness.clone(),
+            ],
+        )
     };
+    // The profiles the presets name (the session itself asks by its route).
+    let [turn_profile, compactor_profile, sub_profile] = profiles;
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
     // directory; acpmux gives any other harness no MCP server, so its memory
@@ -288,7 +317,7 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let preset = turn_preset(paths, home, &harness, family, isolate, &system_text);
+    let preset = turn_preset(paths, home, &turn_profile, family, isolate, &system_text);
     let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
@@ -303,7 +332,7 @@ fn start(
         required.extend(compactor_presets(
             paths,
             home,
-            &compactor_harness,
+            &compactor_profile,
             compactor_family,
         ));
     }
@@ -322,7 +351,7 @@ fn start(
         }
         required.push(Preset {
             name: sub_preset_name.clone(),
-            harness: sub_harness.clone(),
+            harness: sub_profile.clone(),
             env,
             args: Vec::new(),
             system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),

@@ -357,6 +357,9 @@ impl Native {
                 tools,
                 tool_errors,
             },
+            // The Messages API, no acpmux harness.
+            harness: None,
+            refused: false,
         }
     }
 

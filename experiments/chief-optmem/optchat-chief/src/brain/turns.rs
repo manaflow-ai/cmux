@@ -414,6 +414,8 @@ impl Brain {
         let s = &outcome.stats;
         let status = if superseded {
             "superseded"
+        } else if outcome.refused && outcome.reply.is_none() {
+            "refused"
         } else if outcome.cancelled {
             "cancelled"
         } else if outcome.error.is_some() {
@@ -436,6 +438,11 @@ impl Brain {
                 "requests": s.requests,
                 "tools": s.tools,
                 "tool_errors": s.tool_errors,
+                // What answered (harness_gate): the engine panel reads these.
+                "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
+                "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
+                "harness_argv0": outcome.harness.as_ref().map(|h| h.argv0.as_str()),
+                "harness_refused": outcome.refused,
             }),
         );
     }
@@ -455,6 +462,7 @@ impl Brain {
         // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
+            (None, Some(error)) if outcome.refused => format!("(turn {error})"),
             (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
             (Some(reply), None) => reply,
             (None, Some(error)) => format!("(turn failed: {error})"),

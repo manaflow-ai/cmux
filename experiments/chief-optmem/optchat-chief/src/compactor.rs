@@ -313,6 +313,19 @@ impl AcpmuxCompactor {
     /// Opens the node's session (a slot first, so at most JOBS live), with
     /// `system` as its slot preset's system prompt in the cached layout.
     fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
+        // Claude only through acpmux's own Claude Code adapter
+        // (harness_gate), checked before a slot is taken.
+        let admitted =
+            crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
+                self.say(&format!("compactor node {}: {reason}", node.name()));
+                crate::harness_gate::trace_refusal(
+                    &self.trace,
+                    "compactor",
+                    &self.spec.harness,
+                    &reason,
+                );
+                ModelError::new(crate::harness_gate::refusal(&reason))
+            })?;
         let slot = self.slots.take();
         let cwd = match self.slot_dir(slot) {
             Ok(cwd) => cwd,
@@ -345,14 +358,31 @@ impl AcpmuxCompactor {
         let spec = SessionSpec {
             name,
             cwd: cwd.clone(),
-            harness: self.spec.harness.clone(),
+            harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
             model: self.spec.model.clone(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
         };
-        match self.port.new_session(&spec) {
+        let opened = self.port.new_session(&spec).and_then(|id| {
+            // The session's own harness is what answers (a name that is
+            // also a family resolves through acpmux's preference list).
+            match crate::harness_gate::session_harness(&*self.port, &id, &admitted) {
+                Ok(_) => Ok(id),
+                Err(reason) => {
+                    let _ = self.port.end_session(&id);
+                    crate::harness_gate::trace_refusal(
+                        &self.trace,
+                        "compactor",
+                        &self.spec.harness,
+                        &reason,
+                    );
+                    Err(crate::harness_gate::refusal(&reason))
+                }
+            }
+        });
+        match opened {
             Ok(id) => {
                 self.live.lock().expect("live").insert(
                     node,

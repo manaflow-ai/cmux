@@ -137,10 +137,16 @@ impl Spawner {
     fn start_one(&self, spawn: &str, id: &str, task: &str, view: &str) -> Result<(), String> {
         let began = Instant::now();
         let s = &self.settings;
+        // Claude only through acpmux's own Claude Code adapter (harness_gate).
+        let admitted =
+            crate::harness_gate::admit_live(&*self.agents, &s.harness).map_err(|reason| {
+                crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
+                crate::harness_gate::refusal(&reason)
+            })?;
         let spec = SessionSpec {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
-            harness: s.harness.clone(),
+            harness: admitted.profile.clone(),
             policy: s.policy.clone(),
             model: s.model.clone(),
             effort: None,
@@ -148,6 +154,12 @@ impl Spawner {
             tags: tags(&s.parent, spawn, id),
         };
         let session = self.agents.new_session(&spec)?;
+        let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
+            .map_err(|reason| {
+                let _ = self.agents.end_session(&session);
+                crate::harness_gate::trace_refusal(&self.trace, "subagent", &s.harness, &reason);
+                crate::harness_gate::refusal(&reason)
+            })?;
         // Registered before its prompt: its turn end can only follow.
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
@@ -164,7 +176,7 @@ impl Spawner {
         self.forward_answer(id, rx);
         self.trace.emit(
             "subagent.start",
-            json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "ms": began.elapsed().as_millis() as u64}),
+            json!({"id": id, "spawn": spawn, "session": session, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "ms": began.elapsed().as_millis() as u64}),
         );
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.

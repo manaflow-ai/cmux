@@ -284,6 +284,24 @@ byte-identical across turns. The request the model gets is not fully ours:
 
 ## Harnesses and cache layout
 
+**Claude runs only on acpmux's own adapter** (`src/harness_gate.rs`,
+2026-10-05). Before each turn, compactor node and subagent session the
+Chief reads `_acpmux/harnesses` and admits a Claude harness only when
+acpmux reports it as kind `claude-stdio`. `claude-sr` and `claude` are
+routes: the Chief asks for the `claude-stdio` profile whose command is
+`sr claude proxy` (or `subrouter claude proxy`), or `claude`, whatever
+that profile is named. Any other Claude-family profile must also be kind
+`claude-stdio`. A refused turn starts no session and posts `(turn refused:
+...)` in the chat. A session that acpmux resolved or moved onto another
+profile is checked again by its own harness, at the start and at the end
+of the turn. Every refusal is a `harness.refused` trace event (role,
+harness, reason), and each `turn.end` records `harness_profile`,
+`harness_kind` and `harness_argv0`. The gate exists because a tagged
+acpmux home has no config of its own: it imports `~/.acpx` entries as
+kind `acp`, and when `sr claude proxy --version` fails it replaces
+claude-sr with a copy of `claude`. On Lawrence's laptop both names ran
+the external claude-acp adapter on 2026-10-05.
+
 The Chief runs purely on local ACP: turns and summaries are acpmux
 sessions, and the harness is one setting, `OPTCHAT_CHIEF_HARNESS` (the
 Chief record in the app can carry the same value later). The default,

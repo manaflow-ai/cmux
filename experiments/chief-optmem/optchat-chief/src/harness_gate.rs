@@ -22,7 +22,8 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::acpmux::{Family, harness_family};
+use crate::acpmux::{AgentPort, Family, harness_family};
+use crate::trace::Trace;
 
 /// acpmux's kind for its own Claude Code adapter.
 pub const CLAUDE_STDIO: &str = "claude-stdio";
@@ -90,7 +91,9 @@ impl Route {
             // `sr` is a symlink to `subrouter` on some machines.
             Route::Subrouter => {
                 matches!(exe.as_str(), "sr" | "subrouter")
-                    && argv.get(1..).is_some_and(|rest| rest == ["claude", "proxy"])
+                    && argv
+                        .get(1..)
+                        .is_some_and(|rest| rest == ["claude", "proxy"])
             }
             Route::Direct => exe == "claude",
         }
@@ -212,4 +215,88 @@ pub fn refusal(reason: &str) -> String {
     format!(
         "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; `sr claude proxy --version` must succeed for claude-sr) and send the message again."
     )
+}
+
+/// Admits `requested` against the daemon's current harnesses (asked at each
+/// session, so a daemon restarted with other profiles is seen at once).
+pub fn admit_live(agents: &dyn AgentPort, requested: &str) -> Result<Admitted, String> {
+    let answer = agents
+        .harness_catalog()
+        .map_err(|e| format!("acpmux did not say what its harnesses are ({e})"))?;
+    admit(&answer, requested)
+}
+
+/// The harness acpmux actually runs session `id` on: `admitted` when it is
+/// the one asked for (or acpmux does not say), else that other profile,
+/// refused unless it too is allowed (a family preference or a fallback can
+/// move a session onto another profile).
+pub fn session_harness(
+    agents: &dyn AgentPort,
+    id: &str,
+    admitted: &Admitted,
+) -> Result<Admitted, String> {
+    let actual = match agents.session(id) {
+        Ok(Some(summary)) if !summary.harness.is_empty() => summary.harness,
+        Ok(_) => return Ok(admitted.clone()),
+        Err(e) => return Err(format!("acpmux did not say which harness runs {id} ({e})")),
+    };
+    if actual == admitted.profile {
+        return Ok(admitted.clone());
+    }
+    let answer = agents
+        .harness_catalog()
+        .map_err(|e| format!("acpmux did not say what its harnesses are ({e})"))?;
+    admit_profile(&answer, &actual)
+        .map(|mut a| {
+            a.requested = admitted.requested.clone();
+            a
+        })
+        .map_err(|e| {
+            format!(
+                "acpmux runs the session on {actual}, not {}: {e}",
+                admitted.profile
+            )
+        })
+}
+
+/// The trace's `harness.refused`: which Chief session (`role`), the harness
+/// it asked for, and why.
+pub fn trace_refusal(trace: &Trace, role: &str, requested: &str, reason: &str) {
+    trace.emit(
+        "harness.refused",
+        serde_json::json!({"role": role, "harness": requested, "reason": reason}),
+    );
+}
+
+/// A harness at host start: the family its sessions are laid out for, the
+/// profile its presets name, and the admission.
+#[derive(Clone, Debug)]
+pub struct Plan {
+    pub family: Family,
+    pub profile: String,
+    pub admitted: Result<Admitted, String>,
+}
+
+/// Plans `requested` from the start-up answer. A refused harness keeps the
+/// host running (each of its sessions is refused in the chat until acpmux
+/// has the adapter): a reserved name is laid out as Claude, another name as
+/// acpmux reports it, and its presets name it as asked.
+pub fn plan(answer: &Value, requested: &str) -> Plan {
+    let admitted = admit(answer, requested);
+    match &admitted {
+        Ok(a) => Plan {
+            family: a.family,
+            profile: a.profile.clone(),
+            admitted,
+        },
+        Err(_) => Plan {
+            family: if Route::of(requested).is_some() {
+                Family::Claude
+            } else {
+                harness_family(answer, requested).unwrap_or(Family::Other)
+            },
+            profile: requested.to_owned(),
+            admitted,
+        },
+    }
 }
