@@ -25,6 +25,15 @@
 // label. The result carries no value. The app records the values as the
 // tab's typed secrets before "fill", so every session's reads of the page
 // get them masked.
+//
+// Agent code can call auth.request itself and mark any element, so the
+// helper's visibility check is not a guard: "bind" and "fill" take only a
+// field the user can see. It is shown (no display:none, no opacity 0 on it
+// or an ancestor, visibility visible, not inert) and at least MIN_SIDE CSS
+// pixels each way; at fill time also focusable (it becomes the focused
+// element) and, scrolled into view by that focus, on screen and not
+// covered (the frame's hit test at the middle of its visible part finds
+// it). A field that fails gets nothing (locator_invalid).
 if (typeof __origin !== "string" || location.origin !== __origin) return { status: "origin_changed" };
 const kindOf = (el) => {
   if (!(el instanceof HTMLInputElement)) return null;
@@ -39,9 +48,33 @@ const kindOf = (el) => {
   if (/user|login|e-?mail|account/i.test(hint)) return "username";
   return null;
 };
+const MIN_SIDE = 4;
+const parentOf = (n) => n.parentElement || (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null);
+const shown = (el) => {
+  if (el.inert) return false;
+  for (let n = el; n; n = parentOf(n)) {
+    const cs = getComputedStyle(n);
+    if (n.inert || cs.display === "none" || Number(cs.opacity) === 0) return false;
+  }
+  if (getComputedStyle(el).visibility !== "visible") return false;
+  const r = el.getBoundingClientRect();
+  return r.width >= MIN_SIDE && r.height >= MIN_SIDE;
+};
+const reachable = (el) => {
+  el.focus();
+  const root = el.getRootNode();
+  if (root.activeElement !== el) return false;
+  const r = el.getBoundingClientRect();
+  const left = Math.max(r.left, 0);
+  const top = Math.max(r.top, 0);
+  const right = Math.min(r.right, document.documentElement.clientWidth || innerWidth);
+  const bottom = Math.min(r.bottom, document.documentElement.clientHeight || innerHeight);
+  if (right - left < 1 || bottom - top < 1) return false;
+  return root.elementFromPoint((left + right) / 2, (top + bottom) / 2) === el;
+};
 const markedWith = (marker) => document.querySelectorAll('[data-cmux-auth="' + String(marker).replace(/["\\]/g, "") + '"]');
 const usable = (f, el) => {
-  if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly) return false;
+  if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly || !shown(el)) return false;
   const kind = kindOf(el);
   return !!kind && (f.type === "password") === (kind === "password");
 };
@@ -70,7 +103,7 @@ for (const [index, f] of __fields.entries()) {
   const el = bound.elements[index];
   const all = markedWith(f.marker);
   if (!el.isConnected || el.ownerDocument !== document || all.length !== 1 || all[0] !== el) return { status: "page_changed", field: f.id };
-  if (!usable(f, el)) return { status: "locator_invalid", field: f.id };
+  if (!usable(f, el) || !reachable(el)) return { status: "locator_invalid", field: f.id };
   found.push([f, el]);
 }
 for (const [f, el] of found) {
@@ -78,7 +111,8 @@ for (const [f, el] of found) {
   if (typeof value !== "string") continue;
   const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
   const setter = Object.getOwnPropertyDescriptor(proto, "value").set;
-  el.focus();
+  // The page saw the fields before this one change: check this one again.
+  if (!usable(f, el) || !reachable(el)) return { status: "locator_invalid", field: f.id };
   setter.call(el, value);
   el.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertReplacementText" }));
   el.dispatchEvent(new Event("change", { bubbles: true }));

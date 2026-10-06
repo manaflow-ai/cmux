@@ -326,8 +326,15 @@ script writes only into those elements, and only while the frame still
 shows that document, each element is still in it and still the only one
 with its marker (otherwise `page_changed`, nothing filled), so another
 session driving the tab, or the page, cannot move the fill to another
-element or another document of the same origin while the user types. It
-checks the credential rule again, sets each value
+element or another document of the same origin while the user types.
+Agent code can call `auth.request` itself, so the helper's checks are not
+the guard: the app's bind and fill take only a field the user can see
+(shown, with no `display: none`, `opacity: 0` on it or an ancestor,
+`visibility` other than visible or `inert`, and at least 4 CSS pixels each
+way), and at fill time one that takes focus and, scrolled into view by it,
+is on screen and is what the frame's hit test finds at the middle of its
+visible part (not covered); a field that fails is `locator_invalid` and
+gets nothing. It checks the credential rule again, sets each value
 with the native setter and dispatches `input` and `change`, so
 framework-controlled fields see it. `submit` is pressed after the fill
 only when it is the submit control of the form that holds the fields (a
