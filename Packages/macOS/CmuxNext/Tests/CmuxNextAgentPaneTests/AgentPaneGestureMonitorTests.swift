@@ -51,7 +51,13 @@ import Testing
     /// The real path end to end: a keyDown NSEvent (Return, as when the user sends a prompt) goes
     /// through `NSApplication.sendEvent`, whose local monitors run before any dispatch. The pane's
     /// monitor records the credit, and the prompt frame's gesture check uses it once.
-    @Test func aRealKeyDownThroughTheAppRecordsTheGestureThePromptUses() async throws {
+    /// Needs a display: on a headless host AppKit does not resolve a synthesized event's window, so
+    /// the monitor sees no window (the GUI lane sets CMUX_TEST_REQUIRE_GUI=1 and never skips). The
+    /// decision itself is covered headless by ``theMonitorsDecisionGivesAKeyInThePageOneCredit()``.
+    @Test(.enabled("needs a display (skipped in the headless lane)") {
+        await MainActor.run { ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1" || !NSScreen.screens.isEmpty }
+    })
+    func aRealKeyDownThroughTheAppRecordsTheGestureThePromptUses() async throws {
         let app = NSApplication.shared
         let rig = try rig()
         defer { rig.view.close(); rig.window.close() }
@@ -73,6 +79,36 @@ import Testing
         #expect(rig.gestures.isAvailable, "a key with the page focused is the user's gesture")
         #expect(rig.gestures.consume(), "the prompt frame uses the credit")
         #expect(!rig.gestures.consume(), "once")
+    }
+
+    /// Headless: the monitor's decision on the Return that sends a prompt, with the event's window
+    /// given (as the monitor reads it from `event.window`). The page focused: one credit, used once
+    /// by the prompt. A native field focused: no credit.
+    @Test func theMonitorsDecisionGivesAKeyInThePageOneCredit() async throws {
+        let rig = try rig()
+        defer { rig.view.close(); rig.window.close() }
+        let returnKey = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                      timestamp: ProcessInfo.processInfo.systemUptime,
+                                                      windowNumber: rig.window.windowNumber, context: nil, characters: "\r",
+                                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        rig.window.makeFirstResponder(rig.field)
+        rig.view.judge(returnKey, eventWindow: rig.window)
+        await settle()
+        #expect(!rig.gestures.isAvailable, "the key went to a native field")
+        rig.window.makeFirstResponder(rig.view.webView)
+        rig.view.judge(returnKey, eventWindow: rig.window)
+        await settle()
+        #expect(rig.gestures.isAvailable, "a key with the page focused is the user's gesture")
+        #expect(rig.gestures.consume(), "the prompt frame uses the credit")
+        #expect(!rig.gestures.consume(), "once")
+        // An event of another window is never this pane's gesture.
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                             backing: .buffered, defer: false)
+        other.isReleasedWhenClosed = false
+        defer { other.close() }
+        rig.view.judge(returnKey, eventWindow: other)
+        await settle()
+        #expect(!rig.gestures.isAvailable)
     }
 
     @Test func aKeyThatMovesFocusIntoTheWebViewIsNoGesture() async throws {

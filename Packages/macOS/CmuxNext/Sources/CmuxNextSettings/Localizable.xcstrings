@@ -60421,6 +60421,58 @@
         "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
       }
+    },
+    "settings.notifications.mutedWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "مساحات العمل المكتومة" } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "Utišani radni prostori" } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Lydløse arbejdsområder" } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "Stummgeschaltete Workspaces" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Muted Workspaces" } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Espacios de trabajo silenciados" } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Espaces de travail en sourdine" } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "Workspace silenziati" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "ミュート中のワークスペース" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "កន្លែងធ្វើការដែលបានបិទសំឡេង" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "음소거된 워크스페이스" } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "Dempede arbeidsområder" } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Wyciszone obszary robocze" } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "Espaços de trabalho silenciados" } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Беззвучные рабочие пространства" } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "เวิร์กสเปซที่ปิดเสียง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Sessize alınan çalışma alanları" } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Беззвучні робочі простори" } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "Không gian làm việc đã tắt tiếng" } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "已静音的工作区" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "已靜音的工作區" } }
+      }
+    },
+    "settings.notifications.mutedWorkspaces.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "needs_review", "value": "معرّفات مساحات العمل التي تكون إشعاراتها صامتة. اكتم مساحة عمل من قائمة صفها في الشريط الجانبي." } },
+        "bs": { "stringUnit": { "state": "needs_review", "value": "ID-ovi radnih prostora čije su obavijesti utišane. Utišajte radni prostor iz menija njegovog reda na bočnoj traci." } },
+        "da": { "stringUnit": { "state": "needs_review", "value": "Id'er for arbejdsområder, hvis notifikationer er lydløse. Gør et arbejdsområde lydløst fra dets rækkemenu i sidepanelet." } },
+        "de": { "stringUnit": { "state": "needs_review", "value": "IDs der Workspaces, deren Mitteilungen stumm sind. Schalte einen Workspace über das Menü seiner Zeile in der Seitenleiste stumm." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu." } },
+        "es": { "stringUnit": { "state": "needs_review", "value": "Identificadores de los espacios de trabajo cuyas notificaciones están silenciadas. Silencia un espacio desde el menú de su fila en la barra lateral." } },
+        "fr": { "stringUnit": { "state": "needs_review", "value": "Identifiants des espaces de travail dont les notifications sont silencieuses. Mettez un espace en sourdine depuis le menu de sa ligne dans la barre latérale." } },
+        "it": { "stringUnit": { "state": "needs_review", "value": "ID dei workspace le cui notifiche sono silenziate. Silenzia un workspace dal menu della sua riga nella barra laterale." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "通知を鳴らさないワークスペースの ID。ワークスペースのミュートはサイドバーの行メニューから行います。" } },
+        "km": { "stringUnit": { "state": "needs_review", "value": "លេខសម្គាល់កន្លែងធ្វើការដែលការជូនដំណឹងត្រូវបានបិទសំឡេង។ បិទសំឡេងកន្លែងធ្វើការពីម៉ឺនុយជួររបស់វានៅរបារចំហៀង។" } },
+        "ko": { "stringUnit": { "state": "needs_review", "value": "알림이 울리지 않는 워크스페이스 ID입니다. 사이드바 행 메뉴에서 워크스페이스를 음소거하세요." } },
+        "nb": { "stringUnit": { "state": "needs_review", "value": "ID-er for arbeidsområder med dempede varsler. Demp et arbeidsområde fra radmenyen i sidepanelet." } },
+        "pl": { "stringUnit": { "state": "needs_review", "value": "Identyfikatory obszarów roboczych z wyciszonymi powiadomieniami. Wycisz obszar roboczy z menu jego wiersza na pasku bocznym." } },
+        "pt-BR": { "stringUnit": { "state": "needs_review", "value": "IDs dos espaços de trabalho com notificações silenciadas. Silencie um espaço de trabalho pelo menu da linha dele na barra lateral." } },
+        "ru": { "stringUnit": { "state": "needs_review", "value": "Идентификаторы рабочих пространств с беззвучными уведомлениями. Выключите звук пространства в меню его строки на боковой панели." } },
+        "th": { "stringUnit": { "state": "needs_review", "value": "รหัสของเวิร์กสเปซที่ปิดเสียงการแจ้งเตือน ปิดเสียงเวิร์กสเปซได้จากเมนูของแถวในแถบด้านข้าง" } },
+        "tr": { "stringUnit": { "state": "needs_review", "value": "Bildirimleri sessiz olan çalışma alanlarının kimlikleri. Bir çalışma alanını kenar çubuğundaki satır menüsünden sessize alın." } },
+        "uk": { "stringUnit": { "state": "needs_review", "value": "Ідентифікатори робочих просторів із беззвучними сповіщеннями. Вимкніть звук простору в меню його рядка на бічній панелі." } },
+        "vi": { "stringUnit": { "state": "needs_review", "value": "ID của các không gian làm việc có thông báo bị tắt tiếng. Tắt tiếng một không gian làm việc từ menu hàng của nó trên thanh bên." } },
+        "zh-Hans": { "stringUnit": { "state": "needs_review", "value": "通知静音的工作区 ID。可在侧边栏的工作区行菜单中静音。" } },
+        "zh-Hant": { "stringUnit": { "state": "needs_review", "value": "通知靜音的工作區 ID。可在側邊欄的工作區列選單中靜音。" } }
+      }
     }
   },
   "version": "1.0"

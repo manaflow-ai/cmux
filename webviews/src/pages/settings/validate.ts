@@ -127,5 +127,9 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
         Object.values(value).every((item) => typeof item === "string")
         ? null
         : "expected an object of strings";
+    case "string_list":
+      return Array.isArray(value) && value.every((item) => typeof item === "string" && item.length > 0)
+        ? null
+        : "expected a list of non-empty strings";
   }
 }
