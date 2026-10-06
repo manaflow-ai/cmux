@@ -42,6 +42,10 @@ extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
     public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
 
+    /// Whether personal groups carry a place among the loose workspaces
+    /// (`personal-mixed-order-v1`).
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.shared.personalMixedOrder) ?? false }
+
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {
             if personal.isLoaded { personal = PersonalStore() }

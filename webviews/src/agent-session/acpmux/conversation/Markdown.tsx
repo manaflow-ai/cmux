@@ -5,6 +5,7 @@
 // code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
 // and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useId, useMemo, useRef, type ReactNode } from "react";
+import { useT } from "../i18n";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
 import { CodeHandoff, PlainCode } from "./StreamingCode";
@@ -31,6 +32,10 @@ export type MdBlock =
 export type MdListItem = { text: string; task?: boolean; checked?: boolean; children: MdBlock[] };
 
 const LIST_RE = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+/// The deepest nesting of quotes and lists the parser builds. A reply is untrusted, and each level
+/// costs stack while it draws (800 list levels overflowed it), so content below this depth draws
+/// as the plain text of one paragraph.
+export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
@@ -39,7 +44,8 @@ export function parseMarkdown(src: string): MdBlock[] {
   return parseLines(lines);
 }
 
-function parseLines(lines: string[]): MdBlock[] {
+/// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
+function parseLines(lines: string[], depth = 0): MdBlock[] {
   const out: MdBlock[] = [];
   let i = 0;
   while (i < lines.length) {
@@ -86,7 +92,7 @@ function parseLines(lines: string[]): MdBlock[] {
     if (/^\s*>/.test(line)) {
       const body: string[] = [];
       while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push({ type: "blockquote", children: parseLines(body) });
+      out.push({ type: "blockquote", children: nested(body, depth + 1) });
       continue;
     }
     if (
@@ -112,7 +118,7 @@ function parseLines(lines: string[]): MdBlock[] {
       continue;
     }
     if (LIST_RE.test(line)) {
-      const [block, next] = parseList(lines, i);
+      const [block, next] = parseList(lines, i, depth);
       out.push(block);
       i = next;
       continue;
@@ -169,7 +175,14 @@ function indentOf(l: string) {
   return l.match(/^\s*/)![0].replace(/\t/g, "    ").length;
 }
 
-function parseList(lines: string[], start: number): [MdBlock, number] {
+/// The blocks of lines nested `depth` levels down, or their text as one paragraph at the cap.
+function nested(lines: string[], depth: number): MdBlock[] {
+  if (depth < MAX_NESTING) return parseLines(lines, depth);
+  const text = lines.map((line) => line.trim()).filter(Boolean).join("\n");
+  return text ? [{ type: "paragraph", text }] : [];
+}
+
+function parseList(lines: string[], start: number, depth: number): [MdBlock, number] {
   const first = lines[start].match(LIST_RE)!;
   const base = indentOf(lines[start]);
   const ordered = /\d/.test(first[2]);
@@ -196,11 +209,11 @@ function parseList(lines: string[], start: number): [MdBlock, number] {
         : { text, children: [] };
       i++;
       // Nested content: lines indented deeper than the marker.
-      const nested: string[] = [];
-      while (i < lines.length && lines[i].trim() && indentOf(lines[i]) > base) nested.push(lines[i++]);
-      if (nested.length) {
-        const strip = Math.min(...nested.map(indentOf));
-        item.children = parseLines(nested.map((n) => n.slice(strip)));
+      const inner: string[] = [];
+      while (i < lines.length && lines[i].trim() && indentOf(lines[i]) > base) inner.push(lines[i++]);
+      if (inner.length) {
+        const strip = Math.min(...inner.map(indentOf));
+        item.children = nested(inner.map((n) => n.slice(strip)), depth + 1);
       }
       items.push(item);
       continue;
@@ -238,6 +251,29 @@ export function footnoteOrder(source: string): string[] {
 /// An image's source the pane can show: a data URL of a raster or SVG image. The pane's CSP
 /// loads no other image, so a web image draws as a link to it.
 const INLINE_IMAGE = /^data:image\/(?:png|jpe?g|gif|webp|svg\+xml);/i;
+/// The longest data URL an image draws from (2 MB of text); a longer one draws as its name only,
+/// so a reply cannot make the pane decode and hold an arbitrarily large image.
+export const MAX_DATA_URL_LENGTH = 2_000_000;
+/// What an over-long data URL is replaced with before the inline parser sees it (`capDataUrls`).
+const OVERSIZED_DATA_URL = "data:image/x-cmux-oversized;";
+const URL_END = /[\s()]/g;
+
+/// `text` with every link or image target that is a data URL over MAX_DATA_URL_LENGTH replaced by
+/// OVERSIZED_DATA_URL, in one linear scan. The inline pattern does not match such a long target
+/// (it would draw the whole URL as text), and the pane never decodes it.
+function capDataUrls(text: string): string {
+  if (text.length <= MAX_DATA_URL_LENGTH) return text;
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf("](data:"); at >= 0; at = text.indexOf("](data:", from)) {
+    const start = at + 2;
+    URL_END.lastIndex = start;
+    const end = URL_END.exec(text)?.index ?? text.length;
+    out += text.slice(from, start) + (end - start > MAX_DATA_URL_LENGTH ? OVERSIZED_DATA_URL : text.slice(start, end));
+    from = end;
+  }
+  return out + text.slice(from);
+}
 
 /**
  * A link is marked with its site: GitHub mark, the arXiv favicon (a citation), a file
@@ -266,7 +302,8 @@ const INLINE_RE =
   /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
-export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[] {
+export function renderInline(source: string, opts: InlineOptions = {}): ReactNode[] {
+  const text = capDataUrls(source);
   const out: ReactNode[] = [];
   let last = 0;
   let k = 0;
@@ -335,6 +372,8 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
 /// to it, named by its alt text or file name.
 function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) {
   const [, alt = "", src = ""] = source.match(/^!\[([^\]]*)\]\((.+)\)$/) ?? [];
+  if (src === OVERSIZED_DATA_URL || (INLINE_IMAGE.test(src) && src.length > MAX_DATA_URL_LENGTH))
+    return <OversizedImage alt={alt} opts={opts} />;
   if (INLINE_IMAGE.test(src)) return <img className="cv-img" src={src} alt={alt} />;
   const name = alt || src.split(/[?#]/)[0]!.split("/").filter(Boolean).at(-1) || src;
   const href = safeHref(src);
@@ -350,6 +389,18 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
       <ImageIcon size={16} className="cv-link__icon" />
       {renderInline(name, opts)}
     </a>
+  );
+}
+
+/// A data URL image over MAX_DATA_URL_LENGTH: its alt text (or "Image too large to show") with the
+/// image mark, never the URL itself.
+function OversizedImage({ alt, opts }: { alt: string; opts: InlineOptions }) {
+  const t = useT();
+  return (
+    <span className="cv-link is-image" title={t("markdown.imageTooLarge")}>
+      <ImageIcon size={16} className="cv-link__icon" />
+      {alt ? renderInline(alt, opts) : t("markdown.imageTooLarge")}
+    </span>
   );
 }
 

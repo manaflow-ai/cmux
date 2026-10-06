@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { DisplayName, HostId, InstallId, PairingCode, Platform, PublicJwk, TeamId, UserId } from "./schemas.ts"
+import { DisplayName, HostId, InstallId, PairingCode, Platform, PublicJwk, ServerCapabilities, TeamId, UserId } from "./schemas.ts"
 
 /**
  * cmux server pairing (plans/cmux-next/server.md 6). A server that has no
@@ -18,7 +18,9 @@ export const PairingInfo = Schema.Struct({
   platform: Platform,
   os_version: Schema.String.check(Schema.isMaxLength(80)),
   arch: Schema.Literals(["x86_64", "aarch64"]),
-  cmux_version: Schema.String.check(Schema.isMaxLength(40))
+  cmux_version: Schema.String.check(Schema.isMaxLength(40)),
+  /** What the server is, for the approver (`optchat-chief-brain`); kept on the paired install. */
+  capabilities: Schema.optionalKey(ServerCapabilities)
 }).annotate({ identifier: "PairingInfo" })
 
 export const PairingPreview = Schema.Struct({

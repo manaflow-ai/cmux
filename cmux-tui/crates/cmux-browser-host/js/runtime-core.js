@@ -2063,6 +2063,10 @@
     }
   }
 
+  // How long Download.path() waits for download.finished after the driver
+  // reported the saved path (the event travels apart from the reply).
+  const DOWNLOAD_FINISHED_WAIT_MS = 30000;
+
   class Download {
     constructor(page, payload) {
       this._page = page;
@@ -2082,6 +2086,24 @@
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
+      // The reply can overtake the download.finished event (they travel
+      // apart): answer once the event is in, so state read after path()
+      // (session.downloads()) is current. The driver answered, so the
+      // download finished and its event is on the way; a lost event fails
+      // with `timeout` after DOWNLOAD_FINISHED_WAIT_MS (host clock).
+      if (!this._outcome) {
+        const session = this._page._session;
+        const expired = {};
+        let timer;
+        const late = new Promise((resolve) => (timer = session.host.setTimeout(() => resolve(expired), DOWNLOAD_FINISHED_WAIT_MS)));
+        const outcome = await Promise.race([this._finished, late]);
+        if (session.host.clearTimeout) session.host.clearTimeout(timer);
+        if (outcome === expired) {
+          const error = new TimeoutError(`download.path: download ${this._p.downloadId} (${this._p.suggestedFilename}) is saved, but its download.finished event did not arrive within ${DOWNLOAD_FINISHED_WAIT_MS}ms`);
+          error.code = "timeout";
+          throw error;
+        }
+      }
       if (this._page._session.onDownloadPath) this._page._session.onDownloadPath(path);
       return path;
     }

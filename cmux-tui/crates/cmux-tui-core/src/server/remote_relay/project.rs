@@ -110,7 +110,8 @@ fn part(part: &Part) -> Option<RemotePart> {
             text: text.clone(),
             runs: runs.as_ref().map(|runs| runs.iter().map(text_run).collect()),
         }),
-        Part::Work { .. } => None,
+        // Paired installs cannot fetch attachment bytes yet (no relay read).
+        Part::Work { .. } | Part::Attachment { .. } => None,
     }
 }
 

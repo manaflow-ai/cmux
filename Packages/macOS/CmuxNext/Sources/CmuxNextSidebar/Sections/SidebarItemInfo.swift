@@ -2,14 +2,6 @@ public import CmuxNextDesign
 public import CmuxNextIcons
 import Foundation
 
-/// A small control on an item's trailing edge with its own action.
-public nonisolated enum SidebarItemAccessory: Hashable, Sendable {
-    /// An app update is available: a click installs it (on Settings).
-    /// `title` is the control's tooltip and VoiceOver label, from the
-    /// App ("Restart to Update" for a staged update).
-    case update(title: String)
-}
-
 /// How a layout item draws. The sidebar knows built-ins; the App resolves
 /// workspace, tab, room and other references (`SidebarModel.itemInfo`).
 public nonisolated struct SidebarItemInfo: Hashable, Sendable {
@@ -28,14 +20,15 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isMissing: Bool
     /// Not drawn at all (a hidden app, D55); the item stays in the layout.
     public var isHidden: Bool
-    /// The trailing control (`SidebarIntent.activateItemAccessory`).
-    public var accessory: SidebarItemAccessory?
+    /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
+    public var shortcut: String?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
-                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil) {
+                isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil) {
         self.icon = icon
+        self.shortcut = shortcut
         self.isHidden = isHidden
         self.caption = caption
         self.title = title
@@ -121,6 +114,14 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, icon: icon, caption: caption) }
+}
+
+extension SidebarItemInfo {
+    /// An icon's tooltip: the title, and the shortcut when there is one
+    /// ("Settings (⌘,)").
+    public var toolTip: String {
+        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+    }
 }
 
 extension SidebarItemInfo {

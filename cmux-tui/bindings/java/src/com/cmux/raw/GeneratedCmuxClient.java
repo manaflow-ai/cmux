@@ -233,6 +233,16 @@ public abstract class GeneratedCmuxClient {
         return ConversationAgentTokenResult.fromWire(result);
     }
 
+    public final ConversationAttachmentReadResult conversationAttachmentRead(ConversationAttachmentReadRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_ATTACHMENT_READ, request.toWire());
+        return ConversationAttachmentReadResult.fromWire(result);
+    }
+
+    public final ConversationAttachmentUploadResult conversationAttachmentUpload(ConversationAttachmentUploadRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_ATTACHMENT_UPLOAD, request.toWire());
+        return ConversationAttachmentUploadResult.fromWire(result);
+    }
+
     public final ConversationBindResult conversationBind(ConversationBindRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_BIND, request.toWire());
         return ConversationBindResult.fromWire(result);

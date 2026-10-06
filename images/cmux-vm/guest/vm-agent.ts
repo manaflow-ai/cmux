@@ -688,6 +688,37 @@ export class ActivityWatcher {
   }
 }
 
+/**
+ * Bake and smoke evidence on a real image (no bind needed): the daemon advertises
+ * vm-activity-v1, and the agent's own ActivityWatcher connects and gets the snapshot.
+ */
+export async function probeActivity(socketPath: string, timeoutMs = 10_000): Promise<{ capability: true; connected: true; activity: Activity }> {
+  const identify = await queryDaemonIdentify(socketPath, timeoutMs);
+  const caps = Array.isArray(identify.capabilities) ? identify.capabilities : [];
+  if (!caps.includes(DAEMON_ACTIVITY_CAPABILITY)) throw new Error(`daemon does not advertise ${DAEMON_ACTIVITY_CAPABILITY}`);
+  return await new Promise((resolve, reject) => {
+    let connected = false;
+    const watcher = new ActivityWatcher({
+      socketPath,
+      clock: systemClock,
+      onConnected: (c) => {
+        connected = connected || c;
+      },
+      onActivity: (activity) => {
+        if (!connected) return;
+        clearTimeout(timer);
+        watcher.stop();
+        resolve({ capability: true, connected: true, activity });
+      },
+    });
+    const timer = setTimeout(() => {
+      watcher.stop();
+      reject(new Error("activity stream did not connect"));
+    }, timeoutMs);
+    watcher.start();
+  });
+}
+
 // ---------------------------------------------------------------- guest wiring
 
 /** One MMDS read (IMDSv2 style, 2 s timeouts); never in a loop. */
@@ -771,6 +802,12 @@ async function main(): Promise<void> {
   const store = new FileStore();
   if (process.argv.includes("--notify-resume")) {
     await notifyResume();
+    return;
+  }
+  if (process.argv.includes("--probe-activity")) {
+    const socketPath = store.read(DAEMON_SOCKET_FILE)?.trim();
+    if (!socketPath) throw new Error(`${DAEMON_SOCKET_FILE} is missing`);
+    console.log(JSON.stringify(await probeActivity(socketPath)));
     return;
   }
   if (process.argv.includes("--print-daemon-info")) {

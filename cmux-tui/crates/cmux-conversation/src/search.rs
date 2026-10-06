@@ -80,7 +80,7 @@ pub fn message_text(message: &Message) -> String {
         .iter()
         .filter_map(|part| match part {
             Part::Text { text, .. } => Some(text.as_str()),
-            Part::Work { .. } => None,
+            Part::Work { .. } | Part::Attachment { .. } => None,
         })
         .collect::<Vec<_>>()
         .join(" ");

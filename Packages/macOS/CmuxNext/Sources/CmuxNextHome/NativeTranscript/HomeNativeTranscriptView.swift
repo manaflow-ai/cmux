@@ -2,42 +2,49 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 import CmuxNextDesign
-import Observation
+import MessagesLabHome
 
-/// The Home transcript on the shared render core with native AppKit parts
-/// (plans/cmux-next/home-mac.md, mac-home-rendering.md option B): the rows,
-/// their springs and the send morph come from `CmuxHomeRender`; scrolling is
-/// an NSScrollView, the compose field a Liquid Glass NSTextView. Data comes
-/// in only through `controller.update` (or `HomeStoreBinding`); intents
-/// leave through `controller.onIntent`.
+/// The Home transcript (plans/cmux-next/home-mac.md): MessagesLabAppKitNative's
+/// own code and motion (`MessagesLabHome`, vendored at the MessagesLab
+/// commit in Packages/Shared/CmuxMessagesLab/vendor.tsv),
+/// hosted in the pane over the shared HomeStore. The rows, springs, send
+/// morph, Liquid Glass field and its render-server field animation, the
+/// blurred header and native scrolling are MessagesLab's; this view adds the
+/// cmux parts around it: the theme, the first-run panel, focus,
+/// availability, and lane 16's attachment intake (the file picker, paste
+/// and drop checks, preparing through HomeStore, the notice above the
+/// field). Data reaches it only from HomeStore (the single writer); sends
+/// and tapbacks leave as HomeIntents. The view owns its conversation's
+/// `HomeStoreBinding` (refusals, unanswered ops, attachment fetches, Cancel
+/// Upload), so no host can leave those unwired.
 public final class HomeNativeTranscriptView: NSView {
-    public let controller: HomeController
-    let scroll = HomeTranscriptScrollView()
-    let rowHost = HomeRowHostView()
-    let field = HomeFieldView()
-    let header = HomeGlassHeaderView()
+    let transcript: MessagesLabHomeView
     let firstRun = HomeFirstRunView()
-    /// False while the owner is unreachable (H17: offline Send is off; the
-    /// text stays a draft). The wiring sets it from `HomeStore.connection`.
-    public var isSendEnabled = true {
-        didSet { rowHost.reactionsEnabled = isSendEnabled }
-    }
-    /// A user-chosen sent-bubble colour; nil follows the theme.
-    public var accentOverride: NSColor? { didSet { applyTheme() } }
-    /// Prepares dropped, pasted and picked files (the data side). Nil:
-    /// the composer takes no attachments and shows no attach button.
-    public var attachmentPreparer: (any HomeAttachmentPreparing)? {
-        didSet { field.attachEnabled = attachmentPreparer != nil }
-    }
+    let me: ParticipantID
+    /// This conversation's part of the store: chained refusal and
+    /// unanswered callbacks, attachment bytes, Cancel Upload.
+    public let binding: HomeStoreBinding
+    /// The notice above the field (an attachment refused, a send refused in
+    /// the background, an op that may not have gone through).
+    let noticeLabel = NSTextField(wrappingLabelWithString: "")
+    private(set) var notice: String?
+    /// Prepares dropped, pasted and picked files (the data side; the store
+    /// by default, a recorder in tests). Nil: the composer takes none.
+    public var attachmentPreparer: (any HomeAttachmentPreparing)?
+    /// Whether photos and videos keep their location (Settings > Home,
+    /// `home.attachments.keepLocation`; false strips it, the default).
+    public var keepLocation: () -> Bool = { false }
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
-    /// The drafts of the last send by content hash: a send the owner
-    /// refuses before logging it gets them back (`onRestoreAttachments`).
-    var sentDrafts: [String: HomeDraftAttachment] = [:]
-    /// Cancels my pending send (`HomeStoreBinding.cancelSend`); the menu
-    /// offers it only while `HomeController.cancellableSend` is true.
-    public var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
+    private var stopped = false
+    /// False while the owner is unreachable (H17: offline Send is off; the
+    /// text stays a draft). The wiring sets it from `HomeStore.connection`.
+    public var isSendEnabled = true {
+        didSet { transcript.isSendEnabled = isSendEnabled }
+    }
+    /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
+    public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
@@ -47,74 +54,81 @@ public final class HomeNativeTranscriptView: NSView {
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     private var observers: [any NSObjectProtocol] = []
 
-    static let fieldInset: CGFloat = 16
-    static let fieldBottom: CGFloat = 14
-    /// A wide window centres the field at a reading width instead of
-    /// stretching one bar across the page.
-    static let fieldMaxWidth: CGFloat = 760
-
-    public init(conversation: ConversationID, me: ParticipantID) {
-        let palette = ThemeScope.app.perform { HomeThemePalette.resolveInScope(active: true) }
-        controller = HomeController(conversation: conversation, me: me, palette: palette, deadline: HomeDemandDeadline())
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
+        self.me = me
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once.
+        binding = HomeStoreBinding(store: store, conversation: conversation)
+        attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
-        addSubview(scroll)
-        scroll.rowHost.addSubview(rowHost)
-        rowHost.controller = controller
-        rowHost.layer?.addSublayer(controller.rootLayer)
-        scroll.controller = controller
+        addSubview(transcript)
         addSubview(firstRun)
+        noticeLabel.isHidden = true
+        noticeLabel.font = Typography.caption
+        noticeLabel.alignment = .center
+        noticeLabel.maximumNumberOfLines = 2
+        noticeLabel.isSelectable = false
+        addSubview(noticeLabel)
+        connectAttachments()
         firstRun.isHidden = true
         firstRun.onSuggestion = { [weak self] prompt in
             guard let self else { return }
-            self.field.text = prompt
-            self.window?.makeFirstResponder(self.field.textView)
-            self.needsLayout = true
+            self.transcript.setDraft(prompt)
+            self.window?.makeFirstResponder(self.transcript.primaryInput)
         }
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
-        addSubview(field)
-        addSubview(header)
-        controller.topInset = HomeGlassHeaderView.height
-        controller.onSummaryChange = { [weak self] summary in
-            guard let self else { return }
-            self.header.show(summary, me: self.controller.me)
-            self.updateFirstRun()
-        }
-        controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
-        controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
-        controller.onRowsChange = { [weak self] in
-            self?.rowHost.rowsChanged()
-            self?.updateFirstRun()
-        }
-        controller.onRestoreDraft = { [weak self] text in
-            guard let self, self.field.text.isEmpty else { return }
-            self.field.text = text
-        }
-        field.onSend = { [weak self] in self?.sendDraft() }
-        field.onAttach = { [weak self] in self?.pickFiles() }
-        field.onAttachmentPasteboard = { [weak self] board in self?.handlePaste(board) ?? false }
-        rowHost.onVideoClick = { [weak self] hit in
-            guard let self, self.controller.toggleVideo(hit) else { return false }
-            self.rowHost.accessibilityChanged()
-            return true
-        }
-        rowHost.onCancelSend = { [weak self] key in self?.onCancelSend(key) ?? false }
-        controller.onRestoreAttachments = { [weak self] refs in
-            guard let self else { return }
-            for ref in refs { if let draft = self.sentDrafts[ref.hash] { self.field.addDraft(draft) } }
-        }
-        registerForDraggedTypes(HomeAttachmentIntake.dragTypes)
-        rowHost.onEmptyClick = { [weak self] in
-            guard let self else { return }
-            self.window?.makeFirstResponder(self.field.textView)
-        }
-        field.onHeightChange = { [weak self] in self?.needsLayout = true }
+        transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
+        transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         followTextSize()
+        applyTheme()
+        updateFirstRun()
     }
 
-    /// The Mac's text size (Settings > Interface Size, the palette's
-    /// Increase, Decrease and Reset Interface Size) scales the transcript and
-    /// the field, live: `DesignSettings` is observed, not polled.
+    required init?(coder: NSCoder) { nil }
+
+    isolated deinit {
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+    }
+
+    /// Stops forwarding (the conversation closed). Once.
+    public func stop() {
+        guard !stopped else { return }
+        stopped = true
+        intake?.cancel()
+        transcript.stop()
+        binding.stop()
+    }
+
+    public override var isFlipped: Bool { true }
+    public override var acceptsFirstResponder: Bool { true }
+
+    /// A click on the header's name pill (the Chief's settings sidebar).
+    public var onNamePill: () -> Void {
+        get { transcript.onNamePill }
+        set { transcript.onNamePill = newValue }
+    }
+
+    /// The header avatar's text; nil shows the conversation's initials.
+    public var avatarText: String? {
+        get { transcript.avatarText }
+        set { transcript.avatarText = newValue }
+    }
+
+    /// The name pill's VoiceOver help.
+    public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
+
+    /// The primary input (spec/app-screens.md section 3): the message box's
+    /// text view. Hosts focus this view, not the transcript.
+    public var primaryInput: NSView { transcript.primaryInput }
+
+    public override func becomeFirstResponder() -> Bool {
+        window?.makeFirstResponder(primaryInput) ?? false
+    }
+
+    /// The live interface scale applies to the native first-run chrome. The
+    /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
             applyTextScale(Typography.userScale)
@@ -124,49 +138,42 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     func applyTextScale(_ scale: CGFloat) {
-        controller.textScale = scale
-        field.scale = controller.textScale
-    }
-
-    required init?(coder: NSCoder) { nil }
-
-    isolated deinit {
-        for o in observers { NotificationCenter.default.removeObserver(o) }
-    }
-
-    public override var isFlipped: Bool { true }
-    public override var acceptsFirstResponder: Bool { true }
-
-    /// The primary input (spec/app-screens.md section 3): the message box's
-    /// text view. Hosts focus this view, not the transcript.
-    public var primaryInput: NSView { field.textView }
-
-    public override func becomeFirstResponder() -> Bool {
-        window?.makeFirstResponder(field.textView) ?? false
-    }
-
-    /// The field's frame in viewport points (top-left origin).
-    var fieldFrame: CGRect {
-        let h = field.preferredHeight
-        let width = max(60, min(Self.fieldMaxWidth, bounds.width - 2 * Self.fieldInset))
-        return CGRect(x: ((bounds.width - width) / 2).rounded(), y: bounds.height - Self.fieldBottom - h, width: width, height: h)
+        firstRun.applyScale(scale)
+        needsLayout = true
     }
 
     public override func layout() {
         super.layout()
-        scroll.frame = bounds
-        rowHost.frame = CGRect(origin: .zero, size: bounds.size)
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        controller.rootLayer.frame = rowHost.bounds
-        CATransaction.commit()
-        controller.resize(to: bounds.size)
-        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
-        layoutField(send: false)
-        let top = HomeGlassHeaderView.height
-        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, fieldFrame.minY - top))
-        updateFirstRun()
-        scroll.apply(controller.scrollGeometry)
+        // Showing the tab again re-attaches the same views: nothing to do
+        // unless the size changed (no layout, bitmap or backdrop rebuild).
+        guard transcript.frame != bounds else { layoutNotice(); return }
+        transcript.frame = bounds
+        transcript.layoutSubtreeIfNeeded()
+        let top = transcript.headerHeight
+        firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
+        layoutNotice()
+    }
+
+    /// Above the field, inset like it; MessagesLab's field keeps its geometry.
+    func layoutNotice() {
+        guard notice != nil else { return }
+        let width = max(0, bounds.width - 32)
+        noticeLabel.preferredMaxLayoutWidth = width
+        let height = ceil(noticeLabel.intrinsicContentSize.height)
+        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+    }
+
+    /// Shows (or with nil clears) the notice; VoiceOver hears it.
+    func showNotice(_ text: String?) {
+        guard text != notice else { return }
+        notice = text
+        noticeLabel.stringValue = text ?? ""
+        noticeLabel.isHidden = text == nil
+        noticeLabel.setAccessibilityLabel(text)
+        if let text {
+            NSAccessibility.post(element: noticeLabel, notification: .announcementRequested, userInfo: [.announcement: text])
+        }
+        layoutNotice()
     }
 
     /// The first-run rows' shortcuts and the tab hint's keys, as the
@@ -177,41 +184,7 @@ public final class HomeNativeTranscriptView: NSView {
 
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
-        let me = controller.me
-        firstRun.isHidden = holdsFirstRun || !(controller.isEmpty && controller.conversationSummary?.kind(me: me) == .chief)
-    }
-
-    private func layoutField(send: Bool) {
-        let f = fieldFrame
-        guard field.frame != f || send else { return }
-        let old = field.frame
-        if old.height != f.height, old.height > 0, window != nil,
-           let keyframes = controller.fieldKeyframes(from: old, to: f, send: send) {
-            HomeFieldSpring.animate(field, to: f, keyframes: keyframes)
-        } else {
-            field.animations = [:]
-            field.frame = f
-        }
-        controller.setHostedField(f, send: send)
-    }
-
-    /// Sends the text and the draft attachments as one message; each
-    /// attachment flies from its tray chip into its bubble.
-    func sendDraft() {
-        guard isSendEnabled else { return }
-        let frame = fieldFrame
-        let drafts = field.draftAttachments
-        let outgoing = drafts.map { draft in
-            HomeOutgoingAttachment(ref: draft.ref, files: draft.prepared.files,
-                                   origin: field.tray.chipFrame(draft.ref.hash).map { field.tray.convert($0, to: self) },
-                                   preview: draft.thumbnail)
-        }
-        guard controller.sendHosted(text: field.text, attachments: outgoing, from: frame) != nil else { return }
-        sentDrafts = Dictionary(drafts.map { ($0.ref.hash, $0) }, uniquingKeysWith: { a, _ in a })
-        field.text = ""
-        field.clearDrafts()
-        field.showNotice(nil)
-        layoutField(send: true)
+        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     public override func viewDidMoveToWindow() {
@@ -219,7 +192,6 @@ public final class HomeNativeTranscriptView: NSView {
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
         guard let window else { return }
-        controller.contentsScale = window.backingScaleFactor
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
@@ -228,11 +200,8 @@ public final class HomeNativeTranscriptView: NSView {
             })
         }
         windowStateChanged()
-    }
-
-    public override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        controller.contentsScale = window?.backingScaleFactor ?? 2
+        // A theme change while the tab was hidden (equal palettes return early).
+        applyTheme()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -241,27 +210,21 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     private func windowStateChanged() {
-        controller.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-        applyTheme()
+        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
+    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
-        let active = window?.isKeyWindow ?? true
         let accent = accentOverride
-        controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
+        let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, accentOverride: accent) }
+        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, accentOverride: accent) }
+        let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
+        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         performWithTheme {
-            // The header takes the transcript's own fill, so the two read as
-            // one page; over a see-through fill (window backdrop art) it fades
-            // from the opaque page colour so no bar edge sits on the art.
-            let home = Palette.fill(for: .home, default: Palette.paneFill)
-            let seeThrough = home.alphaComponent < 1
-            header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
-                               page: seeThrough ? Palette.pageBackground : home, seeThrough: seeThrough,
-                               accent: Palette.highlight)
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
                                  fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
-            field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
-                              text: Palette.textPrimary, secondary: Palette.textTertiary)
+            noticeLabel.textColor = Palette.textSecondary
         }
     }
 }
