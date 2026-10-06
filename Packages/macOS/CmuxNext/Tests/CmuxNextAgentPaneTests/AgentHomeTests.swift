@@ -96,6 +96,36 @@ import Testing
         await rig.send("session/new", ["mcpServers": [Any]()], expect: .pathInvalid)
     }
 
+    /// #17470: a fresh workspace opens on the chat-first New Tab page, its chat seeded with the
+    /// daemon's default folder, the home folder. That inherited `~` is no chat folder: the page
+    /// gets no cwd and the offer to choose one, and the chat starts in agent-home.
+    @Test func aFreshWorkspaceNewTabPageChatStartsInAgentHomeNeverTheHomeFolder() async throws {
+        let rig = AgentPaneProductRulesTests.Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let userHome = rig.folder("home")
+        let model = AgentPaneModel(host: MockAgentPaneHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: userHome)),
+                                   newTab: AgentPaneNewTab(kind: .agent), transport: rig.transport)
+        rig.transport.homeFolder = userHome
+        let home = AgentHome(base: rig.folder("support") + "/cmux/agent-home")
+        model.workspaceRoots = { [] }
+        model.workspaceAgentHome = { AgentHomeFill(home: home, workspace: "ws-fresh") }
+        model.onChooseFolder = { nil }
+        let handshake = await model.respond(to: .ready)["value"] as? [String: Any]
+        #expect(handshake?["cwd"] == nil)
+        #expect(handshake?["chooseFolder"] as? Bool == true)
+        #expect(model.transport.primaryRoot() == nil)
+        let chat = await rig.send("session/new", ["mcpServers": [Any]()])
+        #expect(await rig.cwd(chat) == home.base + "/ws-fresh")
+        // The home folder is no root, so the page cannot reach it.
+        await rig.send("session/new", ["cwd": userHome, "mcpServers": [Any]()], expect: .pathOutsideRoots)
+        // A workspace that has a folder still starts there, even with `~` inherited.
+        let project = rig.folder("project")
+        model.workspaceRoots = { [userHome, project] }
+        let inProject = await rig.send("session/new", ["mcpServers": [Any]()])
+        #expect(await rig.cwd(inProject) == project)
+    }
+
     @Test func theModelGivesItsTransportTheWorkspaceAgentHome() throws {
         let model = AgentPaneModel(host: MockAgentPaneHost())
         let home = AgentHome(base: try base())
