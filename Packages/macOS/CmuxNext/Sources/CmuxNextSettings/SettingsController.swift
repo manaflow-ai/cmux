@@ -260,6 +260,10 @@ public final class SettingsController {
     /// The launch's first load, on the calling thread: the first window
     /// draws in the file's appearance, never a frame of the defaults first.
     private func loadNow() {
+        if let launch = launchRead {
+            launchRead = nil
+            return adopt(launch.loaded)
+        }
         let source = Result { try CmuxConfigFile.source(at: file.url) }
         adopt(Self.loaded(source, managed: managedReader.read(), team: teamPolicy, lastGood: fileRoot, valid: Self.validValues,
                           configDirectory: file.url.deletingLastPathComponent()))
@@ -270,6 +274,7 @@ public final class SettingsController {
     /// adopts it (`init(launch:)`) instead of reading the file again.
     public nonisolated struct LaunchRead: Sendable {
         fileprivate let loaded: Loaded
+        public let fileURL: URL
         public var snapshot: CmuxConfigSnapshot { loaded.snapshot }
     }
 
@@ -278,7 +283,7 @@ public final class SettingsController {
     ) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
         return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
-                                         configDirectory: fileURL.deletingLastPathComponent()))
+                                         configDirectory: fileURL.deletingLastPathComponent()), fileURL: fileURL)
     }
 
     fileprivate typealias Loaded = (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot)
