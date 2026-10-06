@@ -28,7 +28,9 @@ describe("tooltip placement", () => {
 
 describe("tooltips", () => {
   const setup = () => {
-    const dom = new JSDOM('<!doctype html><body><button id=a title="Sessions">a</button><button id=b title="History">b</button></body>');
+    const dom = new JSDOM(
+      '<!doctype html><body><button id=a title="Sessions">a</button><button id=b title="History">b</button></body>',
+    );
     const doc = dom.window.document;
     const uninstall = installTooltips(doc);
     const tip = () => doc.querySelector<HTMLElement>(".acpmux-tooltip")!;
