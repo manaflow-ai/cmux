@@ -105,6 +105,7 @@ nonisolated enum CloudHomeMapping {
     static func apply(_ entry: CloudInboxEntry, to summary: inout CmuxHomeCore.ConversationSummary) {
         summary.pinRank = entry.pinned ? (entry.pinPosition ?? 0) : nil
         summary.muted = entry.muted
+        summary.mentionCount = Int(clamping: entry.mentions)
         if entry.lastSeq > summary.lastSeq {
             summary.lastSeq = entry.lastSeq
             if let at = HomeCoreMapping.date(entry.lastAt) { summary.updatedAt = max(summary.updatedAt, at) }

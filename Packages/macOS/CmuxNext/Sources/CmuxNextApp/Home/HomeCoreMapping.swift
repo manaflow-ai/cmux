@@ -95,7 +95,7 @@ nonisolated enum HomeCoreMapping {
             case .emoji(let emoji): .emoji(emoji)
             }
             return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: kind))
-        case .createGroup, .createChief, .startConversation, .invite, .setPinned, .setMuted, .setTyping:
+        case .createGroup, .createChief, .startConversation, .invite, .openDirect, .setPinned, .setMuted, .setTyping:
             return nil
         }
     }

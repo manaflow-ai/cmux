@@ -39,6 +39,16 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter)
     @ObservationIgnored var cloudLink: Task<Void, Never>?
+    /// Team members and Chiefs for the Home page's New Message and New Chief.
+    @ObservationIgnored private(set) lazy var directory = HomeDirectory(
+        call: { [weak self] path, body in
+            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body)
+        },
+        me: { [weak self] in self?.services.cloud.auth.user?.id })
+    /// A conversation the Home page selects once the inbox lists it (a new
+    /// Chief's main conversation, a DM opened from the CLI).
+    var pendingSelection: ConversationID?
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]

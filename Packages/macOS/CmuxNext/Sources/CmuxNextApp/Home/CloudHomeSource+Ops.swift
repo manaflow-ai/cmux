@@ -52,6 +52,8 @@ nonisolated extension CloudHomeSource {
             let result = try await send(.create(title: title.isEmpty ? nil : title, participants: participants), in: nil)
             let created = try opened(result, identity: identity, generation: generation)
             return HomeOpResult(rev: 0, replayed: result.replayed, conversation: created)
+        case .openDirect:
+            throw HomeRejection.invalid("unsupported_op")
         case .invite(let contact):
             return try await openDM(with: contact, firstMessage: [], key: key, identity: identity, generation: generation, send: send)
         case .startConversation(let contacts, let firstMessage):
