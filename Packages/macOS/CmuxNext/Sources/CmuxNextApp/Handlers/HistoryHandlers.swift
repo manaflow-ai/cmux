@@ -11,13 +11,13 @@ enum HistoryHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("focusHistoryBack", run: { _ in
-            guard services.locationTrail.navigate(.back) else { throw ActionFailure(message: HistoryAppStrings.nothingBack) }
+            _ = services.locationTrail.navigate(.back)
         })
         registry.bind("focusHistoryForward", run: { _ in
-            guard services.locationTrail.navigate(.forward) else { throw ActionFailure(message: HistoryAppStrings.nothingForward) }
+            _ = services.locationTrail.navigate(.forward)
         })
         registry.bind("focusHistoryLast", run: { _ in
-            guard services.locationTrail.navigate(.last) else { throw ActionFailure(message: HistoryAppStrings.nothingBack) }
+            _ = services.locationTrail.navigate(.last)
         })
         // A row of the Back / Forward button list (history.md 4.2a): the trail index it shows.
         registry.bind("history.goTo", run: { invocation in

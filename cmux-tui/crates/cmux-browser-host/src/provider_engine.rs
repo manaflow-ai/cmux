@@ -204,6 +204,7 @@ impl ProviderEngine {
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
             self.created_tabs().remove(target_id);
+            self.provider.kept(self.subscription, target_id);
             return Ok(Reply::Value(Value::Null));
         }
         // A structured read: refused before the lease sees it unless it
@@ -215,7 +216,14 @@ impl ProviderEngine {
         // The automation lease: any call that is not a read acts (and takes
         // the lease when the tab has none) before it runs.
         let reads = OBSERVE_METHODS.contains(&method);
-        if !reads {
+        // A handler registration, and the answer to a dialog or chooser the
+        // source routed to this session, are neither inputs nor reads: they
+        // never take, block or refresh a lease (the session that listens for
+        // a tab's dialogs is often not the one that drives it; the source
+        // refuses an answer from a session the event did not go to).
+        let registration =
+            matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
+        if !reads && !registration {
             let act = LeaseOp::Act { target: target_id.to_owned() };
             self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;
             // A close that ran between the check at the top and this lease
