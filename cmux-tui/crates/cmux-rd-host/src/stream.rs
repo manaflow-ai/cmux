@@ -55,7 +55,6 @@ pub struct MediaSession {
     out: DatagramOut,
     /// Where the viewer's datagrams come from (UDP carrier); `None` on the stream carrier.
     peer_udp: Option<std::net::SocketAddr>,
-    last_input_ns: u64,
     deferred_error: Option<String>,
     stats_frames_sent: u64,
     encode_ms: VecDeque<f64>,
@@ -138,7 +137,6 @@ impl MediaSession {
             engine,
             out,
             peer_udp,
-            last_input_ns: 0,
             deferred_error: None,
             stats_frames_sent: 0,
             encode_ms: VecDeque::new(),
@@ -197,11 +195,8 @@ impl MediaSession {
             }
             let timeout = self.engine.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
-            let mut timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
-            // While the viewer types, wake often enough to release input held behind a gap.
-            if now_ns().saturating_sub(self.last_input_ns) < 1_000_000_000 {
-                timeout = timeout.min(50_000_000);
-            }
+            // The engine's deadline covers held frames and input held behind a gap.
+            let timeout = timeout.map_or(stats_in, |t| t.min(stats_in)).min(LIVENESS_NS);
             let timeout = Some(timeout.max(1_000_000));
             if let Err(e) =
                 wait_readable(&[self.cap.fd(), stream.as_raw_fd(), udp.as_raw_fd()], timeout)
@@ -342,9 +337,6 @@ impl MediaSession {
         }
         if out.release_all {
             let _ = self.injector.release_all();
-        }
-        if !out.inject.is_empty() {
-            self.last_input_ns = now_ns();
         }
         for event in &out.inject {
             self.inject(event, table, session, viewer);

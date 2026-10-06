@@ -52,6 +52,13 @@ impl Packetizer {
         first
     }
 
+    /// The display stream the next frames belong to. One packetizer serves
+    /// every stream of a peer, so transport sequence numbers stay one space
+    /// for transport-wide feedback.
+    pub fn set_stream(&mut self, stream: u16) {
+        self.stream = stream;
+    }
+
     /// Splits `body` into data shards plus `parity` parity shards.
     pub fn packetize(
         &mut self,
