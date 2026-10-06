@@ -78,8 +78,9 @@ describe("agent theme", () => {
   test("labels on the accent use the accent label color", () => {
     const acpmux = css("../acpmux/styles.css");
     expect(acpmux).toMatch(/--acpmux-base:var\(--agent-accent-text/);
-    // Send fills with the highlight; its arrow is the highlight's label color, else the opaque base.
-    expect(acpmux).toMatch(/\.acpmux-send\{[^}]*color:var\(--agent-highlight-text,var\(--acpmux-base\)\)/);
+    // Send fills with the theme's text color (not the ANSI-blue highlight); its arrow is the opaque base.
+    expect(acpmux).toMatch(/\.acpmux-send\{[^}]*background:var\(--agent-text\);color:var\(--acpmux-base\)/);
+    expect(acpmux).not.toMatch(/\.acpmux-send[^{]*\{[^}]*--agent-highlight/);
     const shared = css("./styles.css");
     expect(shared).toMatch(/--color-token-button-foreground:\s*var\(--agent-accent-text/);
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
