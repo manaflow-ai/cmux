@@ -53,6 +53,13 @@ extension HomeService {
         cloudChief?.mainConversation == id.rawValue || homeStore.summary(id)?.owner == .cloud
     }
 
+    /// The notice row of a conversation: the local Chief's organizing
+    /// status while a turn waits, else the merge notice.
+    func conversationNotice(for id: ConversationID) -> String? {
+        let isLocalChief = HomeChiefName.select(from: conversations)?.id == id.rawValue
+        return (isLocalChief ? settleNotice : nil) ?? migrationNotice
+    }
+
     /// What Home shows when it cannot show conversations.
     var unavailableMessage: String { migrationNotice ?? HomeStrings.unavailable }
 }

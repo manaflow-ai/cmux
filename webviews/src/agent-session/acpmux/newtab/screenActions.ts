@@ -11,6 +11,8 @@ export function newTabScreenActions(deps: {
   leave(): void;
   selectSession(sessionId: string): void;
   showAllChats(): void;
+  /// Runs a shell mode command in the chat the page becomes, in `cwd` (shell/shellRuns.ts).
+  runShell(command: string, cwd?: string): void;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -28,10 +30,11 @@ export function newTabScreenActions(deps: {
       ignore(callNative("tab.open", { kind: "browser", text: url }));
     },
     onSearch: (text) => ignore(callNative("tab.open", { kind: "browser", text, search: true })),
-    // Typed, never run: the user presses Return in the terminal (a paste never runs by itself).
-    onTerminal: (command) =>
-      ignore(callNative("tab.open", { kind: "terminal", text: command, run: false, ...(cwd ? { cwd } : {}) })),
-    onTypeAhead: (command) => ignore(callNative("tab.typeAhead", { text: command })),
+    // `!cmd`: the page becomes a chat in its folder, its first block the command; no terminal tab.
+    onShell(command) {
+      deps.leave();
+      deps.runShell(command, cwd);
+    },
     onJump: (target, id) => ignore(callNative("tab.jump", { target, id })),
     onOpenSession(sessionId) {
       deps.leave();

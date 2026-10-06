@@ -312,6 +312,7 @@ impl Driver for CdpDriver {
             "frame.ownerBox" => inner.owner_box(params),
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
+            "input.drag" => inner.drag(params),
             "input.key" => match super::clipboard::shortcut(method, params) {
                 Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
                 _ => inner.with_chooser_events(method, params, || inner.key(params)),
@@ -602,9 +603,20 @@ impl Inner {
         what: &str,
         mut check: impl FnMut(&TabState) -> Option<Result<T, DriverError>>,
     ) -> Result<T, DriverError> {
+        self.wait_for_mut(target_id, deadline, what, |tab| check(tab))
+    }
+
+    /// `wait_for` whose check may change the tab when it is done.
+    pub(super) fn wait_for_mut<T>(
+        &self,
+        target_id: &str,
+        deadline: Instant,
+        what: &str,
+        mut check: impl FnMut(&mut TabState) -> Option<Result<T, DriverError>>,
+    ) -> Result<T, DriverError> {
         let mut state = self.lock();
         loop {
-            let Some(tab) = state.tabs.get(target_id) else {
+            let Some(tab) = state.tabs.get_mut(target_id) else {
                 return Err(DriverError::closed(format!("Tab {target_id} closed")));
             };
             if let Some(result) = check(tab) {

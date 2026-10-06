@@ -38,6 +38,7 @@ pub mod prompt;
 pub mod report;
 pub mod rpc;
 pub mod session_dir;
+pub mod settle_status;
 pub mod state;
 pub mod subagents;
 pub mod tools;

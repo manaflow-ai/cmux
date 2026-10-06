@@ -9,6 +9,7 @@ struct HomeChiefNoticeLocalizationTests {
     nonisolated private static let languages = ["en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
                                     "pl", "pt-BR", "ru", "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant"]
     nonisolated private static let key = "home.chief.mergeBlocked"
+    nonisolated private static let organizing = "home.chief.organizing"
 
     /// The compiled `Home.strings` of one localization in the app bundle.
     private static func compiled(_ language: String) throws -> [String: String] {
@@ -29,5 +30,13 @@ struct HomeChiefNoticeLocalizationTests {
         let translated = try #require(try Self.compiled(language)[Self.key], "no \(language) \(Self.key)")
         #expect(!translated.isEmpty)
         #expect(translated != english, "\(language) is English")
+    }
+
+    /// "Organizing Chief history: N of M" ships in every language with both
+    /// numbers.
+    @Test(arguments: languages)
+    func theOrganizingNoticeShipsWithBothNumbers(_ language: String) throws {
+        let text = try #require(try Self.compiled(language)[Self.organizing], "no \(language) \(Self.organizing)")
+        #expect(text.contains("%1$lld") && text.contains("%2$lld"), "\(language): \(text)")
     }
 }

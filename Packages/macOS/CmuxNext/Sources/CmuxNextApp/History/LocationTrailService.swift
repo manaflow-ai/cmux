@@ -97,12 +97,31 @@ final class LocationTrailService {
         // workspace it left. Not a place the user went; recording it cut off
         // the forward entries of a Back or Forward between workspaces.
         if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
-        guard let location = location(of: state, in: controller), trail.record(location, at: now(), scope: stepScope) else {
+        guard let location = location(of: state, in: controller) else {
             // The shown page may have changed (another tab): the arrows re-read it.
             pageHistoryDidChange()
             return
         }
-        changed()
+        let recorded: Bool
+        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+            jumpNotedAt = nil
+            recorded = trail.recordJump(location, at: now())
+        } else {
+            recorded = trail.record(location, at: now(), scope: stepScope)
+        }
+        if recorded { changed() } else { pageHistoryDidChange() }
+    }
+
+    /// When the user last picked a jump (``noteJump()``).
+    private var jumpNotedAt: Date?
+    /// How long a noted jump waits for the focus it causes to settle.
+    private static let jumpWindow: TimeInterval = 2
+
+    /// The user picked a place to jump to (the New Tab page's location bar):
+    /// the next settled location elsewhere is its own step, even in the same
+    /// workspace, so Back returns to where they jumped from.
+    func noteJump() {
+        jumpNotedAt = now()
     }
 
     /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).

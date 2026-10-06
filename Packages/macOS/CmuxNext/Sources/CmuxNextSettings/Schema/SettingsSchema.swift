@@ -32,9 +32,10 @@ public nonisolated enum SettingsSchema {
         AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
-    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads stay out).
+    /// The descriptors cmux-next shows in one section, in order (keys only cmux-browser reads and
+    /// page-hidden keys stay out).
     public static func settings(in section: SettingsSection) -> [SettingDescriptor] {
-        all.filter { $0.section == section && $0.isShownInCmuxNext }
+        all.filter { $0.section == section && $0.isShownOnSettingsPage }
     }
 
     /// The descriptor for a dotted key or key path.
@@ -56,7 +57,8 @@ public nonisolated enum SettingsSchema {
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
+        // The page draws Open <settings file> itself, named from the loaded path.
+        case .advanced: ["reloadConfiguration"]
         }
     }
 

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -169,5 +170,29 @@ struct LocationTrailWiringTests {
             if case .closed(let item) = entry.payload { return item.kind == .workspace && item.title == "proj" }
             return false
         })
+    }
+
+    /// Leo (2026-10-06): a jump from the New Tab page's location bar to a tab
+    /// in the same workspace is a Back step under the default workspace steps.
+    @Test func aNewTabJumpInsideTheWorkspaceIsABackStep() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: try Self.tree(tabs: [7, 8]))
+        let controller = try #require(services.windows.openWindow(workspaces: [Self.key]))
+        services.windows.reconcileMembership()
+        defer { controller.window?.close() }
+        let pane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+        let (page, chat) = (pane.tabs[0].id, pane.tabs[1].id)
+        let trail = services.locationTrail
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        trail.now = { clock }
+
+        await Self.settle { controller.focus.state.topology.contains(pane: pane.id) }
+        controller.focus.send(.selectTab(pane: pane.id, tab: page, workspace: Self.key, source: .mouse))
+        await Self.settle { trail.trail.current?.location.key.tab == page }
+        clock += 0.2
+        NewTabPage.jump(.tab, id: chat, services: services)
+        await Self.settle { trail.trail.current?.location.key.tab == chat }
+        #expect(trail.trail.entries.map(\.location.key.tab) == [page, chat])
     }
 }

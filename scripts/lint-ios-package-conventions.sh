@@ -140,13 +140,14 @@ NAMESPACE_FILES=()
 if [ -n "$FILES_FROM" ]; then
   NAMESPACE_FILES=(--files-from "$FILES_FROM")
 fi
+# ${A[@]+"${A[@]}"}: macOS bash 3.2 treats an empty array as unset under set -u.
 if ! python3 scripts/lint_swift_namespaces.py \
   --baseline scripts/lint-namespace-types-baseline.txt \
   --general-baseline "$BASELINE_FILE" \
   --ratchet scripts/lint-namespace-types-ratchet.txt \
   ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
-  "${NAMESPACE_FIX[@]}" \
-  "${NAMESPACE_FILES[@]}" \
+  ${NAMESPACE_FIX[@]+"${NAMESPACE_FIX[@]}"} \
+  ${NAMESPACE_FILES[@]+"${NAMESPACE_FILES[@]}"} \
   --enum-roots "${SCOPES[@]}" \
   --type-roots "${NS_TYPE_ROOTS[@]}"; then
   fail=1

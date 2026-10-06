@@ -108,7 +108,7 @@ final class HomeHostView: NSView {
             // placed on a server) needs no local Chief owner.
             for await (available, online, why, notice) in Observations({
                 (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
-                 service.migrationNotice)
+                 service.conversationNotice(for: id))
             }) {
                 self?.transcript.isHidden = !available
                 self?.message.isHidden = available

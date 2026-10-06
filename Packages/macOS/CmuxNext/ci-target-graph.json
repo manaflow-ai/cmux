@@ -577,6 +577,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
@@ -590,7 +591,8 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeTests",
       "targets": [
         "CmuxNextDesign",
-        "CmuxNextHome"
+        "CmuxNextHome",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxHomeCore",
@@ -619,6 +621,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -627,6 +630,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests",
       "targets": [
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],

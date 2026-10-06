@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).
 public enum HomeFirstRunAction: Sendable, Equatable {
@@ -14,9 +15,9 @@ public enum HomeFirstRunAction: Sendable, Equatable {
 /// Labels and actions only, no lines about what the Chief is. Hidden once
 /// the conversation has a message (`HomeNativeTranscriptView.updateFirstRun`).
 final class HomeFirstRunView: NSView {
-    let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, symbol: "apple.terminal")
-    let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, symbol: "bubble.left.and.text.bubble.right")
-    let suggestion = HomeFirstRunRow(title: HomeStrings.firstRunSuggestion, symbol: "text.bubble")
+    let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, icon: .terminalNew)
+    let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, icon: .agentChat)
+    let suggestion = HomeFirstRunRow(title: HomeStrings.firstRunSuggestion, icon: .agentQuestion)
     let hint = NSTextField(labelWithString: "")
     private let stack = NSStackView()
     private var scale: CGFloat = 1
@@ -101,7 +102,8 @@ final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
     let label: NSTextField
-    private let symbol: String
+    /// The row's cmux icon.
+    let icon: IconName
     let shortcutLabel = NSTextField(labelWithString: "")
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
@@ -124,17 +126,16 @@ final class HomeFirstRunRow: NSView {
     private var hoverFill = NSColor.clear
     private var isHovered = false { didSet { if isHovered != oldValue { paint() } } }
 
-    init(title: String, symbol: String) {
+    init(title: String, icon: IconName) {
         label = NSTextField(labelWithString: title)
-        self.symbol = symbol
+        self.icon = icon
         super.init(frame: .zero)
         surface.wantsLayer = true
         surface.layer?.cornerRadius = Self.cornerRadius
         surface.layer?.cornerCurve = .continuous
         surface.layer?.borderWidth = 1
         addSubview(surface)
-        glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
         glyph.imageScaling = .scaleProportionallyDown
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
@@ -157,8 +158,7 @@ final class HomeFirstRunRow: NSView {
     func applyScale(_ scale: CGFloat) {
         self.scale = scale
         surface.layer?.cornerRadius = Self.cornerRadius * scale
-        glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13 * scale, weight: .regular))
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
         label.font = .systemFont(ofSize: 13 * scale)
         shortcutLabel.font = .systemFont(ofSize: 12 * scale)
         invalidateIntrinsicContentSize()
@@ -185,7 +185,7 @@ final class HomeFirstRunRow: NSView {
         super.layout()
         surface.frame = bounds
         let inset: CGFloat = 12 * scale
-        let side: CGFloat = 16 * scale
+        let side = CGFloat.iconRowSize(forLabelPointSize: 13 * scale)
         glyph.frame = CGRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
         let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + 4
         let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)
