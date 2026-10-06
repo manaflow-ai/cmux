@@ -42,14 +42,18 @@ fn only_the_person_reads_the_hosts_unrouted_log() {
         .to_owned();
     agent.call("tab.keep", &json!({"targetId": target})).unwrap();
     // The tab is kept (no creator) and the call is over when the page asks:
-    // no session takes the dialog. (A user-origin session cannot act.)
+    // no session takes the dialog. (A user-origin session cannot act.) The
+    // page asks when the test releases its request, after the call ended.
+    let key = format!("unrouted-{}", std::process::id());
     agent
         .call(
             "frame.evaluate",
             &json!({"targetId": target, "world": "agent",
-                "source": "() => { setTimeout(() => confirm('late?'), 50); return 1; }"}),
+                "source": "(key) => { fetch('/hold?' + key).then(() => confirm('late?')); return 1; }",
+                "args": [key]}),
         )
         .unwrap();
+    release(&key);
     let deadline = Instant::now() + Duration::from_secs(10);
     let entries = loop {
         let info = person.call("tab.info", &json!({"targetId": target})).unwrap();

@@ -263,6 +263,15 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window gets the private pasteboard too |
 
+On Chromium (CDP driver) `input.drag` turns on drag interception
+(`Input.setInterceptDrags`) for the call: the press and the moves are
+trusted mouse events; when the page starts a drag, Chromium hands its data
+to the driver (`Input.dragIntercepted`) instead of the system, and the
+driver sends `dragenter`, `dragover` at each further point and `drop` at
+the last one (`Input.dispatchDragEvent`). The drag's data never reaches a
+system pasteboard. After a drop the page gets no `mouseup`, as with a drag
+the system runs; a path that starts no drag ends with a plain release.
+
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 

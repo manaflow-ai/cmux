@@ -641,6 +641,10 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                 }
             }
         }
+        // Stopped: `identify` no longer advertises a running reaper.
+        if let Some(mux) = weak.upgrade() {
+            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+        }
     });
     let thread = match thread {
         Ok(thread) => thread,
@@ -653,6 +657,12 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
 }
 
 impl Mux {
+    /// Whether this owner's unplaced-terminal reaper runs
+    /// (`terminal-reaper-active-v1`).
+    pub fn terminal_reaper_running(&self) -> bool {
+        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
     /// Subscribe the reaper to the events that can change the reapable set,
     /// and keep a handle so keep and grace changes can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {
@@ -917,6 +927,8 @@ mod tests {
         let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());
         let first = mux.new_workspace(Some("first".into()), Some((80, 24))).unwrap();
         let second = mux.new_workspace(Some("second".into()), Some((80, 24))).unwrap();
+        // The host identity is read before the end: an ended terminal's surface has none.
+        let (first_id, second_id) = (host_id(&mux, &first), host_id(&mux, &second));
 
         mux.end_all_terminals().unwrap();
 
@@ -924,8 +936,8 @@ mod tests {
             assert_eq!(state.workspaces.len(), 2);
             assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
         });
-        assert_eq!(lifecycle(&mux, &host_id(&mux, &first)), TerminalLifecycle::Tombstoned);
-        assert_eq!(lifecycle(&mux, &host_id(&mux, &second)), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &first_id), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &second_id), TerminalLifecycle::Tombstoned);
     }
 
     #[test]
