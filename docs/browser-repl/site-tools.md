@@ -40,9 +40,10 @@ rules neither reference enforces together:
    redirects it. The draft records a typed intent, which is its preview:
    the **account** that acts, by stable ids (Google's account id from
    ListAccounts and the email at the `/u/` index, the Slack workspace and
-   member ids, the LinkedIn member id, the Notion user id, the X screen
-   name X's account settings endpoint authenticates, never the
-   page-writable `twid` cookie); the **target**, by stable ids (Slack
+   member ids, the LinkedIn member id, the Notion user id, the X account id
+   (`id_str`, immutable) and screen name (reusable) that X's
+   `verify_credentials` endpoint authenticates, never the page-writable
+   `twid` cookie); the **target**, by stable ids (Slack
    channel id and name, the Gmail thread and its message ids and the To,
    Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
    title and sharing, a Slides object id with its title and position, the
@@ -209,7 +210,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
 | `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's profile URN (type `person`) and name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, with the author URN on its actor (exactly one `fsd_profile`/`fs_miniProfile`/`fs_profile` URN, compared by id with the member's profile URN from `/me`, type `person`; company URNs map to type `organization`), so a post as a company page (even one with the member's name) or another member, or to another audience, fails with `target_mismatch`, and a header it cannot read, or without exactly one author URN, with `target_unverified`, then Post (the button itself, never the header) | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
-| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates (its account settings endpoint, with X's public web bearer token and the `ct0` CSRF value); confirmed: Web Intent `/intent/post`, the whole text checked, the account asked again from that page, Post | write [9] |
+| `x.post(text \| { text, replyTo })` | draft naming the account X authenticates, by its immutable id (`id_str`) and its screen name, both from one `/i/api/1.1/account/verify_credentials.json` response (X's public web bearer token and the `ct0` CSRF value; no draft, `account_unknown`, without both); confirmed: Web Intent `/intent/post`, the whole text checked, the id and screen name asked again from that page and once more right before Post, so another account that took the screen name fails with `account_mismatch`, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
 | `github.assigned({ issues, pulls, state, limit })` | GitHub's own search (`/search?type=issues`, `assignee:@me`) answering JSON in the session, 10 per page | read |
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
