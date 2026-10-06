@@ -28,7 +28,8 @@ ap.add_argument("--out", default=os.path.join(tempfile.gettempdir(), "chief-one-
 ap.add_argument("--reply-wait", type=int, default=240)
 opts = ap.parse_args()
 os.makedirs(opts.out, exist_ok=True)
-CHIEF = os.path.join(opts.out, "chief-home")
+# A new Chief home per run: its owner session and the app cache are keyed by the path.
+CHIEF = os.path.join(opts.out, "chief-home-%d" % int(time.time()))
 SCRATCH = tempfile.mkdtemp(prefix="onehist-")
 CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
 open(CONFIG, "w").write("{}")
@@ -194,6 +195,11 @@ try:
 finally:
     stop(a)
     stop(b)
+    # Leave nothing of this run behind: its host, Chief owner and acpmux.
+    stop_host()
+    if summary:
+        stop_owner(rpc_last := summary[-1])
+    stop_acpmux()
     json.dump(summary, open(os.path.join(opts.out, "summary.json"), "w"), indent=2)
     log = os.path.join(CHIEF, "optchat", "chat", "main")
     entries = []
