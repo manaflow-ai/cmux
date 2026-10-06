@@ -154,7 +154,9 @@ per-tag Chiefs itself when the Chief owner first answers, before Home or the bra
    message no memory held appended with its own time; an unlogged message dated before the
    memory's last message moves after it, so the chat and the memory hold the same human messages
    in the same order; several memories interleave by time (summaries rebuilt).
-4. The owner imports the messages (`conversation-import`, cmux-tui conversation_import.rs): it
+4. The owner imports the messages (`conversation-import`, cmux-tui conversation_import.rs, which
+   lands in its own spec window; until then the owner refuses the command, the move fails soft
+   with a log line, Home works and nothing merges): it
    assigns seqs and the rev, keeps authors and times only for an import, skips a key it holds,
    refuses history older than what it holds, and serves trusted local user connections only (an
    agent connection is refused; the remote relay's allowlist does not admit the command).
