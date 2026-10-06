@@ -22,19 +22,39 @@ enum BubblePath {
         let rad = min(radius, r.height / 2)
         let path = UIBezierPath(roundedRect: r, cornerRadius: rad)
         guard tail else { return path }
-        // Tail in "outgoing" space relative to (maxX, maxY), mirrored for incoming.
-        let t = UIBezierPath()
-        t.move(to: CGPoint(x: -16, y: -3))
-        t.addLine(to: CGPoint(x: -16, y: 0))
-        t.addCurve(to: CGPoint(x: -5, y: 5.25), controlPoint1: CGPoint(x: -11, y: 1.0), controlPoint2: CGPoint(x: -7.5, y: 3.4))
-        t.addCurve(to: CGPoint(x: -7.2, y: -3.5), controlPoint1: CGPoint(x: -5.4, y: 2.8), controlPoint2: CGPoint(x: -6.4, y: 0))
-        t.close()
+        let t = tailPath(outgoing: outgoing)
         var xf = CGAffineTransform(translationX: r.maxX, y: r.maxY)
         if !outgoing {
             xf = CGAffineTransform(translationX: r.minX, y: r.maxY).scaledBy(x: -1, y: 1)
         }
         t.apply(xf)
         return UIBezierPath(cgPath: path.cgPath.union(t.cgPath))
+    }
+}
+
+extension BubblePath {
+    /// The tail in "outgoing" space, relative to the body's (maxX, maxY): the
+    /// caller mirrors it for an incoming bubble. Fitted to real Messages
+    /// (references/real-messages state screenshots and a 65-frame recording
+    /// average, 2x): the 0.5-coverage outline of the tail is 0.21-0.49 px
+    /// from Messages' outline on average at 2x, 1.8 px at most (was 0.96-1.03
+    /// px, 3.2 px at most). Messages' two tails differ slightly, so each side
+    /// has its own points. appkit-native/README.md: Bubble outline fit.
+    static func tailPath(outgoing: Bool) -> UIBezierPath {
+        let t = UIBezierPath()
+        if outgoing {
+            t.move(to: CGPoint(x: -16, y: -3))
+            t.addLine(to: CGPoint(x: -14.909, y: 0))
+            t.addCurve(to: CGPoint(x: -5.942, y: 5.142), controlPoint1: CGPoint(x: -13.915, y: 0.8), controlPoint2: CGPoint(x: -9.658, y: 3.984))
+            t.addCurve(to: CGPoint(x: -7.085, y: -2.522), controlPoint1: CGPoint(x: -6.505, y: 2.563), controlPoint2: CGPoint(x: -8.857, y: 0))
+        } else {
+            t.move(to: CGPoint(x: -16, y: -3))
+            t.addLine(to: CGPoint(x: -15.637, y: 0))
+            t.addCurve(to: CGPoint(x: -5.989, y: 5.335), controlPoint1: CGPoint(x: -14.071, y: 0.761), controlPoint2: CGPoint(x: -9.985, y: 4.248))
+            t.addCurve(to: CGPoint(x: -6.359, y: -2.519), controlPoint1: CGPoint(x: -6.582, y: 2.299), controlPoint2: CGPoint(x: -9.02, y: 0))
+        }
+        t.close()
+        return t
     }
 }
 

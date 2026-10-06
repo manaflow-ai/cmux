@@ -75,12 +75,7 @@ final class MorphBubble {
         bubble.addSublayer(underlay)
         bubble.addSublayer(body)
         // Tail at the right-bottom corner (outgoing shape of BubblePath).
-        let t = UIBezierPath()
-        t.move(to: CGPoint(x: -16, y: -3))
-        t.addLine(to: CGPoint(x: -16, y: 0))
-        t.addCurve(to: CGPoint(x: -5, y: 5.25), controlPoint1: CGPoint(x: -11, y: 1.0), controlPoint2: CGPoint(x: -7.5, y: 3.4))
-        t.addCurve(to: CGPoint(x: -7.2, y: -3.5), controlPoint1: CGPoint(x: -5.4, y: 2.8), controlPoint2: CGPoint(x: -6.4, y: 0))
-        t.close()
+        let t = BubblePath.tailPath(outgoing: true)
         t.apply(CGAffineTransform(translationX: 0, y: h1))
         tail.path = t.cgPath
         tail.fillColor = color.cgColor
