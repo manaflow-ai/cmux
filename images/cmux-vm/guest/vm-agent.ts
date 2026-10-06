@@ -420,7 +420,8 @@ export class StatusReporter {
   private activity: Activity = { active_sessions: 0 };
   private state: "running" | "degraded" | "stopping" = "running";
   private dirty = false;
-  private pendingReason = "start";
+  /** Every reason since the last send (a report covers all of them; the latest activity wins). */
+  private pendingReasons = new Set<string>();
   private lastSentAt: number | null = null;
   private inFlight: Promise<void> | null = null;
   private cancelWindow: (() => void) | null = null;
@@ -448,7 +449,7 @@ export class StatusReporter {
 
   /** Mark a report due (bind, start, change, heartbeat) and send it as soon as the window allows. */
   trigger(reason: string): void {
-    this.pendingReason = reason;
+    this.pendingReasons.add(reason);
     this.dirty = true;
     this.schedule();
   }
@@ -474,7 +475,9 @@ export class StatusReporter {
     this.dirty = false;
     this.lastSentAt = this.o.clock.now();
     const params = { machine: this.o.machine, state: this.state, daemon: this.o.daemon, activity: { ...this.activity } };
-    const reason = this.pendingReason;
+    const reasons = [...this.pendingReasons];
+    this.pendingReasons.clear();
+    const reason = reasons.join("+") || "retry";
     const at = this.lastSentAt;
     const report = (ok: boolean, applied: boolean | null, status: number | null) => this.o.onResult?.({ reason, ok, applied, at, status });
     this.inFlight = this.o.client
@@ -483,11 +486,11 @@ export class StatusReporter {
         const ok = answer.status === 200 && answer.body.ok === true;
         report(ok, ok ? answer.body.value?.applied === true : null, answer.status);
         if (ok) this.accepted();
-        else this.failed(retryAfter(answer.body));
+        else this.failedWith(reasons, retryAfter(answer.body));
       })
       .catch(() => {
         report(false, null, null);
-        this.failed(0);
+        this.failedWith(reasons, 0);
       })
       .finally(() => {
         this.inFlight = null;
@@ -502,6 +505,12 @@ export class StatusReporter {
       this.cancelHeartbeat = null;
       this.trigger("heartbeat");
     });
+  }
+
+  /** A failed report keeps its reasons for the retry. */
+  private failedWith(reasons: readonly string[], retryAfterMs: number): void {
+    for (const r of reasons) this.pendingReasons.add(r);
+    this.failed(retryAfterMs);
   }
 
   private failed(retryAfterMs: number): void {

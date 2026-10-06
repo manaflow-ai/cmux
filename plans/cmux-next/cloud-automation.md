@@ -439,3 +439,27 @@ Not yet proven, and why:
 7. Size decision A or B (section 18), with more resize samples.
 8. `cmux link dial` leg of the e2e.
 9. Delete `cmuxnp-dev-vmimg-auto1-8d111c8` only after the coordinator's OK (rollback target; no dev VM row may record it).
+
+## 26. Fifth window and the full development end to end (2026-10-06)
+
+Fifth window (00:01:24 to 00:06:55 UTC, 5.5 min): `cmuxnp-dev-vmimg-auto5-de18da6` = `sh-d16c97b11a404bf9a1a9849bd0f073bb` from the pushed head de18da6e77c (report logging, resume timer, cmux-cua 0.8.7, dev heartbeat override); bake 184.1 s; smoke PASSED; kept. No push was needed, so the main window token was released unused. The backend lead pointed development at it (Worker cb744d0a). `channels/dev.json` -> auto5; auto3 is the rollback; auto1 is kept until the coordinator's OK.
+
+End to end (`scripts/cmux-next/cloud-dev-e2e.sh`, run 2026-10-06T00:20:50Z on auto5): 17 of 17 PASS.
+
+| Step | ms | Evidence |
+| --- | --- | --- |
+| sign-in / user.ensure / create / bound | 515 / 778 / 366 / 1,133 | vm_d6e4ca9f27f0fb2c9c5e, host_d634eebd024435c6d64c |
+| VM agent evidence | 95 | machine-id per clone, `bind: bound`, keys 0600 |
+| first status.report applied | 37 | `report start applied` |
+| change report | 10,678 | a report after the activity line (logged `resume held`: see below) |
+| heartbeat, 15 s dev override | 40,394 | `heartbeat test override: 15000 ms`, `report heartbeat held` |
+| install token / connect_info / link_token | 297 / 118 / 82 | real daemon block |
+| pause / start | 320 / 226 | paused, running |
+| report after start (resume) | 15,055 | `report resume held` logged 9.8 s after start, before any exec |
+| delete | 257 | by this run's id |
+
+Findings:
+- Every provider `exec` steps the guest clock (`systemd-resolved: Clock change detected` at each exec; none in 75 s without exec on a debug clone, `cmuxnp-dev-vmimg-auto5-clockdbg`, deleted). Each step fires the OnClockChange resume timer. Production does not exec, so a resume report comes from real resumes; the harness avoids exec while it waits for the heartbeat and the resume report.
+- auto5's reporter keeps only the latest reason, so a resume relabeled the change report. Fixed (reasons merge, `change+resume`; reaches VMs with the next bake).
+- The resize probe now times the vCPU+memory call and the disk call separately, with UTC start times, to locate the next slow sample (section 18: one 21.2 s outlier in seven samples; latest 274 ms).
+- Still open: idle pause (needs the activity sender, section 27) and `cmux link dial` (needs a darwin link build).
