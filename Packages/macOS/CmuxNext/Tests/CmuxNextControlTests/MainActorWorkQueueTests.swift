@@ -4,10 +4,14 @@ import Synchronization
 import Testing
 
 @Suite(.timeLimit(.minutes(1))) struct MainActorWorkQueueTests {
+    /// A full queue answers busy at once instead of waiting for room. No
+    /// frame fires before the third call, so a queue that waited would answer
+    /// a timeout at the deadline; the bound is far below it. A 100 ms bound
+    /// measured 289 ms on a loaded runner (#17611).
     @Test func failsFastWithBusyBeyondTheLimit() async throws {
         let frames = ManualFrameSource()
         let queue = MainActorWorkQueue(limits: .init(maxPending: 2), frameSource: frames)
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(30)
         async let first: Int = queue.run(connection: ControlConnectionID(rawValue: 1), method: "a", deadline: deadline) { 1 }
         async let second: Int = queue.run(connection: ControlConnectionID(rawValue: 2), method: "b", deadline: deadline) { 2 }
         while queue.stats.pending < 2 { await Task.yield() }
@@ -15,7 +19,7 @@ import Testing
         await #expect(throws: ControlError.busy(pending: 2, limit: 2)) {
             _ = try await queue.run(connection: ControlConnectionID(rawValue: 3), method: "c", deadline: deadline) { 3 }
         }
-        #expect(ContinuousClock.now - started < .milliseconds(100))
+        #expect(ContinuousClock.now - started < .seconds(10))
         #expect(queue.stats.rejectedBusy == 1)
         await frames.fire()
         #expect(try await first + second == 3)
