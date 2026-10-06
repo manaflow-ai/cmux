@@ -59,8 +59,12 @@ impl Inner {
         };
         let text = |name: &str| params.get(name).and_then(Value::as_str).filter(|s| !s.is_empty());
         let (name, domain, path) = (text("name"), text("domain"), text("path"));
-        let cookies =
-            self.conn.call(None, "Storage.getCookies", self.cookie_store(params), INTERNAL_TIMEOUT)?;
+        let cookies = self.conn.call(
+            None,
+            "Storage.getCookies",
+            self.cookie_store(params),
+            INTERNAL_TIMEOUT,
+        )?;
         for cookie in cookies["cookies"].as_array().into_iter().flatten() {
             let field = |key: &str| cookie[key].as_str().unwrap_or("");
             if !on_site(field("domain"), &site)

@@ -1424,7 +1424,7 @@ fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
         s.call("tabs.open", &json!({"url": url})).unwrap()["targetId"].as_str().unwrap().to_owned()
     };
     let plain = open_tab(format!("{origin}/second?plain"));
-    s.call("session.configure", &json!({"proxy": {"server": origin.clone()}})).unwrap();
+    s.call("session.configure", &json!({"proxy": {"server": origin}})).unwrap();
     let private = open_tab(format!("{origin}/second?private"));
     s.call(
         "frame.evaluate",
@@ -1462,10 +1462,11 @@ fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
             .map(|c| format!("{}={}", c["name"].as_str().unwrap(), c["value"].as_str().unwrap()))
             .collect()
     };
-    let session_cookies = names(s.call("cookies.get", &json!({"urls": [origin.clone()]})).unwrap());
+    let session_cookies = names(s.call("cookies.get", &json!({"urls": [origin]})).unwrap());
     assert!(session_cookies.contains(&"brepl_store=private".to_owned()), "{session_cookies:?}");
-    let plain_cookies =
-        names(s.call("cookies.get", &json!({"urls": [origin.clone()], "targetId": plain})).unwrap());
+    let plain_cookies = names(
+        s.call("cookies.get", &json!({"urls": [origin], "targetId": plain})).unwrap(),
+    );
     assert!(!plain_cookies.contains(&"brepl_store=private".to_owned()), "{plain_cookies:?}");
     // Keep only the popup: the store must outlive the session for it.
     s.call("tab.keep", &json!({"targetId": popup})).unwrap();

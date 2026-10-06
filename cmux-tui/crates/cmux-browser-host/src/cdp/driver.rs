@@ -236,11 +236,10 @@ impl CdpDriver {
         }
         let created =
             self.inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
-        let context = created
-            .get("browserContextId")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| DriverError::invalid("Target.createBrowserContext returned no id"))?;
+        let context =
+            created.get("browserContextId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
+                || DriverError::invalid("Target.createBrowserContext returned no id"),
+            )?;
         self.inner
             .proxy_contexts
             .lock()
@@ -805,8 +804,12 @@ impl Inner {
     }
 
     fn cookies_get(&self, params: &Value) -> Result<Value, DriverError> {
-        let cookies =
-            self.conn.call(None, "Storage.getCookies", self.cookie_store(params), INTERNAL_TIMEOUT)?;
+        let cookies = self.conn.call(
+            None,
+            "Storage.getCookies",
+            self.cookie_store(params),
+            INTERNAL_TIMEOUT,
+        )?;
         let all = cookies["cookies"].as_array().cloned().unwrap_or_default();
         let urls: Vec<url::Url> = params
             .get("urls")

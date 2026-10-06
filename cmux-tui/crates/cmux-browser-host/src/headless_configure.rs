@@ -101,7 +101,9 @@ impl HeadlessSource {
             if let Some(Some(context)) = &proxy {
                 configs.next_store += 1;
                 let name = format!("{}/proxy-{}", self.profile, configs.next_store);
-                configs.stores.insert(context.clone(), ProxyStore { owner: session, name, kept: false });
+                configs
+                    .stores
+                    .insert(context.clone(), ProxyStore { owner: session, name, kept: false });
             }
             let config = configs.sessions.entry(session).or_default();
             if let Some(ua) = params.get("userAgent") {
