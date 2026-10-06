@@ -51,12 +51,12 @@ struct BrowserReplSecretTargetTests {
     private let frames = Frames()
     private let world = WKContentWorld.world(name: "cmux-secret-target-test")
 
-    private func load(_ body: String, posting names: [String]) async -> WKWebView {
+    private func load(_ body: String, posting names: [String], baseURL: String = "https://example.test/") async -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(frames, name: "frame")
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 800, height: 600), configuration: configuration)
         webView.navigationDelegate = frames
-        webView.loadHTMLString("<html><body>\(body)</body></html>", baseURL: URL(string: "https://example.test/"))
+        webView.loadHTMLString("<html><body>\(body)</body></html>", baseURL: URL(string: baseURL))
         let frames = frames
         await frames.wait { frames.finished && names.allSatisfy { frames.infos[$0] != nil } }
         return webView
@@ -163,5 +163,41 @@ struct BrowserReplSecretTargetTests {
             refused = error
         }
         #expect(refused?.code == "invalid", "the secret went to the field inside the \(tag), judged by the parent's origin")
+    }
+
+    /// A page on a host off the secret's domains (`evil.example.test`) can
+    /// set `document.domain` to a parent domain that is on them
+    /// (`example.test`). The secret must still not reach it: the focused
+    /// document is judged by its origin and by its URL's host, so the check
+    /// never depends on how WebKit serializes a relaxed origin.
+    @Test func aPageThatRelaxedDocumentDomainOntoTheSecretsDomainDoesNotTakeIt() async throws {
+        let webView = await load(
+            #"<input id=f><script>document.domain = 'example.test'; document.getElementById('f').focus(); webkit.messageHandlers.frame.postMessage('main')</script>"#,
+            posting: ["main"],
+            baseURL: "https://evil.example.test/"
+        )
+        let main = try #require(frames.infos["main"])
+        let relaxed = try await webView.callAsyncJavaScript("return document.domain", contentWorld: .page) as? String
+        try #require(relaxed == "example.test", "the page could not relax document.domain (\(relaxed ?? "nil"))")
+
+        // The domain policy's judge of the same frame: the URL's host is
+        // judged with the origin, so the relaxed page stays blocked.
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = [try BrowserReplDomainPattern.parse("example.test", title: "test")]
+        #expect(policy.blockReason(document: BrowserReplFrameDocument(info: main)) != nil)
+        #expect(policy.blockReason(document: BrowserReplFrameDocument(origin: "https://example.test", place: "https://evil.example.test")) != nil,
+                "an origin on the policy let a document whose URL host is off it through")
+
+        // As WebKit reports it.
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await target().check(in: webView, frames: [frame("1", main, parent: nil)])
+        }
+        // As a WebKit whose `self.origin` followed `document.domain` would
+        // report it: the probe's world sees the relaxed origin.
+        var relaxedOrigin = try target()
+        relaxedOrigin.focusProbe = #"self.origin = "https://example.test"; const el = document.activeElement; return !!el && el.tagName === "INPUT";"#
+        await #expect(throws: BrowserReplDriverError.self, "the secret went to evil.example.test on its relaxed origin alone") {
+            try await relaxedOrigin.check(in: webView, frames: [frame("1", main, parent: nil)])
+        }
     }
 }
