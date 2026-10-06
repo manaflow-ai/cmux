@@ -4,8 +4,8 @@ import Testing
 @testable import CmuxNextHome
 
 /// An empty Chief conversation offers things to do now instead of a pitch
-/// (Leo's first-launch capture, op-next-look): one plain line, rows to open
-/// a terminal, start an agent or ask the Chief, and a keyboard hint. The
+/// (Leo's first-launch capture, op-next-look): rows to open a terminal,
+/// start an agent or ask the Chief, and a keyboard hint. The
 /// ask row fills the field; it never sends. The first message hides the
 /// panel.
 @MainActor
@@ -38,7 +38,6 @@ import Testing
         view.layoutSubtreeIfNeeded()
         let panel = view.firstRun
         #expect(!panel.isHidden)
-        #expect(!panel.lead.stringValue.isEmpty)
         #expect(!panel.suggestion.title.isEmpty)
         #expect(view.field.text.isEmpty)
         panel.suggestion.performClick(nil)
@@ -73,6 +72,27 @@ import Testing
         #expect(!panel.hint.isHidden && panel.hint.stringValue.contains("⌃1…9"))
         let row = panel.terminal
         #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
+    }
+
+    /// Leo, 2026-10-06: labels and actions only. "Chief runs your agents on
+    /// this Mac", "Ask Chief below" and "This Chief remembers on this device
+    /// only" explained the app; the panel shows its rows and the shortcut
+    /// hint, no other text.
+    @Test func thePanelHasNoProseBesideItsRows() {
+        let (window, view) = Self.view()
+        defer { window.close() }
+        view.setFirstRunShortcuts(terminal: "⌘T", agent: nil, tabs: "⌃1…9")
+        view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        let panel = view.firstRun
+        func labels(in view: NSView) -> [NSTextField] {
+            view.subviews.flatMap { sub -> [NSTextField] in
+                if sub is HomeFirstRunRow { return [] }
+                return ((sub as? NSTextField).map { [$0] } ?? []) + labels(in: sub)
+            }
+        }
+        let shown = labels(in: panel).filter { !$0.isHidden && !$0.stringValue.isEmpty }.map(\.stringValue)
+        #expect(shown == [panel.hint.stringValue], "text outside the rows: \(shown)")
     }
 
     /// Stability rule: a Chief conversation whose history is still loading
