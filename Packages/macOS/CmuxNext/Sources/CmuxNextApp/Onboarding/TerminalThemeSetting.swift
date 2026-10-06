@@ -41,6 +41,7 @@ final class TerminalThemeSetting {
                 // Parsed and validated in `CmuxConfigSnapshot` (a bad value is
                 // a diagnostic and keeps the Ghostty config's).
                 let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
+                ThemeLaunchLog.mark("settings theme=\(snapshot.appTheme ?? "nil") bg=\(snapshot.backdropSelection.map { "\($0)" } ?? "nil")")
                 self?.backdropScope.setBackdropSelection(snapshot.backdropSelection)
                 self?.backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
                 // Per-surface backgrounds (R55): every owner repaints from them.

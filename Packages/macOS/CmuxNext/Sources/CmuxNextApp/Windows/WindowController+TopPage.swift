@@ -14,6 +14,7 @@ extension WindowController {
         parkContentForPage()
         root.show(view)
         // Pages draw in the room theme (the window's own scope).
+        ThemeLaunchLog.mark("show page=\(route.rawValue)")
         themeScope.show(nil)
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)

@@ -316,6 +316,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`applyBackdrop(to:)`).
     private func paintBackground() {
         let backdrop = self.backdrop
+        ThemeLaunchLog.mark("paint dark=\(themeTokens.isDark) art=\(themeScope.backdropArt.map { "\($0)" } ?? "nil") appearance=\(effectiveAppearance.name.rawValue)")
         performWithTheme { paintBackdropSheet(backdrop, surface: Palette.surfaceBackground, backdropView: backdropView) }
     }
 
