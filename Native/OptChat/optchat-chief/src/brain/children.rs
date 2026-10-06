@@ -44,7 +44,7 @@ impl Brain {
                 self.reconcile_children();
                 self.maybe_start_turn();
             }
-            AgentEvent::Down => self.agents_up = false,
+            AgentEvent::Down | AgentEvent::Ended => self.agents_up = false,
             AgentEvent::SessionChanged(session) => self.on_session(session),
             AgentEvent::Permission {
                 session_id,

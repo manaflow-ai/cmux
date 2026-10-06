@@ -143,6 +143,9 @@ pub enum AgentEvent {
     /// Connected (again): every session, for reconciling children.
     Up(Vec<SessionSummary>),
     Down,
+    /// The acpmux daemon this host started or joined shut down (its socket
+    /// is gone): the host never starts another and stops.
+    Ended,
     SessionChanged(SessionSummary),
     Permission {
         session_id: String,
