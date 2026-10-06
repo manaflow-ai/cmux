@@ -190,7 +190,7 @@ impl Inner {
     ) -> Result<Value, DriverError> {
         let before = self.lock().next_chooser;
         let reply = call();
-        if self.intercept_choosers
+        if self.owns_browser
             && self.lock().next_chooser == before
             && may_open_chooser(method, params)
         {
@@ -286,8 +286,21 @@ impl Inner {
     }
 }
 
-/// The CDP step that turns choosers into events, for a browser the driver
-/// owns (headless: no person to show an Open panel to).
-pub(super) fn intercept_step(intercept: bool) -> Option<(&'static str, Value)> {
-    intercept.then(|| ("Page.setInterceptFileChooserDialog", json!({"enabled": true})))
+impl Inner {
+    /// Turns the session's file choosers into events, for a browser the
+    /// driver owns (no person's Open panel). Sent on its own after the
+    /// session's setup batch has resumed it: inside the batch it changed
+    /// the setup of out-of-process frames (parity 32's concurrent captures
+    /// differed in 1 run of 4). A session that refuses it keeps Chromium's
+    /// own behavior (headless: no panel).
+    pub(super) fn intercept_choosers_on(&self, session_id: &str, intercept: bool) {
+        if intercept {
+            let _ = self.conn.call(
+                Some(session_id),
+                "Page.setInterceptFileChooserDialog",
+                json!({"enabled": true}),
+                INTERNAL_TIMEOUT,
+            );
+        }
+    }
 }
