@@ -486,3 +486,11 @@ impl Inner {
         .filter(|ip| !ip.is_empty())
     }
 }
+
+impl super::CdpDriver {
+    /// The `fetchId` of the host fetch whose shell is `target` (a shared
+    /// browser applies that fetch's session filter to the shell).
+    pub fn shell_fetch_id(&self, target: &str) -> Option<String> {
+        self.inner.shells.lock().unwrap_or_else(PoisonError::into_inner).runs.fetch_in(target)
+    }
+}

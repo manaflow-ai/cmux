@@ -35,7 +35,7 @@
   box-sizing: border-box;
   border: 0;
   border-radius: 6px;
-  background: transparent;
+  background: none;
   box-shadow: none;
   color: var(--agent-muted);
   font: inherit;

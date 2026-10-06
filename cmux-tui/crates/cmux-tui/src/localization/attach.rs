@@ -2,6 +2,7 @@
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AttachMessages {
+    pub(super) help: &'static str,
     pub filtered_subscription_unavailable: &'static str,
     pub remote_attach_queue_full: &'static str,
     pub(super) remote_attach_workers_failed_template: &'static str,
@@ -61,6 +62,7 @@ impl AttachMessages {
 }
 
 pub(super) const ENGLISH: AttachMessages = AttachMessages {
+    help: "USAGE\n  {program} attach [--session <name> | --socket <path>] [--terminal <id>]\n\nAttach this terminal to a running session, or with --terminal show only one\nterminal. Start the session first with `{program} server ensure` or `{program}`.\n\nOPTIONS\n  --session <name>   Session name (default: main)\n  --socket <path>    Exact control socket path\n  --terminal <id>    Show only this terminal (`{program} terminal list`)\n  -h, --help         Show this help\n",
     filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
     remote_attach_queue_full: "remote surface attach queue is full",
     remote_attach_workers_failed_template: "could not start surface attach workers: {error}",
@@ -78,6 +80,7 @@ pub(super) const ENGLISH: AttachMessages = AttachMessages {
 };
 
 pub(super) const JAPANESE: AttachMessages = AttachMessages {
+    help: "使い方\n  {program} attach [--session <名前> | --socket <パス>] [--terminal <id>]\n\n実行中のセッションにこのターミナルを接続します。--terminal を付けると一つのターミナルだけを\n表示します。先に `{program} server ensure` または `{program}` でセッションを開始してください。\n\nオプション\n  --session <名前>   セッション名 (既定: main)\n  --socket <パス>    制御ソケットのパスを指定\n  --terminal <id>    このターミナルだけを表示 (`{program} terminal list`)\n  -h, --help         このヘルプを表示\n",
     filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
     remote_attach_queue_full: "リモートサーフェス接続キューがいっぱいです",
     remote_attach_workers_failed_template: "リモートサーフェス接続ワーカーを開始できませんでした: {error}",

@@ -85,6 +85,8 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_session_set(const CloudSessionSetRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_session_status(const CloudSessionStatusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ConversationAgentTokenResult> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationAttachmentReadResult> conversation_attachment_read(const ConversationAttachmentReadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationAttachmentUploadResult> conversation_attachment_upload(const ConversationAttachmentUploadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationBindResult> conversation_bind(const ConversationBindRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationCreateResult> conversation_create(const ConversationCreateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationHistoryResult> conversation_history(const ConversationHistoryRequest& request, RequestOptions options = {});
@@ -240,6 +242,7 @@ public:
     [[nodiscard]] Result<SnapshotRequestResult> snapshot_request(const SnapshotRequestRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SurfaceResult> split(const SplitRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> subscribe(const SubscribeRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EventStream> subscribe_activity(const SubscribeActivityRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> swap_pane(const SwapPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalClipboardReplyResult> terminal_clipboard_reply(const TerminalClipboardReplyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});

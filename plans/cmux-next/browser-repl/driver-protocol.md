@@ -42,7 +42,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
 | `tab.reload` | `{ targetId, waitUntil, timeoutMs }` | `{ status? }` |
-| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId? }` |
+| `tab.info` | `{ targetId }` | `{ url, title, state, loadState, viewport: { width, height }, deviceScaleFactor, webProcessId?, closedRoots?, unroutedEvents? }`; `unroutedEvents` (shared headless, user origin only) lists the host's log entries of the tab's events no session took (D2); `closedRoots: { walks, walkMs, roots, domEvents }` (CDP engines) is the cost of finding closed shadow roots in the tab, for the perf bench. Measured on the Testbox (2026-10-06): one walk about 250 ms on cards-50k and table-10k, 58 ms on list-5k, 19 ms on wikipedia and github, 9 ms per out-of-process frame. After a walk the DOM domain stays on until 12,000 DOM events or the first event more than 30 s after the walk (DOM_EVENT_BUDGET, DOM_IDLE_AFTER_READ; a churning page sends about 6,400 events/s); review a change of either constant against these numbers |
 | `tab.setViewport` | `{ targetId, width, height }` or `{ targetId, reset: true }` | |
 | `tab.bringToFront` | `{ targetId }` | |
 | `tab.keep` | `{ targetId }` | |
@@ -85,6 +85,54 @@ chooser, the session whose call the page is handling. Only that session gets
 and `dialog.respond` and `filechooser.respond` from any other session fail
 with `not_found`, leaving the dialog or chooser open. When that session
 leaves the tab, its open dialogs are dismissed and its choosers cancelled.
+
+cmux-next shared headless browser (D2, ff 2026-10-06): headless has no user
+UI, so an event no session takes is answered by the host (a dialog is
+dismissed, `beforeunload` keeps the page; a chooser is cancelled; a download
+is cancelled) and logged. The entry `{ url, reason, blocked: "unrouted",
+event, targetId, action, at }` (no page text) goes to the policy log
+(`policy log`, `session.blockedNavigations()`) of the session that opened the
+tab, also after it kept the tab (a popup counts as its opener's tab), while
+that session is attached; and to the host's own log of the newest 64
+entries, which only the person (user origin) reads, as `tab.info
+unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
+events named `host.policyLog` are dropped: only the host writes that log.
+
+cmux-next shared headless browser, clipboard (item 19): Copy, Cut and Paste
+never use the browser's clipboard (the system's, or the X11 one of a headful
+browser on Xvfb). The driver records the shortcut's `keydown` (a prevented
+one runs no command), then sends the page a `copy`, `cut` or `paste` event
+with a `DataTransfer` in the focused frame and does the default action
+itself: the selection's text to the tab's clipboard, a cut's deletion, a
+paste's `text/plain` through `Input.insertText` (trusted `input`). These
+clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
+design. A Copy or Cut the page has not finished within 5 s fails with
+`timeout` and its late result is dropped; the tab's web content process is
+not ended, because no clipboard outside the tab can be written (an
+intentional cmux-next difference from WebKit). Page script never reaches
+the browser's clipboard either: the page clipboard guard
+(`js/page-clipboard.js`, through the page-world binding `__cmuxPageClipboard`,
+which it removes before any page script runs) is installed at document start
+in every frame, script-made `about:blank` frames included, so the page's
+`navigator.clipboard` and `execCommand("copy" | "cut")` write the tab's
+clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
+`clipboard-write`, sanitized or not) in every store, for a document or world
+the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
+with a copy, cut or paste editing command. File choosers on this browser are
+always intercepted (no person's Open panel).
+
+cmux-next shared headless browser, `session.configure` (item 4d): the user
+agent and extra headers are set per tab before its first request (a popup
+starts with its opener's) on the tabs the session created and did not keep;
+`tab.keep` and the session's end restore the browser's own. `proxy` opens a
+private browser context (its own cookie jar) for the tabs the session opens
+afterwards, popups included. Its tabs list the dataStore
+`<profile>/proxy-<n>` (stable while the store is open); the session's
+`cookies.*` without `targetId` use it, and with `targetId` the tab's own
+store. It closes at the session's end unless a tab in it (a popup too) was
+kept, then at host exit. Known gap: proxy credentials answer `unsupported`
+(they need `Fetch.authRequired`). Not yet: `permissions` (`unsupported`,
+owner decision pending).
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
@@ -440,7 +488,8 @@ agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
 narrows (the host intersects with the user's layer); `policy site` answers
 from a compact suffix list until the host has a Public Suffix List (D6);
 `policy log` returns the host's own log of navigations it blocked before
-their request; `secrets load` keys come back in sorted order. The host keeps
+their request, plus the session's tabs' unrouted events (`blocked:
+"unrouted"`, see "Sessions and tabs"); `secrets load` keys come back in sorted order. The host keeps
 the runtime's entry points and removes them and `__cmuxNative` before the
 first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 

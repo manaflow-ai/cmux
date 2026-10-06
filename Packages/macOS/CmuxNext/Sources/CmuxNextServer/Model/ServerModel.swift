@@ -17,6 +17,9 @@ public nonisolated struct ServerApprovalDraft: Sendable, Equatable {
     public var code = ""
     public var team: String?
     public var name = ""
+    /// Place the user's Chief on this server after Approve (on by default
+    /// for a server that runs a Chief brain).
+    public var runChief = false
 
     public init() {}
 }
@@ -37,6 +40,8 @@ public final class ServerModel {
     public private(set) var lastReject: String?
     /// The display name of the last server this device approved.
     public private(set) var lastApproved: String?
+    /// Where the user's Chief runs, when a chief is placed on a server.
+    public private(set) var chief: ChiefPlacementStatus?
 
     /// Client view state.
     public var approval = ServerApprovalDraft()
@@ -100,7 +105,9 @@ public final class ServerModel {
     /// Sends an intent to the owner. Refused while the server is unreachable.
     @discardableResult
     public func send(_ kind: ServerIntentKind) -> Bool {
-        guard connection == .connected else {
+        // Looking up and approving a code go to the cloud, not to this Mac's
+        // server: a Mac that serves nothing still adds a remote server.
+        guard connection == .connected || kind.isApprover else {
             lastReject = ServerStrings.unreachable
             return false
         }
@@ -134,7 +141,7 @@ public final class ServerModel {
     public func approve() {
         guard canApprove, let team = approval.team else { return }
         let name = approval.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        send(.approveCode(code: PairingCode.normalize(approval.code), team: team, name: name))
+        send(.approveCode(code: PairingCode.normalize(approval.code), team: team, name: name, placeChief: approval.runChief))
     }
 
     public func cancelApproval() {
@@ -160,15 +167,28 @@ public final class ServerModel {
                 approval.team = found.teams.first?.id
             }
             if approval.name.isEmpty { approval.name = found.name }
+            approval.runChief = found.isChiefBrain
         case let .settled(key, reject):
             let intent = pending.first { $0.key == key }
             pending.removeAll { $0.key == key }
             if let reject {
                 lastReject = reject
-            } else if case let .approveCode(_, _, name) = intent?.kind {
+            } else if case let .approveCode(_, _, name, _) = intent?.kind {
                 lastApproved = name
                 cancelApproval()
             }
+        case let .chief(status):
+            chief = status
+        }
+    }
+}
+
+extension ServerIntentKind {
+    /// Intents the cloud answers (pairing a remote server), not this Mac's server.
+    var isApprover: Bool {
+        switch self {
+        case .lookupCode, .approveCode: true
+        default: false
         }
     }
 }

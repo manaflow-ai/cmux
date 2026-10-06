@@ -99,6 +99,21 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
                 surfaces: [.palette], targets: [.tab], cliName: "app show-tab"
             ),
+            // `cmux pane <id> focus` and `cmux screen <id> focus` in an
+            // app-owned session: the window shows the pane or screen
+            // (state-ownership.md 3), the same reveal as tab.focus.
+            ActionDescriptor(
+                id: "pane.focus",
+                title: String(localized: "action.pane.focus", defaultValue: "Show Pane", bundle: .module),
+                keywords: ["pane", "focus", "select", "switch"], category: .pane, symbol: "scope",
+                surfaces: [.palette], targets: [.pane], cliName: "app show-pane"
+            ),
+            ActionDescriptor(
+                id: "screen.focus",
+                title: String(localized: "action.screen.focus", defaultValue: "Show Screen", bundle: .module),
+                keywords: ["screen", "focus", "select", "switch"], category: .screen, symbol: "scope",
+                surfaces: [.palette], targets: [.screen], cliName: "app show-screen"
+            ),
             ActionDescriptor(
                 id: "palette.clearTabName",
                 title: String(localized: "action.palette.clearTabName", defaultValue: "Clear Tab Name", bundle: .module),

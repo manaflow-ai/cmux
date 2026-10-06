@@ -82,23 +82,21 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.registry
         let store = services.machines.local.store
-        let window = state
-        let updater = services.updater
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
-            // So are the shown top page (its item is active), the unread
-            // count (Notifications' dot), and an available update (the
-            // badge on Settings).
-            for await (layout, shownPage, unread, update) in Observations({ () -> (SidebarLayoutDocument, TopPageRoute?, Int, String?) in
+            // So are the unread count (Notifications' dot) and the built-ins'
+            // shortcuts (their tooltips, e.g. the footer gear's "Settings (⌘,)").
+            // The selected item comes from the one selection (SidebarModel.selectedItem).
+            for await (layout, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String]) in
                 _ = apps.apps
-                return (service.document, window?.page, NotificationCenterService.unreadCount(store), updater.settingsBadgeTitle)
+                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          shownPage: shownPage, unread: unread,
-                                          app: { Self.appInfo($0, registry: apps) }, updateBadge: update)
+                                          unread: unread,
+                                          app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -106,33 +104,35 @@ extension SidebarBridge {
         }
     }
 
+    /// The shortcut of each built-in's action, as menus show it.
+    static func builtInShortcuts(_ registry: ActionRegistry) -> [ActionID: String] {
+        var shortcuts: [ActionID: String] = [:]
+        for action in builtInActions.values {
+            if let shortcut = registry.shortcutDisplay(for: action) { shortcuts[action] = shortcut }
+        }
+        return shortcuts
+    }
+
     /// Presentation of every built-in item in `layout`; `registered` says
-    /// whether an action exists. The item of the shown top page is active, and
-    /// Notifications carries `unread`. Settings carries the update badge
-    /// while `updateBadge` is set, labelled with it (the window rail's update
-    /// circle is gone, R52; the update card is gone, Lawrence 2026-10-05).
+    /// whether an action exists. Notifications carries `unread`, and each
+    /// built-in carries its action's `shortcut` for its tooltip. The update
+    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         shownPage: TopPageRoute? = nil, unread: Int = 0,
+                         unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         updateBadge: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
+                         shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
                 if item.ref.kind == LayoutItemRef.appKind {
-                    var info = app(item.ref.value)
-                    info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
-                    infos[item.id] = info
+                    infos[item.id] = app(item.ref.value)
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
-                info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
-                switch builtIn {
-                case .notifications: info.badge = unread > 0 ? unread : nil
-                case .settings: info.accessory = updateBadge.map { .update(title: $0) }
-                default: break
-                }
+                info.shortcut = builtInActions[builtIn].flatMap(shortcut)
+                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
                 infos[item.id] = info
             }
         }

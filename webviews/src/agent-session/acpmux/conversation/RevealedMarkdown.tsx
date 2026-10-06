@@ -4,6 +4,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { StreamReveal } from "../streamReveal";
 import { Markdown } from "./Markdown";
+import { MessageBoundary } from "./MessageBoundary";
 
 /// The display frames the reveal runs on (tests drive their own).
 export const revealFrames = {
@@ -77,8 +78,17 @@ export function useStreamReveal(
   };
 }
 
-/// An assistant reply, revealed over frames while it streams.
+/// An assistant reply, revealed over frames while it streams. A reply that fails to draw falls
+/// back to its plain text (MessageBoundary), never taking the pane with it.
 export function RevealedMarkdown({ text, streaming }: { text: string; streaming: boolean }) {
+  return (
+    <MessageBoundary source={text}>
+      <Revealed text={text} streaming={streaming} />
+    </MessageBoundary>
+  );
+}
+
+function Revealed({ text, streaming }: { text: string; streaming: boolean }) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
   return (
     <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled}>

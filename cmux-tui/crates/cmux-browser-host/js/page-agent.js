@@ -1247,9 +1247,10 @@
     adoptClosedRoot,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });
-  // The Swift driver resolves handles for input.setFiles through this name.
+  // The drivers resolve handles for input.setFiles through this name, and
+  // the CDP driver names a file chooser's input with handleFor.
   Object.defineProperty(global, "__cmuxPageAgent", {
-    value: { resolveHandle: (id) => handleElement(id) },
+    value: { resolveHandle: (id) => handleElement(id), handleFor },
     enumerable: false,
     configurable: true,
     writable: false,

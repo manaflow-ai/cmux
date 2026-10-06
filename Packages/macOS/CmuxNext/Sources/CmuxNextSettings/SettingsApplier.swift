@@ -37,6 +37,8 @@ public final class SettingsApplier {
         if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
         let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
         if design.density != density { design.density = density }
+        let uiScale = DesignSettings.clampedUIScale(CGFloat(snapshot.uiScale))
+        if design.uiScale != uiScale { design.uiScale = uiScale }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
