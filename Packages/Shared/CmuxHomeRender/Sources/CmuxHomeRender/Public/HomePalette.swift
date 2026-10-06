@@ -1,4 +1,5 @@
 public import CoreGraphics
+import Foundation
 
 /// An sRGB colour as plain numbers (Sendable and hashable, so it can key the
 /// bitmap cache and live in a static default).
@@ -39,6 +40,21 @@ public struct HomeColor: Hashable, Sendable {
 
     /// Relative luminance (sRGB weights, no linearization; enough to pick black or white text).
     var luminance: CGFloat { 0.2126 * red + 0.7152 * green + 0.0722 * blue }
+
+    /// WCAG relative luminance (linearized sRGB).
+    var relativeLuminance: Double {
+        func lin(_ c: CGFloat) -> Double { let c = Double(c); return c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(red) + 0.7152 * lin(green) + 0.0722 * lin(blue)
+    }
+
+    /// Text on this colour: white while it keeps 3:1 (Messages' white on
+    /// its blue is 3.7:1; saturated blues read better white than WCAG's
+    /// black pick), else white or black, whichever has the higher contrast.
+    var readableText: HomeColor {
+        let l = relativeLuminance
+        let onWhite = 1.05 / (l + 0.05), onBlack = (l + 0.05) / 0.05
+        return onWhite >= 3 || onWhite >= onBlack ? .gray255(255) : .gray255(0)
+    }
 }
 
 /// Every colour the renderer draws. Hosts build it from the app theme with
@@ -113,7 +129,7 @@ public struct HomePalette: Hashable, Sendable {
             background: active ? bg : n(0.022),
             incomingBubble: n(active ? 0.104 : 0.148),
             incomingText: n(0.848),
-            outgoingText: accent.luminance > 0.6 ? .gray255(0) : .gray255(255),
+            outgoingText: accent.readableText,
             secondaryText: n(0.535),
             failure: theme.failure,
             badge: n(0.148),

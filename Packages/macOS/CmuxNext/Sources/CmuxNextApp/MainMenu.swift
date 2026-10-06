@@ -48,6 +48,9 @@ enum MainMenu {
         ] + registry.makeMainMenuItems(for: .window).filter { $0.title != zoomTitle })
         mainMenu.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
+        // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
+        let debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
+        if !debug.isEmpty { mainMenu.addItem(submenu(Strings.menuDebug, items: debug)) }
         return mainMenu
     }
 

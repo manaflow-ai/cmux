@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import os
@@ -8,10 +9,17 @@ import os
 /// and listens on nothing. It outlives the app; its own pid lock keeps one
 /// instance per mux home, so starting it again is harmless.
 ///
-/// Phase A: the host is the TypeScript `mux` executable named by
-/// `CMUX_NEXT_MUX_HOST` (a `bun build --compile` binary of `mux/`); without it
-/// Home works and the mux simply does not answer. Tagged builds use
-/// `~/.cmux/mux/tags/<tag>` so a test never touches the real mux memory.
+/// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
+/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
+/// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
+/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
+/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
+/// DevTools channel rule); Release and RC never bundle or start it: Home
+/// works and the Chief does not answer. Both keep the
+/// `host --daemon-socket --mux-home` contract and one lock per mux home.
+/// Tagged builds use `~/.cmux/mux/tags/<tag>` so a test never touches the
+/// real mux memory.
 nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -20,9 +28,24 @@ nonisolated struct HomeBrainHost: Sendable {
     let controlSocket: String
     let acpmux: AcpmuxEnvironment?
 
+    /// The OptChat Chief's file name in the app's Contents/Resources/bin.
+    static let bundledChiefName = "optchat-chief"
+
+    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
+    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
+    /// Release, so the bundle id decides, as for DevTools).
+    static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
+        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+    }
+
     static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> HomeBrainHost? {
-        guard let path = environment["CMUX_NEXT_MUX_HOST"], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
+                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+                        bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                        bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
+                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
+        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
+        guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
         let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
@@ -34,7 +57,7 @@ nonisolated struct HomeBrainHost: Sendable {
         } else {
             home = base
         }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
+        let bin = bundledBinDirectory
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
                              acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
     }
@@ -54,6 +77,8 @@ nonisolated struct HomeBrainHost: Sendable {
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
+            // ...and its title (HomeChiefName.createRequest, localized).
+            "MUX_CHIEF_TITLE": HomeStrings.chiefName,
         ]
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }
