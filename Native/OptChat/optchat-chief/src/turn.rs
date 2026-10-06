@@ -14,6 +14,8 @@ use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
 use crate::fold::{Entry, TurnFold, Usage, answer_usage, is_cancelled, stop_error};
+use crate::harness_gate::Admitted;
+use crate::trace::Trace;
 
 /// How often a stop for a newer message is sent again while the turn has
 /// not ended: a `session/cancel` that reaches acpmux before the prompt does
@@ -99,7 +101,21 @@ pub struct Orphan {
     pub after: u64,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// What a turn used, for the trace's `turn.end`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TurnStats {
+    /// The turn's first model request (reads what another turn cached).
+    pub first: Option<Usage>,
+    /// The turn's total (Claude Code) or its last request (codex-acp).
+    pub totals: Option<(Usage, &'static str)>,
+    /// What the harness says the turn cost (Claude Code's `cost_usd`).
+    pub cost: Option<f64>,
+    pub requests: usize,
+    pub tools: usize,
+    pub tool_errors: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct TurnOutcome {
     /// The turn's final assistant text.
     pub reply: Option<String>,
@@ -107,6 +123,23 @@ pub struct TurnOutcome {
     pub orphan: Option<Orphan>,
     /// The turn ended with stop reason `cancelled` (stopped for a newer message).
     pub cancelled: bool,
+    pub stats: TurnStats,
+    /// The harness the turn ran on (harness_gate); None before admission.
+    /// Boxed: the outcome travels in `Input::TurnEnded`.
+    pub harness: Option<Box<Admitted>>,
+    /// The gate refused the harness (`error` says why): nothing ran on it,
+    /// or acpmux moved the session onto a refused profile.
+    pub refused: bool,
+}
+
+/// A turn the harness gate refused: traced, and posted as its error.
+fn refused(trace: &Trace, start: &TurnStart, reason: &str) -> TurnOutcome {
+    crate::harness_gate::trace_refusal(trace, "turn", &start.session.harness, reason);
+    TurnOutcome {
+        error: Some(crate::harness_gate::refusal(reason)),
+        refused: true,
+        ..TurnOutcome::default()
+    }
 }
 
 /// Runs the turn to its end; never panics on a port failure (it becomes the
@@ -119,7 +152,9 @@ pub fn run(
     interrupt: &Interrupt,
     log: &dyn Fn(&str),
     progress: &dyn Fn(&str, u64),
+    trace: &Trace,
 ) -> TurnOutcome {
+    let scope = serde_json::json!({"turn": start.key});
     // The limit covers the session's start too: a harness that never
     // initializes must not hold the turn (and every later message) forever.
     let deadline = start.limit.map(|limit| Instant::now() + limit);
@@ -133,6 +168,19 @@ pub fn run(
                 ));
             }
         }
+    };
+    // Claude only through acpmux's own Claude Code adapter: the profile is
+    // found by kind and command, never by the name alone.
+    let admitted = match crate::harness_gate::admit_live(agents, &start.session.harness) {
+        Ok(admitted) => admitted,
+        Err(reason) => {
+            log(&format!("turn {}: {reason}", start.key));
+            return refused(trace, start, &reason);
+        }
+    };
+    let spec = SessionSpec {
+        harness: admitted.profile.clone(),
+        ..start.session.clone()
     };
     // A session of this name is left from a host that stopped mid-turn.
     if let Ok(Some(old)) = agents.find(&start.session.name) {
@@ -153,13 +201,24 @@ pub fn run(
             };
         }
     }
-    let session = match agents.new_session(&start.session) {
+    let session = match agents.new_session(&spec) {
         Ok(id) => id,
         Err(e) => {
             return TurnOutcome {
                 error: Some(e),
+                harness: Some(Box::new(admitted)),
                 ..TurnOutcome::default()
             };
+        }
+    };
+    // acpmux resolves a name that is also a family through its preference
+    // list: the session's own harness is what answers.
+    let admitted = match crate::harness_gate::session_harness(agents, &session, &admitted) {
+        Ok(actual) => actual,
+        Err(reason) => {
+            log(&format!("turn {}: {reason}", start.key));
+            let _ = agents.end_session(&session);
+            return refused(trace, start, &reason);
         }
     };
     progress(&session, 0);
@@ -178,6 +237,7 @@ pub fn run(
         for event in agents.events(&session, fold.seq())? {
             append(fold.apply(&event));
         }
+        crate::trace::tools(trace, &scope, fold.take_tool_traces());
         if fold.seq() != before {
             progress(&session, fold.seq());
         }
@@ -185,6 +245,7 @@ pub fn run(
     };
     let mut orphan = None;
     let mut totals = None;
+    let mut cost = None;
     // The prompt's answer arrived (or never will: lost, past the limit).
     let mut answered = false;
     let mut last_cancel: Option<Instant> = None;
@@ -268,6 +329,7 @@ pub fn run(
             TurnSignal::Done(answer) => {
                 answered = true;
                 totals = answer.as_ref().ok().and_then(answer_usage);
+                cost = answer.as_ref().ok().and_then(answer_cost);
                 let stopped = answer
                     .as_ref()
                     .ok()
@@ -304,6 +366,7 @@ pub fn run(
             Ok(TurnSignal::Changed) => {}
             Ok(TurnSignal::Done(answer)) => {
                 totals = answer.as_ref().ok().and_then(answer_usage);
+                cost = answer.as_ref().ok().and_then(answer_cost);
                 answered = true;
             }
             Ok(TurnSignal::Lost) | Err(_) => answered = true,
@@ -311,18 +374,68 @@ pub fn run(
     }
     interrupt.wake_with(None);
     log(&usage_line(&start.key, fold.first_usage(), totals));
+    crate::trace::tools(trace, &scope, fold.take_tool_traces());
+    let mut requests = fold.requests().to_vec();
+    // codex-acp reports no per-request lines: its last request stands in.
+    if requests.is_empty()
+        && let Some((u, "last request")) = totals
+    {
+        requests.push(crate::fold::Request {
+            id: String::new(),
+            model: start.session.model.clone(),
+            usage: u,
+        });
+    }
+    crate::trace::requests(trace, &scope, &requests);
+    let (tools, tool_errors) = fold.tool_counts();
+    // A fallback can move a session onto another profile mid-turn: what it
+    // ran on at the end is recorded, and a refused one is said.
+    let (admitted, moved) = match &orphan {
+        Some(_) => (admitted, None),
+        None => match crate::harness_gate::session_harness(agents, &session, &admitted) {
+            Ok(actual) => (actual, None),
+            Err(reason) => {
+                log(&format!("turn {}: {reason}", start.key));
+                crate::harness_gate::trace_refusal(trace, "turn", &start.session.harness, &reason);
+                (admitted, Some(crate::harness_gate::refusal(&reason)))
+            }
+        },
+    };
     if orphan.is_none()
         && let Err(e) = agents.end_session(&session)
     {
         log(&format!("ending turn session {}: {e}", start.session.name));
     }
     let error = fold.ended().and_then(|e| e.error.clone());
+    let cancelled = is_cancelled(error.as_deref());
+    let refused = moved.is_some();
+    let error = match (error, moved) {
+        (Some(e), Some(m)) => Some(format!("{e}; {m}")),
+        (e, m) => e.or(m),
+    };
     TurnOutcome {
         reply: fold.final_text().map(str::to_owned),
-        cancelled: is_cancelled(error.as_deref()),
+        cancelled,
         error,
         orphan,
+        harness: Some(Box::new(admitted)),
+        refused,
+        stats: TurnStats {
+            first: fold.first_usage(),
+            totals,
+            cost,
+            requests: requests.len(),
+            tools,
+            tool_errors,
+        },
     }
+}
+
+/// What a prompt's answer says it cost (Claude Code's `_meta.claude.cost_usd`).
+pub fn answer_cost(answer: &Value) -> Option<f64> {
+    answer
+        .pointer("/_meta/claude/cost_usd")
+        .and_then(Value::as_f64)
 }
 
 /// One host.log line per turn with its cache use (section 8: verify with the

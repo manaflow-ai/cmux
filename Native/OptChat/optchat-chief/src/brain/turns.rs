@@ -23,7 +23,10 @@ impl Brain {
             return;
         }
         self.phase = Phase::Settling;
+        self.settle_clock
+            .get_or_insert_with(std::time::Instant::now);
         self.interrupt = Arc::new(Interrupt::new());
+        let trace = self.trace.clone();
         let (chat, agents, tx, log, engine, interrupt, marker_refused) = (
             self.chat.clone(),
             self.agents.clone(),
@@ -87,7 +90,7 @@ impl Brain {
                             });
                         };
                         let outcome =
-                            turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress);
+                            turn::run(&*agents, &chat, &start, &interrupt, &*log, &progress, &trace);
                         // Claude Code placed all four cache breakpoints
                         // itself: the same turn again without the marker
                         // (the refused request did nothing), and later
@@ -110,7 +113,7 @@ impl Brain {
                                     }
                                 }
                                 again.prompt_id = format!("{}:unmarked", start.prompt_id);
-                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress)
+                                turn::run(&*agents, &chat, &again, &interrupt, &*log, &progress, &trace)
                             }
                             _ => outcome,
                         }
@@ -193,6 +196,8 @@ impl Brain {
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        let items_sources: Vec<&'static str> =
+            items.iter().map(|i| source_name(&i.source)).collect();
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
@@ -222,6 +227,14 @@ impl Brain {
                 (self.log)(&format!("updating the session directory's CLAUDE.md: {e}"));
             }
         }
+        self.trace_start(
+            &key,
+            first,
+            &view.text,
+            &texts,
+            &items_sources,
+            system_prompt.as_deref(),
+        );
         Some(TurnStart {
             prompt_id: format!("optchat:{first}"),
             session: SessionSpec {
@@ -265,6 +278,10 @@ impl Brain {
             {
                 record.status = ChildStatus::Reported;
                 record.floor = *floor;
+            }
+            if let Source::Spawn(r) = &item.source {
+                self.state.spawn_logged(r);
+                self.trace_report_logged(r, &item.text);
             }
         }
         // The queue is empty now, so every handled seq is logged or needed no log.
@@ -336,6 +353,100 @@ impl Brain {
         }
     }
 
+    /// The trace's `turn.start`: what the turn reads, the view's size and
+    /// the hash of each cached piece, how much of the previous turn's view
+    /// is unchanged, and how long the settle wait took.
+    fn trace_start(
+        &mut self,
+        key: &str,
+        first: u64,
+        view: &str,
+        texts: &[String],
+        sources: &[&'static str],
+        system: Option<&str>,
+    ) {
+        self.turn_clock = Some(std::time::Instant::now());
+        let settle_ms = self
+            .settle_clock
+            .take()
+            .map(|t| t.elapsed().as_millis() as u64);
+        if !self.trace.is_on() {
+            return;
+        }
+        let unchanged = self
+            .prev_view
+            .as_deref()
+            .map(|prev| (crate::trace::common_prefix(prev, view), prev.len()));
+        let system_text = system.unwrap_or(&self.settings.system_text);
+        self.trace.emit(
+            "turn.start",
+            serde_json::json!({
+                "turn": key,
+                "first": first,
+                "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
+                "harness": self.settings.harness,
+                "settle_ms": settle_ms,
+                "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
+                "sources": sources,
+                "view": {
+                    "bytes": view.len(),
+                    "lines": view.lines().count(),
+                    "hash": crate::trace::hash(view),
+                    "pieces": crate::trace::pieces(view),
+                    "unchanged_prefix_bytes": unchanged.map(|u| u.0),
+                    "prev_bytes": unchanged.map(|u| u.1),
+                },
+                "system": {"bytes": system_text.len(), "hash": crate::trace::hash(system_text), "with_view_head": system.is_some()},
+            }),
+        );
+        self.prev_view = Some(view.to_owned());
+    }
+
+    /// The trace's `turn.end`.
+    fn trace_end(&mut self, key: &str, outcome: &TurnOutcome, superseded: bool) {
+        let ms = self
+            .turn_clock
+            .take()
+            .map(|t| t.elapsed().as_millis() as u64);
+        if !self.trace.is_on() {
+            return;
+        }
+        let s = &outcome.stats;
+        let status = if superseded {
+            "superseded"
+        } else if outcome.refused && outcome.reply.is_none() {
+            "refused"
+        } else if outcome.cancelled {
+            "cancelled"
+        } else if outcome.error.is_some() {
+            "error"
+        } else {
+            "ok"
+        };
+        self.trace.emit(
+            "turn.end",
+            serde_json::json!({
+                "turn": key,
+                "ms": ms,
+                "status": status,
+                "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
+                "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
+                "first_usage": s.first.as_ref().map(crate::trace::usage),
+                "usage": s.totals.as_ref().map(|(u, _)| crate::trace::usage(u)),
+                "usage_scope": s.totals.as_ref().map(|(_, scope)| *scope),
+                "cost_usd": s.cost,
+                "requests": s.requests,
+                "tools": s.tools,
+                "tool_errors": s.tool_errors,
+                // What answered (harness_gate): the engine panel reads these.
+                "harness_profile": outcome.harness.as_ref().map(|h| h.profile.as_str()),
+                "harness_kind": outcome.harness.as_ref().map(|h| h.kind.as_str()),
+                "harness_argv0": outcome.harness.as_ref().map(|h| h.argv0.as_str()),
+                "harness_refused": outcome.refused,
+            }),
+        );
+    }
+
     pub(super) fn turn_ended(&mut self, key: &str, outcome: TurnOutcome) {
         let conversation = self
             .state
@@ -346,10 +457,12 @@ impl Brain {
         // A turn stopped for a newer message posts nothing: the next turn,
         // which starts now with that message, answers both.
         let superseded = outcome.cancelled && self.stop_wanted;
+        self.trace_end(key, &outcome, superseded);
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let text = match (outcome.reply, outcome.error) {
             _ if superseded => String::new(),
+            (None, Some(error)) if outcome.refused => format!("(turn {error})"),
             (Some(reply), Some(error)) => format!("{reply}\n\n(turn failed: {error})"),
             (Some(reply), None) => reply,
             (None, Some(error)) => format!("(turn failed: {error})"),
@@ -385,19 +498,33 @@ impl Brain {
     }
 }
 
+/// A queued item's source in the trace.
+fn source_name(source: &Source) -> &'static str {
+    match source {
+        Source::Message { .. } => "human",
+        Source::Child { .. } => "child",
+        Source::Spawn(_) => "subagents",
+        Source::Note => "note",
+    }
+}
+
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
     match &queued.source {
         Source::Message { seq } => Item {
             seq: Some(*seq),
-            child: None,
+            ..Item::default()
         },
         Source::Child { session_id, floor } => Item {
-            seq: None,
             child: Some(ChildRef {
                 session_id: session_id.clone(),
                 floor: *floor,
             }),
+            ..Item::default()
+        },
+        Source::Spawn(r) => Item {
+            spawn: Some(r.clone()),
+            ..Item::default()
         },
         Source::Note => Item::default(),
     }

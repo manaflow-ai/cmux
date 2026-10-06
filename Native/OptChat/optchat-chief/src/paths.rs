@@ -60,6 +60,11 @@ pub struct Paths {
     /// The user's own instructions file, the end of every turn's system
     /// prompt (section 7.2); read once per host start.
     pub instructions: PathBuf,
+    /// Every subagent's working directory (section 9): its MCP servers
+    /// (zoom and date only), project settings, and instructions file.
+    pub subagent: PathBuf,
+    /// The monitoring trace (`trace.rs`).
+    pub traces: PathBuf,
 }
 
 impl Paths {
@@ -77,6 +82,8 @@ impl Paths {
             compactor_config: root.join("compactor-claude"),
             compactor_codex: root.join("compactor-codex"),
             instructions: root.join("AGENTS.md"),
+            subagent: root.join("subagent"),
+            traces: root.join("traces"),
             root,
         }
     }

@@ -331,7 +331,11 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     assert!(text.starts_with("You are Chief, an AI agent"));
     assert!(text.contains("`/h/optchat/bin/chief zoom ID N`"), "{text}");
     assert!(text.contains("`/h/optchat/bin/chief date ID`"), "{text}");
-    assert!(text.contains("/h/optchat/bin/chief agents spawn"), "{text}");
+    assert!(
+        text.contains("`/h/optchat/bin/chief spawn \"task\""),
+        "{text}"
+    );
+    assert!(text.contains("/h/optchat/bin/chief tell ID"), "{text}");
     assert!(!text.contains("MCP server `optchat`"), "{text}");
     assert_eq!(system_text(None, &Tools::Mcp), claude_md(None));
     let dir = tempfile::tempdir().unwrap();

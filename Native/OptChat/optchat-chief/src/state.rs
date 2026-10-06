@@ -34,6 +34,67 @@ pub struct HostState {
     /// at the next acpmux connect.
     #[serde(default)]
     pub orphans: Vec<crate::turn::Orphan>,
+    /// Section 9: each `spawn` call and its subagents, by spawn id.
+    #[serde(default)]
+    pub spawns: BTreeMap<String, SpawnRecord>,
+    /// The number of the next subagent id (`a<N>`), unique for this home.
+    #[serde(default)]
+    pub next_subagent: u64,
+}
+
+/// One `spawn(tasks)` call (section 9): its subagents report together.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpawnRecord {
+    pub subs: Vec<SubRecord>,
+    /// The combined report is in the log; later reports come one by one.
+    #[serde(default)]
+    pub delivered: bool,
+    /// When the spawn was made (ms since the epoch).
+    #[serde(default)]
+    pub started_ms: u64,
+    /// The turn that spawned it (its reply key), for the trace.
+    #[serde(default)]
+    pub turn: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubStatus {
+    /// Its session is being created.
+    #[default]
+    Starting,
+    /// A turn runs, or one ended and was not read yet.
+    Running,
+    /// It ended a turn; `report` holds its last reply, not logged yet.
+    Done,
+    /// Its last report is in the log.
+    Reported,
+}
+
+/// One subagent.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubRecord {
+    /// `a<N>`: what the Chief calls it (`tell`, `[id] report`).
+    pub id: String,
+    /// Its acpmux session, once created.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Its cmux workspace, once created.
+    #[serde(default)]
+    pub workspace: Option<String>,
+    pub status: SubStatus,
+    /// The report waiting for the log.
+    #[serde(default)]
+    pub report: Option<String>,
+    /// The session's event seq at its last read turn end.
+    #[serde(default)]
+    pub floor: u64,
+    /// When its current run began (ms since the epoch), for the trace.
+    #[serde(default)]
+    pub run_ms: u64,
+    /// The task's first characters (the workspace title).
+    #[serde(default)]
+    pub title: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -94,7 +155,7 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
-                child: None,
+                ..Item::default()
             })
             .collect()
     }
@@ -111,6 +172,57 @@ pub struct Item {
     /// A child's report.
     #[serde(default)]
     pub child: Option<ChildRef>,
+    /// Subagents' reports (section 9): the spawn and each subagent's floor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spawn: Option<SpawnRef>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpawnRef {
+    pub spawn: String,
+    /// (subagent id, its floor once this report is logged).
+    pub subs: Vec<(String, u64)>,
+}
+
+impl HostState {
+    /// Marks the subagents of a logged report reported.
+    pub fn spawn_logged(&mut self, r: &SpawnRef) {
+        if let Some(record) = self.spawns.get_mut(&r.spawn) {
+            record.delivered = true;
+            for (id, floor) in &r.subs {
+                if let Some(sub) = record.subs.iter_mut().find(|s| &s.id == id)
+                    && sub.status == SubStatus::Done
+                {
+                    sub.status = SubStatus::Reported;
+                    sub.report = None;
+                    sub.floor = *floor;
+                }
+            }
+        }
+    }
+
+    /// The subagent `id` and its spawn id.
+    pub fn sub(&self, id: &str) -> Option<(&String, &SubRecord)> {
+        self.spawns
+            .iter()
+            .find_map(|(k, r)| r.subs.iter().find(|s| s.id == id).map(|s| (k, s)))
+    }
+
+    pub fn sub_mut(&mut self, id: &str) -> Option<&mut SubRecord> {
+        self.spawns
+            .values_mut()
+            .find_map(|r| r.subs.iter_mut().find(|s| s.id == id))
+    }
+
+    /// The subagent whose session is `session_id`.
+    pub fn sub_by_session(&self, session_id: &str) -> Option<String> {
+        self.spawns.values().find_map(|r| {
+            r.subs
+                .iter()
+                .find(|s| s.session_id.as_deref() == Some(session_id))
+                .map(|s| s.id.clone())
+        })
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

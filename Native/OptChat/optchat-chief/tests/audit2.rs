@@ -115,7 +115,7 @@ fn an_orphan_folded_after_the_settle_does_not_reach_the_view_unsummarized() {
         agents.clone(),
         settings(dir.path()),
         StateFile::new(&dir.path().join("host.json")),
-        tx,
+        tx.clone(),
         Arc::new(|_: &str| {}),
     );
     let mut h = Harness {
@@ -128,6 +128,7 @@ fn an_orphan_folded_after_the_settle_does_not_reach_the_view_unsummarized() {
         agents,
         brain,
         rx,
+        tx,
     };
     h.agents.inner.lock().unwrap().lose = true;
     h.connect();

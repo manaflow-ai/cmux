@@ -50,6 +50,9 @@ pub(super) fn recover(chat: &OptChat, state: &mut HostState, acpmux: bool) -> Ve
                 human = true;
                 state.logged_seq = state.logged_seq.max(seq);
             }
+            if let Some(spawn) = &item.spawn {
+                state.spawn_logged(spawn);
+            }
             if let Some(child) = &item.child
                 && let Some(record) = state.children.get_mut(&child.session_id)
             {

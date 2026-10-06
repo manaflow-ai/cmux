@@ -468,7 +468,15 @@ fn two_turns_and_two_nodes_through_local_acp() {
             limit: Some(Duration::from_secs(600)),
         };
         let started = std::time::Instant::now();
-        let outcome = turn::run(&*agents, &chat, &start, &Interrupt::new(), &log, &|_, _| {});
+        let outcome = turn::run(
+            &*agents,
+            &chat,
+            &start,
+            &Interrupt::new(),
+            &log,
+            &|_, _| {},
+            &optchat_chief::trace::Trace::off(),
+        );
         println!(
             "turn {n}: {outcome:?} in {} ms",
             started.elapsed().as_millis()

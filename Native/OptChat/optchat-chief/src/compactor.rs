@@ -208,6 +208,10 @@ struct Live {
     /// Token use the harness reported, summed over the node's prompts.
     usage: Option<Usage>,
     cost: Option<f64>,
+    /// The last prompt's failure (None: it built the line), for the trace.
+    error: Option<String>,
+    /// The node's context as the trace records it (size, hash, pieces).
+    context: Value,
 }
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -224,6 +228,7 @@ pub struct AcpmuxCompactor {
     /// breakpoint of its own): later nodes go without it.
     marker_refused: AtomicBool,
     log: Option<Log>,
+    trace: crate::trace::Trace,
 }
 
 impl AcpmuxCompactor {
@@ -243,7 +248,14 @@ impl AcpmuxCompactor {
                 .map_or(0, |d| d.as_millis() as u64),
             marker_refused: AtomicBool::new(false),
             log: None,
+            trace: crate::trace::Trace::off(),
         }
+    }
+
+    /// Traces every node: seconds, prompts, token use, cost, outcome.
+    pub fn with_trace(mut self, trace: crate::trace::Trace) -> AcpmuxCompactor {
+        self.trace = trace;
+        self
     }
 
     /// Logs one line per node: its seconds, prompts and token use.
@@ -312,6 +324,19 @@ impl AcpmuxCompactor {
     /// Opens the node's session (a slot first, so at most JOBS live), with
     /// `system` as its slot preset's system prompt in the cached layout.
     fn open(&self, node: NodeId, system: Option<&str>) -> Result<String, ModelError> {
+        // Claude only through acpmux's own Claude Code adapter
+        // (harness_gate), checked before a slot is taken.
+        let admitted =
+            crate::harness_gate::admit_live(&*self.port, &self.spec.harness).map_err(|reason| {
+                self.say(&format!("compactor node {}: {reason}", node.name()));
+                crate::harness_gate::trace_refusal(
+                    &self.trace,
+                    "compactor",
+                    &self.spec.harness,
+                    &reason,
+                );
+                ModelError::new(crate::harness_gate::refusal(&reason))
+            })?;
         let slot = self.slots.take();
         let cwd = match self.slot_dir(slot) {
             Ok(cwd) => cwd,
@@ -344,14 +369,31 @@ impl AcpmuxCompactor {
         let spec = SessionSpec {
             name,
             cwd: cwd.clone(),
-            harness: self.spec.harness.clone(),
+            harness: admitted.profile.clone(),
             policy: POLICY.to_owned(),
             model: self.spec.model.clone(),
             effort: self.spec.effort.clone(),
             preset: Some(preset.clone()),
             tags: crate::acpmux::chief_tags(&self.spec.chief, "compactor"),
         };
-        match self.port.new_session(&spec) {
+        let opened = self.port.new_session(&spec).and_then(|id| {
+            // The session's own harness is what answers (a name that is
+            // also a family resolves through acpmux's preference list).
+            match crate::harness_gate::session_harness(&*self.port, &id, &admitted) {
+                Ok(_) => Ok(id),
+                Err(reason) => {
+                    let _ = self.port.end_session(&id);
+                    crate::harness_gate::trace_refusal(
+                        &self.trace,
+                        "compactor",
+                        &self.spec.harness,
+                        &reason,
+                    );
+                    Err(crate::harness_gate::refusal(&reason))
+                }
+            }
+        });
+        match opened {
             Ok(id) => {
                 self.live
                     .lock()
@@ -369,6 +411,8 @@ impl AcpmuxCompactor {
                             prompts: 0,
                             usage: None,
                             cost: None,
+                            error: None,
+                            context: Value::Null,
                         },
                     );
                 Ok(id)
@@ -536,8 +580,12 @@ impl AcpmuxCompactor {
     }
 }
 
-impl CompactModel for AcpmuxCompactor {
-    fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
+impl AcpmuxCompactor {
+    fn call_inner(
+        &self,
+        request: &CompactRequest,
+        followups: &[Followup],
+    ) -> Result<Reply, ModelError> {
         let node = request.node;
         let (session, blocks) = match followups.last() {
             None => {
@@ -561,6 +609,24 @@ impl CompactModel for AcpmuxCompactor {
         };
         self.prompt(node, &session, blocks)
     }
+}
+
+impl CompactModel for AcpmuxCompactor {
+    fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
+        let result = self.call_inner(request, followups);
+        if let Some(l) = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(&request.node) {
+            l.error = result.as_ref().err().map(|e| e.message.clone());
+            if l.context.is_null() {
+                l.context = json!({
+                    "bytes": request.context.len(),
+                    "hash": crate::trace::hash(&request.context),
+                    "pieces": crate::trace::pieces(&request.context),
+                    "system_hash": crate::trace::hash(&request.system),
+                });
+            }
+        }
+        result
+    }
 
     fn end(&self, request: &CompactRequest) {
         let Some(live) = self
@@ -571,6 +637,21 @@ impl CompactModel for AcpmuxCompactor {
         else {
             return;
         };
+        self.trace.emit(
+            "node",
+            json!({
+                "node": request.node.name(),
+                "harness": self.spec.harness,
+                "model": self.spec.model,
+                "ms": live.opened.elapsed().as_millis() as u64,
+                "prompts": live.prompts,
+                "usage": live.usage.as_ref().map(crate::trace::usage),
+                "cost_usd": live.cost,
+                "ok": live.error.is_none(),
+                "error": live.error.as_deref().map(|e| self.trace.text(e)),
+                "context": live.context,
+            }),
+        );
         // Purged: a node's session holds the chat's text, and nothing reads it again.
         let _ = self.port.end_session(&live.id);
         // So is Claude Code's own transcript of it (the whole view, each time),
