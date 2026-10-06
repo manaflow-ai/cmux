@@ -18,8 +18,8 @@ const FIXTURES: &[&str] = &["vm-list", "vm-resume"];
 fn link_line(line: &Value, machine: &str, state: &str) -> bool {
     line["type"] == "event"
         && line["event"] == "cloud.link.changed"
-        && line["machine"] == machine
-        && line["state"] == state
+        && line["data"]["machine"] == machine
+        && line["data"]["state"] == state
 }
 
 /// A host with beta's link up and alpha's connect waiting for a ready

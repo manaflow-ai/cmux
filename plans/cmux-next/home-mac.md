@@ -109,17 +109,17 @@ Accepted for merge; not fixed on feat-cmux-next-home-cloud-source.
   are not called either. Fix direction: hooks report whether they delivered,
   and the store falls back when no hook did.
 - P3-3, edit-echo deadline race. `editDeadlinePassed`
-  (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/CloudHomeSource.swift:1103-1108)
+  (Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/CloudHomeSource+EditEcho.swift:61-67)
   checks only the generation and `inFlight == 0`. A deadline callback that
-  was already dispatched when `beginEdit` (:1053) cancelled it can run after
-  a later edit finished (:1070) and end that edit's subscription before its
+  was already dispatched when `beginEdit` (:11) cancelled it can run after
+  a later edit finished (:28) and end that edit's subscription before its
   echo or its own `editEchoDeadline`. Fix direction: a per-schedule token in
   `EditHold` that the callback must match.
 - P3-4, a repeated close drops an in-flight inbox edit's hold. `close`
-  (CloudHomeSource.swift:560-575) removes `editHolds[conversation]` (:565) and
+  (CloudHomeSource+HomeSource.swift:141-156) removes `editHolds[conversation]` (:146) and
   the target whether or not an edit is in flight. A second close of a
   conversation that is not on screen (an inbox edit in flight through
-  `requireEditable`) unsubscribes mid-edit; `finishEdit` (:1072) then finds
+  `requireEditable`) unsubscribes mid-edit; `finishEdit` (CloudHomeSource+EditEcho.swift:30) then finds
   no hold and returns, so the echo is never awaited. Fix direction: close
   ends only a hold with `inFlight == 0`, and an in-flight hold keeps the
   target until its edits finish.

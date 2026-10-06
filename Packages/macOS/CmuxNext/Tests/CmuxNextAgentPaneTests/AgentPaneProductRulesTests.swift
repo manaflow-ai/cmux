@@ -183,4 +183,55 @@ import Testing
         rig.transport.sessions.add("s-tab")
         await rig.send("_acpmux/kill", ["sessionId": "s-tab", "purge": true])
     }
+
+    /// An attach is not a grant: the click that opens a session in the pane (an attach with a
+    /// gesture) is still there for the prompt the same click sends. Only the grant uses it.
+    @Test func anAttachNeverSpendsTheGestureThatAPromptOnTheSameClickNeeds() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-clicked", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-clicked"))
+        #expect(rig.transport.gestures.isAvailable)
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()])
+        // The prompt used the click: the next grant needs a new one.
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()], expect: .gestureRequired)
+    }
+
+    /// A click is two single-use credits: one scope-add (an attach of a session that is not yet
+    /// the pane's) and one grant. A second attach on the same click brings nothing in.
+    @Test func oneClickBringsOneSessionInNotTwo() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-first", "limit": 10])
+        await rig.send("_acpmux/attach", ["sessionId": "s-second", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-first"))
+        #expect(!rig.transport.sessions.contains("s-second"))
+        await rig.send("_acpmux/kill", ["sessionId": "s-second", "purge": true], expect: .sessionNotInPane)
+        // The grant credit of the same click is still there.
+        await rig.send("session/prompt", ["sessionId": "s-first", "prompt": [Any]()])
+    }
+
+    /// One click is one grant: a second prompt on it is refused.
+    @Test func oneClickIsOneGrant() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.sessions.add("s-tab")
+        rig.transport.gestures.record()
+        await rig.send("session/prompt", ["sessionId": "s-tab", "prompt": [Any]()])
+        await rig.send("session/prompt", ["sessionId": "s-tab", "prompt": [Any]()], expect: .gestureRequired)
+    }
 }

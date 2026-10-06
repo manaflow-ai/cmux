@@ -97,7 +97,7 @@ impl Drop for RunEntry<'_> {
 }
 
 fn cancelled() -> DriverError {
-    DriverError::closed("fetch: cancelled")
+    DriverError::cancelled("fetch: cancelled")
 }
 
 /// An open fetch shell: closed when dropped (success, error, timeout,
