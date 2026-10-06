@@ -4217,6 +4217,183 @@
         }
       }
     },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مساحة عمل جديدة على المضيف البعيد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Arbeitsbereich auf dem entfernten Host"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo en el host remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail sur l’hôte distant"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートホストで新規ワークスペース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 호스트에 새 작업 공간"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在远程主机上新建工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在遠端主機上新增工作區"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace always opens a local workspace, even with a remote tmux workspace selected."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يفتح «مساحة عمل جديدة» مساحة عمل محلية دائمًا، حتى عند تحديد مساحة عمل tmux بعيدة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Neuer Arbeitsbereich“ öffnet immer einen lokalen Arbeitsbereich, auch wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo espacio de trabajo siempre abre un espacio de trabajo local, incluso con un espacio de trabajo de tmux remoto seleccionado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel espace de travail ouvre toujours un espace de travail local, même lorsqu’un espace de travail tmux distant est sélectionné."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択していても、「新規ワークスペース」は常にローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있어도 새 작업 공간은 항상 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使选中了远程 tmux 工作区，“新建工作区”也始终打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使選取了遠端 tmux 工作區，「新增工作區」也一律開啟本機工作區。"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند تحديد مساحة عمل tmux بعيدة، يبدأ «مساحة عمل جديدة» جلسة tmux على مضيف تلك المساحة. ويفتح «مساحة عمل محلية جديدة» مساحة محلية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dessen Host. „Neuer lokaler Arbeitsbereich“ öffnet einen lokalen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con un espacio de trabajo de tmux remoto seleccionado, Nuevo espacio de trabajo inicia una sesión de tmux en el host de ese espacio. Nuevo espacio de trabajo local abre uno local."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsqu’un espace de travail tmux distant est sélectionné, Nouvel espace de travail démarre une session tmux sur l’hôte de cet espace. Nouvel espace de travail local en ouvre un local."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート tmux ワークスペースを選択しているとき、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。「新規ローカルワークスペース」はローカルのワークスペースを開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원격 tmux 작업 공간이 선택되어 있으면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다. 새 로컬 작업 공간은 로컬 작업 공간을 엽니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选中远程 tmux 工作区时，“新建工作区”会在该工作区的主机上启动 tmux 会话。“新建本地工作区”则打开本地工作区。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選取遠端 tmux 工作區時，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。「新增本機工作區」則開啟本機工作區。"
+          }
+        }
+      }
+    },
     "settings.taxonomy.general": {
       "localizations": {
         "ar": {
@@ -7101,55 +7278,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Stop discovering other Macs"
+            "value": "Stop discovering other devices"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إيقاف اكتشاف أجهزة Mac الأخرى"
+            "value": "إيقاف اكتشاف الأجهزة الأخرى"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andere Macs nicht mehr finden"
+            "value": "Andere Geräte nicht mehr finden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dejar de descubrir otros Mac"
+            "value": "Dejar de descubrir otros dispositivos"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arrêter de rechercher d’autres Mac"
+            "value": "Arrêter de rechercher d’autres appareils"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ほかのMacの検出を停止"
+            "value": "ほかのデバイスの検出を停止"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "다른 Mac 검색 중지"
+            "value": "다른 기기 검색 중지"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "停止发现其他 Mac"
+            "value": "停止发现其他设备"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "停止尋找其他 Mac"
+            "value": "停止尋找其他裝置"
           }
         }
       }
@@ -13457,6 +13634,65 @@
         }
       }
     },
+    "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable مساحة عمل جديدة المضيف البعيد جلسة محلية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Neuer Arbeitsbereich entfernter Host Sitzung lokal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nuevo espacio de trabajo host remoto sesión local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nouvel espace de travail hôte distant session local"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新規ワークスペース リモートホスト セッション ローカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 새 작업 공간 원격 호스트 세션 로컬"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新建工作区 远程主机 会话 本地"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新增工作區 遠端主機 工作階段 本機"
+          }
+        }
+      }
+    },
     "settings.terminal.showJumpToBottomButton": {
       "extractionState": "manual",
       "localizations": {
@@ -13929,238 +14165,415 @@
         }
       }
     },
-    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost": {
+    "settings.app.workspaceDescriptionColor": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host"
+            "value": "Workspace Description Color"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مساحة عمل جديدة على المضيف البعيد"
+            "value": "لون وصف مساحة العمل"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Neuer Arbeitsbereich auf dem entfernten Host"
+            "value": "Farbe der Arbeitsbereichsbeschreibung"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo espacio de trabajo en el host remoto"
+            "value": "Color de la descripción del espacio de trabajo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvel espace de travail sur l’hôte distant"
+            "value": "Couleur de la description de l’espace de travail"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモートホストで新規ワークスペース"
+            "value": "ワークスペースの説明の色"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 호스트에 새 작업 공간"
+            "value": "작업 공간 설명 색상"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在远程主机上新建工作区"
+            "value": "工作区描述颜色"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在遠端主機上新增工作區"
+            "value": "工作區描述顏色"
           }
         }
       }
     },
-    "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host": {
+    "settings.automation.canonicalAgentScratch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable"
+            "value": "Canonical Agent Scratch"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable مساحة عمل جديدة المضيف البعيد جلسة محلية"
+            "value": "دليل مؤقت موحّد للوكلاء"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Neuer Arbeitsbereich entfernter Host Sitzung lokal"
+            "value": "Einheitlicher Agent-Scratch-Ordner"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nuevo espacio de trabajo host remoto sesión local"
+            "value": "Directorio temporal canónico de agentes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable Nouvel espace de travail hôte distant session local"
+            "value": "Dossier de travail d’agent unifié"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新規ワークスペース リモートホスト セッション ローカル"
+            "value": "エージェント用スクラッチの統一"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 새 작업 공간 원격 호스트 세션 로컬"
+            "value": "에이전트 스크래치 통합"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新建工作区 远程主机 会话 本地"
+            "value": "统一代理临时目录"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable 新增工作區 遠端主機 工作階段 本機"
+            "value": "統一代理程式暫存目錄"
           }
         }
       }
     },
-    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOff": {
+    "settings.automation.canonicalAgentScratch.note": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Workspace always opens a local workspace, even with a remote tmux workspace selected."
+            "value": "Opt in to organize new Claude, Codex, and OpenCode panel scratch files under ~/.local/state/cmux/agent-artifacts. Provider transcripts and existing files are not moved."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يفتح «مساحة عمل جديدة» مساحة عمل محلية دائمًا، حتى عند تحديد مساحة عمل tmux بعيدة."
+            "value": "فعّل هذا الخيار لتنظيم الملفات المؤقتة الجديدة للوحات Claude وCodex وOpenCode ضمن ~/.local/state/cmux/agent-artifacts. لا يتم نقل نصوص جلسات الموفّرين والملفات الموجودة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "„Neuer Arbeitsbereich“ öffnet immer einen lokalen Arbeitsbereich, auch wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist."
+            "value": "Aktivieren, um neue Scratch-Dateien der Claude-, Codex- und OpenCode-Panels unter ~/.local/state/cmux/agent-artifacts abzulegen. Anbieter-Transkripte und vorhandene Dateien werden nicht verschoben."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nuevo espacio de trabajo siempre abre un espacio de trabajo local, incluso con un espacio de trabajo de tmux remoto seleccionado."
+            "value": "Actívalo para organizar los nuevos archivos temporales de los paneles de Claude, Codex y OpenCode en ~/.local/state/cmux/agent-artifacts. Las transcripciones de los proveedores y los archivos existentes no se mueven."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouvel espace de travail ouvre toujours un espace de travail local, même lorsqu’un espace de travail tmux distant est sélectionné."
+            "value": "Activez cette option pour ranger les nouveaux fichiers de travail des panneaux Claude, Codex et OpenCode dans ~/.local/state/cmux/agent-artifacts. Les transcriptions des fournisseurs et les fichiers existants ne sont pas déplacés."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモート tmux ワークスペースを選択していても、「新規ワークスペース」は常にローカルのワークスペースを開きます。"
+            "value": "オンにすると、新しい Claude、Codex、OpenCode パネルのスクラッチファイルを ~/.local/state/cmux/agent-artifacts にまとめます。プロバイダのトランスクリプトや既存のファイルは移動されません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 tmux 작업 공간이 선택되어 있어도 새 작업 공간은 항상 로컬 작업 공간을 엽니다."
+            "value": "켜면 새 Claude, Codex, OpenCode 패널 스크래치 파일을 ~/.local/state/cmux/agent-artifacts 아래에 정리합니다. 제공자 대화 기록과 기존 파일은 이동되지 않습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "即使选中了远程 tmux 工作区，“新建工作区”也始终打开本地工作区。"
+            "value": "启用后，新的 Claude、Codex 和 OpenCode 面板临时文件将统一存放在 ~/.local/state/cmux/agent-artifacts 下。提供方的对话记录和现有文件不会被移动。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "即使選取了遠端 tmux 工作區，「新增工作區」也一律開啟本機工作區。"
+            "value": "啟用後，新的 Claude、Codex 和 OpenCode 面板暫存檔案將統一存放在 ~/.local/state/cmux/agent-artifacts 下。提供者的對話紀錄和現有檔案不會被移動。"
           }
         }
       }
     },
-    "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost.subtitleOn": {
+    "settings.automation.canonicalAgentScratch.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host. New Local Workspace opens a local one."
+            "value": "Native agent panels use the system temporary directory."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند تحديد مساحة عمل tmux بعيدة، يبدأ «مساحة عمل جديدة» جلسة tmux على مضيف تلك المساحة. ويفتح «مساحة عمل محلية جديدة» مساحة محلية."
+            "value": "تستخدم لوحات الوكلاء الأصلية دليل النظام المؤقت."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dessen Host. „Neuer lokaler Arbeitsbereich“ öffnet einen lokalen."
+            "value": "Native Agent-Panels verwenden das temporäre Systemverzeichnis."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Con un espacio de trabajo de tmux remoto seleccionado, Nuevo espacio de trabajo inicia una sesión de tmux en el host de ese espacio. Nuevo espacio de trabajo local abre uno local."
+            "value": "Los paneles nativos de agentes usan el directorio temporal del sistema."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsqu’un espace de travail tmux distant est sélectionné, Nouvel espace de travail démarre une session tmux sur l’hôte de cet espace. Nouvel espace de travail local en ouvre un local."
+            "value": "Les panneaux d’agent natifs utilisent le répertoire temporaire du système."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "リモート tmux ワークスペースを選択しているとき、「新規ワークスペース」はそのワークスペースのホストで tmux セッションを開始します。「新規ローカルワークスペース」はローカルのワークスペースを開きます。"
+            "value": "ネイティブエージェントパネルはシステムの一時ディレクトリを使用します。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "원격 tmux 작업 공간이 선택되어 있으면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다. 새 로컬 작업 공간은 로컬 작업 공간을 엽니다."
+            "value": "네이티브 에이전트 패널이 시스템 임시 디렉터리를 사용합니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选中远程 tmux 工作区时，“新建工作区”会在该工作区的主机上启动 tmux 会话。“新建本地工作区”则打开本地工作区。"
+            "value": "原生代理面板使用系统临时目录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "選取遠端 tmux 工作區時，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。「新增本機工作區」則開啟本機工作區。"
+            "value": "原生代理程式面板使用系統暫存目錄。"
+          }
+        }
+      }
+    },
+    "settings.automation.canonicalAgentScratch.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native agent panels use a cmux-owned scratch directory per session."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تستخدم لوحات الوكلاء الأصلية دليلًا مؤقتًا خاصًا بـ cmux لكل جلسة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Agent-Panels verwenden pro Sitzung ein eigenes Scratch-Verzeichnis von cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los paneles nativos de agentes usan un directorio temporal propio de cmux por sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les panneaux d’agent natifs utilisent un répertoire de travail géré par cmux pour chaque session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブエージェントパネルはセッションごとに cmux 管理のスクラッチディレクトリを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 에이전트 패널이 세션마다 cmux 소유의 스크래치 디렉터리를 사용합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理面板为每个会话使用由 cmux 管理的临时目录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生代理程式面板為每個工作階段使用由 cmux 管理的暫存目錄。"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceDescriptionColor.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تعيين"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restablecer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réinitialiser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재설정"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重置"
+          }
+        }
+      }
+    },
+    "settings.app.workspaceDescriptionColor.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text color used for workspace descriptions. Default follows the current theme."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لون النص المستخدم لأوصاف مساحات العمل. يتبع الافتراضي السمة الحالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Textfarbe für Arbeitsbereichsbeschreibungen. Standardmäßig folgt sie dem aktuellen Design."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Color del texto de las descripciones de los espacios de trabajo. De forma predeterminada sigue el tema actual."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couleur du texte des descriptions d’espace de travail. Par défaut, elle suit le thème actuel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの説明に使用する文字色です。デフォルトでは現在のテーマに従います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 공간 설명에 사용되는 텍스트 색상입니다. 기본값은 현재 테마를 따릅니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区描述使用的文字颜色。默认跟随当前主题。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區描述使用的文字顏色。預設跟隨目前主題。"
           }
         }
       }

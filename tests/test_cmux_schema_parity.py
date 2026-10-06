@@ -48,9 +48,8 @@ STRING = re.compile(r'"([^"]+)"')
 SYMBOL = re.compile(r"^([A-Z][A-Za-z0-9_]*)\.([A-Za-z0-9_]+)\s*,?$")
 
 # Catalog DefaultsKey ids that no cmux.json section parser reads. They are
-# stored only in UserDefaults (UI state, beta toggles, device and account
-# state, or `integrations.*` aliases whose cmux.json path is the matching
-# `automation.*Integration` key). Adding one to the schema would make
+# stored only in UserDefaults (UI state, device and account state, or
+# remembered values). Adding one to the schema would make
 # `cmux config validate` accept a key that has no effect, so wire a parser
 # first and then move the id into the schema.
 NOT_IN_CMUX_JSON = frozenset({
@@ -71,13 +70,8 @@ NOT_IN_CMUX_JSON = frozenset({
     "browser.disabled",
     "browser.importHintDismissed",
     "browser.importHintVariant",
-    # Beta toggles.
-    "cloud.beta.machines.enabled",
-    "customSidebars.beta.enabled",
-    "extensions.beta.enabled",
-    "remoteTmux.beta.enabled",
+    # Remote tmux preferences that stay Settings-only.
     "remoteTmux.beta.newWorkspaceOnHost.enabled",
-    "rightSidebar.beta.feed.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",
@@ -88,38 +82,17 @@ NOT_IN_CMUX_JSON = frozenset({
     "mobile.phonePush.forwardingEnabled",
     "mobile.phonePush.hideContent",
     "mobile.phonePush.mode",
-    # Settings-catalog aliases of automation.* keys (same UserDefaults slot).
-    "integrations.amp.hooksEnabled",
-    "integrations.claudeCode.customClaudePath",
-    "integrations.claudeCode.hooksEnabled",
-    "integrations.codex.hooksEnabled",
-    "integrations.pi.hooksEnabled",
-    "integrations.cursor.hooksEnabled",
-    "integrations.gemini.hooksEnabled",
-    "integrations.kiro.hooksEnabled",
-    "integrations.kiro.notificationLevel",
-    "integrations.ripgrep.customBinaryPath",
-    "integrations.suppressSubagentNotifications",
-    # Sidebar storage aliases and remembered UI state. The cmux.json paths are
-    # workspaceColors.* and sidebar.branchLayout.
-    "sidebar.activeTabIndicatorStyle",
-    "sidebar.branchVerticalLayout",
-    "sidebar.notificationBadgeColor",
+    # Sidebar remembered UI state remains UserDefaults-only. The cmux.json
+    # paths for the ordinary appearance settings are covered by the parser.
     "sidebar.rightMaxWidth.remembered",
-    "sidebar.selectionColor",
     "sidebarAppearance.blendMode",
     "sidebarAppearance.blurOpacity",
     "sidebarAppearance.cornerRadius",
     "sidebarAppearance.material",
     "sidebarAppearance.preset",
     "sidebarAppearance.state",
-    # Terminal guardrails, diagnostics, and remembered UI state.
-    "terminal.runawayMemoryGuardrail.enabled",
-    "terminal.runawayMemoryGuardrail.thresholdGB",
+    # Terminal remembered UI state remains UserDefaults-only.
     "terminal.sessionContentMaxWidth.remembered",
-    "terminal.titleUpdates.coalescing.delayMilliseconds",
-    "terminal.titleUpdates.coalescing.enabled",
-    "terminal.titleUpdates.diagnostics",
     "workspaceGroups.anchorCloseSuppressed",
 })
 

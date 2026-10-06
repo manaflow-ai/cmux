@@ -256,7 +256,7 @@ struct CloudPortsVPNAffordanceTests {
         }
     }
 
-    @Test("Opening the Ports tab requests discovery once; closed Ports and collapsed machines do not scan")
+    @Test("Every visible machine row requests port discovery once, open Ports tab or not")
     func openedPortsDemand() throws {
         let suite = "ports-demand-\(UUID())"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -282,7 +282,61 @@ struct CloudPortsVPNAffordanceTests {
         coordinator.apply(nodes: [opened, closed, collapsed])
         coordinator.portsDemand.reconcile(coordinator: coordinator)
         coordinator.portsDemand.reconcile(coordinator: coordinator)
-        #expect(requested == [.cloud("opened")])
+        // The machine row is the visibility boundary (#17074): a cached scan per
+        // visible machine keeps port counts current before Ports is opened. A
+        // second reconcile must not scan again.
+        #expect(requested == [.cloud("opened"), .cloud("closed"), .cloud("collapsed")])
+    }
+
+    @Test("A failed Displays discovery is retried until it succeeds, at most three times",
+          arguments: [[false, false, true], [false, false, false, false]])
+    func displaysDemandRetriesFailedDiscovery(outcomes: [Bool]) {
+        var pending: [@MainActor (Bool) -> Void] = []
+        var actions = nodeActions()
+        actions.discoverDisplays = { _, completion in
+            pending.append(completion)
+            return true
+        }
+        let tabs = Self.displaysTab(machine: .cloud("displays-demand"))
+        let demand = CloudDisplaysDiscoveryDemand()
+        demand.update(nodes: [tabs], actions: actions)
+        // Each outcome finishes the newest discovery; a failure starts the next.
+        for outcome in outcomes {
+            guard let newest = pending.last else { break }
+            let started = pending.count
+            newest(outcome)
+            if pending.count == started { break }
+        }
+        // Starting discovery is not finishing it: failures are retried, and
+        // the retries are bounded so a broken guest is not polled forever.
+        #expect(pending.count == 3)
+        demand.update(nodes: [tabs], actions: actions)
+        #expect(pending.count == 3, "an open tab does not rediscover once settled or out of attempts")
+    }
+
+    @Test("A discovery from before the Displays tab closed cannot retry after it reopens")
+    func displaysDemandIgnoresStaleCompletion() {
+        var pending: [@MainActor (Bool) -> Void] = []
+        var actions = nodeActions()
+        actions.discoverDisplays = { _, completion in
+            pending.append(completion)
+            return true
+        }
+        let tabs = Self.displaysTab(machine: .cloud("displays-reopened"))
+        let demand = CloudDisplaysDiscoveryDemand()
+        demand.update(nodes: [tabs], actions: actions)
+        demand.update(nodes: [], actions: actions)
+        demand.update(nodes: [tabs], actions: actions)
+        #expect(pending.count == 2)
+        pending[0](false)
+        #expect(pending.count == 2, "only the reopened tab's discovery may retry")
+        pending[1](false)
+        #expect(pending.count == 3)
+    }
+
+    private static func displaysTab(machine: SurfaceMachineID) -> CloudTreeNode {
+        CloudTreeNode(id: "\(machine.rawValue)/tabs", kind: .machineDetailTabs(CloudTreeMachineDetailTabs(
+            machine: machine, tabs: [.displays], counts: [:], selected: .displays)))
     }
 
     @Test("Ports Wake shares the expired-machine gate and rejects removed machines")
@@ -321,6 +375,38 @@ struct CloudPortsVPNAffordanceTests {
         #expect(refreshed == [.cloud("paid")])
     }
 
+    @Test("Clicking a Ports status row's text does nothing; only its button acts")
+    func statusRowClickIsInert() throws {
+        var terminals: [SurfaceMachineID] = []
+        var refreshed: [SurfaceMachineID] = []
+        var actions = nodeActions(newTerminal: { terminals.append($0) })
+        actions.refreshMachine = { refreshed.append($0) }
+        let coordinator = CloudTreeOutlineView.Coordinator(
+            machineActions: machineActions(),
+            nodeActions: actions,
+            expansionStore: CloudTreeExpansionStore(defaults: try #require(UserDefaults(suiteName: "ports-status-click-\(UUID())"))),
+            tabDragTransferRegistry: { nil })
+        coordinator.nodes = [machineNode(id: "paid")]
+        func status(link: SurfaceLinkState, discovery: CloudPortDiscoveryState) -> CloudTreeNode {
+            CloudMachineSurfacePresentation.emptyPorts(info: SurfaceMachineInfo(
+                id: .cloud("paid"), name: "paid", status: "running", image: "base", hasDesktop: false,
+                memoryMb: nil, diskMb: nil, linkState: link, linkError: nil,
+                cpuPercent: nil, memoryUsedMb: nil, diskUsedMb: nil, portDiscoveryState: discovery))
+        }
+        // "No ports yet" (Refresh) and an asleep machine (Wake Machine).
+        let noPorts = status(link: .connected, discovery: .empty(.noListeningService))
+        let asleep = status(link: .asleep, discovery: .notRequested)
+        guard case .placeholder(_, let noPortsRow) = noPorts.kind, case .placeholder(_, let asleepRow) = asleep.kind else {
+            Issue.record("status rows must be placeholders"); return
+        }
+        #expect(noPortsRow.portStatus?.action == .refresh)
+        #expect(asleepRow.portStatus?.action == .openMachine)
+        coordinator.open(noPorts)
+        coordinator.open(asleep)
+        #expect(refreshed.isEmpty)
+        #expect(terminals.isEmpty)
+    }
+
     private func machineNode(id: String, expired: Bool = false) -> CloudTreeNode {
         let machine = SurfaceMachineID.cloud(id)
         var snapshot = MachineSnapshot(id: id, provider: "freestyle", image: "base", isDesktop: false, activity: .ready, createdAt: nil, label: nil)
@@ -348,7 +434,7 @@ struct CloudPortsVPNAffordanceTests {
 
     private func machineActions(upgrade: @escaping @MainActor () -> Void = {}) -> MachineRowActions {
         MachineRowActions( openShell: { _ in }, openDesktop: { _ in }, runCommand: { _, _ in },
-            confirmDelete: { _ in }, promptRename: { _, _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
+                    confirmDelete: { _ in }, promptRename: { _ in }, resizeDisk: { _, _ in }, resizeCPU: { _, _ in },
             resizeMemory: { _, _ in }, promptUpgrade: upgrade)
     }
 

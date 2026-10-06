@@ -80,6 +80,42 @@ if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
+if ! awk '
+  /^  decide:/ { in_decide=1; next }
+  in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
+  in_decide && /vars\.CI_NIGHTLY_DECIDE_RUNNER/ && /vars\.LINUX_RUNNER/ { saw_runner_override=1 }
+  END { exit !saw_runner_override }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
+  in_download && /^      - name:/ { in_download=0 }
+  in_download && /id: signing-inputs-parallel/ { saw_id=1 }
+  in_download && /download-run-artifact.py/ { downloads++ }
+  in_download && /--name cmux-nightly-unsigned-app --out nightly-inputs\/app/ { saw_app_download=1 }
+  in_download && /--connections 64/ { saw_app_connections=1 }
+  in_download && /app_ok=/ { saw_app_output=1 }
+  in_download && /daemon_ok=/ { saw_daemon_output=1 }
+  in_download && /helper_ok=/ { saw_helper_output=1 }
+  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
+  exit 1
+fi
+
+for fallback in \
+  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
+    echo "FAIL: nightly signing input fallback is missing: $fallback"
+    exit 1
+  fi
+done
+
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
   exit 1
@@ -274,6 +310,10 @@ fi
 
 if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$CHANNEL_RELEASE_TAG" "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must generate one appcast per variant"
+  exit 1
+fi
+if ! grep -Fq -- '--count 1' "$WORKFLOW_FILE" || ! grep -Fq 'SPARKLE_MAXIMUM_DELTAS: "1"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly appcast generation must keep one newest delta per architecture"
   exit 1
 fi
 
@@ -654,9 +694,8 @@ if ! grep -Fq "github.event.inputs.build_only == 'true' && format('nightly-measu
   exit 1
 fi
 
-# Only the six-hour cache warmup may replace an older scheduled run. The daily
-# 08:47 publication schedule and all push/manual lanes must stay serialized so
-# a newer publication cannot cancel an earlier candidate or race its aliases.
+# Every nightly lane must let an in-flight build finish. GitHub still keeps one
+# pending run per group, so a newer push replaces only an older queued run.
 if ! grep -Fq "github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && 'cache-seed-scheduled'" "$WORKFLOW_FILE"; then
   echo "FAIL: the six-hour cache warmup must have its own replaceable concurrency group"
   exit 1
@@ -669,12 +708,12 @@ if grep -Fq "&& 'cache-seed'" "$WORKFLOW_FILE"; then
   echo "FAIL: scheduled and manual cache seeds must not share the legacy cache-seed group"
   exit 1
 fi
-if ! grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: only the six-hour cache warmup may cancel an older scheduled run"
+if ! grep -Fq "cancel-in-progress: false" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly runs must never cancel an in-flight build"
   exit 1
 fi
-if grep -Fq "cancel-in-progress: \${{ github.event_name == 'schedule' }}" "$WORKFLOW_FILE"; then
-  echo "FAIL: the publishing schedule must not cancel an older nightly run"
+if grep -Eq "cancel-in-progress: \$\{\{" "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly cancellation must be a literal false policy, not an event expression"
   exit 1
 fi
 

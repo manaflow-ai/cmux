@@ -636,6 +636,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_owned_build_state.py
 
+      - name: Validate canonical root ownership boundary
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_take_canonical_root.py
+
       - name: Validate warm-state distance recording and routing
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_warm_distance.py
@@ -679,6 +683,14 @@ jobs:
       - name: Validate required checks are bounded
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_required_checks_are_bounded.py
+
+      - name: Validate required checks have no paths filters
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_required_checks_have_no_path_filters.py
+
+      - name: Validate workflow write permissions are job-scoped
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
       - name: Validate triage radar scoring
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -1076,6 +1088,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly release notes and appcast summaries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_release_notes.py
+
       - name: Validate nightly Sparkle key selection
         if: ${{ matrix.group == 'release-notary' }}
         run: bash ./tests/test_nightly_sparkle_key.sh
@@ -1261,10 +1277,24 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # PR/merge-group synthetic commits need only HEAD + first parent.
-          # Manual dispatches have no synthetic parent, so retain full history
-          # and origin/main for the policy's fallback merge-base comparison.
-          fetch-depth: ${{ github.event_name == 'workflow_dispatch' && '0' || '2' }}
+          # fetch-depth 0 would also fetch every branch of the repository
+          # (about ten thousand). That took 3-10 minutes and sometimes the
+          # whole 15 minute job (run 37374680247).
+          fetch-depth: 2
           persist-credentials: false
+
+      - name: Fetch main history for a manual dispatch
+        # A manual dispatch has no synthetic parent, so the policy falls back
+        # to merge-base(origin/main, HEAD). Fetch only those two histories,
+        # without file contents; the policy reads the few it needs on demand.
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          CHECKED_OUT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --filter=blob:none --unshallow origin \
+            +refs/heads/main:refs/remotes/origin/main "$CHECKED_OUT_SHA"
+          git merge-base origin/main HEAD
 
       - name: Bind package policy to synthetic merge base
         if: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
