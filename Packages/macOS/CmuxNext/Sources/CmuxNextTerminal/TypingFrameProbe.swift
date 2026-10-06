@@ -18,10 +18,17 @@ enum TypingFrameProbe {
         let selector = #selector(setter: CALayer.contents)
         guard let inherited = class_getInstanceMethod(CALayer.self, selector) else { return }
         let original = unsafeBitCast(method_getImplementation(inherited), to: SetContents.self)
-        let override: @convention(block) (AnyObject, AnyObject?) -> Void = { layer, contents in
+        class_addMethod(layerClass, selector, imp_implementationWithBlock(override(calling: original, selector)),
+                        method_getTypeEncoding(inherited))
+    }
+
+    /// Built outside the main actor so the block carries no isolation check:
+    /// a layer whose contents are set off the main thread must not trap.
+    private nonisolated static func override(calling original: SetContents, _ selector: Selector)
+        -> @convention(block) (AnyObject, AnyObject?) -> Void {
+        { layer, contents in
             original(layer, selector, contents)
             TypingLatencyProbe.shared.mark(.contents)
         }
-        class_addMethod(layerClass, selector, imp_implementationWithBlock(override), method_getTypeEncoding(inherited))
     }
 }

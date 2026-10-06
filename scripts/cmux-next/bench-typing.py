@@ -74,7 +74,7 @@ def main():
     args = parser.parse_args()
 
     if not args.analyze_only:
-        rows_before = len(args.csv.read_text().splitlines()) - 1 if args.csv.exists() else 0
+        rows_before = len(args.csv.read_text().splitlines()) - 1 if args.csv.exists() else -1
         if rows_before < 0:
             sys.exit(f"{args.csv} has no header: was the app launched with CMUX_NEXT_TYPING_PROBE?")
         for index in range(args.warmup + args.samples):
@@ -87,8 +87,11 @@ def main():
 
     with args.csv.open() as handle:
         rows = list(csv.DictReader(handle))
+    if not args.analyze_only:
+        # Only this run's rows, past its warm-up keys.
+        rows = rows[rows_before + args.warmup:]
     complete = [row for row in rows if row["complete"] == "1"]
-    measured = complete[args.warmup:] if not args.analyze_only else complete
+    measured = complete
     result = {
         "rows": len(rows), "complete": len(complete), "measured": len(measured),
         "io_write_on_main": sum(row["io_write_on_main"] == "1" for row in measured),
