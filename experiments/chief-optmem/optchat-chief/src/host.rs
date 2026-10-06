@@ -294,12 +294,13 @@ fn start(
     // The describer of turn images (chief-done.md item 12) is the compactor's
     // deny-all acpmux model; the Messages API route has none yet, so its log
     // keeps image references without descriptions.
-    let (model, fallback, route_text, describer): (
+    type Route = (
         Arc<dyn CompactModel>,
         Option<Arc<dyn CompactModel>>,
         String,
         Option<Arc<dyn crate::brain::images::Describe>>,
-    ) = match route {
+    );
+    let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
             config
@@ -347,7 +348,12 @@ fn start(
                 .map(|m| build(Some(m)) as Arc<dyn CompactModel>);
             let main = build(compactor_model.as_deref());
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
-            (main as Arc<dyn CompactModel>, fallback, text, Some(describer))
+            (
+                main as Arc<dyn CompactModel>,
+                fallback,
+                text,
+                Some(describer),
+            )
         }
     };
     log(format!(

@@ -133,9 +133,17 @@ impl Owner {
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
 impl ConversationPort for FakeDaemon {
-    fn attachment(&mut self, _: &str, hash: &str, variant: &str, bytes: u64) -> Result<String, OpError> {
+    fn attachment(
+        &mut self,
+        _: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
         let mut owner = self.0.lock().unwrap();
-        owner.attachment_reads.push((hash.to_owned(), variant.to_owned(), bytes));
+        owner
+            .attachment_reads
+            .push((hash.to_owned(), variant.to_owned(), bytes));
         owner
             .attachments
             .get(&(hash.to_owned(), variant.to_owned()))

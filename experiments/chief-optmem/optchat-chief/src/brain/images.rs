@@ -40,7 +40,11 @@ impl TurnImage {
             (Some(w), Some(h)) => format!(" {w}x{h}"),
             _ => String::new(),
         };
-        let unread = if self.data.is_none() { ", not readable" } else { "" };
+        let unread = if self.data.is_none() {
+            ", not readable"
+        } else {
+            ""
+        };
         format!(
             "[image sha256:{} \"{}\"{size} {}{unread}]",
             short(&self.hash),
@@ -67,7 +71,16 @@ pub fn short(hash: &str) -> &str {
 pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<TurnImage> {
     let mut images = Vec::new();
     for part in &message.parts {
-        let Part::Attachment { hash, name, mime_type, byte_count, width, height, preview, .. } = part
+        let Part::Attachment {
+            hash,
+            name,
+            mime_type,
+            byte_count,
+            width,
+            height,
+            preview,
+            ..
+        } = part
         else {
             continue;
         };
@@ -77,12 +90,16 @@ pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<Tu
         let mut data = None;
         let mut mime = mime_type.clone();
         if VIEWABLE.contains(&mime_type.as_str()) && *byte_count <= MAX_ORIGINAL_BYTES {
-            data = port.attachment(&message.conversation, hash, "original", *byte_count).ok();
+            data = port
+                .attachment(&message.conversation, hash, "original", *byte_count)
+                .ok();
         }
         if data.is_none()
             && let Some(preview) = preview
         {
-            data = port.attachment(&message.conversation, hash, "preview", preview.byte_count).ok();
+            data = port
+                .attachment(&message.conversation, hash, "preview", preview.byte_count)
+                .ok();
             if data.is_some() {
                 mime = preview.mime_type.clone();
             }
@@ -167,7 +184,10 @@ impl super::Brain {
             };
             let (tx, describer) = (self.tx.clone(), describer.clone());
             // The note needs the reference only, never the bytes.
-            let image = TurnImage { data: None, ..image.clone() };
+            let image = TurnImage {
+                data: None,
+                ..image.clone()
+            };
             let spawned = std::thread::Builder::new()
                 .name("optchat-describe".into())
                 .spawn(move || {
@@ -199,9 +219,15 @@ mod tests {
     #[test]
     fn the_log_keeps_a_reference_never_the_bytes() {
         let text = logged_text("what does this say?", &[image(Some("QUJD"))]);
-        assert_eq!(text, "what does this say?\n[image sha256:0123456789ab \"shot.png\" 640x480 image/png]");
+        assert_eq!(
+            text,
+            "what does this say?\n[image sha256:0123456789ab \"shot.png\" 640x480 image/png]"
+        );
         assert!(!text.contains("QUJD"));
-        assert_eq!(logged_text("", &[image(None)]), "[image sha256:0123456789ab \"shot.png\" 640x480 image/png, not readable]");
+        assert_eq!(
+            logged_text("", &[image(None)]),
+            "[image sha256:0123456789ab \"shot.png\" 640x480 image/png, not readable]"
+        );
         assert_eq!(logged_text("hi", &[]), "hi");
     }
 
@@ -219,6 +245,9 @@ mod tests {
             description_line(&image(Some("x")), Ok(" A pricing table. ")),
             "image sha256:0123456789ab \"shot.png\" shows: A pricing table."
         );
-        assert!(description_line(&image(Some("x")), Err("timeout")).ends_with("no description (timeout)"));
+        assert!(
+            description_line(&image(Some("x")), Err("timeout"))
+                .ends_with("no description (timeout)")
+        );
     }
 }

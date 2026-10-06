@@ -193,10 +193,14 @@ impl Brain {
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
-        let images: Vec<super::images::TurnImage> =
-            items.iter().flat_map(|i| i.images.iter().cloned()).collect();
-        let image_blocks: Vec<serde_json::Value> =
-            images.iter().filter_map(super::images::TurnImage::block).collect();
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        let image_blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
         self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
         // The cached layout on a Claude harness whose acpmux takes a preset
@@ -393,7 +397,10 @@ impl Brain {
 
 /// The turn's images go just before its last block (the new messages, which
 /// name them), so the view blocks and their cache marker stay as they were.
-fn with_images(mut blocks: Vec<serde_json::Value>, images: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+fn with_images(
+    mut blocks: Vec<serde_json::Value>,
+    images: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
     if images.is_empty() {
         return blocks;
     }

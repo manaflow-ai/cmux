@@ -445,7 +445,11 @@ impl Brain {
 
     fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
         let human = matches!(source, Source::Message { .. });
-        self.queue.push_back(Queued { text, source, images });
+        self.queue.push_back(Queued {
+            text,
+            source,
+            images,
+        });
         if human {
             self.interrupt_for_newer();
         }

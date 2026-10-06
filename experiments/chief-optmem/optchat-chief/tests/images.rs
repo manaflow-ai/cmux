@@ -34,7 +34,10 @@ fn image(mime_type: &str, byte_count: u64, preview: bool) -> Part {
 }
 
 fn text(text: &str) -> Part {
-    Part::Text { text: text.into(), runs: None }
+    Part::Text {
+        text: text.into(),
+        runs: None,
+    }
 }
 
 struct FixedDescriber(&'static str);
@@ -58,7 +61,10 @@ fn the_turn_sees_the_image_and_the_log_keeps_a_reference_and_a_description() {
         .attachments
         .insert((HASH.into(), "original".into()), "QUJD".into());
     h.connect();
-    h.say_parts("user_local", vec![image("image/png", 3, true), text("what does this say?")]);
+    h.say_parts(
+        "user_local",
+        vec![image("image/png", 3, true), text("what does this say?")],
+    );
     h.settle();
     let prompt = h.agents.inner.lock().unwrap().prompts[0].clone();
     let n = prompt.len();
@@ -68,16 +74,28 @@ fn the_turn_sees_the_image_and_the_log_keeps_a_reference_and_a_description() {
         "the image goes just before the new messages"
     );
     let reference = "[image sha256:0123456789ab \"shot.png\" 1200x800 image/png]";
-    assert_eq!(prompt[n - 1]["text"], format!("what does this say?\n{reference}"));
+    assert_eq!(
+        prompt[n - 1]["text"],
+        format!("what does this say?\n{reference}")
+    );
     // The description arrives from its own thread and is logged as a note.
     while !h.log().iter().any(|(kind, _)| kind == "note") {
         h.step();
     }
     let log = h.log();
-    assert_eq!(log[0], ("user".to_owned(), format!("what does this say?\n{reference}")));
+    assert_eq!(
+        log[0],
+        (
+            "user".to_owned(),
+            format!("what does this say?\n{reference}")
+        )
+    );
     assert!(log.iter().any(|(kind, line)| kind == "note"
         && line == "image sha256:0123456789ab \"shot.png\" shows: A screenshot of a pricing table: Pro $50/mo, Max $200/mo."));
-    assert!(log.iter().all(|(_, line)| !line.contains("QUJD")), "the log never holds the bytes");
+    assert!(
+        log.iter().all(|(_, line)| !line.contains("QUJD")),
+        "the log never holds the bytes"
+    );
 }
 
 #[test]
@@ -122,10 +140,18 @@ fn a_large_or_unreadable_type_sends_its_preview_and_none_sends_only_the_referenc
         "a HEIC original is never read"
     );
     // Too large for the model and no preview: the turn gets the reference only.
-    h.say_parts("user_local", vec![image("image/png", 50_000_000, false), text("and this?")]);
+    h.say_parts(
+        "user_local",
+        vec![image("image/png", 50_000_000, false), text("and this?")],
+    );
     h.settle();
     let agents = h.agents.inner.lock().unwrap();
     let prompt = &agents.prompts[1];
     assert!(prompt.iter().all(|block| block["type"] != "image"));
-    assert!(prompt[prompt.len() - 1]["text"].as_str().unwrap().contains("not readable"));
+    assert!(
+        prompt[prompt.len() - 1]["text"]
+            .as_str()
+            .unwrap()
+            .contains("not readable")
+    );
 }
