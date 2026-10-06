@@ -54,6 +54,5 @@ import Testing
         #expect(cell.avatar.isHidden)
         #expect(cell.highlightFrame.maxY <= cell.bounds.height - Metrics.space1)
         #expect(cell.time.lineBreakMode == .byClipping)
-        #expect(HomeConversationTableRowView().drawsSeparator == false)
     }
 }

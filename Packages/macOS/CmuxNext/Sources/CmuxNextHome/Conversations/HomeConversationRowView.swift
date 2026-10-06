@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One conversation in the Home page's list: a monogram, the title, the
 /// newest message, its time, and the unread and mention badges.
@@ -9,6 +10,7 @@ final class HomeConversationCellView: NSTableCellView {
     static var height: CGFloat { Metrics.sidebarRowHeightWithSubtitle + Metrics.space2 }
 
     let avatar = NSTextField(labelWithString: "")
+    let avatarGlyph = NSImageView()
     let title = NSTextField(labelWithString: "")
     let preview = NSTextField(labelWithString: "")
     let time = NSTextField(labelWithString: "")
@@ -28,7 +30,11 @@ final class HomeConversationCellView: NSTableCellView {
             label.setAccessibilityElement(false)
             addSubview(label)
         }
+        avatarGlyph.imageScaling = .scaleProportionallyUpOrDown
+        avatarGlyph.setAccessibilityElement(false)
+        addSubview(avatarGlyph)
         avatar.alignment = .center
+        time.lineBreakMode = .byClipping
         badge.alignment = .center
         badge.wantsLayer = true
         mention.alignment = .center
@@ -42,6 +48,10 @@ final class HomeConversationCellView: NSTableCellView {
     func show(_ row: InboxRow, me: ParticipantID?) {
         self.row = row
         let other = row.summary.participants.first { $0.id != me }
+        let isChief = row.kind == .chief
+        avatar.isHidden = isChief
+        avatarGlyph.isHidden = !isChief
+        avatarGlyph.image = isChief ? NSImage.icon(.agentChat, size: Metrics.iconSize) : nil
         avatar.stringValue = row.kind == .group ? String(row.summary.participants.count - 1) : (other?.initials ?? "?")
         title.stringValue = row.title.isEmpty ? HomeConversationStrings.untitled : row.title
         let invited = row.kind == .direct && row.summary.hasInvitedParticipant
@@ -89,6 +99,7 @@ final class HomeConversationCellView: NSTableCellView {
             disc.backgroundColor = (row?.kind == .chief ? Palette.highlight.withAlphaComponent(0.25) : Palette.elevatedBackground).cgColor
             avatar.textColor = Palette.textPrimary
             avatar.font = Typography.caption
+            avatarGlyph.contentTintColor = Palette.textPrimary
             title.textColor = Palette.textPrimary
             preview.textColor = Palette.textSecondary
             preview.font = Typography.caption
@@ -106,7 +117,7 @@ final class HomeConversationCellView: NSTableCellView {
     override func layout() {
         super.layout()
         let inset = Metrics.space3
-        let size = Metrics.sidebarRowHeight + Metrics.space1
+        let size = Metrics.sidebarRowHeight
         let disc = CGRect(x: inset, y: (bounds.height - size) / 2, width: size, height: size)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -115,6 +126,9 @@ final class HomeConversationCellView: NSTableCellView {
         CATransaction.commit()
         let avatarHeight = avatar.intrinsicContentSize.height
         avatar.frame = CGRect(x: disc.minX, y: disc.midY - avatarHeight / 2, width: size, height: avatarHeight)
+        let glyphSize = min(Metrics.iconSize, size - 2 * Metrics.space2)
+        avatarGlyph.frame = CGRect(x: disc.midX - glyphSize / 2, y: disc.midY - glyphSize / 2,
+                                   width: glyphSize, height: glyphSize)
         let textX = disc.maxX + Metrics.space2
         let timeWidth = ceil(time.intrinsicContentSize.width)
         let lineHeight = ceil(title.intrinsicContentSize.height)
@@ -132,6 +146,8 @@ final class HomeConversationCellView: NSTableCellView {
         }
         preview.frame = CGRect(x: textX, y: top, width: max(0, trailing - Metrics.space1 - textX), height: previewHeight)
     }
+
+    var highlightFrame: CGRect { disc.frame }
 }
 
 /// A section title in the list ("Chiefs", "Pinned", ...).
@@ -170,6 +186,8 @@ final class HomeConversationHeaderView: NSTableCellView {
 
 /// The row's selection and hover fills in the theme's colours.
 final class HomeConversationTableRowView: NSTableRowView {
+    override func drawSeparator(in dirtyRect: NSRect) {}
+
     override func drawSelection(in dirtyRect: NSRect) {
         performWithTheme {
             (isEmphasized ? Palette.selectionFill : Palette.secondarySelectionFill).setFill()
