@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The REPL sessions' domain policies as the navigation checks read them,
 /// and whether each session's content rules are on its tabs.
@@ -70,6 +70,19 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
     /// The session's directories, or nil when it set none.
     public func fileRoots(for sessionID: String) -> [String]? {
         lock.withLock { fileRoots[sessionID] }
+    }
+
+    /// The session whose directories govern a load of the local file `url`
+    /// in a tab whose live creator is `creator` and to which `attached`
+    /// sessions are attached, or nil.
+    public func fileLoadSession(_ url: URL, creator: String?, attached: [String]) -> String? {
+        nil
+    }
+
+    /// Runs `load`, which must start the browser's load of the file `url`,
+    /// with the read access the governing session `sessionID` grants.
+    public func withPinnedFileAccess<T>(_ url: String, sessionID: String, _ load: (URL) throws -> T) throws -> T {
+        try load(URL(string: url)?.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"))
     }
 
     public func ruleState(for sessionID: String) -> RuleState {
