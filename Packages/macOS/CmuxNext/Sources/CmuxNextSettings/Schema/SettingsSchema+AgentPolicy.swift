@@ -131,6 +131,8 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
+        "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
         "announcements.enabled",

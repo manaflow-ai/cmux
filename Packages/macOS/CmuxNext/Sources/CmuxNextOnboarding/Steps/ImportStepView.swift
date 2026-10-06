@@ -151,7 +151,8 @@ final class ImportStepView: NSView {
 
     private func statusText(_ profiles: [BrowserSourceProfile]) -> String {
         switch model.phase {
-        case .idle, .detecting: return OnboardingStrings.detecting
+        case .idle: return OnboardingStrings.notSearched
+        case .detecting: return OnboardingStrings.detecting
         case .importing, .confirmingPasswords: return ""
         case .finished(let summary):
             let counts = ImportCountsText.line(summary.counts)
