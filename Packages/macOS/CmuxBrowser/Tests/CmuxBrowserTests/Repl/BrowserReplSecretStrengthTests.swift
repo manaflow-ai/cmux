@@ -51,4 +51,38 @@ struct BrowserReplSecretStrengthTests {
         #expect(byLabel["strong"] == "loaded", "\(lines)")
         #expect(lines.last == #"held: ["key","pw"]"#, "\(lines)")
     }
+
+    /// r20 native#3: the weak-value scan runs on the session's JavaScript
+    /// thread, so a load past the (name, pattern) pairs the store can hold
+    /// is refused before it, and the scan stops when the cell times out.
+    @Test("secrets.load refuses more name and pattern pairs than the store holds before the weak scan")
+    func tooManyEntriesAreRefusedBeforeTheScan() throws {
+        let store = BrowserReplSecretStore()
+        let limit = BrowserReplSecretStore.maximumSecrets * BrowserReplSecretStore.maximumDomains
+        var group: [String: Any] = [:]
+        for index in 0...limit { group["n\(index)"] = "x" }
+        do {
+            _ = try store.load(["example.com": group])
+            Issue.record("a load of \(limit + 1) weak entries was taken")
+        } catch let error as BrowserReplDriverError {
+            #expect(error.code == "invalid")
+            #expect(error.message.contains("\(limit)") && !error.message.contains("weak"), "\(error.message)")
+        }
+        #expect(store.describe().isEmpty)
+    }
+
+    @Test("secrets.load stops its weak-value scan when the cell is cancelled")
+    func weakScanStopsOnCancellation() throws {
+        let store = BrowserReplSecretStore()
+        var groups: [String: Any] = [:]
+        for index in 0..<64 { groups["d\(index).example.com"] = ["pw\(index)": "x"] }
+        var asked = 0
+        #expect(throws: CancellationError.self) {
+            _ = try store.load(groups, isCancelled: {
+                asked += 1
+                return asked > 1
+            })
+        }
+        #expect(store.describe().isEmpty)
+    }
 }
