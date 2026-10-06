@@ -4,13 +4,14 @@ public import CoreGraphics
 
 nonisolated enum AppearanceSettingsSchema {
     static var descriptors: [SettingDescriptor] {
+        let uiScale = UIScaleSetting()
         let look = SettingsText.keyed("settings.group.densityMotion", "Density and Motion")
         let panes = SettingsText.keyed("settings.group.panes", "Panes")
         let ring = SettingsText.keyed("settings.group.focusRing", "Focus Ring")
         let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
         let theme = SettingsText.keyed("settings.default.theme", "Theme")
         let window = SettingsText.keyed("settings.group.windowBackground", "Window Background")
-        let ghostty = SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty config")
+        let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }
@@ -103,6 +104,13 @@ nonisolated enum AppearanceSettingsSchema {
                     SettingChoice("comfortable", SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
                 ]),
                 default: "compact", keywords: ["size", "spacing"]
+            ),
+            SettingDescriptor(
+                uiScale.configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
+                kind: .number(SettingNumber(uiScale.range, step: uiScale.step, unit: .fraction, placeholder: uiScale.fallback)),
+                default: .number(uiScale.fallback),
+                keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
             ),
             SettingDescriptor(
                 InterfaceSizeSetting().configPath, section: .appearance, group: look,

@@ -15,11 +15,12 @@ export interface BindingQuery {
   conflictsOnly: boolean;
 }
 
-export const SourceLabel: Record<BindingSource | "removed", string> = {
+export const SourceLabel: Record<BindingSource | "removed" | "removedByGhostty", string> = {
   default: "keybindings.page.source.default",
   app: "keybindings.page.source.app",
   user: "keybindings.page.source.user",
   removed: "keybindings.page.source.removed",
+  removedByGhostty: "keybindings.page.source.removedByGhostty",
   ghostty: "keybindings.page.source.ghostty",
   "ghostty-fallback": "keybindings.page.source.ghosttyDefault",
 };
@@ -81,10 +82,19 @@ export function filterBindings(bindings: readonly Binding[], query: BindingQuery
   });
 }
 
-/** Reset applies when the command has a user entry or a removed default. */
+/** The Source column's label key: a removed default says who removed it. */
+export function sourceLabel(binding: Pick<Binding, "source" | "removed" | "removedBy">): string {
+  if (!binding.removed) return SourceLabel[binding.source];
+  return SourceLabel[binding.removedBy === "ghostty" ? "removedByGhostty" : "removed"];
+}
+
+/** Reset applies when the command has a user entry or a default a cmux removal took out (a key the
+ *  Ghostty config claims comes back only from the Ghostty config). */
 export function resettableCommands(bindings: readonly Binding[]): Set<string> {
   const out = new Set<string>();
-  for (const binding of bindings) if (binding.source === "user" || binding.removed) out.add(binding.command);
+  for (const binding of bindings) {
+    if (binding.source === "user" || (binding.removed && binding.removedBy !== "ghostty")) out.add(binding.command);
+  }
   return out;
 }
 

@@ -7,6 +7,17 @@
 
 nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
+        // Owner round trips a caller that waits (`action.run` with `wait`) gets the
+        // 40 s result deadline for: a group with invites takes several requests.
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief"]
+        return all.map { descriptor in
+            var descriptor = descriptor
+            descriptor.waitsForResult = waits.contains(descriptor.id)
+            return descriptor
+        }
+    }
+
+    private static var all: [ActionDescriptor] {
         [
             ActionDescriptor(
                 id: "home.show",
@@ -23,6 +34,62 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                                            isRequired: false)],
                 cliName: "home attach",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The Home page's conversation list (plans/cmux-next/home-messaging.md):
+            // New Message (a DM or a group), Invite, New Chief and Archive Chief.
+            // Without arguments the first three open their sheet on the Home page;
+            // with them they run headless (`cmux action run`, the CLI verbs).
+            ActionDescriptor(
+                id: "home.newMessage", title: t("action.home.newMessage", "New Message…"),
+                keywords: ["home", "message", "dm", "direct message", "chat", "group", "conversation", "people", "team"],
+                category: .window, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .menu],
+                arguments: [ActionArgument(name: "to", title: t("argument.home.message.to", "Person or Email Address"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "title", title: t("argument.home.message.title", "Group Name"), kind: .string,
+                                           isRequired: false)],
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.invite", title: t("action.home.invite", "Invite to cmux-next…"),
+                keywords: ["home", "invite", "email", "people", "team", "message", "join"],
+                category: .window, symbol: "person.badge.plus", surfaces: [.palette, .menu],
+                arguments: [ActionArgument(name: "email", title: t("argument.home.invite.email", "Email Address"), kind: .string,
+                                           isRequired: false)],
+                cliName: "home invite", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject, mcpExemption: .credentials)
+            ),
+            ActionDescriptor(
+                id: "home.newChief", title: t("action.home.newChief", "New Chief…"),
+                keywords: ["home", "chief", "agent", "subchief", "new", "create", "orchestrator"],
+                category: .window, symbol: "sparkles", surfaces: [.palette, .menu],
+                arguments: [ActionArgument(name: "name", title: t("argument.home.chief.name", "Chief Name"), kind: .string,
+                                           isRequired: false)],
+                cliName: "home new-chief", mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            ActionDescriptor(
+                id: "home.archiveChief", title: t("action.home.archiveChief", "Archive Chief"),
+                keywords: ["home", "chief", "archive", "remove", "agent"],
+                category: .window, symbol: "archivebox", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home archive-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "home.openConversation", title: t("action.home.openConversation", "Open Conversation"),
+                keywords: ["home", "conversation", "message", "open", "dm"],
+                category: .window, symbol: "bubble.left.and.bubble.right", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "conversation", title: t("argument.home.conversation", "Conversation"), kind: .string)],
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.focusMove), cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
+            ),
+            // DEV and NIGHTLY: MessagesLab's flight recorder writes the last ~10 s of the
+            // Home transcript to ~/Library/Logs/<app>/blink-<time>/ (Debug menu, palette).
+            ActionDescriptor(
+                id: "home.saveFlightRecording", title: t("action.home.saveFlightRecording", "Save Last 10 Seconds"),
+                keywords: ["home", "flight recorder", "blink", "debug", "record", "dump", "messages"],
+                category: .window, symbol: "record.circle", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
         ]
     }

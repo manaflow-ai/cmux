@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextAgentPane
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
+import Foundation
 import Testing
 @testable import CmuxNextApp
 
@@ -13,6 +14,23 @@ import Testing
         #expect(NewTabPage.kind(selectedID: LocalBrowserTab.prefix + "a", selectedKind: nil) == .agent)
         #expect(NewTabPage.kind(selectedID: "tab_agent", selectedKind: .conversation) == .agent)
         #expect(NewTabPage.kind(selectedID: nil, selectedKind: nil) == .agent)
+    }
+
+    /// Cmd-T from any tab shows the field empty, with its placeholder: the source tab's folder
+    /// (`~` from a terminal in the home folder) or URL is never typed into it. The folder a chat
+    /// or terminal opened from the page starts in stays the source tab's.
+    @MainActor @Test func theFieldStartsEmptyFromEverySourceTab() {
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let home = NSHomeDirectory()
+        let terminal = TabModel(TabSnapshot(surface: 5, kind: .pty, title: "zsh", cwd: home))
+        let project = TabModel(TabSnapshot(surface: 6, kind: .pty, title: "zsh", cwd: home + "/code/app"))
+        let browser = TabModel(TabSnapshot(surface: 7, kind: .browser, title: "Vite", url: "https://vite.dev/guide/", cwd: home))
+        for source in [terminal, project, browser] {
+            let page = NewTabPage.page(services, selected: source)
+            #expect(page.location == nil, "the field of a page opened from \(source.kind) starts empty")
+            #expect(page.cwd == source.cwd, "the page keeps the source tab's folder for what it opens")
+        }
+        #expect(NewTabPage.page(services, selected: nil).location == nil)
     }
 
     @Test func aTerminalChoiceRunsOneTrimmedCommandOrNothing() {

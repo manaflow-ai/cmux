@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -59,6 +60,7 @@ final class FilePageService: InternalPageProvider {
     var page: InternalPageID { kind.page }
     var title: String { kind.title }
     var symbol: String { kind.symbol }
+    var icon: IconName? { kind.icon }
 
     func title(for key: String) -> String { tabs[key]?.file?.lastPathComponent ?? title }
 

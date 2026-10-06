@@ -60,8 +60,6 @@ public final class UpdaterService {
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
     public var preferences = UpdatePreferences.defaults
-    /// Asks the App to confirm an install although agents run (CmuxDialog).
-    @ObservationIgnored public var confirmInterrupt: ((UpdateBlockers) -> Void)?
     /// Sparkle's staged install and its cancel (replaced by tests).
     @ObservationIgnored var installStaged: () -> Void = {}
     @ObservationIgnored var cancelStaged: () -> Void = {}
@@ -70,8 +68,6 @@ public final class UpdaterService {
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
-    /// The App's observation of what a relaunch would interrupt.
-    @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
@@ -82,9 +78,8 @@ public final class UpdaterService {
     /// Sparkle is about to relaunch into the update (set by the App: the quit
     /// keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
-    /// Whether a window shows the rail's update circle (set by the App:
-    /// false while the window rail is off). Without it, checks and installs
-    /// open the update sheet.
+    /// Whether a window shows the update notice (the sidebar footer's
+    /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
@@ -288,7 +283,7 @@ public final class UpdaterService {
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
             card: card,
-            badge: settingsBadgeTitle
+            badge: footerPill?.title
         )
     }
 

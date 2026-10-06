@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).
 public enum HomeFirstRunAction: Sendable, Equatable {
@@ -8,19 +9,18 @@ public enum HomeFirstRunAction: Sendable, Equatable {
     case startAgent
 }
 
-/// The empty Chief conversation's first-run panel: one plain line, then
-/// things to do now, each a row with its shortcut: open a terminal, start an
-/// agent, or ask the Chief (which fills the field, never sends). Under them
-/// a one-line keyboard hint and where the Chief remembers. Hidden once the
-/// conversation has a message (`HomeNativeTranscriptView.updateFirstRun`).
+/// The empty Chief conversation's first-run panel: things to do now, each a
+/// row with its shortcut: open a terminal, start an agent, or ask the Chief
+/// (which fills the field, never sends), then a one-line keyboard hint.
+/// Labels and actions only, no lines about what the Chief is. Hidden once
+/// the conversation has a message (`HomeNativeTranscriptView.updateFirstRun`).
 final class HomeFirstRunView: NSView {
-    let lead = NSTextField(wrappingLabelWithString: HomeStrings.firstRunLead)
-    let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, symbol: "apple.terminal")
-    let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, symbol: "bubble.left.and.text.bubble.right")
-    let suggestion = HomeFirstRunRow(title: HomeStrings.firstRunSuggestion, symbol: "text.bubble")
+    let terminal = HomeFirstRunRow(title: HomeStrings.firstRunOpenTerminal, icon: .terminalNew)
+    let agent = HomeFirstRunRow(title: HomeStrings.firstRunStartAgent, icon: .agentChat)
+    let suggestion = HomeFirstRunRow(title: HomeStrings.firstRunSuggestion, icon: .agentQuestion)
     let hint = NSTextField(labelWithString: "")
-    let memory = NSTextField(wrappingLabelWithString: HomeStrings.memoryDeviceOnly)
     private let stack = NSStackView()
+    private var scale: CGFloat = 1
     /// Called with the suggested prompt when the user clicks it.
     var onSuggestion: (String) -> Void = { _ in }
     /// Called when the user picks open a terminal or start an agent.
@@ -32,13 +32,9 @@ final class HomeFirstRunView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        lead.font = .systemFont(ofSize: 13)
         hint.font = .systemFont(ofSize: 12)
-        memory.font = .systemFont(ofSize: 11)
-        for label in [lead, hint, memory] {
-            label.alignment = .center
-            label.isSelectable = false
-        }
+        hint.alignment = .center
+        hint.isSelectable = false
         hint.isHidden = true
         terminal.onClick = { [weak self] in self?.onAction(.openTerminal) }
         agent.onClick = { [weak self] in self?.onAction(.startAgent) }
@@ -46,8 +42,7 @@ final class HomeFirstRunView: NSView {
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 6
-        for view in [lead] + rows + [hint, memory] as [NSView] { stack.addArrangedSubview(view) }
-        stack.setCustomSpacing(14, after: lead)
+        for view in rows + [hint] as [NSView] { stack.addArrangedSubview(view) }
         stack.setCustomSpacing(14, after: suggestion)
         addSubview(stack)
         setAccessibilityElement(false)
@@ -58,6 +53,18 @@ final class HomeFirstRunView: NSView {
     override var isFlipped: Bool { true }
 
     private func suggest() { onSuggestion(suggestion.title) }
+
+    /// Applies the live interface scale to this native empty state.
+    func applyScale(_ scale: CGFloat) {
+        guard self.scale != scale else { return }
+        self.scale = scale
+        hint.font = .systemFont(ofSize: 12 * scale)
+        stack.spacing = 6 * scale
+        stack.setCustomSpacing(14 * scale, after: suggestion)
+        for row in rows { row.applyScale(scale) }
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
 
     /// The rows' shortcuts and the tab hint's keys, as the registry shows
     /// them (cmux.json overrides included); nil hides one.
@@ -73,16 +80,13 @@ final class HomeFirstRunView: NSView {
     /// tiers, and the rows' raised fill, hover fill and hairline.
     func applyColors(primary: NSColor, secondary: NSColor, tertiary: NSColor, fill: NSColor, hover: NSColor,
                      border: NSColor) { // theme-scoped
-        lead.textColor = secondary
         hint.textColor = tertiary
-        memory.textColor = tertiary
         for row in rows { row.applyColors(text: primary, quiet: tertiary, fill: fill, hover: hover, border: border) }
     }
 
     override func layout() {
         super.layout()
-        let width = min(Self.maxWidth, bounds.width - 48)
-        for label in [lead, memory] { label.preferredMaxLayoutWidth = width }
+        let width = min(Self.maxWidth * scale, bounds.width - 48 * scale)
         for row in rows { row.width = width }
         let size = stack.fittingSize
         stack.frame = CGRect(x: (bounds.width - width) / 2, y: max(0, (bounds.height - size.height) / 2),
@@ -98,6 +102,8 @@ final class HomeFirstRunRow: NSView {
     let surface = NSView()
     let glyph = NSImageView()
     let label: NSTextField
+    /// The row's cmux icon.
+    let icon: IconName
     let shortcutLabel = NSTextField(labelWithString: "")
     var onClick: () -> Void = {}
     var title: String { label.stringValue }
@@ -115,20 +121,21 @@ final class HomeFirstRunRow: NSView {
 
     static let height: CGFloat = 34
     static let cornerRadius: CGFloat = 8
+    private var scale: CGFloat = 1
     private var fill = NSColor.clear
     private var hoverFill = NSColor.clear
     private var isHovered = false { didSet { if isHovered != oldValue { paint() } } }
 
-    init(title: String, symbol: String) {
+    init(title: String, icon: IconName) {
         label = NSTextField(labelWithString: title)
+        self.icon = icon
         super.init(frame: .zero)
         surface.wantsLayer = true
         surface.layer?.cornerRadius = Self.cornerRadius
         surface.layer?.cornerCurve = .continuous
         surface.layer?.borderWidth = 1
         addSubview(surface)
-        glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13, weight: .regular))
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13))
         glyph.imageScaling = .scaleProportionallyDown
         label.font = .systemFont(ofSize: 13)
         label.lineBreakMode = .byTruncatingTail
@@ -145,7 +152,18 @@ final class HomeFirstRunRow: NSView {
 
     override var isFlipped: Bool { true }
 
-    override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height) }
+    override var intrinsicContentSize: NSSize { NSSize(width: width, height: Self.height * scale) }
+
+    /// Applies the live interface scale to the row's type, icon and geometry.
+    func applyScale(_ scale: CGFloat) {
+        self.scale = scale
+        surface.layer?.cornerRadius = Self.cornerRadius * scale
+        glyph.image = NSImage.icon(icon, size: .iconRowSize(forLabelPointSize: 13 * scale))
+        label.font = .systemFont(ofSize: 13 * scale)
+        shortcutLabel.font = .systemFont(ofSize: 12 * scale)
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
 
     /// Colours from the theme (caller runs inside `performWithTheme`).
     func applyColors(text: NSColor, quiet: NSColor, fill: NSColor, hover: NSColor, border: NSColor) { // theme-scoped
@@ -166,17 +184,17 @@ final class HomeFirstRunRow: NSView {
     override func layout() {
         super.layout()
         surface.frame = bounds
-        let inset: CGFloat = 12
-        let side: CGFloat = 16
+        let inset: CGFloat = 12 * scale
+        let side = CGFloat.iconRowSize(forLabelPointSize: 13 * scale)
         glyph.frame = CGRect(x: inset, y: (bounds.height - side) / 2, width: side, height: side)
         let shortcutWidth = shortcutLabel.isHidden ? 0 : ceil(shortcutLabel.attributedStringValue.size().width) + 4
         let shortcutHeight = ceil(shortcutLabel.intrinsicContentSize.height)
         shortcutLabel.frame = CGRect(x: bounds.width - inset - shortcutWidth, y: (bounds.height - shortcutHeight) / 2,
                                      width: shortcutWidth, height: shortcutHeight)
-        let textX = glyph.frame.maxX + 10
+        let textX = glyph.frame.maxX + 10 * scale
         let textHeight = ceil(label.intrinsicContentSize.height)
         label.frame = CGRect(x: textX, y: (bounds.height - textHeight) / 2,
-                             width: max(0, shortcutLabel.frame.minX - 8 - textX), height: textHeight)
+                             width: max(0, shortcutLabel.frame.minX - 8 * scale - textX), height: textHeight)
     }
 
     override func updateTrackingAreas() {

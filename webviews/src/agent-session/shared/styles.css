@@ -832,13 +832,6 @@ select {
   }
 }
 
-.hide-scrollbar {
-  scrollbar-width: none;
-}
-
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
 
 .prompt-input {
   display: block;
@@ -1059,7 +1052,6 @@ img.ProseMirror-separator {
   gap: var(--spacing);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-width: none;
   transition: max-height 0.1s;
 }
 
@@ -1126,13 +1118,6 @@ img.ProseMirror-separator {
   font-size: var(--text-base);
 }
 
-.agent-attachment-tray {
-  scrollbar-width: none;
-}
-
-.agent-attachment-tray::-webkit-scrollbar {
-  display: none;
-}
 
 .agent-user-attachment-tray {
   max-width: 77%;
@@ -1229,12 +1214,8 @@ img.ProseMirror-separator {
   margin: 0;
   overflow-x: auto;
   padding: 0;
-  scrollbar-width: none;
 }
 
-.agent-left-rail::-webkit-scrollbar {
-  display: none;
-}
 
 .composer-mode-indicator {
   color: var(--color-token-text-link-foreground);
@@ -1845,12 +1826,8 @@ img.ProseMirror-separator {
   max-height: none;
   transition: none;
   overflow-y: auto;
-  scrollbar-width: none;
 }
 
-.agent-top-tray-list::-webkit-scrollbar {
-  display: none;
-}
 
 .agent-top-tray-empty,
 .agent-top-tray-panel [data-cmdk-empty] {

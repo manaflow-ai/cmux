@@ -1938,6 +1938,7 @@ enum Command {
     /// server/conversation_attachments.rs).
     ConversationAttachmentUpload(conversation_attachments::UploadParams),
     ConversationAttachmentRead(conversation_attachments::ReadParams),
+    ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -7315,19 +7316,14 @@ fn handle_resource_session_shutdown(
     }
 }
 
+/// Dispatches one request the origin gate admitted; `request` is the
+/// gate's own parse of the line.
 fn handle_resource_connection_message(
     mux: &Arc<Mux>,
     client: u64,
-    message: &str,
+    request: crate::resource_router::ParsedResourceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let request = match crate::resource_router::parse_resource_request(message) {
-        Ok(request) => request,
-        Err(error) => {
-            let response = crate::resource_router::malformed_resource_response(message, error);
-            return writer.send_control(&response).is_ok();
-        }
-    };
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
     if matches!(
@@ -7515,11 +7511,8 @@ fn handle_resource_connection_message(
                     activity::note_resource_input(mux, client, operation, &response);
                     writer.send_control(&response).is_ok()
                 }
-                Err(error) => {
-                    let response =
-                        crate::resource_router::malformed_resource_response(message, error);
-                    writer.send_control(&response).is_ok()
-                }
+                // Only a response that cannot be encoded fails here.
+                Err(error) => send_resource_response(writer, id, operation, Err(error)),
             }
         }
     }
@@ -10416,8 +10409,8 @@ fn handle_connection_frame(
     if mux.daemon_handoff_in_progress() {
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
-    if crate::resource_router::is_resource_protocol_message(message) {
-        return origin_gate::handle_resource_line(mux, client, message, writer);
+    if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;
@@ -13584,14 +13577,21 @@ fn handle_command_with_cancellation(
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
-            let (workspace, key) = resolve_workspace(mux, workspace, key.as_deref())?;
+            let resolved = resolve_workspace(mux, workspace, key.as_deref());
             let (registry_id, generation) = mux.registry_identity();
             // A per-terminal environment rides the receipted path, which is
             // the only one that carries a spawn reservation.
             if terminal_id.is_some() || mutation.mutation_id.is_some() || !env.is_empty() {
                 let workspace_mutation = workspace_mutation(&mutation)?;
+                // A keyed retry whose workspace has closed since replays by key.
+                let (workspace, key) = match (resolved, key) {
+                    (Ok((workspace, key)), _) => (Some(workspace), key),
+                    (Err(_), Some(key)) => (None, key),
+                    (Err(error), None) => return Err(error),
+                };
                 let result = mux.create_raw_terminal_in_workspace_with_mutation(
                     workspace,
+                    &key,
                     argv,
                     cwd,
                     name,
@@ -13640,6 +13640,7 @@ fn handle_command_with_cancellation(
                     "generation": generation,
                 }))
             } else {
+                let (workspace, key) = resolved?;
                 let created =
                     mux.create_terminal_result_in_workspace(workspace, argv, cwd, name, size)?;
                 if keep {
@@ -14264,6 +14265,7 @@ fn handle_command_with_cancellation(
         }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
+        Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,
             profile,

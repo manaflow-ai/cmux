@@ -2,9 +2,9 @@ import AppKit
 import CmuxNextDesign
 import Observation
 
-/// The strip's trailing buttons and its plus on the one hover-reveal
-/// mechanism (R120): they fade in place while the strip is hovered, while a
-/// strip menu is open or while VoiceOver focuses them (holds). The strip
+/// The strip's plus on the one hover-reveal mechanism (R120): it fades in
+/// place while the strip is hovered, while a strip menu is open or while
+/// VoiceOver focuses the strip (holds). The strip
 /// tracks the pointer itself and reports it (`TabStripButtonReveal`), so the
 /// HoverReveal does not track it. `tabs.plusButton` = always keeps the plus
 /// out of the reveal.
@@ -28,10 +28,9 @@ final class TabStripRevealController {
 
     var isRevealed: Bool { hover.isRevealed }
 
-    /// Adds the views and follows `tabs.plusButton` live.
+    /// Adds the plus and follows `tabs.plusButton` live.
     func install() {
-        guard let strip else { return }
-        hover.add(strip.buttonGroup)
+        guard strip != nil else { return }
         applyPlusButtonMode()
         // task-owner: this controller (cancelled in deinit); event-driven (Observation).
         observation = Task { [weak self] in
@@ -41,8 +40,7 @@ final class TabStripRevealController {
         }
     }
 
-    /// `tabs.plusButton`: hover reveals the plus with the trailing buttons;
-    /// always keeps it shown.
+    /// `tabs.plusButton`: hover reveals the plus; always keeps it shown.
     func applyPlusButtonMode() {
         guard let plus = strip?.newTabButton else { return }
         if DesignSettings.shared.plusButton == .hover {

@@ -94,6 +94,11 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
     }
+    // Asked-for help is a success on stdout, like every other scope.
+    if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
+        print!("{}", catalog().remote_client.link_help);
+        return 0;
+    }
     match run_link(args) {
         Ok(()) => 0,
         Err(error) => {

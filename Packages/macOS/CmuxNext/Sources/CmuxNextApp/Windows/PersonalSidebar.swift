@@ -60,13 +60,11 @@ enum PersonalSidebar {
         let rows = rows(of: session, personal)
         let ordered = order(workspaces, rows: rows)
         let known = Set(groups.map(\.id))
-        let key = { (workspace: WorkspaceModel) in workspace.key?.rawValue ?? workspace.id }
-        let isLoose = { (workspace: WorkspaceModel) in rows[key(workspace)]?.group.map { !known.contains($0) } ?? true }
-        let byKey = Dictionary(ordered.map { (key($0), $0) }, uniquingKeysWith: { first, _ in first })
+        let byKey = Dictionary(ordered.map { (rowKey($0), $0) }, uniquingKeysWith: { first, _ in first })
         var sections: [SidebarSection] = []
         var loose: [WorkspaceModel] = []
         func emit(_ group: WorkspaceGroupModel) {
-            let members = ordered.filter { rows[key($0)]?.group == group.id }
+            let members = ordered.filter { rows[rowKey($0)]?.group == group.id }
             guard !members.isEmpty || keepsEmptyGroups else { return }
             if !loose.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
             loose = []
@@ -74,9 +72,12 @@ enum PersonalSidebar {
         }
         for (index, row) in all.enumerated() {
             for group in groups where group.topIndex == index { emit(group) }
-            if row.sessionID == session, let workspace = byKey[row.workspaceKey.rawValue], isLoose(workspace) { loose.append(workspace) }
+            if row.sessionID == session, let workspace = byKey[row.workspaceKey.rawValue],
+               rows[rowKey(workspace)]?.group.map({ !known.contains($0) }) ?? true {
+                loose.append(workspace)
+            }
         }
-        loose += ordered.filter { rows[key($0)] == nil }
+        loose += ordered.filter { rows[rowKey($0)] == nil }
         for group in groups where group.topIndex.map({ $0 >= all.count }) ?? true { emit(group) }
         if !loose.isEmpty || sections.isEmpty { sections.append(SidebarSection(group: nil, workspaces: loose)) }
         return sections
@@ -85,6 +86,11 @@ enum PersonalSidebar {
     /// The personal order of every qualified workspace, as `session/key`.
     static func globalOrder(_ personal: PersonalStore) -> [String] {
         personal.workspaces.sorted { $0.index < $1.index }.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)" }
+    }
+
+    /// A workspace's key in the personal rows (its stable key, else its id).
+    private static func rowKey(_ workspace: WorkspaceModel) -> String {
+        workspace.key?.rawValue ?? workspace.id
     }
 
     private static func rows(of session: String, _ personal: PersonalStore) -> [String: PersonalWorkspace] {
