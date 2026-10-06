@@ -1993,9 +1993,22 @@ describe("acpmux turn diff", () => {
       expect(name.isConnected).toBe(true);
       name.focus();
       expect(document.activeElement === name).toBe(true);
-      await act(async () => {
-        dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
-      });
+      expect({
+        sameWindow: globalThis.window === dom.window,
+        sameDocument: globalThis.document === document,
+        inputConstructor: typeof HTMLInputElement,
+      }).toEqual({ sameWindow: true, sameDocument: true, inputConstructor: "function" });
+      const keyErrors: string[] = [];
+      const keyError = (event: ErrorEvent) => keyErrors.push(event.message);
+      dom.window.addEventListener("error", keyError);
+      try {
+        await act(async () => {
+          dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape" }));
+        });
+      } finally {
+        dom.window.removeEventListener("error", keyError);
+      }
+      expect(keyErrors).toEqual([]);
       expect(document.querySelectorAll(".acpmux-diff-panel").length).toBe(0);
     } finally {
       await act(async () => root.unmount());
