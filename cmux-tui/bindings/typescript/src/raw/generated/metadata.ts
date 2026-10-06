@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb. */
+/* cmux-tui mux protocol 12, IR bcb3ebf2de9587aaa80ea84c714aab3dbdc83d7680e9de384248a258cb79c9f0. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb" as const;
+export const SDK_IR_SHA256 = "bcb3ebf2de9587aaa80ea84c714aab3dbdc83d7680e9de384248a258cb79c9f0" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3959,12 +3959,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "preview": {
-        "description": "type work.",
+        "description": "type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.",
         "nullable": false,
         "presence": "optional",
         "type": {
-          "kind": "scalar",
-          "name": "string"
+          "kind": "ref",
+          "name": "JsonValue"
         }
       },
       "runs": {

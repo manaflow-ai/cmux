@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb";
+pub const ir_sha256 = "bcb3ebf2de9587aaa80ea84c714aab3dbdc83d7680e9de384248a258cb79c9f0";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -282,8 +282,8 @@ pub const ConversationMessage = struct {
 pub const ConversationPart = struct {
     /// type work.
     host: ?[]const u8 = null,
-    /// type work.
-    preview: ?[]const u8 = null,
+    /// type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.
+    preview: ?JsonValue = null,
     /// type text.
     runs: ?[]const ConversationTextRun = null,
     /// type work.

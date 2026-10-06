@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb";
+inline constexpr std::string_view kProtocolIrSha256 = "bcb3ebf2de9587aaa80ea84c714aab3dbdc83d7680e9de384248a258cb79c9f0";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -1317,7 +1317,7 @@ struct ConversationTextRun {
 
 struct ConversationPart {
     std::optional<std::string> host{};
-    std::optional<std::string> preview{};
+    std::optional<JsonValue> preview{};
     std::optional<std::vector<ConversationTextRun>> runs{};
     std::optional<std::string> session{};
     std::optional<std::string> status{};

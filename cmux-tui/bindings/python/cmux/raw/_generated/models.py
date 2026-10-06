@@ -450,7 +450,7 @@ class ConversationPart:
     __cmux_schema_path__: ClassVar[str] = 'types/ConversationPart'
     type: str
     host: Union[str, MissingType] = field(default=MISSING)
-    preview: Union[str, MissingType] = field(default=MISSING)
+    preview: Union[JsonValue, MissingType] = field(default=MISSING)
     runs: Union[List[ConversationTextRun], MissingType] = field(default=MISSING)
     session: Union[str, MissingType] = field(default=MISSING)
     status: Union[str, MissingType] = field(default=MISSING)

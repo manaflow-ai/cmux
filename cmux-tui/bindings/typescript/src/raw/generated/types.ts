@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5a0521f8364c30668fb58a51c30a0d277de09fdce3d5abaf4287630594a0f1eb. */
+/* cmux-tui mux protocol 12, IR bcb3ebf2de9587aaa80ea84c714aab3dbdc83d7680e9de384248a258cb79c9f0. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -158,8 +158,8 @@ export type ConversationMessage = {
 export type ConversationPart = {
   /** type work. */
   "host"?: string;
-  /** type work. */
-  "preview"?: string;
+  /** type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}. */
+  "preview"?: JsonValue;
   /** type text. */
   "runs"?: Array<ConversationTextRun>;
   /** type work. */

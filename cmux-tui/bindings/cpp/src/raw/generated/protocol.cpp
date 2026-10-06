@@ -1352,7 +1352,7 @@ Result<ConversationPart> Codec<ConversationPart>::decode(const Json& value) {
     }
     const Json* field_preview = value.find("preview");
     if (field_preview) {
-        auto decoded = decode_value<std::string>(*field_preview);
+        auto decoded = decode_value<JsonValue>(*field_preview);
         if (!decoded) return std::move(decoded).error();
         result.preview = std::move(decoded).value();
     }

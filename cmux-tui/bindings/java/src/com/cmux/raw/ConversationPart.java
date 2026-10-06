@@ -13,8 +13,8 @@ import java.util.Objects;
 public final class ConversationPart implements WireValue {
     /** type work. */
     private final Field<String> host;
-    /** type work. */
-    private final Field<String> preview;
+    /** type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}. */
+    private final Field<Object> preview;
     /** type text. */
     private final Field<List<ConversationTextRun>> runs;
     /** type work. */
@@ -29,7 +29,7 @@ public final class ConversationPart implements WireValue {
 
     private ConversationPart(Builder builder) {
         this.host = builder.host;
-        this.preview = builder.preview;
+        this.preview = builder.preview.map(value -> Wire.immutableJson(value));
         this.runs = builder.runs.map(value -> List.copyOf(value));
         this.session = builder.session;
         this.status = builder.status;
@@ -42,7 +42,7 @@ public final class ConversationPart implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<String> host() { return host; }
-    public Field<String> preview() { return preview; }
+    public Field<Object> preview() { return preview; }
     public Field<List<ConversationTextRun>> runs() { return runs; }
     public Field<String> session() { return session; }
     public Field<String> status() { return status; }
@@ -59,7 +59,7 @@ public final class ConversationPart implements WireValue {
         }
         Object rawPreview = Wire.optional(object, "preview");
         if (!Wire.isMissing(rawPreview)) {
-            builder.preview(Wire.string(rawPreview, "ConversationPart.preview"));
+            builder.preview(Wire.immutableJson(rawPreview));
         }
         Object rawRuns = Wire.optional(object, "runs");
         if (!Wire.isMissing(rawRuns)) {
@@ -112,7 +112,7 @@ public final class ConversationPart implements WireValue {
 
     public static final class Builder {
         private Field<String> host = Field.omitted();
-        private Field<String> preview = Field.omitted();
+        private Field<Object> preview = Field.omitted();
         private Field<List<ConversationTextRun>> runs = Field.omitted();
         private Field<String> session = Field.omitted();
         private Field<String> status = Field.omitted();
@@ -125,7 +125,7 @@ public final class ConversationPart implements WireValue {
             this.host = Field.of(value);
             return this;
         }
-        public Builder preview(String value) {
+        public Builder preview(Object value) {
             this.preview = Field.of(value);
             return this;
         }

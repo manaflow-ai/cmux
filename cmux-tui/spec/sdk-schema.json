@@ -6696,12 +6696,12 @@
     },
     "preview": {
      "type": {
-      "kind": "scalar",
-      "name": "string"
+      "kind": "ref",
+      "name": "JsonValue"
      },
      "presence": "optional",
      "nullable": false,
-     "description": "type work."
+     "description": "type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}."
     }
    }
   },
