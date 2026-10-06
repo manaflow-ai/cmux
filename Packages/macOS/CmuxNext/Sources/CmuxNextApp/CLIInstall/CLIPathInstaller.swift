@@ -9,10 +9,8 @@ nonisolated struct CLIPathInstaller: Sendable {
         let usedAdministratorPrivileges: Bool
         let destination: URL
         let source: URL
-        /// What was at the destination before, when it was not already this
-        /// app's link. Install still replaces it (the old app's Install CLI
-        /// did too) but says so, so another app's `cmux` never disappears
-        /// silently.
+        /// What was at the destination before, when the caller chose to
+        /// replace something that was not this app's link.
         var replaced: Replaced? = nil
     }
 
@@ -29,8 +27,20 @@ nonisolated struct CLIPathInstaller: Sendable {
         let removedExistingEntry: Bool
     }
 
+    /// The command name to install. `cmux-next` never shadows another
+    /// app's `cmux`.
+    nonisolated enum Name: String, Sendable, CaseIterable {
+        case cmux
+        case cmuxNext = "cmux-next"
+
+        var destination: URL { URL(fileURLWithPath: "/usr/local/bin").appendingPathComponent(rawValue) }
+    }
+
     nonisolated enum Failure: Error, Equatable {
         case bundledCLIMissing(path: String)
+        /// Another app's CLI (a link elsewhere) or a file is at `path`;
+        /// install replaces it only when asked to (`replacing: true`).
+        case occupied(path: String, existing: Replaced)
         case destinationParentNotDirectory(path: String)
         case destinationIsDirectory(path: String)
         case installVerificationFailed(path: String)
@@ -45,7 +55,7 @@ nonisolated struct CLIPathInstaller: Sendable {
     let source: URL
     let privileged: Privileged
 
-    init(destination: URL = URL(fileURLWithPath: "/usr/local/bin/cmux"),
+    init(destination: URL = Name.cmux.destination,
          source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
          privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
         self.destination = destination
@@ -53,9 +63,16 @@ nonisolated struct CLIPathInstaller: Sendable {
         self.privileged = privileged
     }
 
-    @concurrent func install() async throws -> InstallOutcome {
+    /// Links the destination to this app's CLI. Anything there that is not
+    /// already this app's link is refused (`Failure.occupied`) unless
+    /// `replacing` is true, so another app's `cmux` never disappears
+    /// silently.
+    @concurrent func install(replacing: Bool = false) async throws -> InstallOutcome {
         let source = try bundledCLI()
         let replaced = previousEntry()
+        if let replaced, !replacing {
+            throw Failure.occupied(path: destination.path, existing: replaced)
+        }
         do {
             try installDirectly(source)
             return InstallOutcome(usedAdministratorPrivileges: false, destination: destination, source: source, replaced: replaced)
@@ -115,10 +132,14 @@ nonisolated struct CLIPathInstaller: Sendable {
         return existed
     }
 
-    /// The entry install would replace, or nil when there is none or it is
-    /// already this app's link.
+    /// The entry install would replace, or nil when there is none, it is
+    /// already this app's link, or it is a folder (`destinationIsDirectory`).
     private func previousEntry() -> Replaced? {
         guard destinationExists(), !isInstalled() else { return nil }
+        if let values = try? destination.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+           values.isDirectory == true, values.isSymbolicLink != true {
+            return nil
+        }
         if let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path) {
             return .link(target: target)
         }
