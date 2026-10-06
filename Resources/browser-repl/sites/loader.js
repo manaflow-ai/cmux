@@ -360,8 +360,9 @@
   // whose value is not plain data (it would serialize or convert itself:
   // toJSON, toString, a getter) is unread, so <group>_unverified.
   // `groups` limits the check to some groups (the account alone, read
-  // again as the last step before a click).
-  function checkIntent(where, entry, read, groups = INTENT_GROUPS) {
+  // again as the last step before a click); `keys` limits it to those
+  // drafted fields (a target read again before an input batch).
+  function checkIntent(where, entry, read, groups = INTENT_GROUPS, keys = null) {
     const { preview, groupOf, sent, canon } = entry.intent;
     const problems = { account: [], target: [], content: [] };
     const unknown = { account: [], target: [], content: [] };
@@ -378,6 +379,7 @@
     const has = (k) => ownDescriptor(observed, k) !== undefined;
     for (const k of objectKeys(preview)) {
       if (sent.has(k)) continue;
+      if (keys && !keys.includes(k)) continue;
       const g = groupOf[k];
       if (!groups.includes(g)) continue;
       if (!has(k)) {
@@ -565,9 +567,25 @@
               await pressPinned(where, await pinElement(where, locator), recheck);
             };
             let inputs = 0;
-            press.input = async (fn) => {
+            // press.input(fn, reread): reread() (optional) reads drafted
+            // fields that can move under the write (a Sheets append's
+            // position) again right before this batch; then the account,
+            // last. A batch after an earlier one says what may have landed.
+            press.input = async (fn, reread) => {
               if (typeof fn !== "function") throw new SiteError("invalid", `${where}: press.input() needs the input to run (a site tool bug)`);
-              checkIntent(where, entry, await readAccount(), ["account"]);
+              if (reread !== undefined && typeof reread !== "function") throw new SiteError("invalid", `${where}: press.input()'s reread must be a function (a site tool bug)`);
+              try {
+                if (reread) {
+                  const now = await reread();
+                  const keys = now && typeof now === "object" && isPlainObject(now) ? ownNames(now) : [];
+                  if (!keys.length) throw new SiteError("invalid", `${where}: press.input()'s reread read no field (a site tool bug); nothing more was sent`);
+                  checkIntent(where, entry, now, INTENT_GROUPS, keys);
+                }
+                checkIntent(where, entry, await readAccount(), ["account"]);
+              } catch (e) {
+                if ((inputs || pressed) && e instanceof SiteError) throw new SiteError(e.code, String(e.message).replace("nothing was sent", "earlier input of this write may have reached the site; nothing more was sent"));
+                throw e;
+              }
               inputs++;
               return fn();
             };

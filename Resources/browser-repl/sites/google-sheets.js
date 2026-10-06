@@ -36,7 +36,7 @@
         return last;
       };
       // appendAfter: for append, the used row count the target was computed
-      // from; the write requires it again right before the paste.
+      // from; the write reads it again right before each input batch.
       function writeCells(action, sheet, range, rows, opts, appendAfter) {
         const name = `googleSheets.${action}`;
         if (typeof sheet === "string" && /^draft-\d+-[0-9a-f]+$/.test(sheet)) return ed.edit("googleSheets", action, name, null, sheet, range);
@@ -66,21 +66,36 @@
         };
         const rowOps = [];
         const tab = r.gid === undefined || r.gid === null ? null : String(r.gid);
+        // An append's position, read from the export: the first empty row
+        // after the data, given that the write typed `typed` rows there
+        // already (they may not be saved yet). It is the drafted row while
+        // the data still ends at row appendAfter and nothing but this
+        // write's rows follows it; else the row the data now ends after.
+        const appendPosition = async (typed) => {
+          const rows = (await api.read(sheet, options || {})).rows;
+          const head = usedRows(rows.slice(0, appendAfter));
+          if (head !== appendAfter) return `A${head + 1}`;
+          return `A${usedRows(rows.slice(appendAfter + typed)) ? usedRows(rows) + 1 : appendAfter + 1}`;
+        };
+        const reread = (typed) => (appendAfter === undefined ? undefined : async () => ({ appendAt: await appendPosition(typed) }));
         return ed.edit("googleSheets", action, name, r, { range: target }, options, () => ({
           summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
-          target: { tab },
+          target: appendAfter === undefined ? { tab } : { tab, appendAt: `A${appendAfter + 1}` },
           content: { range: target, values },
           // An append goes after the last row as drafted: rows added since
-          // would be overwritten, so its range is read again from the
-          // export right before the paste (Sheets' web editor has no
-          // insert-at-end the session can call). A write's range is the
-          // address the call named.
+          // would be overwritten, so its position (appendAt, a target
+          // field) is read again from the export at the confirmation and
+          // right before each input batch (Sheets' web editor has no
+          // insert-at-end the session can call); a moved position fails as
+          // target_mismatch. The range is read back from it too. A
+          // write's range is the address the call named.
           sent: appendAfter === undefined ? ["range", "values"] : ["values"],
           observe: async (page) => {
             const at = { tab: tabOf(page) };
             if (appendAfter === undefined) return at;
-            const now = usedRows((await api.read(sheet, options || {})).rows);
-            return { ...at, range: `A${now + 1}:${ed.colName(c0 + width - 1)}${now + values.length}` };
+            const appendAt = await appendPosition(0);
+            const row = Number(appendAt.slice(1));
+            return { ...at, appendAt, range: `${appendAt}:${ed.colName(c0 + width - 1)}${row + values.length - 1}` };
           },
           act: async (page, press) => {
             const want = new Map();
@@ -107,7 +122,7 @@
             await press.input(async () => {
               await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
               await page.keyboard.press("ControlOrMeta+v");
-            });
+            }, reread(0));
             await ed.saved(page);
             const pasted = await ed.verify(check, [800, 1500, 2500]);
             contained();
@@ -115,7 +130,7 @@
             // An editor that dropped the paste gets typed keys, cell by cell
             // (Tab moves right, Enter starts the next row).
             await selectRange(page, start);
-            for (const row of values) {
+            for (const [i, row] of values.entries()) {
               row.forEach((v, j) => {
                 rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
               });
@@ -125,7 +140,7 @@
                   if (tab) await page.keyboard.press("Tab");
                 }
                 await page.keyboard.press("Enter");
-              });
+              }, reread(i));
             }
             await ed.saved(page);
             const typed = await ed.verify(check);
