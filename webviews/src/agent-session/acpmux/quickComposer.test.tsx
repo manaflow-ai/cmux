@@ -455,6 +455,13 @@ test("the location row names this Mac; in a started chat the machine is a plain 
   expect(row.querySelector('button[aria-label="Folder"]')).not.toBeNull();
 });
 
+test("the New Tab page names this Mac on its machine chip", async () => {
+  await mount(undefined, snapshot(undefined), true, { machineName: "Studio", newTab: { kind: "terminal", layout: "a" } });
+  const chips = [...container().querySelectorAll(".acpmux-newtab-chip")].map((chip) => chip.textContent);
+  expect(chips).toContain("Studio");
+  expect(chips).not.toContain("This Mac");
+});
+
 test("picking another folder moves a started chat in place: a transcript line, a cd chip, and ! runs there", async () => {
   await mount(undefined, startedChat(), false, { machineName: "Studio" });
   shellHost("/src/other\n");
