@@ -430,8 +430,10 @@ def main():
                        opts.turn_timeout, step=3)
             new = [sub for sub in subs() if sub.get("id") not in before]
             tabs = {sub.get("id"): wait(lambda: chat_tab(sub), 30) for sub in new}
-            ok = bool(got) and bool(new) and all(tabs.values())
-            return (ok, f"report with PONG={bool(got)}; new subagents={[s.get('id') for s in new]}; "
+            # The asked-for subagent (its task names e2e-kid), not a stray one.
+            kid = [sub.get("id") for sub in new if "e2e-kid" in (sub.get("title") or "")]
+            ok = bool(got) and bool(kid) and all(tabs.get(k) for k in kid) and len(new) == len(kid)
+            return (ok, f"report with PONG={bool(got)}; new subagents={[s.get('id') for s in new]}; e2e-kid={kid}; "
                         f"chat tab bound to its session in its workspace={tabs}")
         check("start a subagent", "the agent reports PONG; its workspace holds the agent chat tab bound to its session",
               f"Start a subagent named e2e-kid in {SCRATCH} whose task is to reply with the single word PONG.", verify)
