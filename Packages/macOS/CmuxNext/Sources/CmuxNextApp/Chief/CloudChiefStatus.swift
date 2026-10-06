@@ -12,18 +12,15 @@ enum CloudChiefStatus {
     /// How many messages the panel reads.
     nonisolated static let tail = 20
 
-    // crash-allow: ISO8601DateFormatter is documented thread safe; the instance is never mutated after init.
-    nonisolated(unsafe) private static let dates: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()  // ISO8601DateFormatter is thread safe.
+    /// RFC 3339 with milliseconds, as the owners write `created_at` (a Sendable value type).
+    nonisolated private static let millis = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    nonisolated private static let seconds = Date.ISO8601FormatStyle()
 
-    nonisolated static func format(_ date: Date) -> String { dates.string(from: date) }
+    nonisolated static func format(_ date: Date) -> String { date.formatted(millis) }
 
     nonisolated static func date(_ text: Any?) -> Date? {
         guard let text = text as? String else { return nil }
-        return dates.date(from: text) ?? ISO8601DateFormatter().date(from: text)
+        return (try? millis.parse(text)) ?? (try? seconds.parse(text))
     }
 
     /// The state the messages show (`HomeMessage` values, oldest first or not).

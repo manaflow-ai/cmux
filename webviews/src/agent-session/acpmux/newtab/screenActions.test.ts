@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { newTabScreenActions } from "./screenActions";
 
-test("the selected project replaces the inherited folder for chat and terminal", async () => {
+test("the page's chat and terminal start in the folder the tab inherited", async () => {
   const calls: unknown[] = [];
   const actions = newTabScreenActions({
     callNative: async (method, params) => {
@@ -12,11 +12,11 @@ test("the selected project replaces the inherited folder for chat and terminal",
     selectSession() {},
     showAllChats() {},
   });
-  actions.onAsk("codex", "hello", "/src/new");
-  actions.onTerminal("git status", "/src/new");
+  actions.onAsk("codex", "hello");
+  actions.onTerminal("git status");
   await Promise.resolve();
-  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/new" }]);
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false, cwd: "/src/new" }]);
+  expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/old" }]);
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false, cwd: "/src/old" }]);
 });
 
 test("a local file uses the file opener and a URL uses the browser", () => {

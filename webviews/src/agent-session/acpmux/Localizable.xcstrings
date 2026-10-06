@@ -397,138 +397,6 @@
         }
       }
     },
-    "composer.chooseFolderMenu": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختيار المجلد…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Odaberi folder…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vælg mappe…"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ordner auswählen…"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose folder…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Elegir carpeta…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Choisir le dossier…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Scegli cartella…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダを選択…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសរើសថត…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "폴더 선택…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Velg mappe…"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybierz folder…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Escolher pasta…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Выбрать папку…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เลือกโฟลเดอร์…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Klasör seç…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вибрати папку…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn thư mục…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "选择文件夹…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇資料夾…"
-          }
-        }
-      }
-    },
     "composer.cloud": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -9379,128 +9247,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "اسأل وكيلاً، أو ابحث، أو اكتب عنوان URL"
+            "state": "needs_review",
+            "value": "ابحث أو اكتب URL"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pitajte agenta, pretražite ili unesite URL"
+            "state": "needs_review",
+            "value": "Pretraži ili upiši URL"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spørg en agent, søg, eller indtast en URL"
+            "state": "needs_review",
+            "value": "Søg eller skriv en URL"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Frage einen Agenten, suche oder gib eine URL ein"
+            "state": "needs_review",
+            "value": "Suchen oder URL eingeben"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask an agent, search, or type a URL"
+            "value": "Search or type a URL"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pregunta a un agente, busca o escribe una URL"
+            "state": "needs_review",
+            "value": "Busca o escribe una URL"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Demandez à un agent, recherchez ou saisissez une URL"
+            "state": "needs_review",
+            "value": "Rechercher ou saisir une URL"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi a un agente, cerca o digita un URL"
+            "state": "needs_review",
+            "value": "Cerca o digita un URL"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントに質問、検索、またはURLを入力"
+            "value": "検索またはURLを入力"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "សួរភ្នាក់ងារ ស្វែងរក ឬវាយបញ្ចូល URL"
+            "state": "needs_review",
+            "value": "ស្វែងរក ឬវាយ URL"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "에이전트에게 질문하거나 검색하거나 URL을 입력하세요"
+            "state": "needs_review",
+            "value": "검색하거나 URL 입력"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spør en agent, søk eller skriv inn en URL"
+            "state": "needs_review",
+            "value": "Søk eller skriv en URL"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zapytaj agenta, wyszukaj lub wpisz adres URL"
+            "state": "needs_review",
+            "value": "Szukaj lub wpisz URL"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pergunte a um agente, pesquise ou digite uma URL"
+            "state": "needs_review",
+            "value": "Pesquise ou digite uma URL"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Спросите агента, выполните поиск или введите URL"
+            "state": "needs_review",
+            "value": "Введите запрос или URL"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ถามเอเจนต์ ค้นหา หรือพิมพ์ URL"
+            "state": "needs_review",
+            "value": "ค้นหาหรือพิมพ์ URL"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bir ajana soru sorun, arama yapın veya URL yazın"
+            "state": "needs_review",
+            "value": "Ara veya URL yaz"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Запитайте агента, виконайте пошук або введіть URL"
+            "state": "needs_review",
+            "value": "Пошук або введіть URL"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi tác nhân, tìm kiếm hoặc nhập URL"
+            "state": "needs_review",
+            "value": "Tìm kiếm hoặc nhập URL"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "向智能体提问、搜索或输入网址"
+            "state": "needs_review",
+            "value": "搜索或输入 URL"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "向智慧代理提問、搜尋或輸入網址"
+            "state": "needs_review",
+            "value": "搜尋或輸入 URL"
           }
         }
       }
@@ -41317,6 +41185,270 @@
         }
       }
     },
+    "composer.originUnknown": {
+      "comment": "Agent pane: an acpmux too old to name the connection's origin, showing a Codex or opencode chat; sending is off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدّث acpmux للإرسال من هنا: فهو لا يذكر مصدر هذا الاتصال"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ažurirajte acpmux da biste slali odavde: ne navodi odakle dolazi ova veza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opdater acpmux for at sende herfra: den oplyser ikke, hvor denne forbindelse kommer fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktualisiere acpmux, um von hier zu senden: Es nennt nicht, woher diese Verbindung kommt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update acpmux to send from here: it does not say where this connection comes from"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Actualiza acpmux para enviar desde aquí: no indica de dónde viene esta conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettez acpmux à jour pour envoyer depuis ici : il n’indique pas d’où vient cette connexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aggiorna acpmux per inviare da qui: non indica da dove proviene questa connessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここから送信するには acpmux を更新してください：この接続の送信元が示されていません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើបច្ចុប្បន្នភាព acpmux ដើម្បីផ្ញើពីទីនេះ៖ វាមិនប្រាប់ថាការតភ្ជាប់នេះមកពីណាទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 보내려면 acpmux를 업데이트하세요: 이 연결이 어디에서 오는지 알려 주지 않습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oppdater acpmux for å sende herfra: den oppgir ikke hvor denne tilkoblingen kommer fra"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaktualizuj acpmux, aby wysyłać stąd: nie podaje, skąd pochodzi to połączenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atualize o acpmux para enviar daqui: ele não informa de onde vem esta conexão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Обновите acpmux, чтобы отправлять отсюда: он не сообщает, откуда это подключение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อัปเดต acpmux เพื่อส่งจากที่นี่: มันไม่ได้บอกว่าการเชื่อมต่อนี้มาจากที่ใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buradan göndermek için acpmux’u güncelleyin: bu bağlantının nereden geldiğini belirtmiyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оновіть acpmux, щоб надсилати звідси: він не повідомляє, звідки це з’єднання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cập nhật acpmux để gửi từ đây: nó không cho biết kết nối này đến từ đâu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请更新 acpmux 以从这里发送：它没有说明此连接来自何处"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請更新 acpmux 以從這裡傳送：它沒有說明此連線來自何處"
+          }
+        }
+      }
+    },
+    "composer.remoteUnavailable": {
+      "comment": "Agent pane: a remote (paired or browser) connection showing a Codex or opencode chat, which acpmux never lets it drive; sending is off",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير متاح من هنا: لا يملك هذا الوكيل وضعًا يطلب الإذن قبل كل تغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije dostupno odavde: ovaj agent nema način rada koji pita prije svake promjene"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgængelig herfra: denne agent har ingen tilstand, der spørger før hver ændring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Von hier aus nicht verfügbar: Dieser Agent hat keinen Modus, der vor jeder Änderung fragt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not available from here: this agent has no mode that asks before each change"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No disponible desde aquí: este agente no tiene un modo que pregunte antes de cada cambio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indisponible depuis ici : cet agent n’a aucun mode qui demande avant chaque changement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non disponibile da qui: questo agente non ha una modalità che chieda prima di ogni modifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここからは利用できません：このエージェントには、変更のたびに確認するモードがありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចប្រើពីទីនេះបានទេ៖ ភ្នាក់ងារនេះគ្មានរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서는 사용할 수 없습니다: 이 에이전트에는 변경할 때마다 확인하는 모드가 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke tilgjengelig herfra: denne agenten har ingen modus som spør før hver endring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niedostępne stąd: ten agent nie ma trybu, który pyta przed każdą zmianą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indisponível daqui: este agente não tem um modo que pergunte antes de cada alteração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно отсюда: у этого агента нет режима, который спрашивает перед каждым изменением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้จากที่นี่ไม่ได้: เอเจนต์นี้ไม่มีโหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buradan kullanılamaz: bu ajanın her değişiklikten önce soran bir modu yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недоступно звідси: цей агент не має режиму, який питає перед кожною зміною"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dùng được từ đây: tác tử này không có chế độ hỏi trước mỗi thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法从这里使用：此代理没有在每次更改前都会询问的模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法從這裡使用：此代理沒有在每次變更前都會詢問的模式"
+          }
+        }
+      }
+    },
     "composer.removeAttachment": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -69429,6 +69561,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "預設"
+          }
+        }
+      }
+    },
+    "composer.chooseFolderMenu": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختيار المجلد…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi folder…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg mappe…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordner auswählen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose folder…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elegir carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir le dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli cartella…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសថត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "폴더 선택…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg mappe…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz folder…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolher pasta…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выбрать папку…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกโฟลเดอร์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasör seç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вибрати папку…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn thư mục…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择文件夹…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇資料夾…"
           }
         }
       }

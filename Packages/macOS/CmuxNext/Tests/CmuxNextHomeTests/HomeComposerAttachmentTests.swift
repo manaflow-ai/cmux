@@ -1,5 +1,5 @@
 import AppKit
-import CmuxHomeCore
+@testable import CmuxHomeCore
 import CmuxHomeRender
 import Foundation
 import Testing
@@ -250,19 +250,20 @@ import Testing
         #expect(view.notice == "You can’t send messages in this conversation.", "a background refusal shows in the composer notice")
     }
 
-    /// The binding chains with every other binding of the store: a second
-    /// Home of the same store keeps the first one's notices (lane 16 rule:
-    /// never set `store.onRefusal` or `store.onUnanswered` directly).
+    /// Each Home's binding registers its conversation's hooks with the store:
+    /// a second Home of the same store gets only its own conversation's
+    /// notices (lane 16 rule: never set `store.onRefusal` or
+    /// `store.onUnanswered` directly; those hear only what no view does).
     @Test func twoHomesOfOneStoreEachGetTheirOwnNotices() async throws {
         let (window, view, _, store, id) = try await host()
         defer { close(window, view, store) }
         let other = ConversationID("conv_other")
         let second = HomeNativeTranscriptView(store: store, conversation: other, me: view.me)
         defer { second.stop() }
-        store.onUnanswered?(HomeIntent(op: .setReadCursor(conversation: id, seq: 1)))
+        store.reportUnanswered(HomeIntent(op: .setReadCursor(conversation: id, seq: 1)))
         #expect(view.notice == "A change may not have gone through. Check your connection.")
         #expect(second.notice == nil)
-        store.onRefusal?(HomeIntent(op: .setReadCursor(conversation: other, seq: 1)), .notAuthorized)
+        store.reportRefusal(HomeIntent(op: .setReadCursor(conversation: other, seq: 1)), .notAuthorized)
         #expect(second.notice == "You can’t send messages in this conversation.")
     }
 

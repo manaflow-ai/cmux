@@ -57,6 +57,8 @@ enum AgentSessionWorkspace {
                 }
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
+            } catch let refusal as AgentTabRefusal {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")

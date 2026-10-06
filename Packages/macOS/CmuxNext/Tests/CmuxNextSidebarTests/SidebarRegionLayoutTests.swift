@@ -162,7 +162,7 @@ import Testing
         let aboveBottom = try #require(view.aboveRegion.enclosingScrollView?.superview).frame.maxY
         let belowTop = try #require(view.belowRegion.enclosingScrollView?.superview).frame.minY
         let list = try #require(view.list.enclosingScrollView?.superview).frame
-        #expect(list.minY == aboveBottom && list.maxY == belowTop)
+        #expect(list.minY == aboveBottom && list.maxY == belowTop - SidebarStyle.footerHeight)
 
         model.layout = try SidebarLayoutReducer.reduce(model.layout, .sectionRemove(SidebarLayoutDocument.topSectionID)).get()
         view.needsLayout = true
