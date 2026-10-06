@@ -157,6 +157,23 @@ struct CoderouterCLIAccountReaderTests {
         #expect(result.stderr.count == 256 * 1024)
     }
 
+    @Test("Canceling a running CLI terminates the child and unblocks its readers")
+    func cancellationTerminatesRunningProcess() async throws {
+        let task = Task {
+            try await CoderouterCLIAccountReader.runProcess(
+                executable: "/bin/sh",
+                arguments: ["-c", "while true; do printf x; done"],
+                environment: ["PATH": "/usr/bin:/bin"]
+            )
+        }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        task.cancel()
+
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+    }
+
     @Test("A malformed account ID never reaches the CLI")
     func malformedRemoveIsRejected() async {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)

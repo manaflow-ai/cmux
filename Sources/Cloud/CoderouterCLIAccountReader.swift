@@ -43,6 +43,7 @@ enum CoderouterCLIAccountReader {
         // `accounts` reads the CLI's active organization, which the user's terminal
         // shares. Its payload names that organization as `teamId`, so trust only the
         // payload and switch only when the selected team's organization is not active.
+        try Task.checkCancellation()
         var payload = try await readAccounts(run: run)
         if payload.organizationID != organizationID {
             try Task.checkCancellation()
@@ -298,7 +299,9 @@ private final class CoderouterProcessCancellation: @unchecked Sendable {
         let identifier = process.processIdentifier
         if process.isRunning, identifier > 1 {
             process.terminate()
-            _ = Darwin.kill(identifier, SIGKILL)
+            if process.isRunning {
+                _ = Darwin.kill(identifier, SIGKILL)
+            }
         }
         try? stdout.close()
         try? stderr.close()
