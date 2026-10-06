@@ -277,8 +277,8 @@ def app_client(tag, timeout=30):
     raise SystemExit(f"tag {tag}: control socket did not answer")
 
 
-def app_tab_id(app, workspace_name, timeout):
-    """The app's id for the first tab of a workspace; the daemon's listing names tabs differently."""
+def app_tab_id(app, workspace_name, timeout, wanted=lambda tab: True):
+    """The app's id for the first wanted tab of a workspace; the daemon's listing names tabs differently."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         topology = (app.call("snapshot.get").get("result") or {}).get("topology") or {}
@@ -287,8 +287,9 @@ def app_tab_id(app, workspace_name, timeout):
                 continue
             for screen in workspace.get("screens", []):
                 for pane in screen.get("panes", []):
-                    if pane.get("tabs"):
-                        return str(pane["tabs"][0].get("id") or "")
+                    for tab in pane.get("tabs", []):
+                        if wanted(tab):
+                            return str(tab.get("id") or "")
         time.sleep(0.2)
     return ""
 
@@ -335,6 +336,16 @@ def seed_realistic(tag, scratch, timeout):
         if agent and not prime.wait_for(AGENT_MARK, timeout):
             print(f"  {tag}: the seeded agent chat never loaded", file=sys.stderr)
             agent = False
+        if agent:
+            # A chat made through the control socket opens unselected; select
+            # it so it is the visible tab at quit and a restore shows it.
+            app = app_client(tag)
+            chat = app_tab_id(app, "project-01", timeout, lambda tab: tab.get("kind") == "conversation")
+            reply = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": chat}}) if chat else {}
+            app.close()
+            if not reply.get("ok"):
+                print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
+                agent = False
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
