@@ -4904,7 +4904,7 @@
               ]
             }
           ],
-          "when" : null
+          "when" : "!codeEditorFocused"
         }
       ],
       "default_chord" : null,
@@ -4948,7 +4948,7 @@
               ]
             }
           ],
-          "when" : null
+          "when" : "!codeEditorFocused"
         }
       ],
       "default_chord" : null,
