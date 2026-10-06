@@ -35,6 +35,10 @@ public final class ConfigFileWatcher: @unchecked Sendable {
     /// reads the file after the watch exists. A consumer that already has a
     /// current snapshot can disable that initial notification and react only
     /// to subsequent edits.
+    public func start() {
+        start(reportInitialChange: true)
+    }
+
     public func start(reportInitialChange: Bool = true) {
         queue.async { [self] in
             isStopped = false
