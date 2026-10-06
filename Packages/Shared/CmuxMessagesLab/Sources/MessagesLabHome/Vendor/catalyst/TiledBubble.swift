@@ -147,6 +147,10 @@ final class TiledBody {
 
     /// Folded (LongTextFold): head and tail lines in clipped regions, the band between.
     let headClip = CALayer(), tailClip = CALayer(), band = CALayer()
+    /// Tapback badges (the row's top) and the failed mark (the bubble's middle): small bitmaps
+    /// drawn with the row drawing code, only when their content changes.
+    let badges = CALayer(), failedMark = CALayer()
+    private var badgeKey = "", failedKey = ""
     private(set) var folded = false
     /// Expanded foldable message: the "Show less" band after the last line.
     private(set) var lessBand = false
@@ -155,7 +159,7 @@ final class TiledBody {
     private var bandKey = ""
 
     init() {
-        for l in [container, shape, headClip, tailClip, band] { l.actions = TiledBody.noActions }
+        for l in [container, shape, headClip, tailClip, band, badges, failedMark] { l.actions = TiledBody.noActions }
         // The container is the row (tiles never reach past it); it clips during an expansion.
         container.masksToBounds = true
         headClip.masksToBounds = true
@@ -163,9 +167,23 @@ final class TiledBody {
         container.addSublayer(headClip)
         container.addSublayer(tailClip)
         container.addSublayer(band)
+        container.addSublayer(badges)
+        container.addSublayer(failedMark)
     }
 
     var isActive: Bool { spec != nil }
+
+    /// The store has a newer layout for this row's text (an off-main scan finished): take it
+    /// without a row change.
+    func refresh(_ cell: RowCell) {
+        guard let spec, let row, case let .text(t, _) = row.part else { return }
+        let l = LongTextStore.shared.layout(t, width: spec.width)
+        guard l !== layout else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        set(spec: spec, row: row, layout: l, cell: cell)
+        update(cell)
+        CATransaction.commit()
+    }
     /// Visible tiles without pixels now (bench).
     private var visibleKeys = Set<TileCache.Key>()
     var lastBlank: Int { spec == nil ? 0 : visibleKeys.reduce(0) { $0 + (live[$1]?.contents == nil ? 1 : 0) } }
@@ -227,6 +245,43 @@ final class TiledBody {
                              height: body.height + ih - 2 * BubbleSlices.cap)
         container.contentsScale = s
         configureFold(p, layout: layout, scale: s)
+        configureDecorations(p, spec: spec, scale: s)
+    }
+
+    private func configureDecorations(_ p: PartRow, spec: RowSpec, scale s: CGFloat) {
+        // Badges reach 22 pt above the bubble (RowDraw.margin is 24): the row's top 48 pt.
+        badges.isHidden = p.reactions.isEmpty
+        if !p.reactions.isEmpty {
+            let h = RowDraw.margin + 24
+            badges.frame = CGRect(x: 0, y: 0, width: spec.width, height: h)
+            let key = "\(p.reactions)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
+            if key != badgeKey {
+                badgeKey = key
+                Reclaimer.release(badges.contents)
+                badges.contentsScale = s
+                let b = body
+                badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
+                    PartRenderer.drawReactions(ctx, p.reactions, body: b, outgoing: p.outgoing)
+                }
+            }
+        }
+        // The failed mark sits 14 pt beside the bubble's vertical middle (PartRenderer.draw).
+        failedMark.isHidden = !p.failed
+        if p.failed {
+            let c = CGPoint(x: body.minX - 14, y: body.midY)
+            failedMark.frame = CGRect(x: c.x - 10, y: c.y - 10, width: 20, height: 20)
+            let key = "\(s)|\(Fixture.paletteGeneration)"
+            if key != failedKey {
+                failedKey = key
+                failedMark.contentsScale = s
+                failedMark.contents = WideBitmap.make(size: CGSize(width: 20, height: 20), scale: s, opaque: false) { ctx in
+                    UIColor(red: 1, green: 0.27, blue: 0.23, alpha: 1).setFill()
+                    UIBezierPath(ovalIn: CGRect(x: 2, y: 2, width: 16, height: 16)).fill()
+                    let f = UIFont.systemFont(ofSize: 12, weight: .bold)
+                    TextDraw.line("!", font: f, color: .white, x: 10 - TextDraw.width("!", font: f) / 2, baseline: 14.5, in: ctx)
+                }
+            }
+        }
     }
 
     private func configureFold(_ p: PartRow, layout: LongTextLayout, scale s: CGFloat) {
@@ -234,7 +289,8 @@ final class TiledBody {
         lessBand = !folded && LongTextFold.isFoldable(layout)
         headClip.isHidden = !folded
         tailClip.isHidden = !folded
-        band.isHidden = !folded && !lessBand
+        // The band waits for the scan (its label counts the lines).
+        band.isHidden = (!folded && !lessBand) || !layout.index.ready
         let lh = Fixture.lineHeight, textTop = body.minY + Fixture.bubblePadY
         if lessBand {
             bandRect = CGRect(x: body.minX, y: textTop + CGFloat(layout.totalLines) * lh, width: body.width, height: LongTextFold.bandHeight)
@@ -253,11 +309,18 @@ final class TiledBody {
         drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
     }
 
+    /// Band bitmaps by label and look (a toggle swaps cached images).
+    private static var bandImages: [String: CGImage] = [:]
+    /// > 0 during a fold change: no tile is drawn on main in that frame (the queue does it).
+    static var noMainTiles = 0
+
     private func drawBand(_ label: String, _ p: PartRow, scale s: CGFloat) {
         let lh = Fixture.lineHeight
         let key = "\(label)|\(p.outgoing)|\(body.width)|\(s)|\(Fixture.paletteGeneration)"
         guard key != bandKey else { return }
         bandKey = key
+        if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
+        defer { if let img = band.contents { TiledBody.bandImages[key] = (img as! CGImage); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = UIFont.systemFont(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
         let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
@@ -354,7 +417,7 @@ final class TiledBody {
             // Only when the block's line breaks are known: Core Text measurement never runs on main.
             // At most one tile per frame on main (about 1.5 ms): the rest come from the queue.
             // A slot that still shows its previous pixels (streaming tail, new width) waits for the queue.
-            if visible, old?.contents == nil, mainTiles == 0, RowCell.mainDrawBudgetLeft(), let bl = BlockLayoutCache.shared.get(layout.key(blk)) {
+            if visible, old?.contents == nil, mainTiles == 0, TiledBody.noMainTiles == 0, RowCell.mainDrawBudgetLeft(), let bl = BlockLayoutCache.shared.get(layout.key(blk)) {
                 mainTiles += 1
                 let t0 = CACurrentMediaTime()
                 let img = TiledBubble.render(bl, chunk: k.chunk, outgoing: k.outgoing, width: r.width, scale: s)

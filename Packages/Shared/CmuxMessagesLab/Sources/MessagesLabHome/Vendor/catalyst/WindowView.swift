@@ -209,6 +209,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         refreshVisibleCells()
     }
 
+    /// Light system appearance: link cards switch palette (cached bitmaps dropped).
+    func setLightAppearance(_ light: Bool) {
+        guard Fixture.lightAppearance != light else { return }
+        Fixture.lightAppearance = light
+        RowBitmaps.shared.removeAll()
+        refreshVisibleCells()
+    }
+
     // MARK: Geometry
 
     var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeView.height(lines: 1, chips: false)) }
@@ -346,14 +354,21 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     static var decorateAllocs: [String: Int] = [:]
     /// Bench: main-thread heap allocations per commit phase (max per commit).
     static var allocPhases: [String: Int] = [:]
+    /// Wall time per commit phase, max over a scenario (ms; bench).
+    static var timePhases: [String: Double] = [:]
     private var phaseMark = 0
+    private var phaseTimeMark: CFTimeInterval = 0
     private func phase(_ name: String) {
         let now = MallocCounter.mainAllocations
         MessagesWindowView.allocPhases[name] = max(MessagesWindowView.allocPhases[name] ?? 0, now - phaseMark)
         phaseMark = now
+        let t = CACurrentMediaTime()
+        MessagesWindowView.timePhases[name] = max(MessagesWindowView.timePhases[name] ?? 0, ((t - phaseTimeMark) * 10000).rounded() / 10)
+        phaseTimeMark = t
     }
     func commit(_ action: Action, at t: Double, old: AppState, new state: AppState) {
         if case .setScroll = action { return }
+        if case let .setDraft(text) = action { MorphBubble.prepare(draft: text, width: Metrics.current.width) }
         // Rows configured in this transaction draw now (RowCell.transitionDepth).
         RowCell.transitionDepth += 1
         defer { RowCell.transitionDepth -= 1 }
@@ -388,6 +403,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
         CATransaction.begin()
         phaseMark = MallocCounter.mainAllocations
+        phaseTimeMark = CACurrentMediaTime()
         // Old geometry (content coordinates) for the window-space deltas.
         let oldSnap = model.snapshot
         let oldRowsTop = layout.rowsTop
@@ -1288,6 +1304,12 @@ extension MessagesWindowView {
         for case let c as RowCell in collection.visibleCells {
             if let k = c.spec?.key { before[k] = c.convert(c.bounds, to: self).minY }
         }
+        let tFold0 = CACurrentMediaTime()
+        TiledBody.noMainTiles += 1
+        // Rows that come into view slide in from off screen: their bitmaps come from the queue.
+        let forced = RowCell.testForceOffMain
+        RowCell.testForceOffMain = true
+        defer { TiledBody.noMainTiles -= 1; RowCell.testForceOffMain = forced }
         if fold { LongTextFold.collapse(id) } else { LongTextFold.expand(id) }
         let size = LongTextStore.shared.size(t, width: width, message: id)
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
@@ -1314,13 +1336,20 @@ extension MessagesWindowView {
         layout.invalidateLayout()
         guard let i = model.index[key] else { CATransaction.commit(); return }
         let newOffset = oldOffset + rebase + (layout.contentTop(i) + newAnchor) - (oldTop + oldAnchor + rebase)
+        let tFold1 = CACurrentMediaTime()
         collection.contentInset.top = -minOffset
         setOffset(min(max(newOffset, minOffset), pinnedOffset))
+        let tFold2 = CACurrentMediaTime()
         // At the very bottom the transcript cannot scroll past its end: the rest of the
         // anchor shift (a fold: the "Show less" band height) slides with the spring instead.
         let residual = newOffset - collection.contentOffset.y
         collection.setNeedsLayout(); collection.layoutIfNeeded()
         refreshVisibleCells()
+        let tFold3 = CACurrentMediaTime()
+        defer {
+            LongTextStats.lastFoldMs = ["model": (tFold1 - tFold0) * 1000, "offset": (tFold2 - tFold1) * 1000,
+                                        "layoutAndCells": (tFold3 - tFold2) * 1000, "animations": (CACurrentMediaTime() - tFold3) * 1000]
+        }
         let begin = Animate.now(layer)
         /// Presented value starts at model - d: the spring covers the visible part; for an
         /// expansion a hold covers the far part at the end (off screen below).
@@ -1396,7 +1425,11 @@ extension MessagesWindowView {
             s.height = size.height
             return s
         }
-        guard changed else { return }
+        guard changed else {
+            // Same heights (a folded row, or a scan that ended): visible tiled rows take the new layout.
+            for case let c as RowCell in collection.visibleCells { c.tiled?.refresh(c) }
+            return
+        }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         model.set(rows, at: clock(), ghosts: false)
         let rebase = layout.rebaseIfNeeded()

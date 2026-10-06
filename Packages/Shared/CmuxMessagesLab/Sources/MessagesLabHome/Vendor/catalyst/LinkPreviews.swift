@@ -37,12 +37,19 @@ final class LinkPreviews: LinkPreviewFetching {
     }()
     private var index: URL { dir.appendingPathComponent("index.json") }
 
+    /// A "no title" answer is kept this long (a later fix or a page change can then get one).
+    static let negativeTTL: TimeInterval = 24 * 3600
+    private var negativeAt: [String: Double] = [:]
     init() {
         if let d = try? Data(contentsOf: index), let saved = try? JSONDecoder().decode([String: Saved].self, from: d) {
-            for (k, v) in saved { cache[k] = v.ok ? LinkMetadata(title: v.title, site: v.site, image: v.image) : nil }
+            let now = Date().timeIntervalSince1970
+            for (k, v) in saved {
+                if v.ok { cache[k] = .some(LinkMetadata(title: v.title, site: v.site, image: v.image)) }
+                else if let at = v.at, now - at < LinkPreviews.negativeTTL { cache[k] = .some(nil); negativeAt[k] = at }
+            }
         }
     }
-    private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String? }
+    private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String?; var at: Double? }
 
     /// cmux: a fetched preview without fetching (nil: not fetched, or it failed). A
     /// HomeStore rebuild maps a link part again; it shows what was already fetched.
@@ -50,7 +57,11 @@ final class LinkPreviews: LinkPreviewFetching {
 
     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
         dispatchPrecondition(condition: .onQueue(.main))
-        if let hit = cache[url] { done(hit); return }
+        if let hit = cache[url] {
+            done(hit)
+            if hit?.title == nil, outgoing.contains(url) { enqueueFallback(url) }
+            return
+        }
         if waiting[url] != nil { waiting[url]!.append(done); return }
         guard let u = URL(string: url), u.scheme == "https" || u.scheme == "http" else { done(nil); return }
         waiting[url] = [done]
@@ -146,12 +157,15 @@ final class LinkPreviews: LinkPreviewFetching {
 
     private func finish(_ url: String, _ meta: LinkMetadata?) {
         cache[url] = .some(meta)
+        if meta?.title == nil { negativeAt[url] = Date().timeIntervalSince1970 }
         let cbs = waiting.removeValue(forKey: url) ?? []
         cbs.forEach { $0(meta) }
         save()
         // No title from the page's tags, and the guard did not refuse the URL: the
         // LinkPresentation fallback may try (pages that build their tags in script).
-        if meta?.title == nil, LinkPreviews.fallbackAllowed(lastRefusal[url]) { enqueueFallback(url) }
+        // Only for links the local user sent: LinkPresentation loads redirects and
+        // sub-resources outside LinkGuard, so it never runs for a received link.
+        if meta?.title == nil, outgoing.contains(url), LinkPreviews.fallbackAllowed(lastRefusal[url]) { enqueueFallback(url) }
     }
 
     // MARK: LinkPresentation fallback (bounded)
@@ -162,8 +176,14 @@ final class LinkPreviews: LinkPreviewFetching {
     /// dispatches `.linkMetadata` with it.
     var onLateMetadata: ((String, LinkMetadata) -> Void)?
     private(set) var fallbackQueue: [String] = []
+    /// URLs the local user sent (the only ones the fallback may load).
+    private var outgoing: Set<String> = []
+    func allowFallback(_ url: String) { outgoing.insert(url) }
     private var fallbackDone: Set<String> = []
     private(set) var fallbackRunning: String?
+    /// Every fallback run: URL, seconds, title or nil (tests and the self-test report).
+    private(set) var fallbackLog: [String] = []
+    private var fallbackStart = Date()
     private var provider: LPMetadataProvider?
     /// Only when the guard let the URL through (a network failure or no tags), never
     /// after a refusal (an address, a name, a port, a redirect).
@@ -184,8 +204,9 @@ final class LinkPreviews: LinkPreviewFetching {
     /// Runs one LinkPresentation fetch (WebKit: about 44 main run-loop wake-ups a
     /// second while it runs; none after). Tests call it directly.
     func runFallback(_ url: String) {
-        guard fallbackRunning == nil, let u = URL(string: url) else { return }
+        guard fallbackRunning == nil, outgoing.contains(url), let u = URL(string: url) else { return }
         fallbackRunning = url
+        fallbackStart = Date()
         fallbackDone.insert(url)
         let file = dir.appendingPathComponent(String(format: "%016llx-lp.png", LinkPreviews.fnv1a(url)))
         GuardedFetcher.shared.queue.addOperation { [weak self] in
@@ -219,19 +240,34 @@ final class LinkPreviews: LinkPreviewFetching {
         }
     }
     private func fallbackFinished(_ url: String, _ meta: LinkMetadata?) {
-        fallbackRunning = nil
         provider = nil
+        fallbackLog.append("\(url) \(String(format: "%.1f", Date().timeIntervalSince(fallbackStart))) s \(meta?.title ?? "no title")")
         if let meta {
             cache[url] = .some(meta)
+            negativeAt[url] = nil
             save()
             onLateMetadata?(url, meta)
         }
+        // LPMetadataProvider keeps its timeout timer after it answers (cancel does not
+        // end it): one main run-loop wake-up `timeout` s after the start. The fallback
+        // counts as running until then (one at a time includes that tail), so the
+        // next one never stacks another timer and "finished" means no work is left.
+        let left = fallbackStart.addingTimeInterval(timeout + 0.1).timeIntervalSinceNow
+        guard left > 0 else { release(); return }
+        let t = Timer(timeInterval: left, repeats: false) { [weak self] _ in self?.release() }
+        RunLoop.main.add(t, forMode: .common)
+    }
+    private func release() {
+        fallbackRunning = nil
         visibilityChanged()
     }
 
     private func save() {
         var out: [String: Saved] = [:]
-        for (k, v) in cache { out[k] = Saved(ok: v != nil, title: v?.title, site: v?.site, image: v?.image) }
+        for (k, v) in cache {
+            if let v, v.title != nil { out[k] = Saved(ok: true, title: v.title, site: v.site, image: v.image, at: nil) }
+            else { out[k] = Saved(ok: false, title: nil, site: nil, image: nil, at: negativeAt[k] ?? Date().timeIntervalSince1970) }
+        }
         if let d = try? JSONEncoder().encode(out) { try? d.write(to: index, options: .atomic) }
     }
 }

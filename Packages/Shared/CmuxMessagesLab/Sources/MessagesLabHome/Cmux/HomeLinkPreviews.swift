@@ -29,6 +29,13 @@ final class HomeLinkPreviews: LinkPreviewFetching {
     /// The user tapped a card: its preview may be fetched now.
     func allowTap(_ url: String) { allowed.insert(url) }
 
+    /// This Mac sent the link: LinkPreviews' LinkPresentation fallback may run for it
+    /// (a page that builds its tags in script). Never for a received link.
+    func allowFallback(_ url: String) {
+        guard allowed.contains(url) else { return }
+        previews.allowFallback(url)
+    }
+
     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
         // Not allowed: a pending card becomes the domain card (Store.apply), nothing is requested.
         guard allowed.contains(url) else { done(nil); return }
