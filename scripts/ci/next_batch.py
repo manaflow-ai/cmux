@@ -647,6 +647,22 @@ class Controller:
         return self.git("rev-parse", f"refs/remotes/origin/{BASE}")
 
     def push(self, sha: str, ref: str) -> None:
+        """Point refs/heads/`ref` at `sha`, created first at the batch's base.
+
+        GitHub checks a job-token push for workflow changes. A new branch is
+        compared with the default branch (main), which differs from
+        feat-cmux-next in many workflows, and the push is refused. Created at
+        the base through the API and then fast-forwarded, the push carries
+        only the stacked PRs' changes.
+        """
+        if self.base_sha:
+            exists = self.gh.gh("api", f"repos/{self.args.repo}/git/ref/heads/{ref}", check=False).returncode == 0
+            if exists:
+                self.gh.api(f"repos/{self.args.repo}/git/refs/heads/{ref}", method="PATCH",
+                            body={"sha": self.base_sha, "force": True})
+            else:
+                self.gh.api(f"repos/{self.args.repo}/git/refs", method="POST",
+                            body={"ref": f"refs/heads/{ref}", "sha": self.base_sha})
         self.git("push", "--quiet", "--force", "origin", f"{sha}:refs/heads/{ref}")
 
     def delete_branch(self, ref: str) -> None:
