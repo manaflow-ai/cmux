@@ -61,6 +61,6 @@ nonisolated enum SidebarSectionSettingsSchema {
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
-        ]
+        ] + SidebarNavigationSetting.descriptors(group: sidebar)
     }
 }

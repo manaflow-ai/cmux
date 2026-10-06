@@ -36,20 +36,35 @@ public nonisolated struct SidebarItemOrder: Hashable, Sendable {
 
     /// The stop in this order that `item` is at (a workspace in a collapsed group: the group).
     public func stop(for item: SidebarItem?) -> SidebarItem? {
-        nil // RED stub
+        guard let item else { return nil }
+        if items.contains(item) { return item }
+        if case .workspace(let id) = item { return stops[id] }
+        return nil
     }
 
     /// The item Cmd-`number` selects: 1…8 count in order; 9 is the last
     /// (`last`) or the ninth (`ninth`). Past the end: the last with `last`,
     /// nothing with `ninth`. Nil below 1 or for an empty order.
     public func pick(_ number: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
-        nil // RED stub
+        let list = items(settings.numbering)
+        guard number >= 1, let last = list.last else { return nil }
+        if settings.cmd9 == .last, number >= 9 { return last }
+        if number <= list.count { return list[number - 1] }
+        return settings.cmd9 == .last ? last : nil
     }
 
     /// The item `offset` steps from `selected` (Cmd-Ctrl-] is +1). From an
     /// item outside the walked list (or none), +1 starts at the first and -1
     /// at the last. Past an end: wraps, or nil when wrapping is off.
     public func step(from selected: SidebarItem?, by offset: Int, _ settings: SidebarNavigationSettings) -> SidebarItem? {
-        nil // RED stub
+        let list = items(settings.stepping)
+        guard !list.isEmpty, offset != 0 else { return nil }
+        guard let current = stop(for: selected), let index = list.firstIndex(of: current) else {
+            return offset > 0 ? list.first : list.last
+        }
+        let next = index + offset
+        if list.indices.contains(next) { return list[next] }
+        guard settings.steppingWraps else { return nil }
+        return list[((next % list.count) + list.count) % list.count]
     }
 }

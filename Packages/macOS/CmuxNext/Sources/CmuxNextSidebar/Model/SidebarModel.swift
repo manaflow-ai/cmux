@@ -16,10 +16,16 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
-    /// RED stub.
+    /// The window's one sidebar selection (SIDEBAR-SELECTION-ONE-MODEL): a
+    /// top-section item while the window shows its page, else the shown
+    /// workspace. The App derives it from the window state; the one
+    /// highlight, stepping and numbering read it.
     public var selectedItem: SidebarItem?
-    /// The workspace shown in the window.
-    public var activeWorkspaceID: WorkspaceID?
+    /// The workspace shown in the window: the selection when it is a workspace.
+    public var activeWorkspaceID: WorkspaceID? {
+        get { if case .workspace(let id)? = selectedItem { id } else { nil } }
+        set { selectedItem = newValue.map(SidebarItem.workspace) }
+    }
     /// Profiles in order (the bar at the bottom center). The bar hides
     /// while there is at most one.
     public var profiles: [SidebarProfile] = []

@@ -39,6 +39,7 @@ extension SettingsSchema {
         "tabs.barPosition", "tabs.barOrder",
         "navigation.historyScope",
         "sidebar.minimalMode",
+        "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition",
         "tabs.newTabKind",
