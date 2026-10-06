@@ -41,4 +41,13 @@ struct WindowControlsInsetTests {
         #expect(inset == 0, "revealed traffic lights must not reflow the hidden-sidebar strip")
     }
 
+    @Test func hiddenSidebarIncognitoHoverKeepsTheStripAnchored() {
+        let lights = CGRect(x: 12, y: 698, width: 54, height: 16)
+        let badge = CGRect(x: 72, y: 698, width: 77, height: 16)
+        for collapsed in [true, false] {
+            #expect(TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: badge,
+                padding: 2, collapsed: collapsed, sidebarHidden: true) == 0)
+        }
+    }
+
 }
