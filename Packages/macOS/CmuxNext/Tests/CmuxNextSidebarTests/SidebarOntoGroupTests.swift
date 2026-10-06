@@ -77,6 +77,26 @@ import Testing
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
+    /// The home daemon makes the group under its own id: the rename follows
+    /// the group its row moved to and keeps what was typed.
+    @Test func theRenameFollowsTheGroupTheStoreMadeInItsPlace() throws {
+        let h = Harness()
+        defer { h.window.close() }
+        try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.5)
+        h.list.finishDrag()
+        let made = try #require(h.groups(cloudSection).first)
+        try #require(h.list.inlineRename.session?.key == .group(made.id))
+        h.list.inlineRename.session?.field.stringValue = "Infra"
+
+        let stored = GroupID.make()
+        h.model.send(.ungroup(made.id))
+        h.model.send(.createGroup(stored, name: made.name, color: made.color, workspaces: [id("x"), id("y")], anchor: id("x")))
+        h.list.reload(animated: false)
+        #expect(h.list.inlineRename.session?.key == .group(stored))
+        #expect(h.list.inlineRename.session?.field.stringValue == "Infra")
+        #expect(h.list.subviews.filter { $0 is NSTextField }.count == 1, "no orphaned field")
+    }
+
     @Test func theBandsEdgesAreStickyOnceEntered() throws {
         let h = Harness()
         defer { h.window.close() }
