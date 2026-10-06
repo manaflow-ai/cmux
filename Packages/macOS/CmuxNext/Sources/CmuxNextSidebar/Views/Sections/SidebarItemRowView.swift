@@ -162,16 +162,17 @@ final class SidebarItemRowView: NSView {
         }
     }
 
-    /// RED stub.
+    /// Where the sidebar's selection highlight sits under this item.
     var selectionRect: CGRect { pill.frame }
-    /// RED stub.
+    /// Tiles keep their own selected fill (the shared highlight would sit under the tile card).
     var drawsOwnSelection: Bool { style == .tile || style == .favorite }
 
     /// The pill's fill: pressed, then active, then hovered, then the
     /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
     /// the next tonal step (`selectionFill`) and still shows a change (R97).
     var fill: NSColor? {
-        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
+        // A selected list or rail item: the sidebar's one highlight draws under it.
+        let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive && drawsOwnSelection)
         return performWithTheme {
             guard style == .tile else { return ChromeHover.fillColor(state) }
             if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
