@@ -1343,9 +1343,9 @@ def main(argv: list[str] | None = None) -> int:
                              help="run here with the gh login; build with this host's cmux-ci")
         command.add_argument("--land", action="store_true",
                              help="serve: merge green PRs (default: post a receipt; the owner lands)")
-        if name == "run":
-            command.set_defaults(land=True)
     args = parser.parse_args(argv)
+    if args.command == "run" and not args.local:
+        args.land = True  # the workflow's App lands; a workstation posts receipts unless --land
     if args.command in {"run", "stack", "serve"}:
         worktree = Path(args.worktree)
         if not (worktree / ".git").exists():

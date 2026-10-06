@@ -48,7 +48,7 @@ It polls the open PRs every minute and uses the debounce job's timing: 2 minutes
 
 By default `serve` merges nothing. It posts a receipt on each validated PR (the stack, the fleet job and the heavy jobs that passed), and the owner lands it with gh-merge-green. `--land` makes it merge. A receipt says when the heavy tier did not run, which happens when the stack's `cmux-next.yml` predates the next-batch gate.
 
-`run --local` runs one batch the same way, and lands by default.
+`run --local` runs one batch the same way, receipts included.
 
 ## Run it by hand
 
