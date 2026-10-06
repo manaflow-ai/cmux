@@ -32,6 +32,7 @@ extension HomeService {
     /// Quit: the cache's last batch reaches disk, and the links that still
     /// point at this app go (another build that took them over keeps them).
     func applicationWillTerminate() {
+        settleWatch?.cancel()
         homeStore.flushCache()
         ChiefAppLinks.unpublish(home: chief.home, controlSocket: services.environment.launch.socketPath,
                                 daemonSocket: publishedDaemonSocket)

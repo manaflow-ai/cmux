@@ -132,9 +132,7 @@ final class SidebarListView: NSView {
         inlineRename.follow()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
-        var o = SidebarLayoutOptions()
-        o.filterMatches = model.filterMatches
-        o.showWorkspaceTabs = model.showWorkspaceTabs
+        var o = model.listOptions()
         o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
