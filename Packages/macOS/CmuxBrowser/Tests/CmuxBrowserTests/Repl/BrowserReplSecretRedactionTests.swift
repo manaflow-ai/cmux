@@ -277,6 +277,47 @@ struct BrowserReplSecretRedactionTests {
         #expect(bytes == expected, "\(Array(bytes))")
     }
 
+    /// File reads mask a loaded value by its UTF-8 bytes and their escaped
+    /// forms (except a short digit value's, masked by shape). A source in
+    /// another encoding, or one that spells a digit value with JSON escapes,
+    /// would come back from `fs.readFile` with the value readable, so either
+    /// `secrets.load` refuses it or the value read back is masked.
+    @Test("A secrets file fs reads back never shows a loaded value in another encoding or escaped form")
+    func encodedSourceIsNeverReadBackUnmasked() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-encoded-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        let json = #"{"example.com":{"pw":"\#(Self.value)"}}"#
+        var utf16 = Data([0xff, 0xfe])
+        utf16.append(json.data(using: .utf16LittleEndian) ?? Data())
+        try utf16.write(to: work.appendingPathComponent("utf16.json"))
+        try (json.data(using: .utf32BigEndian) ?? Data()).write(to: work.appendingPathComponent("utf32.json"))
+        // 4271, each digit escaped.
+        try Data(#"{"example.com":{"pin":"\u0034\u0032\u0037\u0031"}}"#.utf8).write(to: work.appendingPathComponent("escaped.json"))
+        // How agent code decodes each file's bytes (`b`, a Buffer).
+        let cases: [(file: String, decode: String, value: String)] = [
+            ("utf16.json", #"b.toString("utf16le")"#, Self.value),
+            ("utf32.json", #"Array.from(b).filter((_, i) => i % 4 === 3).map((c) => String.fromCharCode(c)).join("")"#, Self.value),
+            ("escaped.json", #"JSON.stringify(JSON.parse(b.toString("utf8")))"#, "4271"),
+        ]
+        for item in cases {
+            let session = try #require(makeSession(ScriptedPageDriver(), cwd: work.path))
+            defer { session.close() }
+            let result = await run(session, """
+            const fs = await import("node:fs");
+            let loaded = true;
+            try { secrets.load("./\(item.file)"); } catch (e) { loaded = false; console.log("refused: " + e.message); }
+            const b = fs.readFileSync("./\(item.file)");
+            console.log("loaded " + loaded);
+            if (loaded) console.log((\(item.decode)).split("").join(" "));
+            """)
+            let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+            #expect(result?.error == nil, "\(item.file): \(result?.error ?? "")")
+            #expect(output.contains("loaded "), "\(item.file): \(output)")
+            #expect(!output.contains(spelled(item.value)), "\(item.file): a loaded value was read back unmasked: \(output)")
+        }
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
