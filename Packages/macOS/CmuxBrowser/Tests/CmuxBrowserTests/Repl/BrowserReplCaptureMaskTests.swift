@@ -312,6 +312,30 @@ struct BrowserReplCaptureMaskTests {
         #expect(handed[allowed.frameID] == nil, "an allowed child frame was handed to the screenshot as blocked")
     }
 
+    /// A child frame the mask marked can show a page the policy blocks
+    /// during the capture (a response WebKit accepted before the load hold
+    /// commits) and be removed before the check after it, which then finds
+    /// no frame to refuse the capture for. A marked frame missing after the
+    /// capture refuses it.
+    @Test func aMarkedFrameRemovedDuringTheCaptureRefusesIt() async throws {
+        let page = try await FramePage.load()
+        let webView = page.webView
+        let mask = BrowserReplCaptureMask(secretMasks: [], policy: Self.policy(prohibiting: "cmux-test://blocked.test"), blockedChildFrames: .handToCapture)
+        var captured = false
+        let error = await BrowserReplFrameGateTests.error {
+            try await mask.run(in: webView, frames: { await BrowserReplFrame.readTree(of: webView).map(\.info) }) { _ in
+                _ = try await page.run(#"document.getElementById("a").src = "cmux-test://blocked.test/late"; return true"#, in: page.main)
+                _ = try await FramePage.settle(webView) { frames in frames.contains { $0.url == "cmux-test://blocked.test/late" } }
+                captured = true
+                _ = try await page.run(#"document.getElementById("a").remove(); return true"#, in: page.main)
+                _ = try await FramePage.settle(webView) { frames in !frames.contains { $0.url == "cmux-test://blocked.test/late" } }
+                return true
+            }
+        }
+        #expect(captured)
+        #expect(error?.code == "stale", "a capture that showed a blocked page in a frame removed before the check was returned: \(String(describing: error))")
+    }
+
     // MARK: Scripts that never answer
 
     /// WebKit drops a script's completion when a navigation replaces its
