@@ -73,7 +73,7 @@ import Testing
         #expect(resolution.channel == .dev)
         #expect(resolution.isDev)
         #expect(!resolution.isNightly)
-        #expect(resolution.url == "https://files.cmux.com/dev/classic/appcast.xml")
+        #expect(resolution.url == "https://files.cmux.com/cmux-dev/classic/appcast.xml")
         #expect(!resolution.usedFallback)
     }
 
