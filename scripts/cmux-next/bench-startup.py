@@ -303,10 +303,12 @@ def seed_realistic(tag, scratch, timeout):
                 daemon.call("new-tab", {"pane": pane["id"]}, cmd_key="cmd")
             daemon.call("split", {"pane": pane["id"], "dir": "right"}, cmd_key="cmd")
             first_tab = (pane.get("tabs") or [{}])[0]
-            focus_tab = focus_tab if index else first_tab.get("surface", first_tab.get("id"))
+            focus_tab = focus_tab if index else str(first_tab.get("id") or "")
         daemon.close()
         # The agent chat goes beside a terminal of the first seeded workspace.
         app = app_client(tag)
+        if not focus_tab:
+            print(f"  {tag}: the first seeded workspace listed no tab id", file=sys.stderr)
         steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None), ("palette.newAgentChat", None)]
         agent = True
         for action, target in steps:
