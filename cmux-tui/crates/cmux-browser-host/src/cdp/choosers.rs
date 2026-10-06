@@ -287,18 +287,64 @@ impl Inner {
 }
 
 impl Inner {
-    /// Turns the session's file choosers into events, for a browser the
-    /// driver owns (no person's Open panel). Sent on its own after the
-    /// session's setup batch has resumed it: inside the batch it changed
-    /// the setup of out-of-process frames (parity 32's concurrent captures
-    /// differed in 1 run of 4). A session that refuses it keeps Chromium's
-    /// own behavior (headless: no panel).
-    pub(super) fn intercept_choosers_on(&self, session_id: &str, intercept: bool) {
-        if intercept {
+    /// Turns a new page or frame session's file choosers into events when
+    /// its tab intercepts them: every tab on headless (no person can see an
+    /// Open panel), only the tabs a session drives on a headful browser.
+    /// Sent on its own after the session's setup batch has resumed it:
+    /// inside the batch it changed the setup of out-of-process frames
+    /// (parity 32's concurrent captures differed in 1 run of 4). So a
+    /// chooser in the first moments of a new document can come before it
+    /// (driver-protocol.md). A session that refuses it keeps Chromium's own
+    /// behavior.
+    pub(super) fn intercept_choosers_on(&self, target_id: &str, session_id: &str) {
+        let on = self.owns_browser
+            && (self.intercept_all.load(std::sync::atomic::Ordering::Relaxed)
+                || self.lock().tabs.get(target_id).is_some_and(|tab| tab.choosers_on));
+        if on {
             let _ = self.conn.call(
                 Some(session_id),
                 "Page.setInterceptFileChooserDialog",
                 json!({"enabled": true}),
+                INTERNAL_TIMEOUT,
+            );
+        }
+    }
+}
+
+impl super::CdpDriver {
+    /// Whether every tab intercepts its file choosers (true, the default:
+    /// headless) or only those [`CdpDriver::set_tab_choosers`] turns on
+    /// (a headful browser a person may also use).
+    pub fn intercept_all_choosers(&self, all: bool) {
+        self.inner.intercept_all.store(all, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Turns a tab's file chooser interception on (a session drives it) or
+    /// off (the last session left: the person's Open panel again). Nothing
+    /// to do while every tab intercepts.
+    pub fn set_tab_choosers(&self, target_id: &str, on: bool) {
+        let inner = &self.inner;
+        if !inner.owns_browser || inner.intercept_all.load(std::sync::atomic::Ordering::Relaxed) {
+            return;
+        }
+        let sessions: Vec<String> = {
+            let mut state = inner.lock();
+            let Some(tab) = state.tabs.get_mut(target_id) else {
+                return;
+            };
+            if tab.choosers_on == on {
+                return;
+            }
+            tab.choosers_on = on;
+            std::iter::once(tab.session_id.clone())
+                .chain(tab.frame_sessions.values().cloned())
+                .collect()
+        };
+        for session in sessions {
+            let _ = inner.conn.call(
+                Some(&session),
+                "Page.setInterceptFileChooserDialog",
+                json!({"enabled": on}),
                 INTERNAL_TIMEOUT,
             );
         }
