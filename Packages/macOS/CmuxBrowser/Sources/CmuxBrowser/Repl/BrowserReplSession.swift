@@ -679,10 +679,28 @@ public final class BrowserReplSession: @unchecked Sendable {
         if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
             return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)': \(refusal.message)", durationMilliseconds: 0)
         }
+        // The runtime parses, rewrites and compiles the source before the
+        // cell runs, holding several times its size, and the heap is only
+        // measured when the cell ends: that is reserved first, so a cell
+        // whose parse cannot fit beside what the session holds is refused
+        // before it is parsed.
+        let (product, overflow) = code.utf8.count.multipliedReportingOverflow(by: Self.parseBytesPerSourceByte)
+        let parseBytes = overflow ? .max : product
+        if let refusal = ledger.reserve(parseBytes, of: .runningCellParseBytes) {
+            await gate.release()
+            return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)': \(refusal.message)", durationMilliseconds: 0)
+        }
         let result = await evaluateLocked(code: code, cwd: cwd, timeout: timeout, maxOutput: maxOutput)
+        ledger.release(parseBytes, of: .runningCellParseBytes)
         await gate.release()
         return result
     }
+
+    /// The memory reserved for each byte of a running cell's source while
+    /// the runtime parses and compiles it: Acorn's syntax tree measured
+    /// about 50 bytes per byte of dense code (V8, 8 MiB of `a=[1,2,…];`),
+    /// beside the rewritten source and the compiled function.
+    static let parseBytesPerSourceByte = 64
 
     private func evaluateLocked(
         code: String,

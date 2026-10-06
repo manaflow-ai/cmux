@@ -594,6 +594,7 @@ checks nothing stays reserved after the session ends.
 | The session's JavaScript heap (M) | 384 MiB, measured as each cell ends and after other runs (at most 5% of the thread's time) | after a full garbage collection, the session ends: the running cell fails with the limit, and the next session of its name prints it first |
 | Cells waiting for the running one | 64 | the cell fails at once |
 | Source of the waiting cells (M) | 64 MiB | the cell fails at once |
+| Parsing the running cell (M) | 64 bytes for each byte of its source, reserved before it is parsed and held until it ends (Acorn's tree is about 50 bytes a byte of dense code); within the session's 512 MiB, so a cell holds at most about 8 MiB of source | the cell fails at once |
 | A cell's timeout (`--timeout`, `timeout_ms`) | 10 minutes (default 120 s) | refused before the cell runs |
 | Output a cell keeps in memory (M) | 16 MiB per cell | the rest goes to a spill file |
 | Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |

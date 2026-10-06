@@ -10,6 +10,10 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case waitingCells
     /// The source those cells hold.
     case waitingCellSourceBytes
+    /// What parsing and compiling the running cell's source holds, reserved
+    /// before the runtime parses it (``BrowserReplSession/parseBytesPerSourceByte``
+    /// for each byte of source) and released when the cell ends.
+    case runningCellParseBytes
     /// Output the running cell keeps in memory for its caller.
     case retainedOutputBytes
     /// Output the running cell wrote to its spill file.
@@ -80,7 +84,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     /// Whether the amounts are bytes (else items).
     public var isBytes: Bool {
         switch self {
-        case .waitingCellSourceBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
+        case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
              .driverResultBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
              .fileBytesWritten, .sessionMemoryBytes:
             true
@@ -93,7 +97,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     /// ``sessionMemoryBytes`` too.
     public var isMemory: Bool {
         switch self {
-        case .waitingCellSourceBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
+        case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
              .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes:
             true
         default:
@@ -115,6 +119,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         switch self {
         case .waitingCells: "cells waiting to run"
         case .waitingCellSourceBytes: "source of the cells waiting to run"
+        case .runningCellParseBytes: "memory to parse the running cell (\(BrowserReplSession.parseBytesPerSourceByte) bytes for each byte of its source)"
         case .retainedOutputBytes: "output a cell keeps in memory"
         case .spilledOutputBytes: "output a cell spills to its file"
         case .queuedDriverCalls: "browser calls waiting for a slot"
@@ -141,6 +146,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var remedy: String {
         switch self {
         case .waitingCells, .waitingCellSourceBytes: "wait for them to finish"
+        case .runningCellParseBytes: "split the cell, or read large data from a file"
         case .retainedOutputBytes, .spilledOutputBytes: "print less, or write it to a file"
         case .queuedDriverCalls, .runningDriverCalls, .requestBytes, .queuedFetches,
              .requestPhaseFetches, .openFetches:
