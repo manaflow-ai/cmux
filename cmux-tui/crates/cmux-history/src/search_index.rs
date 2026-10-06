@@ -222,12 +222,13 @@ impl SearchIndex {
             .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" AND ");
+        // The trigram tokenizer counts characters, so the snippet keeps 64 of them.
         let mut values = vec![Sql::Text(expression)];
         let filter = kind_filter(kinds, &mut values);
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms, \
-             snippet(docs_text, 0, '', '', '…', 12) \
+             snippet(docs_text, 0, '', '', '…', 64) \
              FROM docs_text JOIN docs d ON d.id = docs_text.rowid \
              WHERE docs_text MATCH ?{filter} ORDER BY docs_text.rowid DESC LIMIT ?"
         );
