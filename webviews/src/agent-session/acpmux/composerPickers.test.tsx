@@ -549,6 +549,36 @@ describe("acpmux composer pickers", () => {
     expect(doc.querySelector("[role=listbox]")).toBeNull();
   });
 
+  test("Escape closes the Effort popover and the Mode menu wherever the focus is in the page", async () => {
+    await render(snapshot({ configOptions: [effort], modes }));
+    await act(async () => button("Effort")!.click());
+    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
+    // Focus left the slider (a click on the popover's title, or on the page around it).
+    await act(async () => (doc.activeElement as HTMLElement | null)?.blur());
+    expect(doc.activeElement).toBe(doc.body);
+    await key(doc.body, "Escape");
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    expect(doc.activeElement).toBe(button("Effort"));
+    await act(async () => button("Mode")!.click());
+    expect(doc.querySelector("[role=listbox]")).not.toBeNull();
+    await act(async () => (doc.activeElement as HTMLElement | null)?.blur());
+    await key(doc.body, "Escape");
+    expect(doc.querySelector("[role=listbox]")).toBeNull();
+    expect(doc.activeElement).toBe(button("Mode"));
+    expect(calls).toEqual([]);
+  });
+
+  test("a click outside closes the Effort popover without picking", async () => {
+    await render(snapshot({ configOptions: [effort] }));
+    await act(async () => button("Effort")!.click());
+    expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
+    await act(async () => {
+      doc.body.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+    });
+    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+    expect(calls).toEqual([]);
+  });
+
   test("a single-section menu is a group named for the control", async () => {
     await render(snapshot({ modes: { ...modes, availableModes: [modes.availableModes[0]!] } }));
     await act(async () => button("Mode")!.click());
