@@ -34,15 +34,17 @@ import Testing
         #expect(SidebarItemInfo.fallback(for: LayoutItemRef(kind: "nonsense", value: "x")).icon == .iconMissing)
     }
 
-    /// A list item's glyph is a row-size registry icon, like a workspace row's.
-    @Test func aListItemDrawsItsIconAtRowSize() throws {
+    /// An item's glyph is a row-size registry icon, like a workspace row's;
+    /// on a list well it fills the well short of its edge.
+    @Test func anItemDrawsItsIconAtRowSize() throws {
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 200, height: 28))
         row.configure(SidebarBuiltIn.home.defaultInfo, style: .list)
         row.layoutSubtreeIfNeeded()
+        let well = SidebarStyle.wellGlyphSize
+        #expect(well == SidebarStyle.iconBox - Metrics.space2)
+        #expect(try #require(row.glyphImage).size == NSSize(width: well, height: well))
+        #expect(row.glyphFrame.width == well)
         let side = SidebarStyle.kindGlyphSize
-        let image = try #require(row.glyphImage)
-        #expect(image.size == NSSize(width: side, height: side))
-        #expect(row.glyphFrame.width == side)
         let plain = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 200, height: 28))
         plain.configure(SidebarBuiltIn.settings.defaultInfo, style: .chip)
         plain.layoutSubtreeIfNeeded()

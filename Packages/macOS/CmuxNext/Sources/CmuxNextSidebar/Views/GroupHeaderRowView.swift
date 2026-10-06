@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// Group header: quiet text. The name aligns with workspace titles in the
@@ -66,11 +67,9 @@ final class GroupHeaderRowView: SidebarRowView {
         count.font = SidebarStyle.subtitleFont
         count.stringValue = "\(row.childCount)"
         pinned = group.isPinned
-        pin.image = pinned ? NSImage(systemSymbolName: "pin.fill", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig) : nil
+        pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         collapsed = row.isCollapsed
-        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig)
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         activity.configure(collapsed ? group.aggregateActivity : .idle)
         let unread = group.unreadTotal
         badge.configure(collapsed && unread > 0 ? .count(unread) : .none)
@@ -177,7 +176,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3
-        let pinSide = Metrics.smallIconSize - Metrics.space2
+        let pinSide = Metrics.smallIconSize
         let pinRoom = pinned ? pinSide + Metrics.space2 : 0
         let nameWidth = min(ceil(name.attributedStringValue.size().width) + Metrics.space2, max(0, trailing - nx - pinRoom - dotRoom))
         name.frame = NSRect(x: nx, y: (b.height - nh) / 2, width: nameWidth, height: nh)
