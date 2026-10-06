@@ -56,7 +56,7 @@ const CALLS = {
   contentBox: { agent: ["$frame"] },
   ownerPoint: { agent: ["$frame", { x: 1, y: 1 }, false] },
   pressCheck: { agent: ["$t", { x: 1, y: 1 }] },
-  annotate: { agent: [[["e1", "1"]]] },
+  annotate: { agent: [[["e1", "1"]], "doc"] },
   clearAnnotations: { agent: [] },
   budget: { world: "() => A.budget({})" },
   reply: { world: "() => A.reply('a reply', 0)" },

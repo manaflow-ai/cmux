@@ -998,6 +998,8 @@
     collect(r.nodes);
     // Each ref is bound to the document that issued it (Page._checkRef).
     page._noteRefDocs(frame, r.doc, issued);
+    // The document that issued this read's refs, for annotate.
+    if (options._docs) options._docs.set(frame, r.doc);
     // All iframes of this frame resolve to their frames in one driver call
     // (frame.contentFrames); a driver without it answers per iframe.
     const handles = iframes.map((n) => n.frame).filter(Boolean);
@@ -1159,7 +1161,10 @@
 
   // Interactive refs in the viewport, drawn with their labels for a screenshot.
   async function annotate(page, target) {
-    const { nodes } = await capture(page, target, { interactive: true });
+    // Each frame's labels go to the document that issued its refs: a frame
+    // that navigated since numbers its refs again, and draws none of these.
+    const docs = new Map();
+    const { nodes } = await capture(page, target, { interactive: true, _docs: docs });
     const byPrefix = new Map();
     const walk = (list) => {
       for (const n of list) {
@@ -1177,8 +1182,8 @@
     const drawn = [];
     for (const [prefix, refs] of byPrefix) {
       const frame = page._frameForPrefix(prefix);
-      if (!frame) continue;
-      await frame._agent("annotate", refs);
+      if (!frame || typeof docs.get(frame) !== "string") continue;
+      await frame._agent("annotate", refs, docs.get(frame));
       drawn.push(frame);
     }
     return async () => {

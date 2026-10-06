@@ -2105,11 +2105,14 @@
 
   // ---------------------------------------------------------------------------
   // Annotated screenshots: boxes and labels in a closed shadow root that is
-  // removed right after capture. `refs` are [localRef, label] pairs.
+  // removed right after capture. `refs` are [localRef, label] pairs that
+  // the document `doc` (its token) issued; another document's refs are
+  // never drawn, also when their numbers exist here.
 
   let overlay = null;
-  function annotate(refs) {
+  function annotate(refs, doc) {
     clearAnnotations();
+    if (doc !== docToken) return 0;
     const host = document.createElement("cmux-annotations");
     host.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647;display:block";
     const root = host.attachShadow({ mode: "closed" });
