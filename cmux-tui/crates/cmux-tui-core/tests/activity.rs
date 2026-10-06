@@ -45,7 +45,10 @@ fn rpc(stream: &mut BufReader<UnixStream>, id: u64, mut value: Value) -> Value {
 fn activity_until(watcher: &mut BufReader<UnixStream>, pred: impl Fn(&Value) -> bool) -> Value {
     loop {
         let event = read(watcher);
-        assert_eq!(event["event"], "activity-changed", "only activity events on this stream: {event}");
+        assert_eq!(
+            event["event"], "activity-changed",
+            "only activity events on this stream: {event}"
+        );
         let activity = event["activity"].clone();
         for key in ["attached_clients", "live_agents"] {
             assert!(activity[key].is_u64(), "{key} is a count: {activity}");
@@ -87,14 +90,23 @@ fn subscribe_activity_streams_input_agent_actions_and_people() {
 
     // Their input sets the user input time.
     rpc(&mut person, 3, json!({"cmd": "send", "surface": surface.id, "text": "ls\r"}));
-    let typed = activity_until(&mut watcher, |a| a["last_user_input_at_ms"].as_u64().unwrap_or(0) > 0);
+    let typed =
+        activity_until(&mut watcher, |a| a["last_user_input_at_ms"].as_u64().unwrap_or(0) > 0);
     let typed_at = typed["last_user_input_at_ms"].as_u64().unwrap();
 
     // An agent working is a live agent and an agent action; done is not live.
-    rpc(&mut probe, 2, json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s1"}));
+    rpc(
+        &mut probe,
+        2,
+        json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s1"}),
+    );
     let working = activity_until(&mut watcher, |a| a["live_agents"] == 1);
     assert!(working["last_agent_action_at_ms"].as_u64().unwrap_or(0) > 0);
-    rpc(&mut probe, 3, json!({"cmd": "report-agent", "surface": surface.id, "state": "done", "source": "socket", "session": "s1"}));
+    rpc(
+        &mut probe,
+        3,
+        json!({"cmd": "report-agent", "surface": surface.id, "state": "done", "source": "socket", "session": "s1"}),
+    );
     activity_until(&mut watcher, |a| a["live_agents"] == 0);
 
     // The person leaves.
@@ -103,9 +115,17 @@ fn subscribe_activity_streams_input_agent_actions_and_people() {
 
     // A one-shot send from an unattached connection (automation) is not user input.
     rpc(&mut probe, 4, json!({"cmd": "send", "surface": surface.id, "text": "echo bot\r"}));
-    rpc(&mut probe, 5, json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s2"}));
+    rpc(
+        &mut probe,
+        5,
+        json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s2"}),
+    );
     let after = activity_until(&mut watcher, |a| a["live_agents"] == 1);
-    assert_eq!(after["last_user_input_at_ms"].as_u64(), Some(typed_at), "automation input does not count");
+    assert_eq!(
+        after["last_user_input_at_ms"].as_u64(),
+        Some(typed_at),
+        "automation input does not count"
+    );
 
     mux.shutdown();
     server::cleanup(&socket);
