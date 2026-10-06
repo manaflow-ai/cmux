@@ -686,6 +686,8 @@ def flatten(prefix: str, value: Any) -> list[str]:
 def supported_paths_from_source(source: Path) -> list[str]:
     text = source.read_text()
     known_sections = (
+        "account.",
+        "devices.",
         "app.",
         "terminal.",
         "notifications.",

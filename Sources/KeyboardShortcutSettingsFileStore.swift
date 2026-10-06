@@ -456,6 +456,12 @@ final class CmuxSettingsFileStore {
         var snapshot = ResolvedSettingsSnapshot(path: sourcePath)
 
         parsePaneChromeSettings(root, sourcePath: sourcePath, snapshot: &snapshot)
+        if let accountSection = root["account"] as? [String: Any] {
+            parseAccountSection(accountSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
+        if let devicesSection = root["devices"] as? [String: Any] {
+            parseDevicesSection(devicesSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let appSection = root["app"] as? [String: Any] {
             parseAppSection(appSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
@@ -909,6 +915,7 @@ final class CmuxSettingsFileStore {
             let clamped = min(max(value, 0), 1)
             snapshot.managedUserDefaults["sidebarTintOpacity"] = .double(clamped)
         }
+        parseClassicSidebarAppearanceCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseAutomationSection(
@@ -1009,6 +1016,7 @@ final class CmuxSettingsFileStore {
         }
         _ = parseBrowserMemorySaverSettings(section, sourcePath: sourcePath, snapshot: &snapshot)
         applyNormalizedStringArraySettings(BrowserSettingsFileMapping.stringArraySettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        parseClassicBrowserCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseWorkspaceGroupsSection(
@@ -1023,6 +1031,7 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().workspaceGroups.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        parseClassicWorkspaceGroupsCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
     private func parseShortcutsSection(

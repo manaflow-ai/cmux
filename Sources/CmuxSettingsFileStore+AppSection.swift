@@ -128,6 +128,7 @@ extension CmuxSettingsFileStore {
                 snapshot.legacyDerivedManagedUserDefaultKeys.insert(confirmQuitKey)
             }
         }
+        parseClassicAppCatalogCoverage(section, sourcePath: sourcePath, snapshot: &snapshot)
     }
 
 }

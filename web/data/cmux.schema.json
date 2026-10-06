@@ -553,6 +553,11 @@
           "description": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
           "descriptionKey": "schemaDescriptions.workspaceGroups.newWorkspacePlacement"
         },
+        "anchorCloseSuppressed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress the confirmation shown when closing a workspace-group anchor."
+        },
         "byCwd": {
           "type": "object",
           "description": "Map of cwd patterns to group customization. Empty when omitted.",
@@ -601,6 +606,64 @@
             "additionalProperties": true
           }
         ]
+      }
+    },
+    "account": {
+      "x-cmux-scopes": ["global"],
+      "title": "account",
+      "description": "Local account privacy preferences.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "piiDisplayMode": {
+          "type": "string",
+          "enum": ["visible", "hidden"],
+          "default": "visible",
+          "description": "Show or redact personally identifying account metadata in cmux."
+        }
+      }
+    },
+    "devices": {
+      "x-cmux-scopes": ["global"],
+      "title": "devices",
+      "description": "Device discovery and My Devices sidebar preferences.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Discover other Macs signed in to the account."
+            }
+          }
+        },
+        "incomingAccess": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow this Mac to advertise and accept incoming device sessions."
+            }
+          }
+        },
+        "sidebar": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hiddenMacIDs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": [],
+              "description": "Physical Mac identifiers hidden from My Devices on this installation."
+            }
+          }
+        }
       }
     },
     "app": {
@@ -842,6 +905,34 @@
           "type": "boolean",
           "default": false,
           "description": "Search every surface in the command palette switcher instead of only the active workspace."
+        },
+        "fileDropDefaultBehavior": {
+          "type": "string",
+          "enum": ["text", "preview"],
+          "default": "text",
+          "description": "Default action when files are dropped onto a terminal or editor."
+        },
+        "titlebarControlsStyle": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4],
+          "default": 0,
+          "description": "Titlebar control layout style."
+        },
+        "workspaceButtonFade": {
+          "type": "string",
+          "enum": ["enabled", "disabled"],
+          "default": "disabled",
+          "description": "Fade workspace controls until the pointer enters the workspace chrome."
+        },
+        "workspaceTitlebarVisibility": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the workspace titlebar."
+        },
+        "systemWideHotkeyEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable the system-wide cmux show or hide hotkey."
         }
       }
     },
@@ -1855,6 +1946,44 @@
           "maximum": 1,
           "default": 0.18,
           "description": "Sidebar tint opacity from 0 to 1. Note: this only controls the sidebar tint, not terminal/window transparency. For terminal background transparency or blur, set `background-opacity` and `background-blur` in `~/.config/ghostty/config` and run `cmux reload-config`."
+        },
+        "blurOpacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 1.0,
+          "description": "Sidebar blur opacity from 0 to 1."
+        },
+        "cornerRadius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20,
+          "default": 0.0,
+          "description": "Sidebar corner radius in points."
+        },
+        "preset": {
+          "type": "string",
+          "enum": ["nativeSidebar", "nativeTitlebar", "translucent", "opaqueDark", "opaqueLight", "custom", "glassBehind", "softBlur", "popoverGlass", "hudGlass", "underWindow"],
+          "default": "nativeSidebar",
+          "description": "Sidebar appearance preset."
+        },
+        "material": {
+          "type": "string",
+          "enum": ["sidebar", "titlebar", "selection", "menu", "popover", "headerView", "sheet", "windowBackground", "hudWindow", "fullScreenUI", "toolTip", "contentBackground", "underWindowBackground", "underPageBackground", "none", "liquidGlass"],
+          "default": "sidebar",
+          "description": "AppKit material used for the sidebar backdrop."
+        },
+        "blendMode": {
+          "type": "string",
+          "enum": ["behindWindow", "withinWindow"],
+          "default": "withinWindow",
+          "description": "Whether the sidebar backdrop blends behind or within the window."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["active", "inactive", "followsWindowActiveState", "followWindow"],
+          "default": "followsWindowActiveState",
+          "description": "Sidebar backdrop active-state behavior."
         }
       }
     },
@@ -2203,6 +2332,17 @@
           "default": true,
           "description": "Show the browser import hint on blank tabs."
         },
+        "disabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable the embedded cmux browser for user-level browser actions."
+        },
+        "importHintVariant": {
+          "type": "string",
+          "enum": ["inlineStrip", "floatingCard", "toolbarChip", "settingsOnly"],
+          "default": "toolbarChip",
+          "description": "Presentation used for the browser import hint."
+        },
         "reactGrabVersion": {
           "type": "string",
           "default": "0.1.29",
@@ -2232,6 +2372,53 @@
               "type": "boolean",
               "default": false,
               "description": "Allow the iOS browser to reach hosts other than this Mac's own localhost through this Mac (LAN, VPN, and internet hosts, resolved on this Mac). When off, only this Mac's localhost is reachable and the phone loads other sites over its own network. Link-local and cloud metadata addresses are always refused."
+            }
+          }
+        },
+        "phonePush": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Notification forwarding from this Mac to cmux on iPhone and iPad.",
+          "properties": {
+            "forwardingEnabled": {
+              "type": "boolean",
+              "default": true,
+              "description": "Forward agent notifications to cmux on iPhone and iPad."
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["always", "onlyWhenAway"],
+              "default": "always",
+              "description": "When enabled, forward notifications always or only while away from this Mac."
+            },
+            "hideContent": {
+              "type": "boolean",
+              "default": false,
+              "description": "Hide agent and terminal content in forwarded notifications."
+            }
+          }
+        },
+        "iOSPairingHost": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Mac-side iOS pairing listener settings.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Allow iPhone and iPad devices to pair with this Mac."
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "default": 58465,
+              "description": "Preferred TCP and UDP pairing port."
+            },
+            "displayName": {
+              "type": "string",
+              "default": "",
+              "description": "Optional name shown for this Mac during iOS pairing."
             }
           }
         }
