@@ -86,3 +86,36 @@ fn a_child_process_is_refused_too() {
     assert_eq!(status.code(), Some(3));
     drop(chat);
 }
+
+/// A process forked while the chat was open holds a copy of the lock's
+/// listening socket until it execs or exits (`Command` forks, so any test or
+/// host thread that starts a process does this). Closing the chat must free
+/// it anyway: the reopen right after a close (`optchat-chief import`, then
+/// `browse`) failed with "the chat is open in another process" about one run
+/// in five of the optchat-chief suite.
+#[test]
+fn a_closed_chat_is_free_while_a_forked_process_still_holds_its_socket() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = open(dir.path(), 128_000, instant(200));
+    // SAFETY: the child only sleeps and exits (async-signal-safe calls).
+    let child = unsafe { libc::fork() };
+    assert!(child >= 0, "fork failed");
+    if child == 0 {
+        unsafe {
+            libc::sleep(3);
+            libc::_exit(0);
+        }
+    }
+    first.shutdown();
+    drop(first);
+    let second = OptChat::open_with(
+        dir.path(),
+        config(128_000).0,
+        instant(200),
+        std::sync::Arc::new(SystemClock),
+    );
+    let mut status = 0;
+    unsafe { libc::waitpid(child, &mut status, 0) };
+    let second = second.expect("the closed chat opens again");
+    assert_eq!(second.append(Kind::User, "mine").unwrap(), 0);
+}
