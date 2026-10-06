@@ -155,5 +155,16 @@ class CanvasArgumentTests(unittest.TestCase):
         self.assert_sends(["new-pane"], "canvas.new_pane", {"type": None})
 
 
+    def test_equals_and_terminator_forms(self) -> None:
+        # `--name=value` is one token, and everything after `--` is positional;
+        # the old scan skipped the token after either.
+        self.assert_sends(["set-frame", "--x=0", "--y=-20", "--width=800", "--height=520", S1], "canvas.set_frame",
+                          {"surface_id": S1, "x": 0, "y": -20, "width": 800})
+        self.assert_sends(["info", "--workspace=" + WS], "canvas.info", {"workspace_id": WS})
+        self.assert_sends(["mode", "--", "canvas"], "canvas.set_mode", {"mode": "canvas"})
+        self.assert_sends(["reveal", "--", S1], "canvas.reveal", {"surface_id": S1})
+        self.assert_rejected(["set-viewport", "--x=", "--y", "2"], "--x requires a value")
+
+
 if __name__ == "__main__":
     unittest.main()
