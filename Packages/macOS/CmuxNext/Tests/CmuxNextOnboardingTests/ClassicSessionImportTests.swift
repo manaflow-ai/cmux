@@ -31,6 +31,64 @@ import Testing
         #expect(second.tabs.map(\.title) == ["Logs", "Tests"])
     }
 
+    /// A snapshot with a panel id twice decodes (the first wins) instead of
+    /// trapping, and the selected tab counts only the tabs that resolved.
+    @Test func duplicatePanelIdsAndMissingPanelsDecode() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[{
+          "customTitle":"Dupes","currentDirectory":"/work",
+          "layout":{"type":"pane","pane":{"panelIds":["gone","a","b"],"selectedPanelId":"b"}},
+          "panels":[
+            {"id":"a","title":"First","terminal":{"workingDirectory":"/work/a"}},
+            {"id":"a","title":"Second","terminal":{"workingDirectory":"/work/a2"}},
+            {"id":"b","title":"Other","terminal":{"workingDirectory":"/work/b"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let workspaces = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).decode(json)
+        guard case .pane(let pane) = workspaces.first?.layout else {
+            Issue.record("expected one pane")
+            return
+        }
+        #expect(pane.tabs.map(\.title) == ["First", "Other"])
+        #expect(pane.selectedTab == 1)
+    }
+
+    /// The Claude Code and Codex chats classic had open in its terminals,
+    /// as chat ids; other agents and terminals without one are left out.
+    @Test func openChatsAreTheAgentsClassicTerminalsRan() throws {
+        let json = """
+        {"windows":[{"tabManager":{"workspaces":[{
+          "customTitle":"Agents","currentDirectory":"/work",
+          "panels":[
+            {"id":"a","terminal":{"workingDirectory":"/work","agent":{"kind":"claude","sessionId":"c-1"}}},
+            {"id":"b","terminal":{"workingDirectory":"/work","agent":{"kind":"codex","sessionId":"x-2"}}},
+            {"id":"c","terminal":{"workingDirectory":"/work","agent":{"kind":"gemini","sessionId":"g-3"}}},
+            {"id":"d","terminal":{"workingDirectory":"/work"}}
+          ]
+        }]}}]}
+        """.data(using: .utf8)!
+        let chats = try ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/fixture")).openChats(json)
+        #expect(chats == ["claudeCode:c-1", "codex:x-2"])
+    }
+
+    /// Classic stable and classic NIGHTLY each keep their own snapshot; the
+    /// one saved last is the session to bring over.
+    @Test func readsTheNewestOfStableAndNightly() throws {
+        let support = FileManager.default.temporaryDirectory.appending(path: "classic-\(UUID().uuidString)")
+        let folder = support.appending(path: "cmux")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL.lastPathComponent == "session-com.cmuxterm.app.json")
+        let stable = folder.appending(path: "session-com.cmuxterm.app.json")
+        let nightly = folder.appending(path: "session-com.cmuxterm.app.nightly.json")
+        try Data("{}".utf8).write(to: stable)
+        try Data("{}".utf8).write(to: nightly)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -3600)], ofItemAtPath: stable.path)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL == nightly)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -7200)], ofItemAtPath: nightly.path)
+        #expect(ClassicSessionImporter(applicationSupport: support).fileURL == stable)
+    }
+
     @Test func missingSnapshotIsAnEmptyRead() throws {
         let importer = ClassicSessionImporter(fileURL: URL(fileURLWithPath: "/tmp/cmux-classic-fixture-that-does-not-exist"))
         #expect(try importer.read().isEmpty)

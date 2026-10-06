@@ -3,6 +3,8 @@ public import Foundation
 /// Read-only access to classic cmux's saved session file.
 public nonisolated struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
+    /// Classic stable and classic NIGHTLY: each saves its own snapshot.
+    static let classicBundleIdentifiers = [stableBundleIdentifier, "com.cmuxterm.app.nightly"]
     public let fileURL: URL
 
     public init(fileURL: URL? = nil, fileManager: FileManager? = nil) {
@@ -11,8 +13,23 @@ public nonisolated struct ClassicSessionImporter: Sendable {
             let manager = fileManager ?? FileManager.default
             let support = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? manager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-            self.fileURL = support.appendingPathComponent("cmux/session-\(Self.stableBundleIdentifier).json")
+            self.fileURL = Self.newestSnapshot(in: support)
         }
+    }
+
+    init(applicationSupport support: URL) {
+        fileURL = Self.newestSnapshot(in: support)
+    }
+
+    /// The snapshot classic saved last under `support`, stable's when there
+    /// is none.
+    static func newestSnapshot(in support: URL) -> URL {
+        let candidates = Self.classicBundleIdentifiers.map { support.appendingPathComponent("cmux/session-\($0).json") }
+        let saved = candidates.compactMap { url -> (URL, Date)? in
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            return date.map { (url, $0) }
+        }
+        return saved.max { $0.1 < $1.1 }?.0 ?? candidates[0]
     }
 
     /// Returns the saved workspaces, or an empty list when classic cmux has no snapshot.
@@ -21,6 +38,35 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
         let data = try Data(contentsOf: fileURL, options: [.mappedIfSafe])
         return try decode(data)
+    }
+
+    /// The Claude Code and Codex chats classic's terminals had open, as
+    /// `AgentChat.id`s; empty when classic cmux has no snapshot.
+    public func readOpenChats() throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
+        // concurrency-allow: callers hop to a detached utility task; the synchronous API stays fixture-testable.
+        return try openChats(Data(contentsOf: fileURL, options: [.mappedIfSafe]))
+    }
+
+    /// Each terminal's `agent` (classic's restorable agent session) that is
+    /// a Claude Code or Codex chat.
+    public func openChats(_ data: Data) throws -> Set<String> {
+        let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        let windows = (root["windows"] as? [[String: Any]]) ?? []
+        let panels = windows.flatMap { window -> [[String: Any]] in
+            let manager = window["tabManager"] as? [String: Any] ?? window["tab_manager"] as? [String: Any] ?? [:]
+            return ((manager["workspaces"] as? [[String: Any]]) ?? []).flatMap { ($0["panels"] as? [[String: Any]]) ?? [] }
+        }
+        return Set(panels.compactMap { panel -> String? in
+            guard let agent = (panel["terminal"] as? [String: Any])?["agent"] as? [String: Any],
+                  let session = agent["sessionId"] as? String, !session.isEmpty else { return nil }
+            let app: AgentApp? = switch agent["kind"] as? String {
+            case "claude": .claudeCode
+            case "codex": .codex
+            default: nil
+            }
+            return app.map { "\($0.rawValue):\(session)" }
+        })
     }
 
     /// Decodes only topology, names, directories, and titles from a classic snapshot.
@@ -47,9 +93,12 @@ public nonisolated struct ClassicSessionImporter: Sendable {
                                           ?? panel["working_directory"] as? String,
                                           title: panel["customTitle"] as? String ?? panel["title"] as? String))
         }
-        let panelMap = Dictionary(uniqueKeysWithValues: panelEntries)
+        // A snapshot can name a panel twice; the first wins.
+        let panelMap = Dictionary(panelEntries, uniquingKeysWith: { first, _ in first })
         guard let layoutValue = value["layout"] as? [String: Any] else {
-            return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: panelEntries.map { $0.1 })))
+            var seen = Set<String>()
+            let tabs = panelEntries.filter { seen.insert($0.0).inserted }.map { $0.1 }
+            return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: tabs)))
         }
         let layout = Self.layout(layoutValue, panels: panelMap)
         return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: layout)
@@ -66,9 +115,12 @@ public nonisolated struct ClassicSessionImporter: Sendable {
         }
         let pane = value["pane"] as? [String: Any] ?? value
         let ids = (pane["panelIds"] as? [String]) ?? (pane["panel_ids"] as? [String]) ?? []
-        let tabs = ids.compactMap { panels[$0] }
+        // Only panels the snapshot still has become tabs; the selection
+        // counts those.
+        let resolved = ids.filter { panels[$0] != nil }
+        let tabs = resolved.compactMap { panels[$0] }
         let selectedID = (pane["selectedPanelId"] as? String) ?? (pane["selected_panel_id"] as? String)
-        let selected = selectedID.flatMap { ids.firstIndex(of: $0) } ?? 0
+        let selected = selectedID.flatMap { resolved.firstIndex(of: $0) } ?? 0
         return .pane(ClassicSessionPane(tabs: tabs, selectedTab: selected))
     }
 }
