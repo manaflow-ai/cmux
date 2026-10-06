@@ -100,6 +100,7 @@ struct AppStoreModelTests {
         await model.undoRemove()
         #expect(model.pendingRemoval == nil)
         #expect(model.state(of: "cmux/github-prs")?.isActive == true)
+        #expect(model.host.failures["cmux/github-prs"] == nil, "no stale disabled reason")
     }
 
     @Test func aPendingRemoveCommitsAfterItsUndoWindow() async throws {

@@ -219,6 +219,8 @@ public final class AppStoreModel {
     public func setEnabled(_ id: String, _ enabled: Bool) async throws {
         if !enabled { await host.stop(id, reason: "disabled") }
         try await registry.setEnabled(id, enabled)
+        // Back on (a toggle or an undone Remove): the Installed row no longer reads "disabled".
+        if enabled { host.forgetStopReason(id) }
     }
 
     /// Revoke or grant one scope; the app's next call sees it.
