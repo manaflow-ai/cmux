@@ -34,6 +34,30 @@ pub struct TabCall<'a> {
     pub raw: bool,
 }
 
+/// The `tabs.list` answer every source gives (driver-protocol.md, `tabs.list`):
+/// an array of `{ targetId, title, url, active, windowId, state, dataStore,
+/// openerTargetId? }`. Err names the first row or field that breaks it.
+pub fn check_tabs_list_shape(value: &Value) -> Result<(), String> {
+    let rows = value.as_array().ok_or_else(|| format!("tabs.list is not an array: {value}"))?;
+    for row in rows {
+        let field = |name: &str| row.get(name).ok_or_else(|| format!("row without {name}: {row}"));
+        field("targetId")?.as_str().ok_or_else(|| format!("targetId is not a string: {row}"))?;
+        field("title")?.as_str().ok_or_else(|| format!("title is not a string: {row}"))?;
+        field("url")?.as_str().ok_or_else(|| format!("url is not a string: {row}"))?;
+        field("active")?.as_bool().ok_or_else(|| format!("active is not a boolean: {row}"))?;
+        field("windowId")?;
+        let state = field("state")?.as_str().unwrap_or("");
+        if !matches!(state, "live" | "hibernated" | "waking" | "crashed") {
+            return Err(format!("state is not live, hibernated, waking or crashed: {row}"));
+        }
+        field("dataStore")?.as_str().ok_or_else(|| format!("dataStore is not a string: {row}"))?;
+        if let Some(opener) = row.get("openerTargetId") {
+            opener.as_str().ok_or_else(|| format!("openerTargetId is not a string: {row}"))?;
+        }
+    }
+    Ok(())
+}
+
 pub trait TabSource: Send + Sync {
     /// Why the source can serve no call, if it closed.
     fn closed_reason(&self) -> Option<String>;
