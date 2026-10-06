@@ -30,6 +30,19 @@ fn payload(request_id: &str, open: &OpenRequest) -> Map<String, Value> {
     payload
 }
 
+/// Keeps a response's (URL, remote address) for net.fetch's rebinding check.
+fn record_address(tab: &mut TabState, response: &Value) {
+    if let (Some(url), Some(ip)) = (
+        response.get("url").and_then(Value::as_str),
+        response.get("remoteIPAddress").and_then(Value::as_str),
+    ) {
+        if tab.responses.len() >= MAX_RESPONSES {
+            tab.responses.pop_front();
+        }
+        tab.responses.push_back((url.to_owned(), ip.to_owned()));
+    }
+}
+
 /// The driver event for a `Network.*` CDP event of a tab, if any.
 pub fn event(
     tab: &mut TabState,
@@ -40,6 +53,12 @@ pub fn event(
     let request_id = params.get("requestId").and_then(Value::as_str)?.to_owned();
     let (name, payload) = match method {
         "Network.requestWillBeSent" => {
+            // A redirect's response arrives only here (also for a fetch
+            // with `redirect: "manual"`, whose next request then fails):
+            // its address is the hop's for the host's rebinding check.
+            if let Some(redirect) = params.get("redirectResponse") {
+                record_address(tab, redirect);
+            }
             let request = &params["request"];
             let open = OpenRequest {
                 url: request["url"].as_str().unwrap_or("").to_owned(),
@@ -60,15 +79,7 @@ pub fn event(
         }
         "Network.responseReceived" => {
             let response = &params["response"];
-            if let (Some(url), Some(ip)) = (
-                response.get("url").and_then(Value::as_str),
-                response.get("remoteIPAddress").and_then(Value::as_str),
-            ) {
-                if tab.responses.len() >= MAX_RESPONSES {
-                    tab.responses.pop_front();
-                }
-                tab.responses.push_back((url.to_owned(), ip.to_owned()));
-            }
+            record_address(tab, response);
             let open = tab.requests.get(&request_id)?;
             let mut payload = payload(&request_id, open);
             payload.insert("status".into(), response.get("status").cloned().unwrap_or(json!(0)));
