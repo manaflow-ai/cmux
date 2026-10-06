@@ -286,11 +286,11 @@ private struct CloudOnboardingGraphic: View {
     }
 
     private var dimension: CGFloat {
-        verticalSizeClass == .compact ? 112 : 176
+        verticalSizeClass == .compact ? 104 : 152
     }
 
     private var iconSize: CGFloat {
-        verticalSizeClass == .compact ? 42 : 68
+        verticalSizeClass == .compact ? 36 : 58
     }
 
     private var cornerRadius: CGFloat {
