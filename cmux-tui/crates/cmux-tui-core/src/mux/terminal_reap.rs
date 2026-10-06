@@ -641,6 +641,10 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
                 }
             }
         }
+        // Stopped: `identify` no longer advertises a running reaper.
+        if let Some(mux) = weak.upgrade() {
+            mux.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).take();
+        }
     });
     let thread = match thread {
         Ok(thread) => thread,
@@ -653,6 +657,12 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
 }
 
 impl Mux {
+    /// Whether this owner's unplaced-terminal reaper runs
+    /// (`terminal-reaper-active-v1`).
+    pub fn terminal_reaper_running(&self) -> bool {
+        self.terminal_reaper_events.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
     /// Subscribe the reaper to the events that can change the reapable set,
     /// and keep a handle so keep and grace changes can wake it.
     fn subscribe_terminal_reaper(&self) -> MuxEventReceiver {
