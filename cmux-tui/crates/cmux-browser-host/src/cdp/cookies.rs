@@ -84,6 +84,107 @@ impl Inner {
     }
 }
 
+/// A new private browser context (its own cookie jar) the driver owns: its
+/// `Storage.*` calls name it, and the browser refuses it the clipboard
+/// permissions like every store.
+pub(super) fn new_context(inner: &Inner, params: Value) -> Result<String, DriverError> {
+    let created = inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
+    let context = created
+        .get("browserContextId")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| DriverError::invalid("Target.createBrowserContext returned no id"))?;
+    inner
+        .proxy_contexts
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(context.clone());
+    super::clipboard::deny_clipboard_permissions(&inner.conn, Some(&context))?;
+    Ok(context)
+}
+
+/// The fields of a `Storage.getCookies` cookie that `Storage.setCookies`
+/// takes (`expires` only for a persistent cookie).
+const COOKIE_PARAMS: &[&str] = &[
+    "name",
+    "value",
+    "domain",
+    "path",
+    "secure",
+    "httpOnly",
+    "sameSite",
+    "priority",
+    "sourceScheme",
+    "sourcePort",
+    "partitionKey",
+];
+
+impl super::CdpDriver {
+    /// A private store for a session's permissions (chief, 2026-10-06):
+    /// it starts with a copy of the profile's cookies, one way (nothing is
+    /// ever written back to the profile).
+    pub fn create_private_context(&self) -> Result<String, DriverError> {
+        let context = new_context(&self.inner, json!({}))?;
+        let cookies =
+            self.inner.conn.call(None, "Storage.getCookies", json!({}), INTERNAL_TIMEOUT)?;
+        let copies: Vec<Value> = cookies["cookies"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|cookie| {
+                let mut copy = serde_json::Map::new();
+                for field in COOKIE_PARAMS {
+                    if let Some(value) = cookie.get(*field) {
+                        copy.insert((*field).to_owned(), value.clone());
+                    }
+                }
+                if cookie["session"] != json!(true)
+                    && let Some(expires) = cookie.get("expires")
+                {
+                    copy.insert("expires".into(), expires.clone());
+                }
+                Value::Object(copy)
+            })
+            .collect();
+        if !copies.is_empty() {
+            self.inner.conn.call(
+                None,
+                "Storage.setCookies",
+                json!({"cookies": copies, "browserContextId": context}),
+                INTERNAL_TIMEOUT,
+            )?;
+        }
+        Ok(context)
+    }
+
+    /// Replaces a store's permission grants with `permissions` (CDP
+    /// `Browser.PermissionType` names), for every origin. The clipboard
+    /// stays refused.
+    pub fn set_context_permissions(
+        &self,
+        context: &str,
+        permissions: &[String],
+    ) -> Result<(), DriverError> {
+        let conn = &self.inner.conn;
+        conn.call(
+            None,
+            "Browser.resetPermissions",
+            json!({"browserContextId": context}),
+            INTERNAL_TIMEOUT,
+        )?;
+        super::clipboard::deny_clipboard_permissions(conn, Some(context))?;
+        if !permissions.is_empty() {
+            conn.call(
+                None,
+                "Browser.grantPermissions",
+                json!({"permissions": permissions, "browserContextId": context}),
+                INTERNAL_TIMEOUT,
+            )?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::on_site;

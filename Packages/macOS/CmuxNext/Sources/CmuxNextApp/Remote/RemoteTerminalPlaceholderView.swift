@@ -43,7 +43,7 @@ final class RemoteTerminalPlaceholderView: NSView {
         scroll.documentView = snapshotView
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
-        scroll.autohidesScrollers = true
+        SystemScrollers.follow(scroll)
         snapshotView.autoresizingMask = [.width]
         let header = NSStackView(views: [icon, status, connect])
         header.orientation = .horizontal
