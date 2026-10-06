@@ -32,7 +32,7 @@ struct SessionFilter {
 
 pub struct HeadlessSource {
     pub(crate) driver: CdpDriver,
-    profile: String,
+    pub(crate) profile: String,
     subscribers: Subscribers,
     next_subscriber: AtomicU64,
     leases: Mutex<LeaseTable>,
@@ -46,7 +46,7 @@ pub struct HeadlessSource {
     /// the input it left pressed is released.
     driven: Mutex<HashMap<String, HashSet<u64>>>,
     /// Each session's `session.configure` options (item 4d).
-    pub(crate) configs: Mutex<HashMap<u64, crate::headless_configure::SessionConfig>>,
+    pub(crate) configs: Mutex<crate::headless_configure::Configs>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -207,6 +207,14 @@ impl HeadlessSource {
             && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
         {
             self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+            // A closed tab takes its automation lease with it (as the app's
+            // tab.gone does): the table stays bounded.
+            let gone = LeaseOp::TargetGone { target: target.to_owned() };
+            let _ = self.leases.lock().unwrap_or_else(PoisonError::into_inner).apply(
+                &gone,
+                &LeaseCaller::default(),
+                0,
+            );
         }
         let route = self.routes().route(&event, &attached);
         match route {
@@ -235,7 +243,16 @@ impl HeadlessSource {
                         "cancelled"
                     }
                     "download" => "dropped",
-                    _ => "cancelled",
+                    // filechooser: the page sees the browser's cancel.
+                    _ => {
+                        let chooser =
+                            event.payload.get("chooserId").cloned().unwrap_or(Value::Null);
+                        let _ = self.driver.call(
+                            "filechooser.respond",
+                            &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+                        );
+                        "cancelled"
+                    }
                 };
                 let url = self.tab_url(target.as_str().unwrap_or(""));
                 let entry = unrouted_entry(&event, action, &url);
@@ -299,7 +316,10 @@ impl TabSource for SharedHeadless {
                     active: tab["active"].as_bool().unwrap_or(false),
                     window_id: tab.get("windowId").cloned().unwrap_or(json!(1)),
                     state: "live".to_owned(),
-                    data_store: self.0.profile.clone(),
+                    data_store: tab["targetId"]
+                        .as_str()
+                        .and_then(|target| self.0.data_store_of(target))
+                        .unwrap_or_else(|| self.0.profile.clone()),
                     opener: tab["openerTargetId"].as_str().map(str::to_owned),
                 })
             })
@@ -351,9 +371,7 @@ impl TabSource for SharedHeadless {
 
     fn kept(&self, session: u64, target_id: &str) {
         let created = self.0.routes().is_creator(session, target_id);
-        if created {
-            self.0.configure_kept(session, target_id);
-        }
+        self.0.configure_kept(session, target_id, created);
         self.0.routes().kept(session, target_id);
     }
 
@@ -375,6 +393,16 @@ impl TabSource for SharedHeadless {
         }
         if method == "session.configure" {
             return Some(self.0.configure(session, &params));
+        }
+        // Only the host names a store: tab-less cookies.* use the
+        // session's proxy store, else the profile's.
+        if let Some(fields) = params.as_object_mut() {
+            fields.remove("browserContextId");
+        }
+        if method.starts_with("cookies.")
+            && let Some(context) = self.0.proxy_of(session)
+        {
+            params["browserContextId"] = json!(context);
         }
         Some(self.0.driver.call(method, &params))
     }
@@ -402,6 +430,15 @@ impl TabSource for SharedHeadless {
                     return Err(DriverError::not_found(format!("No dialog {dialog}")));
                 }
                 self.0.routes().dialog_answered(dialog);
+            }
+            // Only the session a file chooser went to answers it.
+            "filechooser.respond" => {
+                let chooser = call.params["chooserId"].as_str().unwrap_or("");
+                let owner = self.0.routes().chooser_owner(chooser);
+                if owner.is_some_and(|owner| owner != call.session) {
+                    return Err(DriverError::not_found(format!("No file chooser {chooser}")));
+                }
+                self.0.routes().chooser_answered(chooser);
             }
             _ => {}
         }
@@ -452,7 +489,22 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.configure_ended(session);
-        self.0.routes().session_ended(session);
+        // Its open dialogs are dismissed (beforeunload: the page stays) and
+        // its file choosers cancelled (driver-protocol.md: when the session
+        // leaves the tab).
+        let left = self.0.routes().session_ended(session);
+        for (target, dialog) in left.dialogs {
+            let _ = self.0.driver.call(
+                "dialog.respond",
+                &json!({"targetId": target, "dialogId": dialog, "accept": false}),
+            );
+        }
+        for (target, chooser) in left.choosers {
+            let _ = self.0.driver.call(
+                "filechooser.respond",
+                &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+            );
+        }
         // The last session left these tabs: release what was left pressed.
         let left: Vec<String> = {
             let mut driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
@@ -488,6 +540,10 @@ impl TabSource for SharedHeadless {
 impl SharedHeadless {
     fn dispatch(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
         let mut params = call.params.clone();
+        // A tab call's store is its tab's; only the host names one.
+        if let Some(fields) = params.as_object_mut() {
+            fields.remove("browserContextId");
+        }
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
             params["fetchId"] = json!(fetch_id(call.session, id));
         }

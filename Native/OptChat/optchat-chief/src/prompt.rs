@@ -76,6 +76,9 @@ cmux Home, and your final reply of each turn is posted there.
   When all of one spawn's subagents finish, their reports reach you as ONE
   message, \"[id] report\" each. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
+- Your engine: `chief engine show` prints your harness, model and effort
+  and the last turn's stats; `chief engine set --harness H --model M
+  --effort E` changes them from the next turn (only when the user asks).
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
 /// The system prompt (the session's CLAUDE.md): MASTER, VIEW_DOC, the cmux
@@ -132,6 +135,9 @@ cmux Home, and your final reply of each turn is posted there.
   and report. When all of one spawn's subagents finish, their reports reach
   you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
+- Your engine: `{chief} engine show` prints your harness, model and effort
+  and the last turn's stats; `{chief} engine set --harness H --model M
+  --effort E` changes them from the next turn (only when the user asks).
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell."
     )
@@ -210,12 +216,61 @@ pub struct CachedPrompt {
 /// The cached layout of `context` (a view) between `system` and `tail`
 /// (README, Cache layout): `system` plus the context up to its first cache
 /// mark (50k) is the session's system prompt; the rest of the context
-/// follows as one block per piece, the piece that ends at the last mark
-/// (100k, else the last past the first) carrying the one `cache_control`
-/// marker when `marker`; then `tail`. Claude Code puts its own breakpoints
+/// follows as one block per `GRID` piece, the piece that ends at the last
+/// grid cut carrying the one `cache_control` marker when `marker`; then
+/// `tail`. Claude Code puts its own breakpoints
 /// on the system prompt and the last messages (three of the API's four), so
 /// one marker is all a request may add.
 pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> CachedPrompt {
+    let text = |t: &str| json!({"type": "text", "text": t});
+    // The view's head up to its first mark (50k) is the system prompt
+    // (Claude Code's own breakpoint), as before; a smaller view has none.
+    let head = optchat_core::cache_marks(context)
+        .first()
+        .copied()
+        .unwrap_or(0);
+    let system = if head > 0 {
+        format!("{system}\n\n{}", &context[..head])
+    } else {
+        system.to_owned()
+    };
+    // The rest, cut on a fixed grid: the last line end at or before every
+    // GRID characters from the view's start. A cut depends only on the
+    // bytes before it, so an unchanged prefix keeps its cuts from turn to
+    // turn, and the API's lookback from this turn's marker finds the
+    // previous turn's entry at one of them.
+    let mut cuts: Vec<usize> = grid_cuts(context)
+        .into_iter()
+        .filter(|c| *c > head)
+        .collect();
+    let stable = cuts.len();
+    cuts.insert(0, head);
+    cuts.push(context.len());
+    cuts.dedup();
+    let mut blocks: Vec<Value> = cuts
+        .windows(2)
+        .filter(|w| w[1] > w[0])
+        .map(|w| text(&context[w[0]..w[1]]))
+        .collect();
+    // ONE marker of ours (Claude Code places the other three): on the piece
+    // that ends at the last grid cut, so everything before the view's
+    // newest lines is cached.
+    if marker && stable > 0 && blocks.len() >= 2 {
+        let at = blocks.len() - 2;
+        blocks[at]["cache_control"] = json!({"type": "ephemeral"});
+    }
+    blocks.push(text(tail));
+    CachedPrompt { system, blocks }
+}
+
+/// The compactor's layout: the context's marks (50k, 80k, 100k), the one
+/// marker on the piece ending at the last one (README, Compactor cache).
+pub fn cached_layout_at_marks(
+    system: &str,
+    context: &str,
+    tail: &str,
+    marker: bool,
+) -> CachedPrompt {
     let text = |t: &str| json!({"type": "text", "text": t});
     let marks = optchat_core::cache_marks(context);
     let Some(&first) = marks.first() else {
@@ -241,6 +296,33 @@ pub fn cached_layout(system: &str, context: &str, tail: &str, marker: bool) -> C
         system: format!("{system}\n\n{}", &context[..first]),
         blocks,
     }
+}
+
+/// The cache grid of a turn's view, in characters (section 8, our marker).
+/// Small enough that the newest lines stay out of the marked prefix, large
+/// enough that a 128 KB view has at most about 32 blocks; the API looks back
+/// 20 blocks from a marker, and the marker moves a block or two per turn.
+pub const GRID: usize = 4_096;
+
+/// The last line end at or before every `GRID` characters of `text`
+/// (byte offsets, increasing, none at the end of the text).
+pub fn grid_cuts(text: &str) -> Vec<usize> {
+    let mut cuts = Vec::new();
+    let mut last_end: Option<usize> = None;
+    let mut next = GRID;
+    for (chars, (byte, ch)) in text.char_indices().enumerate() {
+        while chars >= next {
+            if let Some(end) = last_end.filter(|e| cuts.last() != Some(e)) {
+                cuts.push(end);
+            }
+            next += GRID;
+        }
+        if ch == '\n' {
+            last_end = Some(byte + 1);
+        }
+    }
+    cuts.retain(|c| *c < text.len());
+    cuts
 }
 
 /// The user's instructions file, `$MUX_HOME/optchat/AGENTS.md` (None when

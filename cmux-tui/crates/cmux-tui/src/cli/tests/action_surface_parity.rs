@@ -47,3 +47,37 @@ fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
         "the mux grammar accepts these app CLI names, so `cmux` never runs their action: {shadowed:?}"
     );
 }
+
+/// `cmux servers add --code CODE [--chief] [--name N]` approves a server's
+/// pairing code (a Chief brain's `optchat-chief cloud pair`): the app offers
+/// `server.addServer` under that CLI name, the mux grammar (its `server`
+/// scope is the local session owner) does not take the words, and the flags
+/// arrive as the action's `code`, `chief` and `name` arguments.
+#[test]
+fn servers_add_runs_the_add_server_action_with_its_arguments() {
+    let surfaces = action_surfaces();
+    let add = surfaces["actions"]
+        .as_array()
+        .expect("actions array")
+        .iter()
+        .find(|action| action["id"] == "server.addServer")
+        .expect("server.addServer is exported");
+    assert_eq!(add["cli"], "offered");
+    assert_eq!(add["cli_name"], "servers add");
+    let words = strings(&["servers", "add"]);
+    assert!(parse(&words, Surface::Cmux).is_err(), "the mux grammar must not shadow `servers add`");
+    let command = app::run_action(
+        "servers add",
+        &strings(&["--code", "K0Q5-1M6C", "--chief", "--name", "cmux-lawrence"]),
+        app::ActionName::Cli,
+    )
+    .expect("flags parse");
+    let app::AppCommand::Call { method, params, .. } = command else { panic!("expected a call") };
+    assert_eq!(method, "action.run");
+    assert_eq!(params["action"], "servers add");
+    assert_eq!(params["cli"], true);
+    assert_eq!(
+        params["args"],
+        serde_json::json!({ "code": "K0Q5-1M6C", "chief": true, "name": "cmux-lawrence" })
+    );
+}

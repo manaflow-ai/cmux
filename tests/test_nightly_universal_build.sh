@@ -43,7 +43,9 @@ if ! awk '
   in_cache && /path: build-universal\/CompilationCache\.noindex/ { saw_path[job]=1 }
   in_cache && /key: xcode-compilation-release-/ { saw_key[job]=1 }
   in_cache && /steps\.compilation-cache-key\.outputs\.toolchain/ { saw_toolchain[job]=1 }
-  in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  # The warmer keys by the tip it builds; the app build by the resolved build_sha it builds.
+  job == "refresh" && in_cache && /needs\.decide\.outputs\.head_sha/ { saw_head_sha[job]=1 }
+  job == "build" && in_cache && /needs\.resolve-nightly-cmux-tui-client\.outputs\.build_sha/ { saw_head_sha[job]=1 }
   in_cache && /restore-keys:/ { saw_restore[job]=1 }
   END {
     exit !(saw_path["refresh"] && saw_key["refresh"] && saw_toolchain["refresh"] && saw_head_sha["refresh"] && saw_restore["refresh"] &&
@@ -345,14 +347,15 @@ if grep -Eq 'Cloud tunnel|SystemExtensions|tunnel-extension|cmux-cua|Computer Us
   exit 1
 fi
 
-# A release ships the pinned commit; the nightly ships the commit that
-# published its own cmux-tui tree (pin-cmux-tui.sh resolve-commit).
+# A release ships the pinned commit; the nightly ships the newest published
+# cmux-tui tree and builds the app at that commit (pin-cmux-tui.sh
+# resolve-newest-published; tests/test_nightly_cmux_tui_resolve.py).
 if ! grep -Fq "cmux_tui_commit=\"\$(awk -F= '\$1==\"commit\"{print \$2}' scripts/cmux-next/cmux-tui.pin)\"" "$RELEASE_WORKFLOW_FILE"; then
   echo "FAIL: release.yml must install the cmux-tui commit scripts/cmux-next/cmux-tui.pin names"
   exit 1
 fi
-if ! grep -Fq 'cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly.yml must install the cmux-tui commit that published its own cmux-tui tree"
+if ! grep -Fq 'resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly.yml must install the newest published cmux-tui tree (resolve-newest-published)"
   exit 1
 fi
 for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
@@ -371,14 +374,15 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
-# The commit is resolved in its own job beside the Xcode compile, never in
+# The commit is resolved in its own job BEFORE the Xcode compile (the app builds
+# at the resolved commit: tests/test_nightly_cmux_tui_resolve.py), never in
 # build-nightly-app, and every sign variant installs that one commit before
 # thinning.
 if ! awk '
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
-  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-commit/ { resolver=1 }
+  job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-newest-published/ { resolver=1 }
   job == "build-sign-notarize-nightly:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
   job == "build-sign-notarize-nightly:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
   job == "build-sign-notarize-nightly:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
@@ -386,7 +390,7 @@ if ! awk '
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must resolve the cmux-tui commit beside the compile and install it in every sign variant before thinning"
+  echo "FAIL: nightly must resolve the cmux-tui commit before the compile and install it in every sign variant before thinning"
   exit 1
 fi
 
@@ -490,7 +494,7 @@ fi
 for expected in \
   'if: needs.decide.outputs.fast_build != '\''true'\''' \
   'if: needs.decide.outputs.fast_build == '\''true'\''' \
-  'name: cmux-nightly-fast-${{ needs.decide.outputs.short_sha }}'; do
+  'name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}'; do
   if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: fast build workflow is missing: $expected"
     exit 1
@@ -615,7 +619,9 @@ done
 
 # Each job's complete job-level `if:` is matched verbatim, so the build_only
 # exclusion can only ever be a conjunctive clause: an `||` around it would run
-# helper, signing, or publish work during a measurement dispatch.
+# helper, signing, or publish work during a measurement dispatch. The resolver
+# runs for every app build (it picks the commit the app builds at), so it
+# matches build-nightly-app; its resolve step skips build_only.
 job_if() {
   awk -v job="$1" '
     $0 == "  " job ":" { in_job=1; next }
@@ -624,11 +630,13 @@ job_if() {
   ' "$WORKFLOW_FILE"
 }
 PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
-if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE" ] \
-  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
-  || [ "$(job_if resolve-nightly-cmux-tui-client)" != "$(job_if build-sign-notarize-nightly)" ] \
-  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE" ]; then
+# A resolved build commit that is already published builds nothing.
+NOT_PUBLISHED="needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'"
+if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED" ] \
+  || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED" != "$(job_if build-nightly-app)" ] \
+  || [ "$(job_if publish-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"
   exit 1
 fi

@@ -75,6 +75,10 @@ pub struct HostState {
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
+    /// The engine the last turn ran on (`TurnEngine::describe`): a change
+    /// is logged as a note.
+    #[serde(default)]
+    pub engine: Option<String>,
     /// Logged turn images whose description note is not written yet: the
     /// next connect reads them from the owner again and describes them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -134,6 +138,10 @@ pub struct SubRecord {
     /// The task's first characters (the workspace title).
     #[serde(default)]
     pub title: String,
+    /// `ask` when it was spawned under the spawn floor (a remote-origin turn
+    /// or a live ask child): a person answers its permission requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

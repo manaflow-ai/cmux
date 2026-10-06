@@ -126,6 +126,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func apply(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder newHasOlder: Bool) {
         if controller.store == nil {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
+            restoreDraft()
             return
         }
         let typingChanged = Set(controller.store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
@@ -159,6 +160,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         controller.install(conv, windowStart: w.start, total: w.total)
         controller.store.linkPreviews = linkPreviews
+        if let previews = linkPreviews?.previews {
+            // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
+            // screen (a link I sent); a late answer fills the card.
+            previews.isOnScreen = { [weak self] url in self?.controller.demo?.outgoingLinkOnScreen(url) ?? false }
+            previews.onLateMetadata = { [weak self] url, meta in
+                guard let self, !self.stopped else { return }
+                self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
+            }
+        }
         applyHeader()
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
         refreshAttachments()
@@ -188,9 +198,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
+    /// A chosen avatar text (the Home Chief's avatar), over the initials.
+    var initialsOverride: String? { didSet { applyHeader() } }
+
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
-        controller.host.paneHeader.initials = HomeMapping.initials(shownSummary, me: me)
+        controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
     }
 
     // MARK: Projection -> HomeStore (intents)
@@ -209,6 +222,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
         controller.dispatch(.send)
+        homeStore.setDraft("", for: conversation)
         guard core.recordSend(key, in: controller.store.state) else { return }
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
@@ -314,7 +328,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
-    func draftChanged() { onDraftTextChange() }
+    func draftChanged() {
+        homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
+        onDraftTextChange()
+    }
+
+    /// The field's text from the last launch (HomeStore's cache,
+    /// home-state-ownership.md section 4), once, into an empty field.
+    private func restoreDraft() {
+        guard let store = controller.store, store.state.ui.draft.text.isEmpty,
+              let text = homeStore.draft(for: conversation), !text.isEmpty else { return }
+        controller.dispatch(.setDraft(text))
+    }
 
     /// A received card fetches its preview only after a tap (HomeLinkPreviews, through LinkGuard).
     func linkTapped(_ ref: PartRef, url: String) {
@@ -372,6 +397,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func react(_ ref: PartRef, _ kind: Reaction.Kind) {
         guard isSendEnabled, let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == ref.messageId }),
               let message = item.messageID else { return }
+        if case let .emoji(e) = kind { RecentEmoji.use(e) }  // MessagesLab 02519e9: recent emoji lead the menu and strip
         // A split text (Messages' link rule) is one HomeStore part.
         let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, summary: shownSummary).owners)
         let intent = HomeIntent(op: .addReaction(message: message, conversation: conversation,
@@ -390,6 +416,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func scrolled() {
         video.place()
+        if let previews = linkPreviews?.previews {
+            // My link cards that scrolled in with no title (also from HomeStore): a cached title, else the fallback.
+            if let urls = controller.demo?.visibleUntitledOutgoingLinks(), !urls.isEmpty { previews.consider(urls) }
+            previews.visibilityChanged()
+        }
         askForOlderIfNeeded()
         reportReadIfNeeded()
     }

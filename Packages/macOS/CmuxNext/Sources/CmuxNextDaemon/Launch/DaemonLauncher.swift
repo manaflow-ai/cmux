@@ -126,6 +126,31 @@ public struct DaemonLauncher: Sendable {
             cache: .shared, base: processEnvironment, overrides: overrides))
     }
 
+    /// The launcher of a Chief home's conversation owner
+    /// (plans/cmux-next/home-state-ownership.md): session `session` with its
+    /// state in `stateDirectory`, shared by every build of one account. It
+    /// spawns no terminals, so `server ensure` gets the process environment
+    /// without any app or terminal identity, and it is never handed off to a
+    /// connecting build's binary.
+    public static func forChief(
+        session: String,
+        stateDirectory: URL,
+        bundle: Bundle = .main,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> DaemonLauncher {
+        let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
+        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
+        let environment = chiefEnvironment(processEnvironment)
+        return DaemonLauncher(configuration: configuration, environment: { environment })
+    }
+
+    /// The Chief owner's `server ensure` environment: the user's basic
+    /// variables only, never a build's `CMUX_*` identity.
+    static func chiefEnvironment(_ base: [String: String]) -> [String: String] {
+        let kept = ["HOME", "USER", "LOGNAME", "PATH", "LANG", "LC_ALL", "SHELL"]
+        return base.filter { kept.contains($0.key) }
+    }
+
     /// The app launcher's `server ensure` environment: the login
     /// environment `cache` has now (`LoginEnvironmentCache.immediate()`:
     /// this launch's capture, else the one remembered from the last launch,

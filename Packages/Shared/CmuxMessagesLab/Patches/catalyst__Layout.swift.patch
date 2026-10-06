@@ -48,7 +48,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -709,7 +723,7 @@
+@@ -716,7 +730,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -57,7 +57,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -718,7 +732,7 @@
+@@ -725,7 +739,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -66,7 +66,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -737,56 +751,58 @@
+@@ -744,56 +758,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

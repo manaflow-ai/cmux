@@ -134,6 +134,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
+    /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
+    public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
@@ -179,15 +181,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
-        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
-        snapshot.browserShowBookmarksBar = showBar
-        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
-        let (keepLocation, keepLocationDiagnostic) = HomeKeepLocationSetting.parse(root)
-        snapshot.homeKeepLocation = keepLocation
-        if let keepLocationDiagnostic { snapshot.diagnostics.append(keepLocationDiagnostic) }
-        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
-        snapshot.previewFeatures = preview
-        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
+        snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
@@ -271,9 +267,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
-        let (historyScope, historyScopeDiagnostic) = NavigationHistoryScopeSetting.parse(root)
-        snapshot.navigationHistoryScope = historyScope
-        if let historyScopeDiagnostic { snapshot.diagnostics.append(historyScopeDiagnostic) }
+        snapshot.parseNavigationHistory(root)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.updates = UpdatesSettings.parse(root, diagnostics: &snapshot.diagnostics)

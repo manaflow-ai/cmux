@@ -79,11 +79,18 @@ pub struct TabState {
     /// The creating session's `session.configure` user agent and headers
     /// (None: the browser's own). A popup starts with its opener's.
     pub overrides: Option<std::sync::Arc<TabOverrides>>,
+    /// The tab's browser context (its cookie jar): the default one, or a
+    /// proxy store (`session.configure {proxy}`).
+    pub context: Option<String>,
     pub mouse: (f64, f64),
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
     pub crashed: bool,
     pub open_dialogs: usize,
+    /// File choosers opened whose `filechooser.opened` is not sent yet (the
+    /// driver resolves the input's agent handle first): input calls wait
+    /// for zero, so the event comes before their reply.
+    pub pending_choosers: usize,
     /// Bumps when the main frame starts a download, so a navigation that
     /// turns into a download fails instead of waiting out its deadline.
     pub download_seq: u64,
@@ -139,11 +146,13 @@ impl TabState {
             buttons: 0,
             held_keys: Vec::new(),
             overrides: None,
+            context: None,
             mouse: (0.0, 0.0),
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
             open_dialogs: 0,
+            pending_choosers: 0,
             download_seq: 0,
             hidden: false,
         }
@@ -178,6 +187,9 @@ pub enum FollowUp {
     /// Closed-root change detection ended for a session (closed_roots.rs):
     /// stop its DOM events; the next read turns them on again.
     DisableDom { session_id: String },
+    /// A file chooser opened (`choosers.rs`): resolve its input's agent
+    /// handle, then send `filechooser.opened`.
+    ChooserOpened { target_id: String, chooser_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -198,6 +210,9 @@ pub struct State {
     /// Dialog id -> (tab, session that opened it).
     pub dialogs: HashMap<String, (String, String)>,
     pub next_dialog: u64,
+    /// Open file choosers by id (at most one per tab: a newer one replaces it).
+    pub choosers: HashMap<String, super::choosers::Chooser>,
+    pub next_chooser: u64,
     /// Marker URLs of fetch shells being created: the page target that
     /// attaches with one is hidden from its first event.
     pub shell_markers: HashSet<String>,
@@ -224,6 +239,7 @@ impl State {
             }
             self.order.retain(|id| id != target_id);
             self.dialogs.retain(|_, (owner, _)| owner.as_str() != target_id);
+            self.choosers.retain(|_, chooser| chooser.target != target_id);
             if self.active.as_deref() == Some(target_id) {
                 self.active = None;
             }
@@ -362,6 +378,7 @@ impl State {
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
         let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
+        tab.context = info.get("browserContextId").and_then(Value::as_str).map(str::to_owned);
         tab.overrides = opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
         tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
         let hidden = tab.hidden;
@@ -430,6 +447,10 @@ impl State {
                 params.get("defaultPrompt").cloned().unwrap_or(json!("")),
             );
             applied.events.push(event("dialog.opened", target_id, payload));
+            return;
+        }
+        if method == "Page.fileChooserOpened" {
+            self.chooser_opened(target_id, session_id, params, applied);
             return;
         }
         if method == "Page.javascriptDialogClosed" {

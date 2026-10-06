@@ -115,7 +115,8 @@ extension Images {
     /// 10 ms); they render on the row bitmap queue at their final size.
     static func ready(_ spec: RowSpec) -> Bool {
         guard case let .part(p) = spec.kind else {
-            if case let .threadPreview(pv) = spec.kind, let ref = previewRef(pv.part) { return isCached(ref) }
+            // A thread preview that draws a photo scales it into the row (about 8 ms): off main too.
+            if case let .threadPreview(pv) = spec.kind, previewRef(pv.part) != nil { return false }
             return true
         }
         switch p.part {
@@ -146,5 +147,146 @@ extension VectorAsset {
         let v = FileManager.default.fileExists(atPath: Fixtures.assetURL(String(ref.dropLast(4)) + ".svg").path)
         siblingLock.lock(); siblings[ref] = v; siblingLock.unlock()
         return v
+    }
+}
+
+// MARK: Pop-in: tiny thumbnails, placeholders and scroll-direction prefetch
+
+extension MediaCache {
+    /// 48 px thumbnails (the file's embedded thumbnail when it has one, else a subsampled
+    /// decode), main-thread cache, LRU-free: about 9 KB each, bounded by count.
+    static let thumbQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 2
+        q.qualityOfService = .userInitiated
+        q.name = "media.thumbs"
+        return q
+    }()
+    private static var thumbs: [String: CGImage] = [:]
+    private static var thumbOrder: [String] = []
+    private static var thumbPending = Set<String>()
+    static var thumbsMade = 0, thumbMsTotal = 0.0, thumbMsMax = 0.0
+    static let thumbCapacity = 2000
+
+    /// Main thread.
+    static func thumb(_ ref: String) -> CGImage? { thumbs[ref] }
+
+    /// Main thread: make the thumbnail off main if it is missing. `done` runs on main.
+    static func requestThumb(_ ref: String, _ done: (() -> Void)? = nil) {
+        guard thumbs[ref] == nil, !thumbPending.contains(ref) else { return }
+        thumbPending.insert(ref)
+        let url = Fixtures.assetURL(ref)
+        thumbQueue.addOperation {
+            let t0 = CACurrentMediaTime()
+            var img: CGImage?
+            if let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) {
+                img = CGImageSourceCreateThumbnailAtIndex(src, 0, [
+                    kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceShouldCacheImmediately: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 48] as CFDictionary)
+            }
+            let ms = (CACurrentMediaTime() - t0) * 1000
+            DispatchQueue.main.async {
+                thumbPending.remove(ref)
+                thumbsMade += 1; thumbMsTotal += ms; thumbMsMax = max(thumbMsMax, ms)
+                guard let img else { return }
+                thumbs[ref] = img
+                thumbOrder.append(ref)
+                if thumbOrder.count > thumbCapacity + 200 {
+                    for k in thumbOrder.prefix(thumbOrder.count - thumbCapacity) { thumbs[k] = nil }
+                    thumbOrder.removeFirst(thumbOrder.count - thumbCapacity)
+                }
+                done?()
+            }
+        }
+    }
+}
+
+/// A media row whose bitmap is not ready shows its thumbnail magnified on the cell's bitmap
+/// layer (linear filtering blurs it), clipped to the bubble's corners, at the final body
+/// rect (sizes come from metadata): no drawing on main, no height change.
+enum MediaPlaceholder {
+    static let name = "media.placeholder"
+    static func ref(_ spec: RowSpec) -> String? {
+        guard case let .part(p) = spec.kind else { return nil }
+        switch p.part {
+        case let .attachment(a) where a.kind == "image" || a.kind == "video": return a.kind == "video" ? (a.poster ?? a.asset) : a.asset
+        case let .link(_, _, _, image?, _): return image
+        default: return nil
+        }
+    }
+    /// Main thread, inside the cell's transaction. Returns false for rows without media.
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-placeholder")
+    @discardableResult
+    static func show(_ layer: CALayer, _ spec: RowSpec) -> Bool {
+        guard enabled, let ref = ref(spec) else { return false }
+        var body = RowDraw.bodyRect(spec)
+        if case let .part(p) = spec.kind, case .link = p.part {
+            body.size.height = Sizing.linkImageSize(ref, maxWidth: body.width).1
+        }
+        layer.name = name
+        layer.frame = body
+        layer.cornerRadius = Fixture.bubbleRadius
+        layer.masksToBounds = true
+        layer.contentsGravity = .resizeAspectFill
+        layer.backgroundColor = Fixture.incoming.cgColor
+        if let t = MediaCache.thumb(ref) { layer.contents = t } else {
+            layer.contents = nil
+            MediaCache.requestThumb(ref) { [weak layer] in
+                guard let layer, layer.name == name, layer.contents == nil, let t = MediaCache.thumb(ref) else { return }
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                layer.contents = t
+                CATransaction.commit()
+            }
+        }
+        return true
+    }
+    /// Before a real bitmap goes on the layer.
+    static func clear(_ layer: CALayer) {
+        guard layer.name == name else { return }
+        layer.name = nil
+        layer.cornerRadius = 0
+        layer.masksToBounds = false
+        layer.contentsGravity = .resize
+        layer.backgroundColor = nil
+    }
+}
+
+/// Prefetch in the scroll direction (the recycler calls it every layout pass): row bitmaps
+/// for the next 0.35 s of travel at the current velocity, thumbnails for twice as far.
+/// One per transcript (RowRecycler.prefetcher), on the transcript's own clock
+/// (`RowRecycler.clock`: the engine clock, virtual in harness and capture runs), so the
+/// same scroll offsets always give the same velocity and the same extra cells.
+final class ScrollPrefetcher {
+    private var lastY = CGFloat.nan, lastT: CFTimeInterval = 0
+    private(set) var velocity: CGFloat = 0
+    static var requests = 0
+    static let enabled = !ProcessInfo.processInfo.arguments.contains("--no-media-prefetch")
+    static let precommit = !ProcessInfo.processInfo.arguments.contains("--no-precommit")
+    func update(_ r: RowRecycler) {
+        guard ScrollPrefetcher.enabled else { return }
+        let y = r.bounds.minY, t = r.clock()
+        if !lastY.isNaN, t - lastT > 0.001, t - lastT < 0.25 {
+            velocity = 0.5 * velocity + 0.5 * (y - lastY) / CGFloat(t - lastT)
+        } else if t - lastT >= 0.25 { velocity = 0 }
+        lastY = y; lastT = t
+        // Pre-commit: 0.1 s of travel ahead (at most a screen) gets cells now.
+        let lead = ScrollPrefetcher.precommit && abs(velocity) > 300 ? min(abs(velocity) * 0.1, r.bounds.height) : 0
+        r.leadTop = velocity < 0 ? lead : 0
+        r.leadBottom = velocity > 0 ? lead : 0
+        guard abs(velocity) > 300 else { return }
+        let h = r.bounds.height
+        let near = min(abs(velocity) * 0.35, 4 * h), far = min(2 * near, 8 * h)
+        let rect = velocity < 0 ? CGRect(x: 0, y: r.bounds.minY - far, width: r.bounds.width, height: far)
+                                : CGRect(x: 0, y: r.bounds.maxY, width: r.bounds.width, height: far)
+        let n = r.layout.model.count
+        for a in r.layout.layoutAttributesForElements(in: rect) ?? [] where a.indexPath.item < n {
+            let spec = r.layout.model.rows[a.indexPath.item].spec
+            guard let ref = MediaPlaceholder.ref(spec) else { continue }
+            if MediaCache.thumb(ref) == nil { MediaCache.requestThumb(ref) }
+            let dist = velocity < 0 ? r.bounds.minY - a.frame.maxY : a.frame.minY - r.bounds.maxY
+            if dist < near, !RowBitmaps.shared.has(spec) { RowBitmaps.shared.request(spec); ScrollPrefetcher.requests += 1 }
+        }
     }
 }
