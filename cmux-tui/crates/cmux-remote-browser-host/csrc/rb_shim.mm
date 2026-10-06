@@ -413,6 +413,13 @@ void rb_shim_post(void (*fn)(void*), void* ctx) {
                                      fn, ctx));
 }
 
+void rb_shim_post_delayed(void (*fn)(void*), void* ctx, int64_t delay_ms) {
+  CefPostDelayedTask(
+      TID_UI,
+      base::BindOnce([](void (*fn)(void*), void* ctx) { fn(ctx); }, fn, ctx),
+      delay_ms);
+}
+
 int rb_shim_set_screen(int width_dip, int height_dip, double scale) {
   return g_rp.set_screen ? g_rp.set_screen(width_dip, height_dip, scale) : 0;
 }

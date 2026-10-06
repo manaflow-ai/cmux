@@ -72,6 +72,9 @@ void rb_shim_quit(void);
 
 // Runs fn(ctx) on the CEF UI thread (any thread may call this).
 void rb_shim_post(void (*fn)(void*), void* ctx);
+// Runs fn(ctx) on the CEF UI thread after `delay_ms` (bounded waits of the
+// smoke mode; runtime code paces on frame and begin-frame signals).
+void rb_shim_post_delayed(void (*fn)(void*), void* ctx, int64_t delay_ms);
 
 // The headless screen (DIP and scale; cmux_rp_set_screen).
 int rb_shim_set_screen(int width_dip, int height_dip, double scale);
