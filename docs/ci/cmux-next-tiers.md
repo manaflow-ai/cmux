@@ -43,6 +43,17 @@ changed, when the test target itself changed, or when a file it reads changed.
 The live-daemon suites skip without the same-tree cmux-tui binary. The daemon
 tier runs them against it. A UI change does not wait for the tree.
 
+### What a UI-only PR no longer checks
+
+- **First-launch tests.** `FirstLaunchTests` starts the app against the
+  same-tree daemon. A change only in CmuxNextApp skips it unless the tree is
+  already published, because adding CmuxNextApp to the daemon tier would make
+  every UI PR wait for the tree again. The batch PR's `full-ci` run and the
+  push run cover it.
+- **App personality check.** `check-app-personalities.sh` runs with the app
+  scheme compile. A new linked library changes `Package.swift`, which runs
+  every tier, so a source-only CmuxNext change cannot add one.
+
 ## Generated files fix themselves
 
 When the action contracts or the graph are stale, `cmux-next generated files`

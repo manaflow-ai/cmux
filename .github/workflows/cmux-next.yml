@@ -36,8 +36,13 @@ on:
       # (ci-target-graph.json `packages` and `reads`).
       - Packages/Shared/**
       - Packages/macOS/CmuxUpdater/**
-      - Packages/iOS/CmuxMobileRPC/**
-      - Packages/iOS/CmuxMobileSSH/**
+      - Packages/iOS/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
+      - scripts/cmux-next/build-layout-reducer-ffi.sh
+      - scripts/cmux-next/build-app-ffi.sh
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
       - schemas/**
       - plans/cmux-next/**
       - docs/mdm/**
@@ -102,8 +107,13 @@ on:
       # (ci-target-graph.json `packages` and `reads`).
       - Packages/Shared/**
       - Packages/macOS/CmuxUpdater/**
-      - Packages/iOS/CmuxMobileRPC/**
-      - Packages/iOS/CmuxMobileSSH/**
+      - Packages/iOS/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
+      - scripts/cmux-next/build-layout-reducer-ffi.sh
+      - scripts/cmux-next/build-app-ffi.sh
+      - scripts/select-ci-xcode.sh
+      - scripts/ci/xcode-pins.txt
+      - .xcode-version
       - schemas/**
       - plans/cmux-next/**
       - docs/mdm/**
@@ -912,8 +922,7 @@ jobs:
         continue-on-error: true
         run: python3 scripts/cmux-next/ci-target-graph.py --check
 
-      # Only these paths may change: the autofix job refuses a patch that
-      # touches anything else.
+      # Only these paths may change: the autofix job refuses any other file.
       - name: Regenerate stale files
         id: regenerate
         if: steps.actions.outcome == 'failure' || steps.graph.outcome == 'failure'
@@ -925,11 +934,20 @@ jobs:
           if [[ "${{ steps.graph.outcome }}" == failure ]]; then
             python3 scripts/cmux-next/ci-target-graph.py
           fi
-          patch="$RUNNER_TEMP/generated/generated.patch"
-          mkdir -p "$(dirname "$patch")"
-          git diff --binary -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json > "$patch"
+          # The regenerated files themselves, at their repository paths: the
+          # autofix copies them onto the PR head. A diff would be against the
+          # merge commit, whose context the head may not have.
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          git add -N -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json
+          git diff --name-only -- 'plans/cmux-next/*.json' 'plans/cmux-next/*.md' Packages/macOS/CmuxNext/ci-target-graph.json > "$RUNNER_TEMP/generated/paths.txt"
           git diff --stat
-          if [[ -s "$patch" ]]; then
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
             echo "patch=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -938,7 +956,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-generated-patch
-          path: ${{ runner.temp }}/generated/generated.patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
           retention-days: 3
 
       - name: Fail on stale generated files
@@ -955,14 +974,15 @@ jobs:
           echo "::error::Generated cmux-next files are stale. Pull the autofix commit, or regenerate them as the step summary says."
           exit 1
 
-  # Commits generated-files' patch to the pull request branch, the way a
-  # formatter autofix does, so stale generated files never reach the base. No
-  # pull request code runs here: the patch is data, applied only when it
-  # touches the generated paths, and pushed only while the branch head is
-  # still the commit that was checked. The App token's push starts a new run.
+  # Commits generated-files' regenerated files to the pull request branch, the
+  # way a formatter autofix does, so stale generated files never reach the
+  # base. No pull request code runs here: the files are data, copied only to
+  # the generated paths, and pushed only while the branch head is still the
+  # commit that was checked (never to main). The App token's push starts a
+  # new run.
   generated-autofix:
     needs: generated-files
-    if: ${{ always() && needs.generated-files.outputs.patch == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.GLAEDA_ROUTE_APP_ID != '' }}
+    if: ${{ always() && needs.generated-files.outputs.patch == 'true' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref != 'main' && vars.GLAEDA_ROUTE_APP_ID != '' }}
     name: cmux-next generated autofix
     runs-on: ubuntu-24.04 # github-hosted-required: holds a write token for a pull request branch
     timeout-minutes: 5
@@ -998,18 +1018,26 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          patch="$RUNNER_TEMP/generated/generated.patch"
-          # Refuse anything outside the generated paths.
-          git apply --numstat "$patch" | cut -f3 | while IFS= read -r path; do
+          files="$RUNNER_TEMP/generated"
+          # Copy only the generated paths; refuse anything else.
+          while IFS= read -r path; do
             case "$path" in
+              *..*) echo "::error::refusing generated path $path"; exit 1 ;;
               plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;
-              *) echo "::error::the generated patch touches $path, which is not a generated file"; exit 1 ;;
+              *) echo "::error::the generated files include $path, which is not a generated file"; exit 1 ;;
             esac
-          done
-          git apply "$patch"
+            [[ -f "$files/$path" && ! -L "$files/$path" ]] || { echo "::error::$path is missing from the artifact"; exit 1; }
+            mkdir -p "$(dirname "$path")"
+            cp "$files/$path" "$path"
+            git add -- "$path"
+          done < "$files/.paths"
+          if git diff --cached --quiet; then
+            echo "The PR head already has these generated files; nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           git config user.name "cmux CI autofix"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qam "chore(cmux-next): regenerate generated files" -m "Generated by the cmux-next generated-files job: $RUN_URL"
+          git commit -qm "chore(cmux-next): regenerate generated files" -m "Generated by the cmux-next generated-files job: $RUN_URL"
           auth="$(printf 'x-access-token:%s' "$APP_TOKEN" | base64 -w0)"
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
@@ -1019,9 +1047,13 @@ jobs:
             echo "The branch moved to $current after $HEAD_SHA; its own run checks the generated files." | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          # A plain push: it fails rather than overwrite a commit pushed meanwhile.
-          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
-            git push --quiet "$remote" "HEAD:refs/heads/$BRANCH"
+          # A plain push: it fails rather than overwrite a commit pushed meanwhile,
+          # and that commit's own run checks the generated files again.
+          if ! GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git push --quiet "$remote" "HEAD:refs/heads/$BRANCH"; then
+            echo "The branch moved during the autofix; its own run checks the generated files." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           GH_TOKEN="$APP_TOKEN" gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "Generated cmux-next files were stale, so CI committed the regenerated files ($(git rev-parse --short HEAD)). Pull before your next push. Run: $RUN_URL"
           echo "Pushed $(git rev-parse HEAD) to $BRANCH." | tee -a "$GITHUB_STEP_SUMMARY"
 
