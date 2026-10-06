@@ -63,6 +63,28 @@ public struct BrowserReplFrameDocument: Sendable, Equatable {
 
     static let hostlessPlaces: Set<String> = ["about://", "data://", "blob://"]
 
+    /// The addresses a judge must allow, each as `scheme://host[:port]`:
+    /// the document's origin (unless opaque) and its URL's place (unless
+    /// the URL names no host). Both are judged, never one alone: a page can
+    /// relax `document.domain` to a parent domain, and the URL's host still
+    /// names the page that wrote the document. An ``isOpaque`` document has
+    /// none; it is judged by its makers instead.
+    public var judgedAddresses: [String] {
+        var addresses: [String] = []
+        if let origin, origin != "null" { addresses.append(origin) }
+        if !Self.hostlessPlaces.contains(place) { addresses.append(place) }
+        return addresses
+    }
+
+    /// Whether a secret scoped to `domains` may go into this document: it
+    /// has an origin, and its origin and URL place (``judgedAddresses``)
+    /// are each on one of `domains` (secret semantics,
+    /// ``BrowserReplDomainPattern/matches(origin:secure:)``).
+    public func isOn(secretDomains domains: [BrowserReplDomainPattern]) -> Bool {
+        guard let origin, origin != "null", !isOpaque else { return false }
+        return judgedAddresses.allSatisfy { address in domains.contains { $0.matches(origin: address, secure: true) } }
+    }
+
     /// The document WebKit recorded for a frame when the tree was read; a
     /// frame that navigated since shows another one.
     @MainActor
@@ -223,7 +245,9 @@ extension WKNavigationAction {
 
 extension BrowserReplDomainPolicy {
     /// Why the policy blocks a frame that shows `document`, or nil. Its
-    /// origin and its URL's host must both be allowed: an `about:blank` or
+    /// origin and its URL's host (``BrowserReplFrameDocument/judgedAddresses``)
+    /// must both be allowed, so a page that relaxed `document.domain` onto
+    /// an allowed parent domain stays blocked: an `about:blank` or
     /// `blob:` document carries the origin of the page that made it, and is
     /// judged by that origin alone (its URL names no host).
     ///
@@ -236,12 +260,11 @@ extension BrowserReplDomainPolicy {
     /// a `data:` document of its own frame.
     public func blockReason(document: BrowserReplFrameDocument) -> String? {
         guard isActive else { return nil }
-        if let origin = document.origin, origin != "null", let reason = blockReason(origin + "/") {
-            return reason
-        }
         if document.isOpaque { return opaqueBlockReason(document) }
-        if BrowserReplFrameDocument.hostlessPlaces.contains(document.place) { return nil }
-        return blockReason(document.place + "/")
+        for address in document.judgedAddresses {
+            if let reason = blockReason(address + "/") { return reason }
+        }
+        return nil
     }
 
     private func opaqueBlockReason(_ document: BrowserReplFrameDocument) -> String? {

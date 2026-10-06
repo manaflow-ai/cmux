@@ -738,7 +738,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   record of it (`WKFrameInfo.securityOrigin` and URL) and by its document
   (`location.origin` and `location.protocol + "//" + location.host`, read
   in the driver's own content world; `location` cannot be forged by page or
-  agent script). Script the driver runs in a frame (`frame.evaluate` and
+  agent script). The origin and the URL's host must each be allowed, so a
+  page that relaxed `document.domain` onto an allowed parent domain stays
+  blocked. Script the driver runs in a frame (`frame.evaluate` and
   the calls built on it, `frames.list` names, `frame.ownerBox`) first checks
   in the frame that the document is one the driver approved, and runs
   nothing in another: a frame keeps its id when it navigates, so a frame

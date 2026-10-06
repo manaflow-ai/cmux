@@ -105,8 +105,10 @@ person types.
 Values are kept by the native session, never in the JavaScript context agent
 code runs in: `secret(name)` is a handle, and the session substitutes the
 value only into the driver's text input, where the driver checks the
-focused frame's own origin (WebKit's record, not page script) against the
-secret's domains on every call, including retries. The page that receives
+focused frame's own origin and its URL's host (read in the driver's own
+content world, not by page script) against the secret's domains on every
+call, including retries; both must be on them, so a page that relaxed
+`document.domain` onto a parent domain on the list does not get it. The page that receives
 the value can send it on, so a secret is typed only into a tab the session
 opened, whose requests its domain policy's content rules hold, and only
 while `session.allowedDomains` allows nothing outside the secret's domains;

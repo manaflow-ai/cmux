@@ -2,13 +2,16 @@ public import WebKit
 
 /// Decides whether a secret may be typed into a tab now: the frame whose
 /// document holds the focused element, which is where inserted text goes,
-/// must have an origin on one of the secret's domains.
+/// must have an origin, and a URL host, on the secret's domains
+/// (``BrowserReplFrameDocument/isOn(secretDomains:)``).
 ///
 /// A frame keeps its id when it navigates, so the frame tree can name a
 /// document the frame no longer shows (`BrowserReplFrame.info`). The
-/// origin is therefore read by the same evaluation that finds the focus,
-/// in the document that holds it (`self.origin`, the document's own
-/// origin, `"null"` when opaque), never from the tree. The checks run in
+/// origin and URL place are therefore read by the same evaluation that
+/// finds the focus, in the document that holds it (`self.origin`, the
+/// document's own origin, `"null"` when opaque, and `location`), never
+/// from the tree. The URL's host is judged too: a page can relax
+/// `document.domain` onto a parent domain on the secret's list. The checks run in
 /// a content world page and agent code cannot reach.
 @MainActor
 public struct BrowserReplSecretTarget {
@@ -58,8 +61,8 @@ public struct BrowserReplSecretTarget {
         )
     }
 
-    /// Throws `invalid` unless the focused frame's origin matches one of the
-    /// secret's domains, and `stale` when a frame does not answer within the
+    /// Throws `invalid` unless the focused frame's origin and URL host are
+    /// on the secret's domains, and `stale` when a frame does not answer within the
     /// probe's bound.
     /// - Parameter frames: The tab's frame tree, read just before.
     public func check(in webView: WKWebView, frames: [BrowserReplFrame]) async throws {
@@ -72,9 +75,9 @@ public struct BrowserReplSecretTarget {
         const focused = (() => {
         \(focusProbe)
         })();
-        return focused ? String(self.origin) : null;
+        return focused ? [String(self.origin), location.protocol + "//" + location.host] : null;
         """
-        var focusedOrigin: String?
+        var focused: BrowserReplFrameDocument?
         for frame in frames {
             guard let info = frame.info else { continue }
             let answer: Any?
@@ -89,14 +92,17 @@ public struct BrowserReplSecretTarget {
                 // A frame that has gone holds no focus.
                 answer = nil
             }
-            if let origin = answer as? String { focusedOrigin = origin }
+            if let pair = answer as? [Any], pair.count == 2, let origin = pair[0] as? String, let place = pair[1] as? String {
+                focused = BrowserReplFrameDocument(origin: origin, place: place.lowercased())
+            }
         }
-        guard let origin = focusedOrigin else {
+        guard let document = focused else {
             throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" was not typed: no focused field in the page")
         }
-        guard domains.contains(where: { $0.matches(origin: origin, secure: true) }) else {
+        guard document.isOn(secretDomains: domains) else {
             let list = domains.map(\.raw).joined(separator: ", ")
-            throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" may not be typed into \(origin); its domains are \(list)")
+            let shown = Set([document.origin ?? "null", document.place]).sorted().joined(separator: " at ")
+            throw BrowserReplDriverError(code: "invalid", message: "secret \"\(name)\" may not be typed into \(shown); its domains are \(list)")
         }
     }
 }

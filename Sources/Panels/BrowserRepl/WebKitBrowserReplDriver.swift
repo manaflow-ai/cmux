@@ -658,8 +658,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             guard !domains.isEmpty else {
                 throw Self.error("invalid", "auth.request needs the credential's domains, which only a REPL session sends")
             }
-            guard let fieldsOrigin = BrowserReplCredentialRequest.frameOrigin(frame.info, panel.webView),
-                  domains.contains(where: { $0.matches(origin: fieldsOrigin, secure: true) }) else {
+            // Its origin and its URL's host, as WebKit recorded them, are
+            // each on the credential's domains: a page can relax
+            // `document.domain` onto a parent domain on the list.
+            let fieldsDocument = frame.info.map(BrowserReplFrameDocument.init(info:)) ?? BrowserReplFrameDocument(url: panel.webView.url)
+            guard BrowserReplCredentialRequest.frameOrigin(frame.info, panel.webView) != nil,
+                  fieldsDocument.isOn(secretDomains: domains) else {
                 throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), outside the credential's domains (\(domains.map(\.raw).joined(separator: ", ")))")
             }
             let tabAttachment = attachment(panel)
