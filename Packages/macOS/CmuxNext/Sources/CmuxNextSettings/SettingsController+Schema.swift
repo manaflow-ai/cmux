@@ -29,6 +29,7 @@ extension SettingsController {
         if let value {
             guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
             try await file.set(value, at: descriptor.path)
+            await reloadAfterWrite()
         } else {
             try await removePruning(descriptor.path)
         }
@@ -76,9 +77,10 @@ extension SettingsController {
         try await file.remove(path)
         var parent = Array(path.dropLast())
         while !parent.isEmpty {
-            guard try await pruneEmpty(parent) else { return }
+            guard try await pruneEmpty(parent) else { break }
             parent.removeLast()
         }
+        await reloadAfterWrite()
     }
 
     /// Removes the object at `path` when it has no members. True when removed.

@@ -56,16 +56,28 @@ pub(super) fn try_handle(
         return None;
     }
     frame_command(message)?;
-    let allowed = transport_allows_fs(mux, client);
-    let owner = mux.conversation_principal(client);
-    let reply = answer_line(crate::fs_ops::installed(), allowed, &owner, message);
+    // The transport first, then the principal of this frame: a remote client
+    // needs a bound peer whose install may keep its streams (a revoke or the
+    // 72 h limit refuses it before its stream closes). Either one missing:
+    // permission denied.
+    let owner = transport_allows_fs(mux, client)
+        .then(|| mux.frame_principal(client))
+        .flatten()
+        .map(super::remote_relay::Principal::participant);
+    let reply = answer_line(
+        crate::fs_ops::installed(),
+        owner.is_some(),
+        owner.as_deref().unwrap_or(super::remote_relay::NO_PRINCIPAL),
+        message,
+    );
     Some(writer.send_control(&reply).is_ok())
 }
 
+/// True for a trusted local or a remote-entry connection. A poisoned
+/// registry lock refuses (fail closed).
 fn transport_allows_fs(mux: &Mux, client: u64) -> bool {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    state.clients.get(&client).is_some_and(|record| {
-        matches!(record.transport, ClientTransport::Unix | ClientTransport::Remote)
+    mux.control_clients.transport_of(client).is_some_and(|transport| {
+        matches!(transport, ClientTransport::Unix | ClientTransport::Remote)
     })
 }
 
@@ -214,7 +226,7 @@ fn serve_stream(
     let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
     // The stamped peer, as for a line dial: a revoked install (or one past
     // its offline limit) gets no stream, and a revocation closes this one.
-    let bound = writer.is_open() && mux.bind_remote_peer(client, peer);
+    let bound = writer.is_open() && mux.bind_remote_peer(client, peer).is_ok();
     if bound {
         let _ = stream.set_read_timeout(Some(STREAM_IDLE_TIMEOUT));
         let _ = stream.set_write_timeout(Some(STREAM_IDLE_TIMEOUT));
@@ -246,6 +258,7 @@ fn serve_stream(
 /// shutting down, so their sockets are shut down and their transfers end.
 pub(super) fn close_remote_clients(mux: &Arc<Mux>) {
     let remote: Vec<u64> = {
+        // Safety: this list only closes streams; a stale id closes nothing.
         let state =
             mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         state

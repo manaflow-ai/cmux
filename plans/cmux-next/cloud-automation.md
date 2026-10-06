@@ -260,3 +260,240 @@ Not migrated: remote-tab.md:16 and :156 already state the RT8 rule.
 5. Computer use lead: P2 (cmux-cua Linux release in manaflow-ai/cmux-cua).
 6. Session host owner: display supervisor and delegated cgroups (cmux-tui window; Cargo.lock change unknown until designed).
 7. After 1, 2 and P1 to P3: write `cloud-automation-linux.yml` (section 9).
+
+## 14. Decisions recorded (CLOUD-AUTOMATION, coordinator 2026-10-04)
+
+D-A1 the fork's Chrome-style build is the engine; Chrome for Testing x86_64 is the interim. D-A2 CJK fonts in the image; ffmpeg and heavy tools are first-use role packages. D-A3 per-session display API on one shared display until cmux-cua has one X11 connection per display. D-A4 per-user SSH CA for personal machines, team CA for team machines. D-A5 ffmpeg on first use. D-A6 x264 with openh264 fallback. D-A7 the rotation lead creates environment `cmux-next-vm-image-dev` with only the cmux-next dev key; no bake before the coordinator confirms it. Bakes stay `workflow_dispatch` only; `cloud-vm-image-lock.yml` runs the lock and sshd tests on path changes.
+
+## 15. Image changes landed (no bake yet)
+
+- Lock (`images/cmux-vm/inputs.lock.json`): 31 new baked Ubuntu packages (42 total): the display role (`xvfb`, `xauth`, `at-spi2-core`, `libxtst6`, `libxi6`; `dbus-user-session` is already in the base) and `fonts-noto-cjk`. About 97 MB installed. `roles`: `fonts` on, `display` off, `display-wm` and `cua-video` off and first-use. `apt.ubuntu.firstUse`: `display-wm` (openbox, 64 packages, about 92 MB) and `cua-video` (ffmpeg, 138 packages, about 161 MB), never baked.
+- Deviation from section 2.2: openbox is first use, not baked. openbox pulls Ghostscript, CUPS libraries and poppler (+64 packages). That is every image paying 92 MB and their CVE surface for a window manager that only CUA on desktop apps needs. cmux-cua's Linux e2e tests openbox, so the window manager stays openbox; only the delivery changes. Cost: the first display start on a machine waits for one apt install from the dated snapshot (estimate 10 to 20 s, measure in the dev bake).
+- How the closures were made: an amd64 `ubuntu:24.04` container with the locked snapshot mirror and a synthetic dpkg status built from the Freestyle base dpkg list whose sha256 equals the lock fingerprint (`d29cfb5c…`, 415 packages, all records found in the snapshot). The same simulation reproduces today's 11-package closure exactly. The bake's `aptClosureProblems` still checks the real install. Script and outputs: `.cmux-scratch/nx-cloud-automation/closure/` in hq.
+- First-use install contract for `cmux host`: `/etc/cmux/roles.json` (schema 1) lists each role's default, first-use flag, top-level apt names and the exact first-use closure, plus the snapshot URI. After the bake, apt sources point at the live archive, so the first-use installer must read the snapshot source explicitly (`-o Dir::Etc::sourcelist=`). Risk: a user who upgraded a shared library from the live archive can make a pinned closure fail; the installer then reports `role_unavailable {reason: apt_conflict}`, never installs unpinned versions.
+- sshd (section 5, D-A4): `/etc/ssh/sshd_config.d/10-cmux.conf`, empty `/etc/cmux/ssh/user-ca.pub` and principals file, an empty KRL, `ssh.socket` enabled when nothing else is. The bake fails unless `sshd -T` matches the policy and `ss` shows port 22 on loopback only. The smoke, on a clone only, proves: empty CA refuses; a throwaway CA written the way bind will write it allows a certificate login and an scp round trip; a plain key is refused; a KRL entry by key id refuses the certificate. The bind side (writing the CA, principals and KRL from the instance binding) belongs to the bind agent.
+- cmux-cua: `OPTIONAL_PROGRAMS = ["cmux-cua"]` and `cmuxCuaReleaseShape(version, arch)` give the lock entry shape for the release contract (tarball with LICENSE, `bin` `cmux-cua-<V>-linux-<arch>/cmux-cua`, role `cua`). It is pinned only from a published release.
+- Risk: Freestyle's own SSH gateway, if anything uses it with this image, stops working, because sshd listens on loopback only and `AuthorizedKeysFile none`. The bake and smoke use the exec API, not SSH.
+
+## 16. Session host design: display supervisor and per-session cgroups
+
+Owner: the session host (cmux-tui daemon). Code home: a module family in `cmux-tui-core` (`automation/display.rs`, `automation/cgroup.rs`, `automation/budget.rs`), no new crate and no new dependency (`libc` is already a dependency), so no Cargo.lock change. The CUA host and the browser host consume it through ops; they never spawn displays or write cgroups.
+
+Entities and single writers:
+
+| Entity | Writer | Readers |
+| --- | --- | --- |
+| `display_lease {id, session, display, xauthority, shared, size, state}` | session host | CUA host (through `display.acquire` result), Agent activity pane |
+| display process set (Xvfb, first-use openbox, AT-SPI bus) | session host | none |
+| cgroup subtree `automation/` and its children | session host (delegated, `Delegate=yes`) | none; budget values come from settings |
+| budget settings `cloud.automation.*` | user and team policy (settings store) | session host |
+
+Ops (catalog owner `session-host`, origin rules per OWNERSHIP-PRINCIPLES):
+
+- `display.acquire {session, size?, idempotency_key}` -> `{lease, display, xauthority, shared}`. Caller: the CUA host on the first `cua.*` op that targets a desktop app. Starts the display when none runs: first-use install of `display-wm` if needed (role state `installing`), Xvfb with `-displayfd` (no race for a number), `-nolisten tcp`, `-auth <state>/displays/<id>/Xauthority` (0600), `-s 0 -dpms`; then openbox and a session D-Bus with the AT-SPI bus, all in `automation/display-<id>/`. Ready = the display number arrives on the `-displayfd` pipe (an event, not a poll). While cmux-cua holds one X11 connection (D-A3), every acquire maps to the one shared display and returns `shared: true`.
+- `display.release {lease}`. The last release arms a one-shot idle timer (`cloud.automation.displayIdleSeconds`, default 120). The timer stops the process set and removes the cgroup. A new acquire before it fires cancels it.
+- `display.list` and the `display.changed` event for the Agent activity pane.
+- Crash: a child exit is a pidfd event. The supervisor marks the lease `lost`, emits `display.changed`, restarts with `Backoff` only while a lease exists, and the CUA host gets `display_lost` and re-acquires.
+- `automation.scope.create {kind: browser|display, session}` (internal to the daemon for the browser host and the display path): makes `automation/<kind>-<session>/`, writes `memory.high`, `memory.max`, `cpu.max`, `cpu.weight`, `pids.max` from the budget table (section 6.2), then the child is spawned into it with `clone3(CLONE_INTO_CGROUP)` (or by writing its pid to `cgroup.procs` before exec where clone3 is not available). Over budget at create = `resource_exhausted {kind, limit}`. A `memory.events` `oom_kill` increment is read on the cgroup's inotify event (`cgroup.events`/`memory.events` modify), never by polling, and becomes a `resource_exhausted` event for that session.
+
+Pure reducer (tests first, property tests): state = leases, process sets, scopes, timers; inputs = acquire, release, child exit, ready, timer fired, install done or failed; outputs = spawn, kill, write cgroup, arm or cancel timer, emit. Invariants: at most one display process set while `shared`; no process set without a lease or an armed idle timer; a scope exists exactly while its process set does; no restart without a lease; every acquire gets exactly one answer.
+
+User mode (servers without root): the systemd user manager delegates `user@<uid>.service`; the same code writes the delegated subtree. Where delegation is missing, scopes are skipped and the health role reports `budget.unenforced` (warning), never a silent pass.
+
+Tests: reducer unit and property tests (Testbox, `cargo test -p cmux-tui-core automation::`); a Linux integration test in the hosted cmux-tui workflow with Xvfb installed (acquire, ready by displayfd, release, idle stop, crash restart, cgroup files written in a delegated test subtree); the dev-bake smoke runs the section 6.3 idle proof.
+
+Window request: one cmux-tui window for `cmux-tui-core` (new module family, catalog entries for `display.*`, the daemon wiring). No Cargo.lock or Cargo.toml change. It may touch the protocol spec JSON (new ops), which needs a window under WINDOW-LITE.
+
+## 17. VM agent (bind, status report, events)
+
+Interim implementation: `images/cmux-vm/guest/vm-agent.ts`, a Bun program (the base keeps the real bun at `/usr/local/bin/bun`), no npm dependency. vm-image.md places the bind agent in the Rust `cmux host` role; this is the stand-in until that role exists, with the same contract, so the port is a translation with the same tests.
+
+- Trigger: `cmux-vm-agent.path` (`PathExists=/var/lib/cmux/bind.json`) starts `cmux-vm-agent.service`; the service is also enabled at boot with `ConditionPathExists=|bind.json` or `|bound.json`. While it runs, a directory watch (inotify) catches a new bind.json. No polling. The bake arms the path unit and checks the service is not running at snapshot time.
+- Bind: refuses an `api_origin` that is not the environment's allowlisted origin (dev `cmux-api-development.debussy.workers.dev`, stg `cloud-api-staging.cmux.dev`, prod `cloud-api.cmux.dev`); per-clone ES256 P-256 install key in `/var/lib/cmux/install/key.json` (0600, replaced when the MMDS instance id differs; one MMDS read per bind); per-clone WireGuard key in `/var/lib/cmux/wg/key.json`; POST `/v1/cloud/bind`; writes `bound.json` before removing `bind.json`. A 4xx is final (token spent or invalid), a 5xx or network error retries with backoff.
+- Tokens: `/v1/auth/challenge` then `/v1/auth/token`; signs only when `message_prefix` equals `cmux-auth-v1\n<ENVIRONMENT>\n<install>\n` for this machine's environment.
+- `cloud.vm.status.report` (backend 8feb7efab5a: 24 h without an applied report pauses the machine): one report after bind and at every service start; on change from the local socket, at most 1 per 10 s, latest wins; a heartbeat deadline 1 h after the last accepted report (one timer, re-armed); failures back off from 5 s, doubling, ±10% jitter, at least `retry_after_ms`, at most 10 min; while a retry is pending the heartbeat timer is cancelled, so a failing machine holds one timer.
+- `cloud.vm.event.emit`: v1 kinds and the 4 KB limit checked locally; `cloud.rate_limited` waits `retry_after_ms`; an invalid event is dropped and logged.
+- Local socket `/run/cmux/vm-agent.sock` (root and group `cmux`, 0660): JSON lines `{"activity": {...}}` or `{"event": {...}}`.
+- Tests: `web/tests/vm-image-vm-agent.test.ts` (11) against a fake server that answers from `backend/catalog/cloud-vectors.json` and verifies the ES256 signature the way the backend does.
+
+Gaps (not hidden):
+- Activity feeder: nothing writes to the socket yet. Until the daemon or its hooks send activity, reports carry `active_sessions: 0` and no timestamps, so CloudDO's idle pause can pause a machine a person is using after its idle period. The feeder is a cmux-tui change (session open/close, user input, agent action -> one socket line); it needs a cmux-tui window.
+- Resume detection: a resume without a new bind.json is caught only when the heartbeat deadline fires (monotonic timers count paused time, vm-image.md 6.5, so an overdue deadline fires at resume). The exact signal (timerfd `TFD_TIMER_CANCEL_ON_SET`, vm-image.md 6.2) belongs to the Rust port.
+- Daemon capabilities: read from `/etc/cmux/daemon.json` when present; the bake does not write it yet, so bind sends the pinned cmux-tui commit and an empty capability list. Next bake: record the daemon's `identify` capabilities into that file.
+- Live proof against the development API is the dev bake's one-clone smoke (section 10), not run yet.
+
+## 18. Machine size research (goal 3)
+
+Facts from the Freestyle SDK 0.2.10 type docs (`web/node_modules/freestyle/dist/vms/types.d.ts`, `index.d.ts`) and the classic size ladder code, which already depends on them in production (`web/scripts/derive-devbox-sizes.ts`, its post-derive check boots every derived snapshot and verifies nproc, memory and root filesystem):
+
+1. A snapshot keeps its source VM's size. `vms.create` takes no resources; a VM boots at its snapshot's vCPU, memory and disk. The backend driver says the same (`backend/apps/api/src/cloud-driver.ts` `createBody`: "the snapshot decides; resize is a separate, grow-only call").
+2. Smallest bake base: `freestyle/ubuntu-sm` (2 vCPU, 4 GiB, 16 GB). The only smaller catalog base is `freestyle/busybox` (1 vCPU, 128 MiB, 1 GB), which is not Ubuntu and cannot carry the image. Nothing shrinks (resize is grow-only on every axis), so the bake must stay on `ubuntu-sm`, and the image must fit 16 GB (today about 5 GB used).
+3. Resize after create: `vm.resize({cpu, memory, storage})`, every axis grow-only; vCPU and memory apply live to a running VM, on resume for a paused one and at the next boot for a stopped one; disk grows only while the VM runs, in place (the derive script waits up to 60 s for the root filesystem to show it).
+
+Options for sizes above sm in cmux-next:
+- A. Derived ladder (as classic): one snapshot per size from each bake (about 30 s, parallel). Boots straight into its shape. Cost: 6 snapshots per bake, 6 smoke targets, 6 rows to promote and roll back.
+- B. Resize after create: one snapshot (sm); the driver calls `resize` right after `vms.create`, before the bind agent's first report. Cost: create-to-ready grows by the resize call plus the disk-growth wait, and a resize failure becomes a create failure path.
+
+Recommendation: B if the dev bake's resize probe shows the guest sees the new shape within about 2 s; else A. Strongest objection to B: a resize on the create critical path couples machine readiness to a second provider call that can fail or be slow under provider load (the classic 9 s create outliers). The probe (`smoke.ts --resize-probe`) records the call time and the time until the guest sees 4 vCPU, 8 GiB and a 32 GB root filesystem. Decision after the numbers; the backend driver change (send the resize) belongs to the backend lead.
+
+## 19. First dev bake (2026-10-05, cmux-next dev account)
+
+How it ran: `workflow_dispatch` needs the workflow file on the default branch, and `cloud-vm-image-bake.yml` exists only on feat-cmux-next, so CI cannot dispatch it. The bake and smoke ran from this lane's worktree at 8d111c84246 with `FREESTYLE_API_KEY_FILE` pointing at the cmux-next dev key (read in process, never printed). Same scripts, same names, same ledger.
+
+| Item | Value |
+| --- | --- |
+| Snapshot (kept, dev channel) | `cmuxnp-dev-vmimg-auto1-8d111c8` = `sh-99d84130836649b4b1b746a41f57b5f9` (`images/cmux-vm/channels/dev.json`) |
+| Bake | 164.5 s; snapshot call 751 ms; 47 apt packages installed, equal to the lock (42 Ubuntu + 5 PGDG), so the container-computed closure held on the real base |
+| Size | sm (2 vCPU, 4 GiB, 16 GB); root fs used 4.91 GB, 114,593 inodes; store 1.16 GB |
+| Boot, 2 clones x 2 runs | create API 164 to 243 ms; create to first exec p50 194 to 196 ms; create to daemon listening p50 567 to 574 ms; create to ready p50 650 to 668 ms |
+| Idle CPU (whole VM, 90 s) | 2.47 and 2.63 CPU-s/min: today's `cmux-devbox-boot` 1 s metadata poll dominates; the 0.2 target needs `cmux host run` (vm-image.md step 2). Terminal hosts: 0 voluntary switches in 60 s |
+| sshd | policy and loopback-only listen: PASS; empty CA refuses, certificate login, scp 1 MiB, plain key refused, KRL-revoked certificate refused: PASS (second smoke; the first smoke's plain-key step was a test bug: the client loads `<key>-cert.pub` by itself) |
+| Roles | display packages present and not running, openbox and ffmpeg absent, CJK fonts present: PASS |
+| VM agent | bind probe against the development API: path unit started the agent, per-clone keys 0600, API answered `auth.forbidden` for the never-issued token, bind.json removed, no bound.json: PASS |
+| Resize sm -> md | call 197 to 208 ms; guest sees 4 vCPU, 8,011 MiB, 32,078 MiB root 1,346 to 1,378 ms after the call started |
+| Resources | 1 failed bake builder (103 s, fc-list check, deleted), 1 bake builder (164 s, deleted), 4 smoke clones (135 to 138 s each, deleted), 1 snapshot kept. 812.5 VM-seconds at sm (13.5 VM-min, 27 vCPU-min). Dollar cost UNVERIFIED (no rate card in the repo). Wall clock 08:30:47 to 08:42:17 UTC (11.5 min, over the approved 10 min by 1.5 min) |
+
+Size decision input (section 18): the resize probe is under 2 s, so option B (one sm snapshot, resize right after create) is the recommendation.
+
+Not done in this window:
+- The one-clone end-to-end against the development API (real bind, applied status report, minted token). It needs (1) the development Worker's `CLOUD_FREESTYLE_SNAPSHOT` set to `cmuxnp-dev-vmimg-auto1-8d111c8` (backend lead; the prefix check accepts it) and (2) a dev identity in the allowed team to call `cloud.machine.create` (the driver then writes bind.json with a real one-time token). Neither is this lane's to set.
+- cmux-cua 0.8.2 and `libxkbcommon0` were pinned after this bake (`cmux-cua --version` verified in an amd64 Ubuntu 24.04 container with libX11, libXi and libxkbcommon), so this snapshot does not carry them. The next bake does. The release tarball has no LICENSE file, against the release contract (CI lead).
+
+## 20. Fixes before the rebake (coordinator 2026-10-05)
+
+- Per-clone machine-id: the agent regenerates `/etc/machine-id` and `/var/lib/dbus/machine-id` (0444) when the MMDS instance id differs from `/var/lib/cmux/machine-id.instance`, in the same bind path that rotates the install key. Services that read the id at boot (journald) keep the old one until they restart; the rebake measures whether that matters.
+- Real daemon block in bind and status reports: the agent sends `identify` on the daemon's control socket (path recorded by the bake from `ss`, `/etc/cmux/daemon-socket`). `version` = daemon version + `+` + build commit (12). The daemon advertises about 70 capabilities and bind accepts at most 32, so `capabilities` = the Cloud-gated ones it advertises (`fs-v1`, `loopback-forward-v1`) + `vm-agent-v1` + `activity` only when an activity sender exists (`ACTIVITY_SENDER_EXISTS = false` today), so the backend can skip idle pause for machines without activity. Fallback: the bake's live identify recorded in `/etc/cmux/daemon.json`; the bake fails if that is not a real answer. Never an empty list.
+- Agent socket moved to `/run/cmux-vm-agent/agent.sock`: the bake's park step and the boot supervisor clear `/run/cmux`.
+- cmux-cua: no release qualifies. 0.8.2, 0.8.3 and 0.8.4 are all pre-releases, and none of their Linux tarballs contains LICENSE (checked 2026-10-05). The 0.8.2 pin is removed; `libxkbcommon0` stays baked for it. Routed to the CI lead through the coordinator.
+
+## 21. Blocker: idle CPU target (0.2 CPU-s/min)
+
+Measured 2.47 and 2.63 CPU-s/min (whole VM, 90 s, section 19). The cause is the classic boot supervisor `cmux-devbox-boot`, which this image still uses: a 1 s loop with two metadata-service `curl` calls (vm-image.md section 3: about 2 CPU-s/min and 354 forks per minute). Terminal hosts are idle (0 voluntary switches in 60 s). Fix: `cmux host run` (vm-image.md step 2, a role of the Rust `cmux` binary): event-driven bind on the resume signals of vm-image.md 6.2, no metadata poll. It needs a cmux-tui window and the session host owner. Until then no bake can meet the 0-idle target; the smoke records the number and does not gate on it.
+
+## 22. Second dev window (2026-10-05 10:17:21 to 10:24:58 UTC, 7.6 min)
+
+Operator bakes (vm-image.md 4.11 command), cmux-next dev account.
+
+| Run | Result |
+| --- | --- |
+| `cmuxnp-dev-vmimg-auto2-4fd4596` | bake failed at `daemon-identify-record` (my check was too strict). The live identify worked: `0.1.0+d7f8fd06326f`, capabilities `["vm-agent-v1"]`. The pinned cmux-tui d7f8fd06 advertises neither `fs-v1` (only on a bound Cloud host) nor `loopback-forward-v1`. Builder deleted. |
+| `cmuxnp-dev-vmimg-auto2-584940e` = `sh-291ed5654cab4bdbac8273932564b7f2` | bake passed in 169.8 s. Smoke: every check passed except `vm-agent-bind-probe`, which failed with no output. The snapshot was deleted by the ledger (no snapshot is kept after a failed smoke). Dev channel stays `auto1-8d111c8`. |
+
+Smoke numbers of the second bake: create to first exec p50 189 ms; create to daemon listening p50 548 ms (p95 1,190 ms, n = 2); idle 2.47 CPU-s/min (section 21); resize sm to md: call 185 ms, guest view 1,325 ms; sshd certificate checks all PASS.
+
+Cause of the probe failure (inferred, not proven on a VM): after the agent writes a new `/etc/machine-id`, `journalctl` reads `/var/log/journal/<new id>` while journald still writes under the old id, so both journal greps in the probe found nothing and `set -e` exited silently. Fixes: the agent restarts `systemd-journald` after it changes the machine-id (dbus-daemon keeps the old id until its next start); the probe reads with `journalctl -m` and every step prints its own FAIL label. Next window: one bake and one smoke.
+
+Pinned cmux-tui d7f8fd06 lacks `loopback-forward-v1`, so Cloud ports (first-party-apps/cloud/server ports/loopback.rs) refuse on this image until the lock pins a newer published cmux-tui.
+
+Resources this window: 2 builders (111 s, 170 s), 2 smoke clones (136 s, 135 s), 1 snapshot (deleted). 552 VM-seconds at sm (9.2 VM-min).
+
+## 23. Third dev window (2026-10-05 10:42:35 to 10:47:39 UTC, 5.1 min): dev channel
+
+Baked from the pushed head 1526e7816e9 with the operator command. cmux-tui pinned to 4fd459691fe0 (published at files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/, binaries checked against its manifest): it advertises `loopback-forward-v1`; the old main pin d7f8fd06 did not.
+
+| Item | Value |
+| --- | --- |
+| Snapshot (dev channel, `images/cmux-vm/channels/dev.json`) | `cmuxnp-dev-vmimg-auto3-1526e78` = `sh-6d6e1173d5a94684b9b5b4ab5891f441` |
+| Bake | 161.9 s; 48 apt packages = the lock (43 Ubuntu + 5 PGDG); root fs 4.94 GB; store 1.19 GB |
+| Daemon block recorded at bake (live identify) | `0.1.0+4fd459691fe0`, `["loopback-forward-v1", "vm-agent-v1"]` |
+| Smoke | PASSED, every check: boot p50 create to first exec 168 ms, to daemon listening 578 ms, to ready 649 ms; sshd certificate checks; roles off and fonts on; agent bind probe with every named step, including `machine-id-changed`, `machine-id-dbus-equal` and `journal-machine-id-line` (the journald restart works on a real clone); resize sm to md 172 ms call, 1,280 ms guest view; idle 2.49 CPU-s/min (section 21 blocker) |
+| Resources | 1 builder (162 s), 2 clones (136 s, 135 s), all deleted; 1 snapshot kept. 433 VM-seconds at sm (7.2 VM-min) |
+
+End to end against the development API: next, after the backend sets `CLOUD_FREESTYLE_SNAPSHOT` and hands over a dev identity. Sequence: `cloud.machine.create` -> bind (bound.json, install registered) -> first `cloud.vm.status.report` applied -> token minted (challenge + token) -> change report (activity line on the agent socket) -> heartbeat on a test interval (`CMUX_VM_AGENT_HEARTBEAT_MS` test override, to add) -> `cloud.machine.pause` -> `cloud.machine.start` -> report after start.
+
+## 24. Fourth window and the first development end to end (2026-10-05)
+
+Fourth window (23:44:23 to 23:50:07 UTC, 5.7 min): bake from the pushed head 71d9a472c2f, `cmuxnp-dev-vmimg-auto4-71d9a47` = `sh-e4aab9ea589146abb98e356574ffe2de`, 181.9 s, 48 apt packages = lock, root fs 4.97 GB. It carries cmux-cua 0.8.7 (store entry 26 MB; `programs-run` ran 12 commands) and the dev-only heartbeat override. Smoke PASSED (2 clones). Kept. The resize probe took 21.2 s for the call this time (172 to 208 ms in the three earlier windows): provider variance on the create critical path is real, which weakens option B of section 18 (resize after create). Option A (derived sizes) stays the fallback; decide after more samples.
+
+End to end through the development API (`scripts/cmux-next/cloud-dev-e2e.sh`, development only, refuses other origins; Worker image `auto3-1526e78`), run 2026-10-05T23:54:19Z, all steps PASS:
+
+| Step | ms | Result |
+| --- | --- | --- |
+| Stack sign-in (dogfood account) | 595 | session |
+| user.ensure | 1,878 | user_57873416b63e10546f1f |
+| cloud.machine.create | 1,875 | vm_1176120e606b07dcb20d, provisioning |
+| bound (running, host set) | 1,721 | host_0658289e81d8a0aded5a, daemon 0.1.0+4fd459691fe0 |
+| VM agent evidence | 144 | journal: machine-id regenerated, `bind: bound`; bound.json and install key 0600; machine-id marker = this clone's MMDS id |
+| install.register (cli, ES256 key made by the script) + challenge + token | 243 | inst_2c5567287fcec53625c3, token minted |
+| connect_info | 99 | host, epoch 1, running, services daemon+ssh, daemon block `0.1.0+4fd459691fe0` with `loopback-forward-v1`, `vm-agent-v1` |
+| link_token (daemon) | 78 | minted, epoch 1 |
+| pause | 353 | paused |
+| start | 275 | running |
+| VM after start | 75 | agent active |
+| delete (by this run's id) | 263 | deleted; the provider VM `cmuxnp-dev-cld-vm-1176120e606b07dcb20d` answers not found |
+
+Not yet proven, and why:
+- First report applied, change report, heartbeat: the API shows a report only when the daemon block changes, so the evidence is the agent's own log. The agent now logs every report result (`report <reason> applied|held|failed`) and writes `/run/cmux-vm-agent/state.json`; the e2e runs these steps when the snapshot's agent logs results (auto5 or later), else it records them as SKIPPED.
+- Report after start: a pause and start resumes the agent from memory (no boot, same instance id), so the agent did not report on resume. Fix: `cmux-vm-agent-resume.timer` with `OnClockChange=yes` (the provider sets the clock on resume) runs `vm-agent.ts --notify-resume`, which makes the running agent report with reason `resume`. Proven only in unit tests until auto5.
+- Idle pause: the backend acts only on reports whose daemon block has `activity` and that carry activity times. No activity sender exists yet, so the agent does not advertise `activity`; the idle-pause step is blocked on the activity feeder (cmux-tui window, section 17).
+- `cmux link dial` to the daemon: needs a darwin `cmux` binary with the link role on the operator Mac; the e2e stops at link_token.
+
+## 25. Left in this plan
+
+1. Fifth window: bake with report logging and the resume timer (auto5), smoke, then the backend switches development to auto5 and the e2e runs every report step.
+2. Activity feeder (daemon or hooks -> agent socket) and then the `activity` capability (cmux-tui window).
+3. `cmux host run` replacing `cmux-devbox-boot` (idle-CPU blocker, section 21; cmux-tui window).
+4. Session host display supervisor and per-session cgroups (section 16; cmux-tui window).
+5. Browser role: publish `cmux-browser-host`, pin Chrome for Testing, `--no-sandbox` refusal in the host, idle-flag A/B (section 4, 9).
+6. Hosted Linux CI job (section 9) after P1 to P3.
+7. Size decision A or B (section 18), with more resize samples.
+8. `cmux link dial` leg of the e2e.
+9. Delete `cmuxnp-dev-vmimg-auto1-8d111c8` only after the coordinator's OK (rollback target; no dev VM row may record it).
+
+## 26. Fifth window and the full development end to end (2026-10-06)
+
+Fifth window (00:01:24 to 00:06:55 UTC, 5.5 min): `cmuxnp-dev-vmimg-auto5-de18da6` = `sh-d16c97b11a404bf9a1a9849bd0f073bb` from the pushed head de18da6e77c (report logging, resume timer, cmux-cua 0.8.7, dev heartbeat override); bake 184.1 s; smoke PASSED; kept. No push was needed, so the main window token was released unused. The backend lead pointed development at it (Worker cb744d0a). `channels/dev.json` -> auto5; auto3 is the rollback; auto1 is kept until the coordinator's OK.
+
+End to end (`scripts/cmux-next/cloud-dev-e2e.sh`, run 2026-10-06T00:20:50Z on auto5): 17 of 17 PASS.
+
+| Step | ms | Evidence |
+| --- | --- | --- |
+| sign-in / user.ensure / create / bound | 515 / 778 / 366 / 1,133 | vm_d6e4ca9f27f0fb2c9c5e, host_d634eebd024435c6d64c |
+| VM agent evidence | 95 | machine-id per clone, `bind: bound`, keys 0600 |
+| first status.report applied | 37 | `report start applied` |
+| change report | 10,678 | a report after the activity line (logged `resume held`: see below) |
+| heartbeat, 15 s dev override | 40,394 | `heartbeat test override: 15000 ms`, `report heartbeat held` |
+| install token / connect_info / link_token | 297 / 118 / 82 | real daemon block |
+| pause / start | 320 / 226 | paused, running |
+| report after start (resume) | 15,055 | `report resume held` logged 9.8 s after start, before any exec |
+| delete | 257 | by this run's id |
+
+Findings:
+- Every provider `exec` steps the guest clock (`systemd-resolved: Clock change detected` at each exec; none in 75 s without exec on a debug clone, `cmuxnp-dev-vmimg-auto5-clockdbg`, deleted). Each step fires the OnClockChange resume timer. Production does not exec, so a resume report comes from real resumes; the harness avoids exec while it waits for the heartbeat and the resume report.
+- auto5's reporter keeps only the latest reason, so a resume relabeled the change report. Fixed (reasons merge, `change+resume`; reaches VMs with the next bake).
+- The resize probe now times the vCPU+memory call and the disk call separately, with UTC start times, to locate the next slow sample (section 18: one 21.2 s outlier in seven samples; latest 274 ms).
+- Still open: idle pause (needs the activity sender, section 27) and `cmux link dial` (needs a darwin link build).
+
+## 27. VM activity sender (design, 2026-10-06)
+
+Goal: `cloud.vm.status.report.activity` carries real `last_user_input_at`, `last_agent_action_at` and `active_sessions`, the agent advertises `activity`, and CloudDO's idle pause and the 24 h no_report rule then act on facts. No polling anywhere.
+
+Where the daemon already knows (cmux-tui-core, read 2026-10-06):
+- User input: `mux.rs` `note_terminal_input` (Send, SendKey and NoteSizeActivity from attached clients), but v2 `terminal.input.write/keys/mouse` (`resource_router/content.rs` `execute_terminal_effect`), PasteImage and browser input do not pass through it. Raw input is never journaled (spec/session-journal.md), and nothing records wall-clock time.
+- Agent action: every agent hook commit goes through `mux.rs` `append_journal_ingress` (producer `cmux_agent`), including tool use, which never reaches `AgentChanged` (`agent_state_for_hook_kind` returns None for `agent.state.changed`).
+- Sessions: `ClientRecord.attached` and `kind` (tui, web, mac, frontend) for people; `list_agents` states (Working, Blocked, Idle, Done) for agents.
+
+Design:
+1. Daemon owner: a new `mux/activity.rs` (one writer: the Mux) holds `last_user_input_at_ms`, `last_agent_action_at_ms`, `attached_clients` (attached connections whose kind is a person's client) and `live_agents` (agents Working or Blocked). Writers: `note_user_input` from `note_terminal_input` and from `execute_terminal_effect` for input effects; `note_agent_action` from `append_journal_ingress` for non-replayed `cmux_agent` commits; count updates from the attach/detach and agent-state paths.
+2. Change events, coalesced: `MuxEvent::ActivityChanged` with leading edge plus a trailing one-shot deadline at most 1 per second (keystrokes do not flood; the launch_snapshot settle pattern), never a tick.
+3. Wire: a dedicated `subscribe-activity` command in `server/activity.rs` (one delegating arm in server.rs; it has 16 lines of god-file headroom): first line `{id, ok, data: {activity}}`, then `{"event":"activity-changed","activity":{...}}` lines. Capability `vm-activity-v1` in `server/capabilities.rs`. Spec inventory, commands.md, events.md, sdk-schema and the TypeScript bindings get the new names (check-spec-inventory.py).
+4. Agent: when identify advertises `vm-activity-v1`, it keeps one subscription open (reconnect with Backoff only after a failure, e.g. a daemon re-key restart) and maps each event to `reporter.update({active_sessions: attached_clients + live_agents, last_user_input_at, last_agent_action_at})`. It advertises `activity` only while it has that subscription and the daemon advertises the capability. Reports then follow section 17 (1 per 10 s, latest wins).
+5. Privacy: times and counts only; no content, no surface ids leave the VM.
+
+Tests (red first): Rust unit tests for the activity reducer (input from an attached client sets the time; an unattached one-shot send does not; a replayed journal commit does not; counts follow attach/detach and agent states; coalescing emits leading + trailing, never more than 1 per second with a fake clock), a server wire test for `subscribe-activity`, and agent tests against a fake daemon socket (mapping, capability only with the daemon capability, reconnect after a drop). Gate: Testbox `cargo test -p cmux-tui-core activity` plus the focused hosted run. Window: cmux-tui window (server.rs arm, spec JSON and bindings change: not WINDOW-LITE).
+
+## 28. Activity sender landed; auto6 pin (2026-10-06)
+
+The daemon side landed as d4c9d5e58082 on feat-cmux-next (window f2801b6b9ddf); the focused cmux-tui.yml on it (run 37424077191) passed. The image pin is cmux-tui 4b534636000bf6075ecaef6995e29cb93a05e7ae (artifacts run 37424457494, sha256 and size checked against its manifest), not d4c9d5e58082: that commit's cmux-tui-artifacts run 37424051769 was cancelled and published nothing (files.cmux.com 404). d4c9d5e58082 is an ancestor of 4b534636000 (git merge-base --is-ancestor). Pins come from CI artifacts by commit and sha256; no GitHub release is involved.
+
+Evidence gates for this pin (coordinator conditions): the bake runs `vm-agent.ts --probe-activity` after recording daemon.json and fails unless the daemon advertises vm-activity-v1 and the agent's own ActivityWatcher connects and receives a snapshot; the smoke repeats it as `vm-activity-stream` on a clone.
+
+safe-push WINDOW-LITE: a Cargo.toml needs a window only for a cmux-tui workspace member or the workspace root (`.cmux-scratch/nx-worker/safe-push-members.py` reads `[workspace] members/exclude` at HEAD, per-component globs; fail closed). Tests: `safe-push-test.sh` cases windowlite-manifest-{nonmember,excluded,member,glob-member}. The equality with `cargo metadata --no-deps` is checked on a Testbox (`safe-push-members.py --check-cargo-metadata cmux-tui`).
+
+## 29. auto6 on development, activity proof and idle pause (2026-10-06)
+
+Development boots `cmuxnp-dev-vmimg-auto6-c9693f8` (sh-94ef280de5674a52adf18831289c37f1; Worker 77acf7c0); auto5 is the rollback. `scripts/cmux-next/cloud-dev-e2e.sh` on auto6 passed every step, including the new "activity capability reported": connect_info shows the daemon block `["loopback-forward-v1","vm-agent-v1","activity"]` after the first report.
+
+Idle pause (`web/scripts/cmux-vm-image/dev-idle-e2e.ts`, run 2026-10-06T08:17Z): the backend allows a threshold shorter than the 24 h backstop only with team policy `cloud.idlePause` (cloud-do-idle.ts), so the script turns it on for the test only, after a read-only pre-check that the team has no other machine, and restores it in `finally` within 10 minutes (rollback to the pre-test version, confirmed by team.policy.get). M1 (one attached-client input, then nothing, idle_seconds 60, 15 s dev heartbeat) was paused with `pause_reason: idle` 71.3 s after its last input; M2 (a person's attached client sending input every 20 s) stayed running. Policy restored at +131.9 s (version 2, values {}). Both machines deleted by id. Every request and response is logged in the run's requests.jsonl.
+
+Next: v2 `terminal.input.*` and browser input count as user input only from a person's attached client (server/browser_input.rs move done; origin threading into the resource router; red tests for "a person's v2 input counts" and "an agent's v2 input does not").

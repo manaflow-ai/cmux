@@ -41,12 +41,18 @@ public nonisolated protocol TerminalIO: Sendable {
     /// The user clicked a disconnected terminal (``TerminalConnectionStatus``).
     /// A daemon IO re-attaches. Ordered with `write`.
     func reconnectRequested() async
+
+    /// The surface's mirror cannot be trusted any more (a local-history
+    /// restore did not match the owner's check): a daemon IO asks for a full
+    /// snapshot. Ordered with `write`.
+    func resyncRequested() async
 }
 
 public extension TerminalIO {
     var answersTerminalQueries: Bool { true }
     func focusGained() async {}
     func reconnectRequested() async {}
+    func resyncRequested() async {}
 }
 
 /// One event from a ``TerminalIO``.

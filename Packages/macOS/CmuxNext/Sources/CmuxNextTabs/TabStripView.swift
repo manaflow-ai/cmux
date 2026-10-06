@@ -112,22 +112,9 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press { var id: TabID; var start: CGPoint }
-
-    struct Drag {
-        var id: TabID
-        var grabOffset: CGFloat
-        var originalIndex: Int
-        var currentIndex: Int
-        var isPinned: Bool
-        var lastPoint: CGPoint
-        var originalGroup: TabGroupID?
-        var targetGroup: TabGroupID?
-        var grabY: CGFloat = 0 // press y in the clip; with grabOffset, the grabbed point the hand-off keeps
-    }
-
-    var press: Press?
-    var drag: Drag?
+    typealias Drag = TabStripDrag
+    var press: TabStripPress?
+    var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
     /// Tab torn out of this strip and handed to the App's drag session. Its
@@ -190,6 +177,18 @@ public final class TabStripView: NSView {
     public override var isFlipped: Bool { true }
     public override var mouseDownCanMoveWindow: Bool { false }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    public override var acceptsFirstResponder: Bool { true }
+
+    /// F2 starts the same inline editor as a screen-tab double-click. The
+    /// strip owns this path so pane tabs and screen tabs share one editor.
+    public override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        if event.keyCode == 120, flags.isEmpty, let selectedID = model.selectedID {
+            beginInlineRename(selectedID)
+            return
+        }
+        super.keyDown(with: event)
+    }
 
     public override var intrinsicContentSize: NSSize {
         NSSize(width: NSView.noIntrinsicMetric, height: metrics.stripHeight)

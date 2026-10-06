@@ -297,11 +297,13 @@ pub fn run(opts: &Opts) -> Res<()> {
             udp_port,
             max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
             token: match opts.get("token-fd") {
-                Some(fd) => Some(crate::wire::SecretHex(
+                Some(fd) => Some(cmux_rd_proto::control::SecretHex(
                     crate::token::Token::read_fd(fd.parse()?)?.to_hex(),
                 )),
                 None => None,
             },
+            service: cmux_rd_core::service::SERVICE_DESKTOP.into(),
+            caps: Vec::new(),
         },
     )?;
     write_control(

@@ -47,6 +47,7 @@
     "notification.clear",
     "notification.create",
     "notification.list",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
@@ -208,6 +209,7 @@
       "add-screens-to-screen-group",
       "add-tabs-to-tab-group",
       "apply-layout",
+      "bind-conversation-tab-session",
       "clear-history",
       "clear-window-title",
       "client-focus",
@@ -398,10 +400,13 @@
       "url-open-subscribe",
       "url-open-claim",
       "url-open-result",
+      "terminal-clipboard-subscribe",
+      "terminal-clipboard-reply",
       "snapshot-request"
     ],
     "local-admin": [
       "server-stats",
+      "subscribe-activity",
       "set-terminal-command-history",
       "register-browser-provider",
       "get-browser-provider",
@@ -417,7 +422,21 @@
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
-      "conversation-agent-token"
+      "conversation-agent-token",
+      "browser-host-provider",
+      "cloud-session-set",
+      "cloud-session-clear",
+      "cloud-session-status",
+      "cloud-inbox-list",
+      "cloud-conversation-snapshot",
+      "cloud-conversation-history",
+      "cloud-conversation-op",
+      "cloud-inbox-subscribe",
+      "cloud-inbox-unsubscribe",
+      "cloud-conversation-subscribe",
+      "cloud-conversation-unsubscribe",
+      "conversation-attachment-upload",
+      "conversation-attachment-read"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -746,6 +765,24 @@
       ]
     },
     {
+      "name": "activity-changed",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read-cancelled",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "vt-state",
       "streams": [
         "attach-byte"
@@ -785,6 +822,42 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "cloud-conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-resynced",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-subscription-state",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
       ]
     }
   ],
@@ -1575,6 +1648,8 @@
         "TerminateAck": 21,
         "DetachAck": 22,
         "InputAck": 23,
+        "ClipboardReadRequest": 24,
+        "ClipboardReadCancel": 25,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1586,7 +1661,8 @@
         "SetCellPixelSize": 108,
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
-        "Detach": 111
+        "Detach": 111,
+        "ClipboardReadReply": 112
       }
     },
     "machine_provider_v1": {

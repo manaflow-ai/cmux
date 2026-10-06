@@ -39,6 +39,9 @@ mod turns;
 mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
+mod web_control;
+pub use web_control::Control;
+pub(crate) use web_control::ModeWrite;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -100,6 +103,9 @@ pub struct TurnInfo {
     pub prompt_id: String,
     /// Sequence of this turn's `turn_started` record.
     pub turn_seq: u64,
+    /// Who prompted (or steered) this turn. A Web turn never uses the chat
+    /// allowance: each eligible permission in it still asks.
+    pub control: Control,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -125,6 +131,8 @@ pub struct PromptOptions {
     /// example after its daemon connection closed: also look in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// The rules the prompt runs under, checked again at dispatch.
+    pub control: Control,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -200,6 +208,8 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// Web control ended: the mode left the asking table (`web_control.rs`).
+    pub(super) web_control_ended: AtomicBool,
 }
 
 impl Session {
@@ -282,6 +292,8 @@ pub struct Hub {
     pub(super) idle_pass: Mutex<()>,
     /// Hidden pre-created sessions for instant harness switches (`pool/`).
     pub(super) pool: Arc<pool::PoolState>,
+    /// The merged asking-mode table for Web connections (`web_control.rs`).
+    pub(super) web_modes: StdMutex<web_control::WebModeCache>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -351,13 +363,17 @@ impl Hub {
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
             pool: Arc::new(pool::PoolState::new()),
+            web_modes: StdMutex::new(Default::default()),
         });
+        if let Ok(c) = hub.config.try_read() {
+            hub.refresh_web_modes(&c);
+        }
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub
@@ -520,6 +536,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
+            web_control_ended: AtomicBool::new(false),
         })
     }
 

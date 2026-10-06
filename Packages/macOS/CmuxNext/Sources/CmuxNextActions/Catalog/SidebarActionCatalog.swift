@@ -27,42 +27,42 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "switchRightSidebarToFiles",
                 title: String(localized: "action.switchRightSidebarToFiles", defaultValue: "Show Files", bundle: .module),
-                keywords: ["right sidebar", "explorer"], defaultShortcut: Shortcut("1", modifiers: [.control]),
+                keywords: ["right sidebar", "explorer"],
                 category: .sidebar, symbol: "doc.text", surfaces: [.palette, .keyboard],
                 requires: [.rightSidebarFocused], cliName: "sidebar show-files"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFind",
                 title: String(localized: "action.switchRightSidebarToFind", defaultValue: "Show Find", bundle: .module),
-                keywords: ["right sidebar", "search"], defaultShortcut: Shortcut("2", modifiers: [.control]),
+                keywords: ["right sidebar", "search"],
                 category: .sidebar, symbol: "text.magnifyingglass", surfaces: [.palette, .keyboard],
                 requires: [.rightSidebarFocused], cliName: "sidebar show-find"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToSessions",
                 title: String(localized: "action.switchRightSidebarToSessions", defaultValue: "Show Vault", bundle: .module),
-                keywords: ["right sidebar", "sessions"], defaultShortcut: Shortcut("3", modifiers: [.control]),
+                keywords: ["right sidebar", "sessions"],
                 category: .sidebar, symbol: "archivebox", surfaces: [.palette, .keyboard],
                 requires: [.rightSidebarFocused], cliName: "sidebar show-vault"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
                 title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
-                keywords: ["right sidebar", "activity"], defaultShortcut: Shortcut("4", modifiers: [.control]),
+                keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
                 requires: [.rightSidebarFocused], cliName: "sidebar show-feed"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToDock",
                 title: String(localized: "action.switchRightSidebarToDock", defaultValue: "Show Dock", bundle: .module),
-                keywords: ["right sidebar"], defaultShortcut: Shortcut("5", modifiers: [.control]), category: .sidebar,
+                keywords: ["right sidebar"], category: .sidebar,
                 symbol: "dock.rectangle", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
                 cliName: "sidebar show-dock"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToMachines",
                 title: String(localized: "action.switchRightSidebarToMachines", defaultValue: "Show Cloud", bundle: .module),
-                keywords: ["right sidebar", "machines"], defaultShortcut: Shortcut("6", modifiers: [.control]),
+                keywords: ["right sidebar", "machines"],
                 category: .sidebar, symbol: "cloud", surfaces: [.palette, .keyboard], requires: [.rightSidebarFocused],
                 cliName: "sidebar show-cloud"
             ),

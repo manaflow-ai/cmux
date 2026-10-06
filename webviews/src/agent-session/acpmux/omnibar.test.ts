@@ -95,3 +95,21 @@ test("typed rows are capped and Ask is never cut", () => {
   expect(rows.length).toBe(MAX_ROWS);
   expect(rows.at(-1)?.type).toBe("ask");
 });
+
+// The original bar (NEW-TAB-PAGE-RESTORED): suggestions come from tabs, workspaces, sessions,
+// folders, commands and history; a host's files or app actions are not rows.
+test("host files and app actions are not suggested", () => {
+  const parsed = omnibarContext({
+    files: [{ path: "/src/app/README.md", title: "README" }],
+    actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+  }) as Record<string, unknown> | undefined;
+  expect(parsed?.files).toBeUndefined();
+  expect(parsed?.actions).toBeUndefined();
+  const withActions = {
+    ...context,
+    files: [{ path: "/src/app/README.md", title: "Project guide" }],
+    actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+  } as OmnibarContext;
+  expect(omnibarRows("README", "agent", withActions)).toEqual([{ type: "ask", text: "README" }]);
+  expect(omnibarRows("preferences", "agent", withActions)).toEqual([{ type: "ask", text: "preferences" }]);
+});

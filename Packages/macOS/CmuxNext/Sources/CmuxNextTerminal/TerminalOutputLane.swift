@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 import Synchronization
 import os
@@ -28,6 +29,10 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let readyRestored = Atomic<Bool>(false)
     /// Whether the last READY restored (read after ``drained()``).
     var lastReadyRestored: Bool { readyRestored.load(ordering: .acquiring) }
+    /// Result of the last local-history restore (a
+    /// `ghostty_surface_local_history_result_e`; read after ``drained()``).
+    private let localHistoryResult = Atomic<Int32>(Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue))
+    var lastLocalHistoryResult: Int32 { localHistoryResult.load(ordering: .acquiring) }
 
     private struct Backlog {
         var bytes = 0
@@ -55,6 +60,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
+            TypingLatencyProbe.shared.mark(.outputParsed)
         }
     }
 
@@ -77,6 +83,56 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
             if ready { readyRestored.store(restored, ordering: .releasing) }
             if !restored {
                 Self.logger.error("snapshot restore failed (phase \(phase.rawValue), \(data.count) bytes)")
+            }
+        }
+    }
+
+    /// Restores a READY cut at the owner's resize while keeping this
+    /// terminal's history, reflowed by Ghostty to the new grid, when it
+    /// matches the owner's check (`ghostty_surface_restore_snapshot_local_history`).
+    /// A match restores with history; a mismatch restores the READY without
+    /// history (the caller then asks for READY + history); an error changes
+    /// nothing. History of a READY before it is abandoned either way.
+    func restoreLocalHistory(_ data: Data, expectedRows: UInt64, digest: Data) {
+        backlog.withLock { $0.bytes += data.count }
+        queue.async { [self] in
+            defer { parsed(data.count) }
+            var result = Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+            defer { localHistoryResult.store(result, ordering: .releasing) }
+            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            result = data.withUnsafeBytes { bytes -> Int32 in
+                digest.withUnsafeBytes { check -> Int32 in
+                    guard let base = bytes.bindMemory(to: UInt8.self).baseAddress,
+                          let expected = check.bindMemory(to: UInt8.self).baseAddress else {
+                        return Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_ERROR.rawValue)
+                    }
+                    return Int32(ghostty_surface_restore_snapshot_local_history(
+                        surface, base, bytes.count, expectedRows, expected, check.count))
+                }
+            }
+            // A local READY replaces the old one: no history chunk may follow it.
+            readyRestored.store(false, ordering: .releasing)
+            if result != Int32(GHOSTTY_SURFACE_LOCAL_HISTORY_RESTORED.rawValue) {
+                Self.logger.error("local-history restore result \(result) (\(data.count) bytes)")
+            }
+        }
+    }
+
+    /// Applies the owner's Kitty image replay on Ghostty's trusted replay
+    /// path (`ghostty_surface_apply_kitty_replay`: its own parser, no PTY
+    /// writes; the private replay keys work only here), in stream order.
+    func applyKittyReplay(_ data: Data) {
+        guard !data.isEmpty else { return }
+        backlog.withLock { $0.bytes += data.count }
+        queue.async { [self] in
+            defer { parsed(data.count) }
+            guard let surface, !closing.load(ordering: .relaxed) else { return }
+            let applied = data.withUnsafeBytes { buffer -> Bool in
+                guard let base = buffer.bindMemory(to: UInt8.self).baseAddress else { return false }
+                return ghostty_surface_apply_kitty_replay(surface, base, buffer.count)
+            }
+            if !applied {
+                Self.logger.error("kitty replay skipped part of \(data.count) bytes")
             }
         }
     }

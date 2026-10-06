@@ -44,7 +44,7 @@ enum TabHandlers {
             guard let (pane, id) = ctx.tab(invocation) else { return }
             let tabs = pane.stripModel.orderedTabs
             guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-            pane.close(tabs[..<index].filter { !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: pane, tabs[..<index].filter { !$0.isPinned }.map(\.id))
         })
         registry.bind("duplicateTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
@@ -54,9 +54,9 @@ enum TabHandlers {
                 pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
-            } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+            } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
                 pane.duplicateAgentTab(id.rawValue)
-            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) {
+            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) || pane.tab(id)?.page != nil {
                 // One tab per page per window: the page is already there.
                 return
             } else {
@@ -86,10 +86,8 @@ enum TabHandlers {
             // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
-        registry.bind("palette.goToTab", invoke: { invocation in
-            guard let ref = invocation["tab"]?.targetValue ?? invocation.target ?? ctx.refuse(RefusalStrings.tabArgumentRequired) else { return }
-            reveal(tabID: ref.id, ctx: ctx)
-        })
+        // `palette.goToTab` is an alias of `tab.search`, which TabSearchHandlers binds (a tab target
+        // reveals the tab, as here; no target opens Search Tabs). A second bind here replaced it.
         // `cmux tab <id> focus`: the same path, by target.
         registry.bind("tab.focus", invoke: { invocation in
             guard let ref = invocation.target ?? ctx.scope(invocation).tab.map({ ActionTargetRef(kind: .tab, id: $0.id.rawValue) })

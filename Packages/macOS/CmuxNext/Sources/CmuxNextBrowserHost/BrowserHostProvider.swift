@@ -38,8 +38,11 @@ public final class BrowserHostProvider {
     /// The page agent bundle's fingerprint from the last `hello.ack`.
     public internal(set) var agentBundleSHA: String?
 
-    /// A lease started, changed or ended on a tab (nil: ended).
-    @ObservationIgnored public var onLeaseChange: ((String, ProviderLease?) -> Void)?
+    /// Consumers of lease changes (`observeLeases`), in registration order.
+    @ObservationIgnored var leaseObservers: [(id: UInt64, consumer: (String, ProviderLease?) -> Void)] = []
+    @ObservationIgnored var nextLeaseObserverID: UInt64 = 0
+    @ObservationIgnored var inputObservers: [(id: UInt64, consumer: (DriverJSON) -> Void)] = []
+    @ObservationIgnored var nextInputObserverID: UInt64 = 0
     /// The host's page agent bundle (`hello.ack`): source and fingerprint.
     @ObservationIgnored public var onAgentBundle: ((String, String) -> Void)?
     /// A tab the host knew left the app (`tab.gone` was sent).
@@ -211,7 +214,7 @@ public final class BrowserHostProvider {
         }
         // The host proves itself before the secret leaves the app: a
         // same-uid process that took the socket path first gets nothing.
-        guard credentials.hostPID > 0, let peer = link.peerPID, peer == credentials.hostPID else {
+        guard let peer = link.peerPID, credentials.acceptsPeer(peer) else {
             logger.error("browser host provider: the socket's peer is not the browser host; hello not sent")
             link.close(reason: "the socket's peer is not the browser host")
             scheduleRetry(gen)
@@ -263,7 +266,7 @@ public final class BrowserHostProvider {
         calledTargets = []
         let ended = leases.keys
         leases = [:]
-        for targetID in ended { onLeaseChange?(targetID, nil) }
+        for targetID in ended { notifyLease(targetID, nil) }
     }
 
     /// Queues a frame on the current link; dropped when there is none.

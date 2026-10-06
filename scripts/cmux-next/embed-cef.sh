@@ -32,7 +32,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist-credits"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -176,6 +176,9 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     fi
     echo "warning: no Chromium CREDITS.html for this CEF; this dev build ships without it"
   fi
+  # CEF's own LICENSE.txt (BSD-3-Clause): the artifact's, else the pinned stock
+  # copy (cef-license/README.md). Release gate: bundle-map.json.
+  "$SCRIPT_DIR/install-cef-license.sh" "$cef_dir" "$fw/Versions/A/Resources"
   ln -s A "$fw/Versions/Current"
   for item in "$FW_BINARY" Libraries Resources; do
     ln -s "Versions/Current/$item" "$fw/$item"

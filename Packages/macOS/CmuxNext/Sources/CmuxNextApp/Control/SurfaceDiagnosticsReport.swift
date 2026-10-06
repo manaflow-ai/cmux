@@ -43,6 +43,9 @@ enum SurfaceDiagnosticsReport {
                     let diagnostics = entry.session.diagnostics
                     object["snapshots"] = JSONValue(diagnostics.restoredSnapshots)
                     object["surface_swaps"] = JSONValue(diagnostics.swappedSurfaces)
+                    object["local_history_mismatch"] = JSONValue(diagnostics.localHistoryMismatches)
+                    object["local_snapshots"] = JSONValue(diagnostics.localSnapshots)
+                    object["skipped_images"] = JSONValue(diagnostics.skippedImages)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                 }
                 if case .placeholder(let view)? = row.pane.currentTabKey.flatMap(row.pane.existingContent(for:)) {

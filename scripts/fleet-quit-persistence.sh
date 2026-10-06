@@ -15,13 +15,15 @@
 # expected; 1 when a check fails that is not on the expected-fail list.
 #
 # EXPECTED FAILURES (remove a line when its fix lands; an XPASS is reported):
-#   second-quit-keeps          dialogs lead + app lifecycle (D2, plan Q3): a second Cmd-Q is ignored today
 #   dock-quit-inactive         dialogs lead + app lifecycle (G7, plan Q3): no inactive-app quit hook (debug.quit inactive)
 # The End Everything checks (end-everything-*) are NOT on this list: they
-# must pass (the home_not_closable fix).
+# must pass (the home_not_closable fix). second-quit-keeps left the list
+# after it passed on cmux-lawrence-2 (a second Cmd-Q quits and keeps the daemon).
+# The agent tab fixture (setup-agent-tab-*) must pass: when New Agent Chat
+# opens no agent tab, the run says SETUP FAILED and exits 1.
 set -euo pipefail
 
-XFAIL=(second-quit-keeps dock-quit-inactive)
+XFAIL=(dock-quit-inactive)
 
 app="" zip="" tag="" out=""
 while [ $# -gt 0 ]; do
@@ -129,8 +131,34 @@ for i in $(seq 1 60); do acp session tail qp-agent 2>/dev/null | grep -q tool_pr
 SESSION="$(acp ls --json | jq_py '[s["sessionId"] for s in d["sessions"] if s["name"]=="qp-agent"][0]')"
 agent_running() { acp ls 2>/dev/null | grep qp-agent | grep -q running; }
 check agent-in-turn "$(cond agent_running)" "session $SESSION"
-rpc_ok action.run '{"id":"palette.newAgentChat"}' >/dev/null; sleep 5
+# New Agent Chat opens the tab in the focused pane; its page loads lazily, so
+# wait (bounded) until debug.agent_pane finds it, then show the session in it.
+# A tab that does not appear is a setup failure, never a silent skip.
+setup_failed() { log "SETUP FAILED: $*"; printf 'SETUP FAILED: %s\n' "$*" >&2; }
+wait_rpc() { # wait_rpc SECONDS METHOD PARAMS GREP_RE OUTFILE
+  local i r
+  for i in $(seq 1 $(($1 * 2))); do
+    r="$(rpc_ok "$2" "$3")"; printf '%s\n' "$r" >"$5"
+    grep -Eq 'no agent tab|the page has no|returned no JSON' <<<"$r" || { grep -Eq "$4" <<<"$r" && return 0; }
+    sleep 0.5
+  done
+  return 1
+}
+# The agent tab is a store tab; a socket run changes this client's selection only with focus.
+rpc_ok action.run '{"id":"palette.newAgentChat","focus":true}' >"$out/agent-new-chat.json"
+if wait_rpc 60 debug.agent_pane '{"action":"pid"}' '"pid"' "$out/agent-tab.json"; then
+  check setup-agent-tab-opened 0 "$(tr -d '\n' <"$out/agent-tab.json" | cut -c1-200)"
+else
+  check setup-agent-tab-opened 1 "$(tr -d '\n' <"$out/agent-new-chat.json" | cut -c1-200) / $(tr -d '\n' <"$out/agent-tab.json" | cut -c1-200)"
+  setup_failed "New Agent Chat opened no agent tab in 60 s (agent-new-chat.json, agent-tab.json)"
+fi
 rpc_ok debug.agent_pane "{\"action\":\"select_session\",\"session\":\"$SESSION\"}" >"$out/agent-select.json"
+if wait_rpc 30 debug.agent_pane '{"action":"chat_state"}' "$SESSION" "$out/agent-pre.json"; then
+  check setup-agent-tab-shows-session 0 "session $SESSION"
+else
+  check setup-agent-tab-shows-session 1 "$(tr -d '\n' <"$out/agent-select.json" | cut -c1-200)"
+  setup_failed "the agent tab does not show session $SESSION in 30 s (agent-select.json, agent-pre.json)"
+fi
 
 # 4. Before ---------------------------------------------------------------------
 cli workspace list --json >"$out/pre-ws.json"

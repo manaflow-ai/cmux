@@ -1,13 +1,14 @@
 import React from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { type StringKey, useT } from "./i18n";
 import { projectLabel } from "./sessionList";
 
-/// Empty-state copy. English defaults until the host passes localized labels, as the rest of the pane does today.
+/// Empty-state copy: keys of the pane's string table.
 export const EMPTY_STATE_LABELS = {
-  prompt: "What should we build?",
+  prompt: "empty.prompt",
   /// `{project}` is replaced by the session's folder name, drawn underlined.
-  promptIn: "What should we build in {project}?",
-};
+  promptIn: "empty.promptIn",
+} as const satisfies Record<string, StringKey>;
 
 /// The hero's folder: the sidebar's project label, or nothing for no folder or the home folder.
 export function projectName(cwd: string | undefined): string | undefined {
@@ -16,12 +17,15 @@ export function projectName(cwd: string | undefined): string | undefined {
   return label === "~" ? undefined : label;
 }
 
-/// A new chat: the attached session's own summary says it has no turns yet and
-/// nothing is on screen or queued. Requiring that summary keeps the hero away while
-/// no daemon is reachable and between a session's reset and its attach. A daemon
-/// that doesn't count turns still has older history to page in for an old session.
-export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
+/// A new chat has no turns, rows or queued work. The host can identify an unsent
+/// chat before a summary exists; attached chats use their own session's summary.
+/// A daemon that doesn't count turns still exposes older history for an old session.
+export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean {
   const summary = snapshot.summary;
+  // The host knows a direct chat is new before an agent can produce a summary.
+  // Keep its conversion and project controls usable while that agent starts.
+  if (newSession && !summary && !snapshot.sessionId && !snapshot.canLoadOlder)
+    return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0;
   // A harness switch's new chat has no session yet; its summary is the one the switch draws.
   if (!summary || (summary.sessionId !== snapshot.sessionId && !snapshot.switching)) return false;
   if (/^(connecting|disconnected|failed)/.test(snapshot.connection)) return false;
@@ -31,8 +35,9 @@ export function isNewChat(snapshot: AcpmuxSnapshot): boolean {
 
 /// A new chat's hero, centered in place of the empty transcript and kept quiet:
 /// a small prompt glyph and one line naming the session's project.
-export function EmptyState({ project }: { project?: string }) {
-  const [before, after] = EMPTY_STATE_LABELS.promptIn.split("{project}");
+export function EmptyState({ project, onNew, onImport }: { project?: string; onNew?(): void; onImport?(): void }) {
+  const t = useT();
+  const [before, after] = t(EMPTY_STATE_LABELS.promptIn).split("{project}");
   return (
     <div className="acpmux-empty">
       <svg
@@ -59,9 +64,17 @@ export function EmptyState({ project }: { project?: string }) {
             {after}
           </>
         ) : (
-          EMPTY_STATE_LABELS.prompt
+          t(EMPTY_STATE_LABELS.prompt)
         )}
       </h2>
+      <div className="acpmux-empty-actions">
+        <button type="button" className="acpmux-empty-new" data-action="new" onClick={onNew}>
+          {t("empty.new")}
+        </button>
+        <button type="button" className="acpmux-empty-import" data-action="import" onClick={onImport}>
+          {t("empty.import")}
+        </button>
+      </div>
     </div>
   );
 }

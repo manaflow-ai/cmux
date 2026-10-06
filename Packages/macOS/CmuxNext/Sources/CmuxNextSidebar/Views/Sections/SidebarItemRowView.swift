@@ -19,6 +19,9 @@ final class SidebarItemRowView: NSView {
         case icon
         /// Glyph and label side by side on one line (inline), no fill at rest.
         case chip
+        /// A large glyph in a rounded well over a short centered label
+        /// (the tiles arrangement), no fill at rest.
+        case favorite
 
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
@@ -33,6 +36,8 @@ final class SidebarItemRowView: NSView {
     var isAccessoryShown: Bool { !accessoryView.isHidden }
     /// The accessory's frame while it draws (tests).
     var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The accessory glyph's tint (tests).
+    var accessoryTint: NSColor? { accessoryView.contentTintColor }
     /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
     private let accessoryView = NSImageView()
     /// Modifier-aware activation for controls whose action has a one-shot
@@ -80,6 +85,8 @@ final class SidebarItemRowView: NSView {
     var onDragEnded: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
+    /// The press's modifiers, which the release acts with (Option opens a workspace).
+    private var pressModifiers: NSEvent.ModifierFlags = []
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -120,12 +127,15 @@ final class SidebarItemRowView: NSView {
         guard info != self.info || style != self.style else { return }
         self.info = info
         self.style = style
-        title.stringValue = info.title
+        title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
-        // Icons have no room for a count: unread items show a dot at the
-        // glyph's top trailing corner (the rail, like the Codex app's).
+        title.alignment = style == .favorite ? .center : .natural
+        // Icons and tiles have no room for a count: unread items show a dot
+        // at the glyph's top trailing corner (the rail, like the Codex app's).
         let unread: UnreadState
-        if style.isIconOnly {
+        if style == .favorite {
+            unread = (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
+        } else if style.isIconOnly {
             unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
         } else {
             unread = info.badge.map(UnreadState.count) ?? UnreadState.none
@@ -134,7 +144,8 @@ final class SidebarItemRowView: NSView {
         configureAccessory(info.accessory)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.badge.map { String($0) })
-        toolTip = style.isIconOnly ? info.title : nil
+        // A tile's caption can truncate, so it keeps the full title as a tooltip.
+        toolTip = style.isIconOnly || style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -146,9 +157,16 @@ final class SidebarItemRowView: NSView {
         performWithTheme {
             ChromeHover.paint(pill, fill, animated: fadesNextFill)
             fadesNextFill = false
-            chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
+            let wells = style == .list || style == .favorite
+            // A tile's well is the raised surface on the tiles card (Safari's
+            // favorites); a list row's well is the quieter hover step.
+            let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
+            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
-            icon.contentTintColor = style == .list && info.color != nil ? Palette.textOnPrimary
+            // Again here so a theme or appearance change recolors the update control.
+            if !accessoryView.isHidden { accessoryView.contentTintColor = Palette.highlight }
+            icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
+                : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
         }
     }
@@ -173,6 +191,7 @@ final class SidebarItemRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        if style == .favorite { return layoutFavorite(b) }
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -218,6 +237,38 @@ final class SidebarItemRowView: NSView {
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
     }
 
+    /// A large tile: the glyph well centered over a one-line caption, the
+    /// pair centered in the tile. An unread item shows a dot on the well.
+    private func layoutFavorite(_ b: NSRect) {
+        title.font = SidebarStyle.subtitleFont
+        let well = SidebarStyle.favoriteWell
+        let th = ceil(title.intrinsicContentSize.height)
+        let wellFrame = NSRect(x: (b.width - well) / 2, y: max(0, (b.height - well - Metrics.space1 - th) / 2),
+                               width: well, height: well)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.frame = b
+        pill.cornerRadius = SidebarStyle.railTileCornerRadius
+        chip.frame = wellFrame
+        chip.cornerRadius = SidebarStyle.railTileCornerRadius
+        CATransaction.commit()
+        icon.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: SidebarStyle.railGlyphSize, weight: .medium))
+        let side = SidebarStyle.railIconBox
+        icon.frame = NSRect(x: wellFrame.midX - side / 2, y: wellFrame.midY - side / 2, width: side, height: side)
+        // The caption takes the tile's full width: a tile is narrow, and the
+        // tiles' gap already separates neighboring captions.
+        title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
+        let dot = SidebarStyle.dotSize
+        badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
+        accessoryView.frame = .zero
+    }
+
+    /// The caption's frame (tests).
+    var titleFrame: CGRect { title.isHidden ? .zero : title.frame }
+    /// The drawn title or caption (tests).
+    var titleText: String { title.stringValue }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -242,8 +293,8 @@ final class SidebarItemRowView: NSView {
         if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
         pressLocation = event.locationInWindow
+        pressModifiers = event.modifierFlags
         didDrag = false
-        if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
     /// The accessory takes a click a little outside its glyph.
@@ -258,13 +309,14 @@ final class SidebarItemRowView: NSView {
             return
         }
         switch accessory {
-        case .update:
-            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: Strings.updateAvailable)?
+        case .update(let title):
+            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: title)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
-            accessoryView.contentTintColor = performWithTheme { Palette.accent }
-            accessoryView.toolTip = Strings.updateAvailable
+            // The theme's call-to-action color: small, but noticeable.
+            accessoryView.contentTintColor = performWithTheme { Palette.highlight }
+            accessoryView.toolTip = title
             accessoryView.isHidden = false
-            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: Strings.updateAvailable) { [weak self] in
+            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: title) { [weak self] in
                 self?.onAccessory?()
                 return true
             }])
@@ -278,12 +330,19 @@ final class SidebarItemRowView: NSView {
         isPressed = false
     }
 
+    /// The item acts on release, like a button: a press that became a drag
+    /// (or left the item first) never opens it. Acting on the press opened
+    /// the App Store, Import and Sync or a new workspace under a tile the
+    /// user only meant to move.
     override func mouseUp(with event: NSEvent) {
-        if didDrag { onDragEnded?() }
+        let dragged = didDrag
+        if dragged { onDragEnded?() }
         pressLocation = nil
         didDrag = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
+        guard !dragged, pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return }
+        if let onPressWithModifiers { onPressWithModifiers(pressModifiers) } else { onPress?() }
     }
 
     override func rightMouseDown(with event: NSEvent) {

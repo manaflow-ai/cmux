@@ -4,10 +4,14 @@
 # CMUX_NEXT_OPTCHAT_CHIEF_BIN or the commit-addressed cache that
 # build-optchat-chief.sh fills on CI and fleet builds. It never runs Cargo.
 #
-# The Chief is an experiment (plans/cmux-next/chief.md), so a build without the
-# binary is still a valid build: Home works and the Chief does not answer.
-# Release builds never carry it. CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 (set by
-# fleet reloads) turns a missing binary into an error.
+# A build without the binary is still a valid build: Home works and the Chief
+# does not answer. Debug builds take the commit-addressed cache. A Release
+# build carries it only when CMUX_NEXT_OPTCHAT_CHIEF_BIN names the binary: the
+# nightly-next build sets it (its sign step signs every Mach-O in Resources/bin
+# with the app's Developer ID and hardened runtime); release and RC builds do
+# not, and the app starts it only on DEV and NIGHTLY (HomeBrainHost.swift).
+# CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1 (fleet reloads, nightly-next) turns a
+# missing binary into an error.
 set -euo pipefail
 
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -15,12 +19,11 @@ dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/optchat-chief"
 rm -f "$dest" "$dest.version"
 
-if [[ "${CONFIGURATION:-Debug}" == Release* ]]; then
-  echo "optchat-chief: not bundled in ${CONFIGURATION} builds"
+src="${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}"
+if [[ "${CONFIGURATION:-Debug}" == Release* && -z "$src" ]]; then
+  echo "optchat-chief: not bundled in this ${CONFIGURATION} build (CMUX_NEXT_OPTCHAT_CHIEF_BIN is unset)"
   exit 0
 fi
-
-src="${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}"
 if [[ -z "$src" ]]; then
   src="$({ "$repo_root/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path; } 2>/dev/null || true)"
 fi

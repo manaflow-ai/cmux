@@ -1,7 +1,8 @@
 import CmuxNextDesign
 
-extension SettingsSchema {
-    static var notifications: [SettingDescriptor] {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum NotificationSettingsSchema {
+    static var descriptors: [SettingDescriptor] {
         let dismissal = SettingsText.keyed("settings.group.dismissal", "Dismissal")
         let banners = SettingsText.keyed("settings.group.banners", "Banners and Sound")
         let ring = SettingsText.keyed("settings.group.attention", "Attention Ring")
@@ -120,7 +121,7 @@ extension SettingsSchema {
             SettingDescriptor(
                 ["notifications", "attention", "width"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.width", "Width"),
-                kind: .number(points(AttentionSettings.widthRange, step: 0.5)), default: .number(Double(attention.width))
+                kind: .number(SettingsSchema.points(AttentionSettings.widthRange, step: 0.5)), default: .number(Double(attention.width))
             ),
             SettingDescriptor(
                 ["notifications", "attention", "blinkCount"], section: .notifications, group: ring,

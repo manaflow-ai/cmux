@@ -1,44 +1,16 @@
-import type { Domain, EventFrame, OpFrame, OwnerFrame, Principal } from "@cmux/ownership"
-import { CloudMachineList } from "@cmux/protocol"
-import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
-import { DriverError } from "./team-vm-driver.ts"
-import { cloudConfig, cloudDriver, cloudProviderReady, type GuardedCloudDriver } from "./cloud-driver.ts"
-import { collectSuspects, OrphanSweep } from "./cloud-sweep.ts"
-import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
-import { decodeParams } from "./domains/common.ts"
-import {
-  CLOUD_PRIVATE_TABLES,
-  cloudDomain,
-  ledgerKey,
-  LEDGER_KEEP_MS,
-  publicMachine,
-  TABLE_LEDGER,
-  TABLE_MACHINE,
-  TABLE_TOMBSTONE,
-  TOMBSTONE_MS,
-  type CloudState,
-  type LedgerRow,
-  type MachineRow,
-  type TombstoneRow
-} from "./domains/cloud.ts"
+import type { OwnerFrame, Principal } from "@cmux/ownership"
+import type { ReadResult } from "./owner-do.ts"
+import { cloudDriver } from "./cloud-driver.ts"
+import { parseBindRequest, sha256Hex, type BindReply } from "./cloud-link.ts"
+import { parseSigningKeys, publicKeyset } from "./link-token.ts"
+import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from "./cloud-connect.ts"
+import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
+import { TABLE_LEDGER, TABLE_MACHINE, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
+import { statusApplied } from "./cloud-do-core.ts"
+import { CloudIdle } from "./cloud-do-idle.ts"
 
-/** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
-const REQUEST_WAIT_MS = 25_000
-const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete"])
-const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
-const forbidden = (entity: string, key: string): SubmitResult => ({
-  frames: [
-    { t: "reject", tx: "", idempotency_key: key, code: "auth.forbidden", message: "not this team's machines", retryable: false, replayed: false },
-    { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
-  ]
-})
-
-/** What subscribers see of the head: the team and its counts (pending calls stay with the owner). */
-const headView = (s: unknown) => {
-  const { team, rev, active, saved, changed } = s as CloudState
-  return { team, rev, active, saved, changed }
-}
+/** How often connect_info and link_token may read a machine's real state from the provider. */
+const STATE_CHECK_EVERY_MS = 30_000
 
 /**
  * CloudDO, one per team (plans/cmux-next/state-placement.md 5): the machine registry, the
@@ -48,30 +20,17 @@ const headView = (s: unknown) => {
  * `cloud.driver_result`. A crash between the call and that commit leaves the row pending; the
  * alarm runs it again, and the guarded driver finds the VM by its deterministic name.
  */
-export class CloudDO extends OwnerDO<CloudState> {
-  private readonly config: CloudConfig
-  private readonly flights = new Map<string, Promise<void>>()
-  /** Test only: moves the alarm's clock forward, and drops the next driver_result commits (a crash). */
-  private skewMs = 0
-  private dropResults = 0
-
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
-      rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
-      // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
-      redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
-    })
-    this.config = cloudConfig(env)
-  }
-
-  /** P3-8: a member of the team this object is bound to, also while the head has no team yet. */
-  private member(state: CloudState, p: Principal) {
-    const team = state.team ?? this.boundEntity()
-    return p.team !== undefined && team !== null && p.team === team
-  }
-
+export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
+    if (op === "cloud.machine.connect_info") {
+      if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
+      if (!this.isBound(entity)) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
+      await this.checkRealState(entity, (params ?? {}) as { machine?: string; host?: string })
+      const r = await connectInfo(entity, this.bind(entity).rows, principal, params, () => this.teamConnectServices(entity), () => this.audit)
+      return r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r
+    }
     // An object nobody created: answer from an empty head for this entity, without creating it.
     if (!this.isBound(entity)) {
       const r = this.read({ team: entity, rev: 0, active: 0, saved: 0, pending: {}, changed: null }, op, params, principal)
@@ -80,271 +39,108 @@ export class CloudDO extends OwnerDO<CloudState> {
     return super.readOp(entity, principal, op, params)
   }
 
-  /** P3-7: ops go through /v1/ops (rate limit, provider calls, answers); the socket only subscribes. */
-  protected override routeFrame(ws: WebSocket, _a: unknown, frame: { readonly t?: string }): boolean {
-    if (frame.t !== "op") return false
-    try {
-      ws.send(JSON.stringify({ t: "error", code: "validation.invalid", message: "send ops through /v1/ops" }))
-    } catch {}
-    return true
-  }
-
-  protected maySubscribe(state: CloudState, principal: Principal): boolean {
-    // Before the first bind the base checks again on the bound object, which compares the entity.
-    return this.boundEntity() === null ? principal.team !== undefined : this.member(state, principal)
-  }
-
-  protected override subscriberView(state: CloudState): unknown {
-    return headView(state)
-  }
-
-  protected read(state: CloudState, op: string, params: unknown, principal: Principal): ReadResult {
-    // CLOUD-CONNECT-ACCESS: team members read team machines; an agent reads as its principal.
-    if (!this.member(state, principal)) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
-    // P3-9: an install reads only with a grant that covers read.
-    if (principal.kind !== "session" && !principal.grant_classes?.includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
-    const rows = this.boundEngine?.rows
-    switch (op) {
-      case "cloud.machine.list": {
-        const d = decodeParams<typeof CloudMachineList.params.Type>(CloudMachineList, params)
-        if (!d.ok) return d
-        const after = d.value.cursor === undefined ? undefined : /^c[0-9]{1,15}$/.test(d.value.cursor) ? Number(d.value.cursor.slice(1)) : NaN
-        if (Number.isNaN(after)) return { ok: false, code: "validation.invalid", message: "unknown cursor" }
-        const limit = d.value.limit ?? 50
-        const page = rows?.range<MachineRow>(TABLE_MACHINE, { ...(after === undefined ? {} : { after }), limit: limit + 1 }) ?? []
-        const more = page.length > limit
-        const shown = page.slice(0, limit)
-        return { ok: true, value: { machines: shown.map((r) => publicMachine(r.row)), next_cursor: more ? `c${shown[shown.length - 1]!.n}` : null, revision: String(state.rev) }, revision: "" }
-      }
-      case "cloud.machine.get": {
-        const id = (params as { machine?: unknown } | null)?.machine
-        const row = typeof id === "string" ? rows?.get<MachineRow>(TABLE_MACHINE, id) : undefined
-        if (!row) return { ok: false, code: "cloud.machine.not_found", message: "no such machine in this team" }
-        return { ok: true, value: publicMachine(row.row), revision: "" }
-      }
-      case "cloud.plan.get":
-        return { ok: true, value: planView(teamPlan(this.config, state.team ?? principal.team), state, Date.now()), revision: "" }
-      default:
-        return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
+  /**
+   * 5.8 item 2, RPC from POST /v1/cloud/bind: the VM's bind agent spends its one-time token. The
+   * token is hashed here, so the committed op, its event and the ledger never see it. Any token
+   * problem is one auth.forbidden; an object nobody created answers the same without being created.
+   */
+  async bindMachine(entity: string, body: unknown): Promise<BindReply> {
+    const forbidden = { ok: false as const, code: "auth.forbidden", message: "bind refused" }
+    if (!this.isBound(entity)) return forbidden
+    const req = parseBindRequest(body)
+    if (!req) return { ok: false, code: "validation.invalid", message: "invalid bind request" }
+    if (req.team !== entity) return forbidden
+    // Review P2-2: check the token before anything costs the team (no limiter, no engine, no ledger
+    // row), so a caller who knows the team id can neither block the real agent nor fill the ledger.
+    // The reducer checks the same again inside the commit (single use under concurrency).
+    const token_sha256 = await sha256Hex(req.bind_token)
+    const m = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row
+    const now = Date.now() + this.skewMs
+    if (!m?.bind || !m.host_id || m.bind.spent || m.bind.token_sha256 !== token_sha256 || now > m.bind.expires_at || m.status === "deleting" || m.status === "failed") return forbidden
+    const keys = parseSigningKeys(this.env.CLOUD_LINK_SIGNING_KEYS)
+    // Without the link signing keyset a bound VM could never check a link token: refuse, token unspent.
+    if (!keys) return { ok: false, code: "owner.unreachable", message: "link signing keys are not configured on this deployment" }
+    const keyset = await publicKeyset(keys)
+    const reg = { creator: m.creator, team: entity, machine: req.machine, epoch: m.epoch ?? 1, jwk: req.install_public_jwk, ...(m.creator_sso_team ? { ssoTeam: m.creator_sso_team } : {}) }
+    this.vmRevokes.beginRegister(reg, now)
+    const vm = await registerVmInstall(this.env, reg)
+    if (!vm.ok) return (vm.code !== "owner.unreachable" && this.vmRevokes.endRegister(reg), { ok: false, code: "owner.unreachable", message: "the VM install could not be registered; retry the bind" })
+    const params = { machine: req.machine, token_sha256, wg_public_key: req.wg_public_key, daemon: req.daemon, keyset_version: keyset.version, vm_install: vm.id, now }
+    // A fresh key per attempt: a second bind with a spent token must reach the reducer and be refused, never replay.
+    const reply = this.submitSystem("cloud.machine.bind", params, `bind:${crypto.randomUUID()}`).frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t === "reject") {
+      // A retried bind (same key) keeps the install the machine already names; any other refused bind's install ends.
+      if (this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, req.machine)?.row.vm_install !== vm.id) this.vmRevokes.queue(vm.id, m.creator, "bind refused", now)
+      this.vmRevokes.endRegister(reg)
+      await this.drainRevokes(now)
+      return { ok: false, code: reply?.t === "reject" && reply.code === "validation.invalid" ? "validation.invalid" : "auth.forbidden", message: "bind refused" }
     }
-  }
-
-  /** The cloud.machine.* wire event of a committed op (contract 1.4), from the head's `changed`. */
-  protected override eventExtras(_event: EventFrame): Record<string, unknown> | undefined {
-    const engine = this.boundEngine
-    const changed = engine?.currentState.changed
-    if (!engine || !changed) return undefined
-    if (changed.removed) {
-      const t = engine.rows.get<TombstoneRow>(TABLE_TOMBSTONE, changed.machine)
-      return { event: "cloud.machine.removed", data: { machine: changed.machine, revision: t?.row.revision ?? String(engine.currentState.rev) } }
-    }
-    const row = engine.rows.get<MachineRow>(TABLE_MACHINE, changed.machine)
-    return row ? { event: "cloud.machine.upsert", data: { machine: publicMachine(row.row) } } : undefined
+    if (reply.t !== "result") return forbidden
+    this.vmRevokes.bound(req.machine, vm.id, m.creator, now)
+    this.vmRevokes.endRegister(reg)
+    await this.drainRevokes(now)
+    return { ok: true, value: { ...(reply.value as Record<string, unknown>), keyset, install: { id: vm.id, user: m.creator, grant: vm.grant } } }
   }
 
   /**
-   * Every op from the Worker. Create and delete then run their provider call and answer with its
-   * outcome: done = the committed result; still pending = mutation.indeterminate (the caller
-   * retries the same key, which replays the result and resumes the call); failed = the provider error.
+   * Coordinator decision (2026-10-05): before connect_info and link_token answer for a running record,
+   * read the VM's real state (one cheap GET). A VM powered off or paused by itself is recorded paused,
+   * a VM that is gone failed; a failed read keeps the record.
    */
-  override async submit(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    if (principal.team !== entity) return forbidden(entity, frame.idempotency_key)
-    const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
-    if (limited) return limited
-    const result = await super.submit(entity, principal, frame)
-    if (!PROVIDER_OPS.has(frame.op)) return result
-    const reply = result.frames.find((f) => f.t === "result" || f.t === "reject")
-    if (!reply || reply.t !== "result") return result
-    const key = ledgerKey(principal.identity, frame.idempotency_key)
-    const row = this.ledger(key)
-    // No provider call (a delete the tombstone answered).
-    if (!row) return result
-    if (row.state === "pending") {
-      let timer: ReturnType<typeof setTimeout> | undefined
-      await Promise.race([this.runMachine(row.machine, null), new Promise<void>((r) => (timer = setTimeout(r, REQUEST_WAIT_MS)))])
-      clearTimeout(timer)
-    }
-    const after = this.ledger(key)
-    if (after?.state === "pending") return this.refuse(result.frames, "mutation.indeterminate", "the provider call was cut off; retry with the same key", true)
-    if (after?.state === "failed") return this.refuse(result.frames, "cloud.provider.unavailable", after.error?.message ?? "the provider call failed", false)
-    return result
+  private readonly stateChecks = new Map<string, number>()
+  private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
+    const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
+    const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
+    if (!row || !driver) return
+    // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
+    const now = Date.now() + this.skewMs
+    const last = this.stateChecks.get(row.id)
+    if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    this.stateChecks.set(row.id, now)
+    const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
+    // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.
+    if (!r || (!r.gone && r.state !== "paused" && r.state !== "stopped")) return
+    this.submitSystem("cloud.machine.provider_state", { machine: row.id, state: r.gone ? null : r.state }, `provider-state:${row.id}:${this.boundEngine?.currentSeq ?? 0}`)
   }
 
-  /**
-   * P2-4: create and delete per team (CLOUD_MUTATION_LIMIT). A decided key replays and a refused
-   * principal gets its refusal without spending the budget; only new intents count.
-   */
-  private async rateLimited(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult | undefined> {
+  /** RPC from the Worker for cloud.machine.link_token: outside the op stream (no event, no ledger replay). */
+  /** RPC from the Worker for cloud.vm.status.report and cloud.vm.event.emit (VM installs, own machine only; cloud-vm.ts). */
+  async vmOp(entity: string, principal: Principal, op: string, params: unknown): Promise<VmReply> {
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    const now = Date.now() + this.skewMs
+    if (op === "cloud.vm.status.report") {
+      let applied: { machine: string; report: unknown } | undefined
+      const r = vmStatusReport(entity, principal, params, rows, this.vmStatus, (machine, report) => {
+        if (statusApplied(this.submitSystem("cloud.machine.vm_status", { machine, report, now }, `vm-status:${machine}:${now}`).frames)) {
+          this.vmStatus.markActivity(machine, report, now)
+          applied = { machine, report }
+        }
+      }, now)
+      if (applied) await this.considerIdlePause(entity, applied.machine, applied.report, now)
+      return r
+    }
+    return vmEventEmit(entity, principal, params, rows, this.vmEvents, (f) => sendEphemeral(this.ctx.getWebSockets(), f, (ws, a) => this.socketLive(ws, a as never) && a.principal.team === entity && a.principal.install_kind !== "vm"), now)
+  }
+  private readonly vmEvents = new VmEventBuckets()
+
+  async mintLinkToken(entity: string, principal: Principal, params: unknown, request: string = crypto.randomUUID()): Promise<MintReply> {
+    if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    const rows = this.isBound(entity) ? this.bind(entity).rows : undefined
+    // Review P3-6: a bound limit per install (the limiter keeps no storage in this object).
     const limit = this.env.CLOUD_MUTATION_LIMIT
-    if (!limit) return undefined
-    if (this.isBound(entity) && this.bind(entity).gate(principal, frame) !== undefined) return undefined
-    const { success } = await limit.limit({ key: `cloud:${entity}` })
-    if (success) return undefined
-    const key = frame.idempotency_key
-    return {
-      frames: [
-        { t: "reject", tx: "", idempotency_key: key, code: "cloud.rate_limited", message: "too many machine creates and deletes for this team; retry in a minute", details: { retry_after_ms: 60_000 }, retryable: true, replayed: false },
-        { t: "request-settled", tx: "", idempotency_key: key, stream: `cloud:${entity}`, sequence: 0, ok: false }
-      ]
-    }
+    if (rows && principal.install && limit && !(await limit.limit({ key: `cloud-link:${principal.install}` })).success) return { ok: false, code: "cloud.rate_limited", message: "too many link tokens; retry in a minute" }
+    // After the limiter (review P2-3).
+    if (rows && principal.kind === "install") await this.checkRealState(entity, { host: (params as { host?: string } | null)?.host })
+    const keys = parseSigningKeys(this.testLinkKeys ?? this.env.CLOUD_LINK_SIGNING_KEYS)
+    // Review P3-b: never sign an iss this deployment cannot name.
+    const environment = this.envTag()
+    if (!environment) return { ok: false, code: "owner.unreachable", message: "this deployment has no Cloud environment tag" }
+    return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
   }
 
-  private refuse(frames: ReadonlyArray<OwnerFrame>, code: string, message: string, retryable: boolean): SubmitResult {
-    return {
-      frames: frames.map((f): OwnerFrame =>
-        f.t === "result"
-          ? { t: "reject", tx: "", idempotency_key: f.idempotency_key, code, message, retryable, replayed: false }
-          : f.t === "request-settled"
-            ? { ...f, tx: "", sequence: 0, ok: false }
-            : f
-      )
-    }
-  }
-
-  private ledger(key: string): LedgerRow | undefined {
-    return this.boundEngine?.rows.get<LedgerRow>(TABLE_LEDGER, key)?.row
-  }
-
-  /** Single flight per machine: a call for a machine waits for the one running, then runs once more. */
-  private runMachine(machine: string, dueBy: number | null): Promise<void> {
-    const running = this.flights.get(machine)
-    if (running) return running.then(() => this.runMachine(machine, dueBy))
-    const flight = this.pass(machine, dueBy).finally(() => this.flights.delete(machine))
-    this.flights.set(machine, flight)
-    return flight
-  }
-
-  /** Runs the machine's pending calls in intent order (a create before a later delete); stops at a retryable failure. */
-  private async pass(machine: string, dueBy: number | null): Promise<void> {
-    for (let step = 0; step < 4; step++) {
-      const engine = this.boundEngine
-      if (!engine) return
-      // Strict intent order: the oldest pending call of the machine runs first, so a delete never
-      // overtakes a create that is still settling (P1-2).
-      const oldest = Object.entries(engine.currentState.pending)
-        .filter(([, p]) => p.machine === machine)
-        .map(([key, p]) => ({ p, r: engine.rows.get<LedgerRow>(TABLE_LEDGER, key) }))
-        .filter((x) => x.r !== undefined)
-        .sort((a, b) => (a.r!.n ?? 0) - (b.r!.n ?? 0))[0]
-      if (!oldest) return
-      const due = oldest.r!
-      const row = due.row
-      // N4: a request runs a call at once only for its first attempt; after a failure it waits for
-      // the backoff like the alarm, so fast same-key retries cannot spend the attempts.
-      const dueLimit = dueBy ?? (row.attempts === 0 ? Infinity : Date.now() + this.skewMs)
-      if (oldest.p.due_at > dueLimit) return
-      // Cancelled-create finds restart at attempt 0: their keys must differ from the create's own.
-      const commitKey = `driver:${due.n}:${row.cancel ? "c" : "a"}${row.attempts}`
-      const tag = { team: engine.currentState.team ?? "", machine: row.machine }
-      const driver = cloudDriver(this.env, this.sqlStore)
-      let result: { key: string; ok: boolean; provider_id?: string; error?: { code: string; message: string }; final?: boolean }
-      if (!driver) result = { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "no Cloud provider is configured on this deployment" }, final: true }
-      // P1-1: a create runs only for a team with a plan (the allowlist may have changed since the intent). Deletes always run: they only stop cost.
-      else if (row.op === "create" && !row.cancel && !teamPlan(this.config, tag.team)) result = { key: row.key, ok: false, error: { code: "cloud.plan.required", message: "this team has no Cloud plan" }, final: true }
-      else {
-        try {
-          if (row.op === "create" && row.cancel) {
-            const found = await driver.findOwned(row.provider_name, tag)
-            result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
-          } else if (row.op === "create") {
-            const idle = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row.idle_policy.idle_seconds ?? 0
-            result = { key: row.key, ok: true, provider_id: (await driver.ensure(row.provider_name, tag, { idleSeconds: idle })).id }
-          }
-          else result = (await driver.remove(row.provider_name, tag), { key: row.key, ok: true })
-        } catch (e) {
-          const err = e instanceof DriverError ? e : new DriverError("cloud.provider.unavailable", String(e), false)
-          // Only the step, status and provider code: never the key or a provider message body.
-          console.warn(JSON.stringify({ msg: "cloud provider call failed", stream: engine.stream, op: row.op, machine: row.machine, attempt: row.attempts + 1, code: err.code, error: err.message }))
-          result = { key: row.key, ok: false, error: { code: err.code, message: err.message }, final: err.final }
-        }
-      }
-      if (this.env.ENVIRONMENT === "test" && this.dropResults > 0) {
-        this.dropResults--
-        return
-      }
-      this.submitSystem("cloud.driver_result", result, commitKey)
-      if (!result.ok) return
-    }
-  }
-
-  protected override nextWakeAt(state: CloudState, _now: number): number | null {
-    // Pending calls resolve even without a provider (they fail final), so they always count.
-    const times = Object.values(state.pending).map((p) => p.due_at)
-    const prune = this.pruneAt(state)
-    if (prune !== null) times.push(prune)
-    // The cancelled-create lookups and the sweep need the provider: with none (key, prefix or image
-    // removed), their overdue times would re-fire the alarm at once, forever (third review P2-1).
-    if (cloudProviderReady(this.env)) {
-      times.push(...Object.values(state.watch ?? {}).map((w) => w.due_at))
-      if (this.hasRows()) times.push(this.sweep.dueAt() ?? Date.now())
-    }
-    return times.length ? Math.min(...times) : null
-  }
-
-  protected override async onWake(realNow: number): Promise<void> {
-    const engine = this.boundEngine
-    if (!engine) return
-    const now = realNow + this.skewMs
-    const machines = new Set(Object.values(engine.currentState.pending).filter((p) => p.due_at <= now).map((p) => p.machine))
-    for (const m of machines) await this.runMachine(m, now)
-    if ((this.pruneAt(engine.currentState) ?? Infinity) <= now) this.submitSystem("cloud.prune", { now }, `prune:${now}`)
-    const driver = cloudDriver(this.env, this.sqlStore)
-    const team = engine.currentState.team
-    if (!driver || !team) return
-    await this.lookUpCancelled(now, team, driver)
-    // N5: only while the team has machine, ledger or tombstone rows.
-    if (this.hasRows()) await this.sweep.maybeRun(now, team, engine.stream, () => collectSuspects(driver, team, engine.rows))
-  }
-
-  /**
-   * N1: the hourly lookup of each cancelled create's recorded name for 24 h. A VM there whose
-   * metadata names this team and this machine is deleted by that recorded ledger name; any other VM
-   * there is reported (metadata_mismatch) and never deleted. Deletion is only by ledger name, never
-   * from a list.
-   */
-  private async lookUpCancelled(now: number, team: string, driver: GuardedCloudDriver): Promise<void> {
-    const engine = this.boundEngine
-    if (!engine) return
-    for (const [key, w] of Object.entries(engine.currentState.watch ?? {})) {
-      if (w.due_at > now) continue
-      const stored = engine.rows.get<LedgerRow>(TABLE_LEDGER, key)
-      if (!stored) continue
-      const l = stored.row
-      let outcome: "absent" | "deleted" | "mismatch" = "absent"
-      try {
-        const vm = await driver.peek(l.provider_name)
-        if (vm && vm.tag.cmux_next_team === team && vm.tag.cmux_next_machine === l.machine) {
-          await driver.remove(l.provider_name, { team, machine: l.machine })
-          outcome = "deleted"
-        } else if (vm) {
-          console.error(JSON.stringify({ level: "error", event: "cloud.orphan.suspect", stream: engine.stream, team, name: l.provider_name, provider_id: vm.id, reason: "metadata_mismatch" }))
-          outcome = "mismatch"
-        }
-      } catch (e) {
-        // A failed lookup counts as absent: the next one comes an hour later, inside the same window.
-        console.warn(JSON.stringify({ msg: "cloud late-VM lookup failed", stream: engine.stream, machine: l.machine, error: e instanceof Error ? e.message : String(e) }))
-      }
-      this.submitSystem("cloud.watch_result", { key, outcome, now }, `watch:${stored.n}:${now}`)
-    }
-  }
-
-  private get sweep(): OrphanSweep {
-    return (this.sweepStore ??= new OrphanSweep(this.sqlStore))
-  }
-  private sweepStore: OrphanSweep | null = null
-
-  private hasRows(): boolean {
-    const rows = this.boundEngine?.rows
-    return Boolean(rows) && [TABLE_MACHINE, TABLE_LEDGER, TABLE_TOMBSTONE].some((t) => rows!.range(t, { limit: 1 }).length > 0)
-  }
-
-  /** When the next prune is due: the oldest tombstone past 30 days, or a finished ledger row past 7 (abandoned and watched rows stay). */
-  private pruneAt(state: CloudState): number | null {
-    const rows = this.boundEngine?.rows
-    const tomb = rows?.range<TombstoneRow>(TABLE_TOMBSTONE, { limit: 1 })[0]
-    const finished = rows?.range<LedgerRow>(TABLE_LEDGER, { limit: 50 }).find((l) => l.row.state !== "pending" && l.row.state !== "abandoned" && !state.watch?.[l.key])
-    const times = [tomb ? tomb.row.deleted_at + TOMBSTONE_MS : null, finished ? finished.row.updated_at + LEDGER_KEEP_MS : null].filter((t): t is number => t !== null)
-    return times.length ? Math.min(...times) : null
+  /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */
+  private teamConnectServices(entity: string): Promise<ReadonlyArray<string>> {
+    return this.teamCloudPolicy(entity).then((p) => p.connect_services)
   }
 
   /**
@@ -370,9 +166,20 @@ export class CloudDO extends OwnerDO<CloudState> {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string } }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.unset) this.testUnset = new Set(cmd.unset)
+    if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys
+    if (cmd.fail_revokes !== undefined) this.failRevokes = cmd.fail_revokes
+    if (cmd.snapshot_delete_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET snapshot_delete_refuse = ? WHERE id = 1`, cmd.snapshot_delete_refuse)
+    if (cmd.power_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_refuse = ? WHERE id = 1`, cmd.power_refuse)
+    if (cmd.vm_state) this.stateChecks.clear()
+    if (cmd.vm_state) this.sqlStore.exec(`UPDATE cloud_fake_vm SET state = ? WHERE name = ?`, cmd.vm_state.state, cmd.vm_state.name)
+    if (cmd.image_size) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET image_cpu = ?, image_memory = ?, image_storage = ? WHERE id = 1`, cmd.image_size.cpu, cmd.image_size.memory, cmd.image_size.storage)
+    if (cmd.resize_partial !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_partial = ? WHERE id = 1`, cmd.resize_partial)
+    if (cmd.resize_refuse !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET resize_refuse = ? WHERE id = 1`, cmd.resize_refuse)
+    if (cmd.power_then_fail !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET power_then_fail = ? WHERE id = 1`, cmd.power_then_fail)
     if (cmd.fail_next !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_next = ? WHERE id = 1`, cmd.fail_next)
     if (cmd.drop_results !== undefined) this.dropResults = cmd.drop_results
     if (cmd.fail_list !== undefined) this.sqlStore.exec(`UPDATE cloud_fake_ctl SET fail_list = ? WHERE id = 1`, cmd.fail_list ? 1 : 0)
@@ -382,8 +189,10 @@ export class CloudDO extends OwnerDO<CloudState> {
       const t = { cmux_next_team: cmd.add_vm.team, cmux_next_machine: cmd.add_vm.machine }
       this.sqlStore.exec(`INSERT INTO cloud_fake_vm (name, id, tag, idle) VALUES (?, ?, ?, NULL)`, cmd.add_vm.name, `fs-${cmd.add_vm.name}`, JSON.stringify(t))
     }
-    const ctl = this.sqlStore.exec<{ creates: number; deletes: number }>(`SELECT creates, deletes FROM cloud_fake_ctl WHERE id = 1`)[0]!
-    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null }>(`SELECT name, id, idle FROM cloud_fake_vm ORDER BY name`)
-    return { creates: ctl.creates, deletes: ctl.deletes, vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), now: Date.now() + this.skewMs }
+    const ctl = this.sqlStore.exec<{ creates: number; deletes: number; pauses: number; starts: number; resizes: number; state_reads: number; power_calls: number }>(`SELECT creates, deletes, pauses, starts, resizes, state_reads, power_calls FROM cloud_fake_ctl WHERE id = 1`)[0]!
+    const vms = this.sqlStore.exec<{ name: string; id: string; idle: number | null; cpu: number; memory: number; snapshot: string | null }>(`SELECT name, id, idle, cpu, memory, snapshot FROM cloud_fake_vm ORDER BY name`).map((v) => ({ ...v, cpu: Number(v.cpu), memory: Number(v.memory) }))
+    const snapshots = this.sqlStore.exec<{ slug: string; source: string }>(`SELECT slug, source FROM cloud_fake_snapshot ORDER BY slug`)
+    const files = this.sqlStore.exec<{ vm: string; path: string; content: string; mode: number }>(`SELECT vm, path, content, mode FROM cloud_fake_file ORDER BY vm`).map((f) => ({ ...f, mode: Number(f.mode) }))
+    return { files, audit: this.audit.list(), creates: ctl.creates, deletes: ctl.deletes, pauses: Number(ctl.pauses), starts: Number(ctl.starts), resizes: Number(ctl.resizes), state_reads: Number(ctl.state_reads), power_calls: Number(ctl.power_calls), vms, pending: Object.keys(this.boundEngine?.currentState.pending ?? {}).length, suspects: this.sweep.suspects(), sweep_at: this.sweep.at(), vm_revokes: this.vmRevokes.pending(), snapshots, now: Date.now() + this.skewMs }
   }
 }

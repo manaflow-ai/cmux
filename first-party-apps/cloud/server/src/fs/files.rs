@@ -176,7 +176,7 @@ pub(crate) fn write(
         }
         None => params["mode"] = json!("overwrite"),
     }
-    let answer = d.call("fs.write", params)?;
+    let answer = d.write(params, bytes.len() as u64)?;
     Ok(answer["entry"]["revision"].as_str().map(str::to_owned))
 }
 

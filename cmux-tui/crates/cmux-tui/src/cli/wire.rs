@@ -58,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -420,12 +420,19 @@ fn run_response(
                         localize_operation_error(plan, &mut error);
                     }
                     key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
                 key_report.succeeded();
                 if !plan.stream {
-                    let code = print_success(&result, global.output);
+                    let shown = match global.output {
+                        OutputMode::Human => human_view(plan, &result),
+                        _ => std::borrow::Cow::Borrowed(&result),
+                    };
+                    let code = print_success(&shown, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
                 if result.get("stream_id").and_then(Value::as_str) != expected_stream_id {
@@ -500,7 +507,7 @@ fn run_response(
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
@@ -528,6 +535,7 @@ pub(super) fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -555,6 +563,31 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// What the human table shows for a result. `workspace list --order
+/// personal` adds an ORDER column (the row's place in the returned order),
+/// because INDEX stays the session order.
+fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    let personal = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
+    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    match result.as_array() {
+        Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .enumerate()
+                .map(|(order, row)| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("order".into(), json!(order));
+                    }
+                    row
+                })
+                .collect(),
+        )),
+        _ => std::borrow::Cow::Borrowed(result),
+    }
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -874,7 +907,7 @@ fn human_key_rank(key: &str) -> usize {
         "title" => 2,
         "kind" => 3,
         "state" => 4,
-        "lifecycle" => 5,
+        "lifecycle" | "order" => 5,
         "index" => 6,
         "focused" => 7,
         "running" => 8,
@@ -927,6 +960,9 @@ pub(super) fn resolve_socket_with_env(
     }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
+
+mod hints;
+pub(super) use hints::connect_failure;
 
 #[cfg(test)]
 mod tests;

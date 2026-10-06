@@ -30,6 +30,15 @@ import WebKit
         }
 
         func activateAutomationTab(_ id: BrowserTabID) {}
+
+        /// Tabs a session's end closed (`tabs.close {reason: session_end}`).
+        var sessionEndCloses: [String] = []
+        /// Whether the app closes the next session-end tab.
+        var closesSessionEndTabs = true
+        func endSessionTab(_ id: String) -> Bool {
+            sessionEndCloses.append(id)
+            return closesSessionEndTabs
+        }
     }
 
     struct NonPersistentStores: WebsiteDataStoreFactory {
@@ -107,5 +116,23 @@ import WebKit
             ]))
         }
         #expect(error?.code == .timeout)
+    }
+
+    /// A session's end closes the tabs it created through the app's store close (both engines),
+    /// marked so closed history leaves them out; the driver never looks for a WebKit page first.
+    @Test func aSessionEndCloseGoesToTheAppForEitherEngine() async throws {
+        let provider = FakeProvider()
+        let driver = WebKitDriver(provider: provider)
+        let opened = try await driver.call(method: "tabs.open", params: .object([:]))
+        guard case .object(let fields) = opened, case .string(let webKit)? = fields["targetId"] else {
+            Issue.record("tabs.open returned \(opened)")
+            return
+        }
+        _ = try await driver.call(method: "tabs.close",
+                                  params: .object(["targetId": .string(webKit), "reason": .string("session_end")]))
+        // A Chromium tab has no WebKit page here: the close still reaches the app.
+        _ = try await driver.call(method: "tabs.close",
+                                  params: .object(["targetId": .string("tab_chromium"), "reason": .string("session_end")]))
+        #expect(provider.sessionEndCloses == [webKit, "tab_chromium"])
     }
 }

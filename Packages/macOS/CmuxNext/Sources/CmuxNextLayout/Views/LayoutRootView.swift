@@ -34,10 +34,9 @@ public final class LayoutRootView: NSView {
     /// coordinates; nil when nothing is highlighted. The drag session flies
     /// the ghost to it, so the ghost lands where the preview showed (R47).
     public internal(set) var tabDragHighlightOnScreen: CGRect?
-    /// Called after every overlay sync: a layout pass or an animation frame
-    /// moved panes (column scroll spring, divider drag). One subscriber: the
-    /// App's agent cursor visibility source. Not called while nothing moves.
-    public var onOverlaySync: (() -> Void)?
+    /// Overlay sync observers by id (`observeOverlaySync`).
+    var overlaySyncObservers: [Int: () -> Void] = [:]
+    var nextOverlaySyncObserver = 0
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
@@ -161,6 +160,15 @@ public final class LayoutRootView: NSView {
                 if snapshot != self.lastSnapshot { self.sync(snapshot) }
             }
         }
+    }
+
+    /// Mirrors the model now instead of on the observation's next turn.
+    /// The App calls it after applying a daemon tree, so the frame that
+    /// shows a workspace (or a split, close or new tab in it) already has
+    /// its panes and tab strips; the observation then finds nothing new.
+    public func syncWithModel() {
+        let current = snapshot()
+        if current != lastSnapshot { sync(current) }
     }
 
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }

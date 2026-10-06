@@ -209,13 +209,18 @@ impl Inner {
             "loadState": tab.load_state(),
             "viewport": {"width": tab.viewport.0, "height": tab.viewport.1},
             "deviceScaleFactor": tab.device_scale_factor,
+            "closedRoots": tab.closed_root_stats.to_json(),
         }))
     }
 
     pub(super) fn set_viewport(&self, params: &Value) -> Result<Value, DriverError> {
         let session = self.session(params)?;
         if params.get("reset").and_then(Value::as_bool) == Some(true) {
-            self.send(&session, "Emulation.clearDeviceMetricsOverride", json!({}))?;
+            // Back to the hidden-tab size on headless; an app tab's own size.
+            match self.hidden_viewport_step() {
+                Some((method, args)) => self.send(&session, method, args)?,
+                None => self.send(&session, "Emulation.clearDeviceMetricsOverride", json!({}))?,
+            };
             return Ok(Value::Null);
         }
         let width = required_f64(params, "width")?;

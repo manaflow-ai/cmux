@@ -11,6 +11,9 @@ import CmuxNextSettings
 enum DebugOmnibar {
     static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let bar = addressBar(params, services: services) else { return .object(["error": .string("no browser pane")]) }
+        // `press_row`: press that suggestion row (its click path) before the report.
+        var pressed: JSONValue = .null
+        if let row = params["press_row"]?.intValue { pressed = .bool(bar.debugPressRow(row)) }
         let snapshot = bar.debugSnapshot
         func range(_ value: NSRange?) -> JSONValue {
             guard let value else { return .null }
@@ -30,7 +33,19 @@ enum DebugOmnibar {
             "copy_text": snapshot.copyText.map(JSONValue.string) ?? .null,
             "profile_badge": bar.profileBadgeName.map(JSONValue.string) ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
+            "pressed_row": pressed,
+            "card": bar.debugCard.map { card in
+                .object([
+                    "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar),
+                    "card_in_window": rect(card.cardInWindow), "bar_in_window": rect(card.barInWindow),
+                    "row_kinds": .array(card.rowKinds.map(JSONValue.string)),
+                ])
+            } ?? .null,
         ])
+    }
+
+    private static func rect(_ rect: NSRect) -> JSONValue {
+        .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
     #if DEBUG

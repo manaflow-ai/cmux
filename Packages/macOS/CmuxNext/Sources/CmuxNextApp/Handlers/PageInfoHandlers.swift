@@ -9,7 +9,15 @@ import CmuxNextBrowser
 enum PageInfoHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in PageInfoCommand.actionIDs {
-            registry.bind(ActionID(rawValue: id), run: { invocation in
+            let actionID = ActionID(rawValue: id)
+            // Disabled for the focused page (menu, palette, action.run), e.g.
+            // Turn On Certificate Warnings Again where WebKit knows no Proceed.
+            let reason: @MainActor (ActionInvocation) -> String? = { invocation in
+                guard let entry = try? context.page(invocation),
+                      let command = try? PageInfoCommand.from(actionID: id, arguments: [:]) else { return nil }
+                return entry.chrome.pageInfo.unavailableReason(for: command)
+            }
+            registry.bind(actionID, unavailable: { reason(ActionInvocation()) }, run: { invocation in
                 let entry = try context.page(invocation)
                 var arguments: [String: String] = [:]
                 for (name, value) in invocation.arguments {
@@ -21,6 +29,8 @@ enum PageInfoHandlers {
                     throw ActionFailure(message: error.message)
                 }
             })
+            // An explicit target (the bubble's own tab, a tab's context menu).
+            ActionTargetReasons.set(actionID, in: registry, reason)
         }
     }
 

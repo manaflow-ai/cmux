@@ -84,9 +84,15 @@ final class ScopedCommandExecutor: ControlActionExecutor {
         return await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
     }
 
-    func waitUntil(_ condition: () -> Bool) async {
-        let end = ContinuousClock.now + .seconds(5)
+    /// Waits up to 5 s; a timeout records an Issue at the caller with the time waited.
+    func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ condition: () -> Bool) async {
+        let start = ContinuousClock.now
+        let end = start + .seconds(5)
         while !condition(), ContinuousClock.now < end { await Task.yield() } // test-only wait
+        if !condition() {
+            Issue.record("waitUntil timed out after \(ContinuousClock.now - start): the condition at \(sourceLocation.fileName):\(sourceLocation.line) never held",
+                         sourceLocation: sourceLocation)
+        }
     }
 
     @Test func waitsForTheScopeThenForTheSnapshotAndReportsCreatedPublicIDs() async throws {

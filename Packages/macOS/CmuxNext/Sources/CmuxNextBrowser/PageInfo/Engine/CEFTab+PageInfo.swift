@@ -55,7 +55,8 @@ extension CEFTab: PageInfoProviding {
     public func pageInfoLivePermissions(origin: String) async -> [SitePermissionKind: SitePermissionSetting] {
         guard let browserID else { return [:] }
         var result: [SitePermissionKind: SitePermissionSetting] = [:]
-        for kind in supportedSitePermissions {
+        // Automatic downloads are cmux's (`AutomaticDownloadGate`), not Chromium's.
+        for kind in supportedSitePermissions where kind != .automaticDownloads {
             guard let value = runtime.contentSetting(browserID, url: origin, kind: kind),
                   value != runtime.contentSetting(browserID, url: nil, kind: kind),
                   let setting = value.siteSetting else { continue }
@@ -104,9 +105,10 @@ extension CEFTab: PageInfoProviding {
     }
 
     /// The default value clears Chromium's exception ("Ask (default)");
-    /// others store one.
+    /// others store one. Automatic downloads stay with cmux's gate, which
+    /// reads the shared store itself (`leaveAutomaticDownloadsToCmux`).
     private func applyToChromium(_ kind: SitePermissionKind, _ setting: SitePermissionSetting, origin: String) {
-        guard let browserID else { return }
+        guard let browserID, kind != .automaticDownloads else { return }
         let value: CEFContentSetting = setting == kind.defaultSetting ? .default : CEFContentSetting(setting)
         runtime.setContentSetting(browserID, url: origin, kind: kind, value: value)
     }

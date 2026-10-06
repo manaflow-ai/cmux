@@ -23,6 +23,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
+            // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
+            // does not apply. The CLI prints the same list (`cmux ghostty
+            // diagnostics`, the app's `ghostty.diagnostics`).
+            ActionDescriptor(
+                id: "ghostty.showDiagnostics",
+                title: String(localized: "action.ghostty.showDiagnostics", defaultValue: "Show Ghostty Config Diagnostics", bundle: .module),
+                keywords: ["ghostty", "config", "diagnostics", "unsupported", "keybind", "problems"], category: .settings,
+                symbol: "exclamationmark.triangle", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "palette.makeDefaultBrowser",
                 title: String(localized: "action.palette.makeDefaultBrowser", defaultValue: "Make cmux the Default Browser", bundle: .module),
@@ -75,6 +84,18 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 id: "palette.installCLI",
                 title: String(localized: "action.palette.installCLI", defaultValue: "Install cmux CLI in PATH", bundle: .module),
                 keywords: ["command line", "shell"], category: .settings, symbol: "terminal", surfaces: [.palette],
+                // Another app's `cmux` at /usr/local/bin is never replaced
+                // silently: `--replace` replaces it, `--cmux_next` installs
+                // /usr/local/bin/cmux-next beside it; without either the app
+                // asks.
+                arguments: [
+                    ActionArgument(name: "replace",
+                                   title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                    ActionArgument(name: "cmux_next",
+                                   title: String(localized: "argument.installCLI.cmuxNext", defaultValue: "Install as cmux-next", bundle: .module),
+                                   kind: .bool, isRequired: false),
+                ],
                 cliName: "settings install-cli-in-path"
             ),
             ActionDescriptor(
@@ -94,6 +115,24 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "updates.whatsNew",
+                title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
+                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "announcements.show",
+                title: String(localized: "action.announcements.show", defaultValue: "Show Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings show-announcements"
+            ),
+            ActionDescriptor(
+                id: "announcements.hide",
+                title: String(localized: "action.announcements.hide", defaultValue: "Hide Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings hide-announcements"
             ),
             ActionDescriptor(
                 id: "palette.applyUpdateIfAvailable",
@@ -132,6 +171,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.importClassicSessions", defaultValue: "Import Classic cmux Sessions…", bundle: .module),
                 keywords: ["classic", "session", "workspace", "restore", "import"], category: .settings, symbol: "arrow.down.doc",
                 surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
+            ),
+            ActionDescriptor(
+                id: "importAndSync.show",
+                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
+                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
+                symbol: "square.and.arrow.down", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
                 id: "palette.onboardingGallery",

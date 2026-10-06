@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as both `userdata` and
@@ -34,6 +35,8 @@ nonisolated enum TerminalOutgoing: Sendable {
     case focusGained
     /// The user clicked a disconnected terminal: re-attach.
     case reconnect
+    /// The mirror needs a full snapshot from the owner.
+    case resync
 }
 
 /// Ordered hand-off from Ghostty's IO thread to the async `TerminalIO.write`.
@@ -58,6 +61,10 @@ nonisolated struct TerminalInputSink: Sendable {
         continuation.yield(.reconnect)
     }
 
+    func resync() {
+        continuation.yield(.resync)
+    }
+
     func focusGained() {
         continuation.yield(.focusGained)
     }
@@ -71,5 +78,6 @@ nonisolated struct TerminalInputSink: Sendable {
 /// to the session's ordered writer.
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
+    TypingLatencyProbe.shared.mark(.ioWrite)
     bridge.input.send(Data(bytes: bytes, count: Int(length)))
 }

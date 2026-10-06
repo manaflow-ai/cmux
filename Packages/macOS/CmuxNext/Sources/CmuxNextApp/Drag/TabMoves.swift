@@ -40,7 +40,8 @@ enum TabMoves {
     /// Tab page with the dragged tab's engine and profile. Nil when the
     /// kind cannot respawn: remote-terminal references, daemon-rendered
     /// browser tabs, incognito tabs (their URL must stay out of the daemon),
-    /// and app-local tabs (agent chats), which are not daemon tabs.
+    /// conversation tabs (Home and agent chats, whose source is one
+    /// conversation or session), and app-local tabs, which are not daemon tabs.
     @MainActor
     static func respawn(for tab: TabModel, in pane: PaneModel, services: AppServices) -> SplitRespawn? {
         switch tab.kind {
@@ -207,7 +208,9 @@ enum TabMoves {
     }
 
     /// What `NewWorkspaceName` reads from `tab`: the browser's live page
-    /// title comes from the app's renderer, the rest from the store.
+    /// title comes from the app's renderer, the rest from the store. An
+    /// incognito page's title stays in memory (R102): the daemon stores the
+    /// workspace name and keeps it in closed history.
     static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
         let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
         case .pty: .terminal
@@ -216,8 +219,9 @@ enum TabMoves {
         // A conversation or a kind this app does not know: its title still names it.
         case .conversation, .other: .terminal
         }
-        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title,
-                                    pageTitle: tab.kind == .browser ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil,
+        let offTheRecord = tab.kind == .browser && services.cache.browserTabs?.isIncognitoTab(tab.id) == true
+        let pageTitle = tab.kind == .browser && !offTheRecord ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title, pageTitle: pageTitle,
                                     url: tab.url, cwd: tab.cwd)
     }
 

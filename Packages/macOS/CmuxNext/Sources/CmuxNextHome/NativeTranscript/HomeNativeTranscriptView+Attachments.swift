@@ -23,6 +23,7 @@ extension HomeNativeTranscriptView {
         transcript.onCancelSend = { [weak binding] key in binding?.cancelSend(key) ?? false }
         transcript.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
         binding.onRefusal = { [weak self] _, rejection in self?.showRefusal(rejection) }
+        binding.onSendNotDelivered = { [weak self] _, rejection in self?.showNotDelivered(rejection) }
         binding.onUnanswered = { [weak self] intent in self?.showUnanswered(intent) }
         registerForDraggedTypes(HomeAttachmentIntake.dragTypes)
     }
@@ -124,6 +125,12 @@ extension HomeNativeTranscriptView {
     /// upload, a resend after backoff): `HomeStoreBinding.onRefusal`.
     public func showRefusal(_ rejection: HomeRejection) {
         showNotice(HomeStrings.rejection(rejection))
+    }
+
+    /// One of my sends was refused after it was logged (its row says "Not
+    /// Delivered", `HomeStoreBinding.onSendNotDelivered`): say why.
+    public func showNotDelivered(_ rejection: HomeRejection) {
+        showNotice(HomeStrings.notDeliveredReason(rejection))
     }
 
     /// An op (a tapback, a read cursor) ran out of resends unanswered

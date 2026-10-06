@@ -1,10 +1,14 @@
 import Foundation
 import os
+import Synchronization
 
 /// Attach-connection lines to channel events (byte replay and snapshot
 /// attach).
 extension TerminalAttachment {
     private static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
+    /// Attach lines of a known event kind that failed to decode (a wire
+    /// contract drift); diagnostics and tests.
+    static let undecodableLines = Atomic<Int>(0)
 
     private struct VTState: Decodable {
         var surface: SurfaceID?
@@ -54,10 +58,26 @@ extension TerminalAttachment {
         /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
         var compression: String?
         var rawBytes: Int?
+        /// A local-history READY: `history: "local"` with the host's check.
+        var history: String?
+        var historyRows: UInt64?
+        var historyDigest: String?
+        var skippedImages: Int?
 
         enum CodingKeys: String, CodingKey {
-            case surface, phase, generation, offset, version, cols, rows, colors, data, compression
+            case surface, phase, generation, offset, version, cols, rows, colors, data, compression, history
             case rawBytes = "raw_bytes"
+            case historyRows = "history_rows"
+            case historyDigest = "history_digest"
+            case skippedImages = "skipped_images"
+        }
+
+        /// The check of a local-history READY; nil (a plain READY whose
+        /// history is lost) when it is missing or malformed.
+        var localHistory: TerminalLocalHistoryCheck? {
+            guard phase == "ready", history == "local", let historyRows,
+                  let digest = historyDigest.flatMap(TerminalLocalHistoryCheck.digest(hex:)) else { return nil }
+            return TerminalLocalHistoryCheck(rows: historyRows, digest: digest)
         }
     }
 
@@ -103,7 +123,7 @@ extension TerminalAttachment {
             case "snapshot":
                 let snapshot = try decoder.decode(Snapshot.self, from: line)
                 guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
-                      phase == .history || (snapshot.cols != nil && snapshot.rows != nil)
+                      phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
                 else { return nil }  // A READY without its grid cannot lock the mirror's grid.
                 // An unknown codec or a bad chunk would corrupt the restore: refused.
                 guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
@@ -117,7 +137,8 @@ extension TerminalAttachment {
                 }
                 return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
                     phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors, data: data)))
+                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
+                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
                 guard scoped(output.surface) else { return nil }
@@ -150,6 +171,10 @@ extension TerminalAttachment {
                 return nil
             }
         } catch {
+            // Never silent: a known event the view cannot decode is a contract
+            // drift with the host. Kind and count only, no payload.
+            let count = undecodableLines.add(1, ordering: .relaxed).newValue
+            decodeLogger.error("attach line \(name, privacy: .public) failed to decode (\(count) so far)")
             return nil
         }
     }

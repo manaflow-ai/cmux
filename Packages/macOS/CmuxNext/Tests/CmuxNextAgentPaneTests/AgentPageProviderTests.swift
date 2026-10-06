@@ -36,12 +36,27 @@ import Testing
         #expect(!PageDescriptor.agent.owns(URL(string: "cmux-agent://pane/")))
     }
 
-    /// The page reaches acpmux on loopback and shows loopback previews; nothing else on the network.
+    /// The page opens no connection (the native transport carries acpmux) and shows only loopback
+    /// previews; nothing else on the network.
     @Test func theAgentPageCSPAllowsOnlyLoopback() {
         let header = PageDescriptor.agent.csp.header
-        #expect(header.contains("connect-src ws://127.0.0.1:* ws://localhost:*"))
+        #expect(header.contains("connect-src 'none'"))
         #expect(header.contains("frame-src http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"))
         #expect(header.hasPrefix("default-src 'none'"))
+    }
+
+    /// The header is the one webviews/test/agent-pane-locale.test.ts serves the built pane with,
+    /// so that test proves the locale files load under the app's real policy.
+    @Test func theAgentPageCSPIsTheOneThePaneLocaleTestServes() throws {
+        let fixture = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // CmuxNextAgentPaneTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // CmuxNext
+            .deletingLastPathComponent() // macOS
+            .deletingLastPathComponent() // Packages
+            .deletingLastPathComponent() // repo root
+            .appending(path: "webviews/test/fixtures/agent-page-csp.txt")
+        #expect(PageDescriptor.agent.csp.header == (try String(contentsOf: fixture, encoding: .utf8)))
     }
 
     /// The page reaches nothing outside its namespace: no shared native op, no other page's ops.
@@ -73,6 +88,23 @@ import Testing
         #expect(box.prepared == [.ready])
         _ = await call(router, "cmux.agent.handshake", ["reconnect": true])
         #expect(box.prepared.last == .reconnect)
+    }
+
+    @Test func blankChatProjectControlsReachTheSharedPageHost() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), allowsTabConversion: true)
+        model.onListProjects = { _ in ["/project"] }
+        model.onBrowseProject = { "/chosen" }
+        var imported = false
+        model.onImportAndSync = { imported = true }
+        let (router, _) = router(model)
+
+        let listed = await call(router, "cmux.agent.project.list")
+        #expect(listed["value"]?["projects"] == .array([.string("/project")]))
+        let browsed = await call(router, "cmux.agent.project.browse")
+        #expect(browsed["value"]?["cwd"]?.stringValue == "/chosen")
+        let reply = await call(router, "cmux.agent.onboarding.importAndSync")
+        #expect(reply["t"]?.stringValue == "ok")
+        #expect(imported)
     }
 
     @Test func sessionPersistRecordsTheSession() async {

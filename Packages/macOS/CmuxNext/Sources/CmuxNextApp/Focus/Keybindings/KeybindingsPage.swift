@@ -5,7 +5,8 @@ import CmuxNextSettings
 
 extension PageDescriptor {
     /// The Keyboard Shortcuts editor (R59): cmux-page://cmux.keybindings/.
-    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", namespaces: ["cmux.keybindings."])
+    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", namespaces: ["cmux.keybindings."],
+                                            ownsSearchField: true)
 }
 
 extension InternalPageID {

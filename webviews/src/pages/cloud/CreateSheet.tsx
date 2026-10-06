@@ -10,7 +10,7 @@ import type { Strings } from "../shared/i18n";
 import { formatMegabytes, memoryChoices, plain } from "./model";
 import { PlanNotice } from "./Notices";
 import type { CloudState, CloudStore, CreateDraft } from "./store";
-import { format, L } from "./strings";
+import { errorText, format, L } from "./strings";
 
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
 
@@ -108,10 +108,15 @@ export function CreateSheet({
             })}
           </p>
         )}
-        {draft.refusal && <PlanNotice store={store} refusal={draft.refusal} strings={strings} />}
+        {draft.refusal && <PlanNotice refusal={draft.refusal} strings={strings} />}
+        {draft.blocked === "no_snapshot_configured" && (
+          <p className="cloud-sheet-error cloud-create-blocked" role="alert">
+            {t(L.noSnapshotConfigured)}
+          </p>
+        )}
         {draft.error && (
           <p className="cloud-sheet-error" role="alert">
-            {t(L.actionFailed)} <span className="cloud-error-detail">{draft.error}</span>
+            {t(L.actionFailed)} <span className="cloud-error-detail">{errorText(draft.error, draft.errorCode, t)}</span>
           </p>
         )}
         <div className="cloud-sheet-actions">

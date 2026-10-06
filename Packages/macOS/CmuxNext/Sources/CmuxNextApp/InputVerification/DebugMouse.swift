@@ -84,7 +84,7 @@ enum DebugMouse {
             // Hover: tracking-area owners get the events at once (DebugHover).
             let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
-                            "delivered": .number(Double(delivered))])
+                            "delivered": .number(Double(delivered)), "crossings": .array(DebugHover.lastCrossings.map(JSONValue.string))])
         default:
             return .object(["error": .string("unknown action \(action)")])
         }

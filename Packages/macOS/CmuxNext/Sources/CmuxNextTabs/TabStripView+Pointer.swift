@@ -135,7 +135,7 @@ extension TabStripView {
             }
             // Select on mouse down.
             if model.selectedID != id { model.send(.select(id)) }
-            press = Press(id: id, start: point)
+            press = TabStripPress(id: id, start: point)
             return
         }
         // Between tabs or trailing buttons: the strip's, never the window's.
@@ -289,8 +289,7 @@ extension TabStripView {
     func showNewTabMenu() {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
-        let frame = convert(newTabButton.frame, from: newTabButton.superview)
-        let origin = NSPoint(x: frame.minX, y: isFlipped ? frame.maxY + 2 : frame.minY - 2)
+        let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
         beginMenuTracking(menu)
         menu.popUp(positioning: nil, at: origin, in: self)
         endMenuTracking()

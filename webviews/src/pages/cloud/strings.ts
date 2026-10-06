@@ -66,6 +66,12 @@ export const L = {
   planRequired: "error.planRequired",
   quotaExceeded: "error.quotaExceeded",
   sizeLocked: "error.sizeLocked",
+  noSnapshotConfigured: "error.noSnapshotConfigured",
+  notRunning: "error.notRunning",
+  notPaused: "error.notPaused",
+  machineBusy: "error.machineBusy",
+  sizeGrowOnly: "error.sizeGrowOnly",
+  linkInstallRefused: "error.linkInstallRefused",
   seePlans: "plan.seePlans",
   createLimit: "create.limit",
   createLimitReached: "create.limitReached",
@@ -126,4 +132,19 @@ export type StringKey = (typeof L)[keyof typeof L];
 /** Fills `{name}` placeholders. Missing values stay visible as `{name}`. */
 export function format(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{([a-z]+)\}/g, (match, name: string) => (name in values ? String(values[name]) : match));
+}
+
+/** Server codes the page shows as its own sentence instead of the backend text (`errorText`). */
+const ERROR_SENTENCES: Record<string, string> = {
+  "cmux.cloud.not_running": L.notRunning,
+  "cmux.cloud.not_paused": L.notPaused,
+  "cmux.cloud.machine_busy": L.machineBusy,
+  "cmux.cloud.size_grow_only": L.sizeGrowOnly,
+  "cmux.cloud.link_install_refused": L.linkInstallRefused,
+};
+
+/** The text of a failure: the page's localized sentence for a known code, else the error's message. */
+export function errorText(error: string, code: string | undefined, t: (key: string) => string): string {
+  const key = code ? ERROR_SENTENCES[code] : undefined;
+  return key ? t(key) : error;
 }

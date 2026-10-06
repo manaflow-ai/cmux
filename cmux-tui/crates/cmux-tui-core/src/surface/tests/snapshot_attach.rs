@@ -178,8 +178,8 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let pty = surface.as_pty().unwrap();
     let cap = DEFAULT_VIEWER_BACKLOG_BYTES;
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), cap).unwrap();
-    let first = surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), cap, false).unwrap();
+    let first = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     stream.requests.sent(Instant::now());
 
     let file =
@@ -214,7 +214,7 @@ fn flood_with_a_slow_snapshot_viewer_stays_bounded_and_resyncs() {
     // The viewer drains: its next event is a snapshot, not the backlog.
     assert!(is_snapshot(&next_event(&stream.receiver)));
     let resync_started = Instant::now();
-    let last = surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let last = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     let resync_elapsed = resync_started.elapsed();
     assert!(last.offset >= first.offset + fed as u64, "offset counts every published byte");
     let host = surface.encode_terminal_snapshot(SnapshotPhase::Ready).unwrap();
@@ -268,7 +268,8 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
     let pty = surface.as_pty().unwrap();
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
     // An OSC longer than the 1 MiB snapshot continuation budget.
     {
         let mut term = pty.term.lock().unwrap();
@@ -278,7 +279,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver).is_err());
+    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_err());
     stream.receiver.defer_snapshot();
     // The sequence ends; the next output brings the snapshot back.
     {
@@ -287,7 +288,7 @@ fn snapshot_encode_waits_for_an_oversized_escape_sequence_to_finish() {
         pty.broadcast_attach_output(&normalized);
     }
     assert!(is_snapshot(&next_event(&stream.receiver)));
-    assert!(surface.take_viewer_snapshot(&stream.receiver).is_ok());
+    assert!(surface.take_viewer_snapshot(&stream.receiver, None).is_ok());
     drop(stream);
     surface.kill();
 }
@@ -297,8 +298,9 @@ fn only_a_grid_change_resyncs_a_snapshot_viewer() {
     let mux = Mux::new_for_test("snapshot-grid-only", SurfaceOptions::default());
     let surface =
         Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-    let stream = surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20).unwrap();
-    surface.take_viewer_snapshot(&stream.receiver).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
     let (generation, _) = surface.snapshot_stream_position().unwrap();
     let (width, height) = surface.cell_pixel_size();
     surface.set_cell_pixel_size(width + 1, height + 1).unwrap();
@@ -383,4 +385,186 @@ fn a_burst_of_grid_changes_queues_one_snapshot() {
         receiver.recv_viewer_event(&interrupt, Some(Instant::now())).is_err(),
         "nothing else is queued after the one snapshot"
     );
+}
+
+// ---- terminal-snapshot-local-history-v1 -------------------------------
+
+fn local_ready(generation: u64, offset: u64, cols: u16) -> Arc<LocalReadySnapshot> {
+    Arc::new(LocalReadySnapshot {
+        frame: TerminalSnapshotFrame {
+            generation,
+            offset,
+            version: 1,
+            cols,
+            rows: 20,
+            data: vec![0; 64],
+            history: Vec::new(),
+            colors: TerminalColors::default(),
+            marker_epoch: 0,
+            active_top_marker: 0,
+            images: None,
+        },
+        history_rows: 7,
+        history_digest: vec![0xab; 32],
+    })
+}
+
+fn resized(cols: u16) -> AttachFrame {
+    AttachFrame::Resized {
+        cols,
+        rows: 20,
+        replay: Arc::from(&b"replay"[..]),
+        kitty_image_aliases: Vec::new(),
+        kitty_state: KittyReplayState::default(),
+        pending_sequence: Arc::from([]),
+    }
+}
+
+fn local_viewer(backlog: usize) -> (AttachTap, AttachFrameReceiver) {
+    let (tap, receiver) = AttachTap::snapshot_pair(AttachLifecycle::default(), 64, backlog);
+    receiver.set_local_history(true);
+    (tap, receiver)
+}
+
+fn expect_output(event: ViewerEvent, expected: &[u8]) {
+    match event {
+        ViewerEvent::Frame(AttachFrame::Output(bytes)) => assert_eq!(bytes, expected),
+        other => panic!("expected output {expected:?}, got {other:?}"),
+    }
+}
+
+fn expect_local(event: ViewerEvent) -> Arc<LocalReadySnapshot> {
+    match event {
+        ViewerEvent::LocalReady(ready) => ready,
+        other => panic!("expected a local READY, got {other:?}"),
+    }
+}
+
+/// A caught-up local-history viewer keeps every frame before the resize,
+/// then the local READY, then the frames after it.
+#[test]
+fn a_resize_queues_a_local_ready_after_the_pending_frames() {
+    let (tap, receiver) = local_viewer(1 << 20);
+    receiver.finish_snapshot_locked();
+    assert!(tap.wants_local_ready());
+    assert!(tap.try_send(AttachFrame::Output(b"before".to_vec())));
+    let ready = local_ready(1, 6, 60);
+    tap.resync_snapshot_at_cut(Some(&ready));
+    assert!(tap.try_send(AttachFrame::Output(b"after".to_vec())));
+    expect_output(next_event(&receiver), b"before");
+    assert!(Arc::ptr_eq(&expect_local(next_event(&receiver)), &ready));
+    expect_output(next_event(&receiver), b"after");
+    assert_eq!(receiver.resyncs(), 0);
+}
+
+/// With replay viewers attached the resize carries a replay frame; a
+/// local-history viewer still gets the local READY in order, not a resync.
+#[test]
+fn a_resize_frame_reaches_a_local_history_viewer_as_its_local_ready() {
+    let (tap, receiver) = local_viewer(1 << 20);
+    receiver.finish_snapshot_locked();
+    assert!(tap.try_send(AttachFrame::Output(b"before".to_vec())));
+    let ready = local_ready(1, 6, 60);
+    assert!(tap.try_send_resize(resized(60), Some(&ready)));
+    expect_output(next_event(&receiver), b"before");
+    assert!(Arc::ptr_eq(&expect_local(next_event(&receiver)), &ready));
+    assert_eq!(receiver.resyncs(), 0);
+}
+
+/// A burst of resizes queues one local READY per resize, in order.
+#[test]
+fn a_burst_of_resizes_queues_one_local_ready_each() {
+    let (tap, receiver) = local_viewer(1 << 20);
+    receiver.finish_snapshot_locked();
+    let readies: Vec<_> =
+        (0..10u16).map(|step| local_ready(1 + u64::from(step), 0, 60 + step)).collect();
+    for ready in &readies {
+        tap.resync_snapshot_at_cut(Some(ready));
+    }
+    for ready in &readies {
+        assert!(Arc::ptr_eq(&expect_local(next_event(&receiver)), ready));
+    }
+    let interrupt = StreamInterrupt::new();
+    assert!(receiver.recv_viewer_event(&interrupt, Some(Instant::now())).is_err());
+}
+
+/// A viewer that is behind (a snapshot pending or deferred) keeps the
+/// READY with history at a later cut.
+#[test]
+fn a_behind_local_history_viewer_resyncs_by_snapshot() {
+    let ready = local_ready(1, 0, 60);
+    // The attach snapshot is still pending.
+    let (tap, receiver) = local_viewer(1 << 20);
+    assert!(!tap.wants_local_ready());
+    tap.resync_snapshot_at_cut(Some(&ready));
+    assert!(is_snapshot(&next_event(&receiver)));
+    receiver.finish_snapshot_locked();
+    assert!(matches!(receiver.try_recv(), Err(TryRecvError::Empty)));
+    // A deferred snapshot.
+    let (tap, receiver) = local_viewer(1 << 20);
+    receiver.defer_snapshot();
+    assert!(!tap.wants_local_ready());
+    assert!(tap.try_send_resize(resized(60), Some(&ready)));
+    assert!(is_snapshot(&next_event(&receiver)));
+}
+
+/// A local READY over the viewer's backlog cap is an overflow: the viewer
+/// resyncs by snapshot instead.
+#[test]
+fn a_local_ready_over_the_backlog_cap_resyncs() {
+    let (tap, receiver) = local_viewer(1024);
+    receiver.finish_snapshot_locked();
+    let mut big = local_ready(1, 0, 60);
+    Arc::get_mut(&mut big).unwrap().frame.data = vec![0; 4096];
+    tap.resync_snapshot_at_cut(Some(&big));
+    assert_eq!(receiver.resyncs(), 1);
+    assert!(is_snapshot(&next_event(&receiver)));
+}
+
+/// A viewer that did not opt in resyncs exactly as before.
+#[test]
+fn a_viewer_without_local_history_ignores_local_readies() {
+    let (tap, receiver) = AttachTap::snapshot_pair(AttachLifecycle::default(), 64, 1 << 20);
+    receiver.finish_snapshot_locked();
+    assert!(!tap.wants_local_ready());
+    let ready = local_ready(1, 0, 60);
+    assert!(tap.try_send(AttachFrame::Output(b"dropped".to_vec())));
+    assert!(tap.try_send_resize(resized(60), Some(&ready)));
+    assert_eq!(receiver.resyncs(), 1);
+    assert!(is_snapshot(&next_event(&receiver)));
+}
+
+// ---- terminal-snapshot-images-v1 --------------------------------------
+
+/// The images of a READY are encoded at its cut with the viewer's cap: an
+/// image over the cap is counted in `skipped_images`, and a viewer without
+/// images gets none.
+#[test]
+fn viewer_snapshot_images_respect_the_cap_and_the_opt_in() {
+    let mux = Mux::new_for_test("snapshot-images-cap", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let stream =
+        surface.attach_snapshot_stream(AttachLifecycle::default(), 1 << 20, false).unwrap();
+    // Two placed 4x4 RGBA images (64 decoded bytes each).
+    let pixels = format!("{}AA==", "A".repeat(84));
+    for id in [1, 2] {
+        let image = format!("\x1b_Ga=T,t=d,f=32,i={id},p=1,s=4,v=4,c=2,r=1,q=2;{pixels}\x1b\\\r\n");
+        surface.inject_output_for_test(image.as_bytes());
+    }
+    let stored = surface
+        .with_terminal(|term| term.kitty_graphics_snapshot().map(|graphics| graphics.images.len()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored, 2, "the host stores both images");
+
+    let none = surface.take_viewer_snapshot(&stream.receiver, None).unwrap();
+    assert!(none.images.is_none(), "no images without the opt-in");
+    let all = surface.take_viewer_snapshot(&stream.receiver, Some(u64::MAX)).unwrap();
+    let all = all.images.expect("images at the cut");
+    assert_eq!((all.stats.images, all.stats.skipped_images), (2, 0), "{:?}", all.stats);
+    assert_eq!(all.data, surface.encode_kitty_replay_for_test(u64::MAX).unwrap().0);
+    let capped = surface.take_viewer_snapshot(&stream.receiver, Some(64)).unwrap();
+    let capped = capped.images.expect("images at the cut");
+    assert_eq!((capped.stats.images, capped.stats.skipped_images), (1, 1), "{:?}", capped.stats);
 }

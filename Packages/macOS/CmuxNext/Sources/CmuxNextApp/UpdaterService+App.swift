@@ -1,3 +1,5 @@
+import CmuxNextActions
+import CmuxNextPages
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -15,6 +17,11 @@ extension UpdaterService {
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         showsIndicator = { [weak services] in services?.sidebarLayout.document.firstItem(with: .builtIn(.settings)) != nil }
         isSheetPresented = { sheet.isPresented }
+        openChangelog = { [weak services] in services.map { ChangelogPageTab.open($0) } ?? false }
+        runAllowListedAction = { [weak services] id in
+            guard PageDescriptor.changelogTryItActions.contains(id) else { return }
+            _ = services?.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+        }
         // Agents in a turn hold a click's install (R114); daemon events
         // update the store, the observation re-reads it.
         let store = services.machines.local.store
@@ -44,8 +51,10 @@ extension UpdaterService {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            for await updates in Observations({ settings.snapshot.updates }) {
+            for await (updates, announcements) in Observations({ (settings.snapshot.updates, settings.snapshot.announcements) }) {
                 self?.apply(updates)
+                self?.announcementsFetch = announcements.fetch
+                if self?.announcementsEnabled != announcements.enabled { self?.announcementsEnabled = announcements.enabled }
             }
         }
     }
@@ -53,8 +62,7 @@ extension UpdaterService {
     func apply(_ updates: UpdatesSettings) {
         let preferences = UpdatePreferences(
             installOnQuit: updates.installOnQuit,
-            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .card,
-            quietHours: updates.quietHours.map { UpdateQuietHours(start: $0.start, end: $0.end) },
+            notify: UpdateNotifyMode(rawValue: updates.notify.rawValue) ?? .badge,
             keepPreviousVersions: updates.keepPreviousVersions)
         if self.preferences != preferences { self.preferences = preferences }
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,

@@ -6,6 +6,7 @@ import { ageLabel, recentSessions } from "../NewTabPage";
 import { matchScore, type OmnibarContext } from "../omnibar";
 import { sessionMark } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
+import { type Translate, translate } from "../i18n";
 
 export type ScreenAgent = { id: string; name: string };
 
@@ -111,12 +112,16 @@ export type ChatCard = {
 };
 
 /// The newest chats, the ones waiting on the user first; a dropped chat is an error card.
-export function recentChatCards(sessions: AcpmuxSnapshot["sessions"], now = Date.now()): ChatCard[] {
+export function recentChatCards(
+  sessions: AcpmuxSnapshot["sessions"],
+  now = Date.now(),
+  t: Translate = translate,
+): ChatCard[] {
   return recentSessions(sessions, CHAT_CARD_COUNT).map((session) => ({
     sessionId: session.sessionId,
     title: session.displayTitle ?? session.sessionId,
     ...(session.harness ? { harness: session.harness } : {}),
-    age: ageLabel(session.updatedAt, now),
+    age: ageLabel(session.updatedAt, now, t),
     ...(session.preview ? { message: session.preview } : {}),
     state: sessionMark(session, false) ?? "idle",
   }));
