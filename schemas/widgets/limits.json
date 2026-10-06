@@ -19,13 +19,15 @@
     "messageMaxBytes": 65536,
     "messagesPerSecond": 200,
     "firstPaintTimeoutMs": 3000,
-    "heartbeatIntervalMs": 500,
-    "heartbeatMissedLimit": 2,
+    "heartbeatIntervalMs": 100,
+    "heartbeatMissedLimit": 3,
     "liveCodeFrames": 3,
     "agentMessageMaxBytes": 8192,
     "agentEventMaxBytes": 4096,
     "fileReadMaxBytes": 1048576,
-    "urlMaxChars": 2048
+    "urlMaxChars": 2048,
+    "widgetProcessMemoryMaxBytes": 536870912,
+    "widgetProcessSampleMs": 100
   },
   "settings": {
     "codeWidgetsSettingKey": "agentPane.widgets.code"

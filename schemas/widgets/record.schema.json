@@ -79,7 +79,7 @@
       "minProperties": 1,
       "properties": {
         "quarantined": {
-          "anyOf": [{ "enum": ["hang", "crash", "first_paint", "rate", "digest"] }, { "type": "null" }]
+          "anyOf": [{ "enum": ["hang", "memory", "crash", "first_paint", "rate", "digest"] }, { "type": "null" }]
         },
         "collapsed": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] }
       }

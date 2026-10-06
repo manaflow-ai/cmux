@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.com/schemas/widgets/bridge.schema.json",
   "title": "cmux.widget.bridge/1",
-  "description": "The message protocol between the agent pane (host) and one code widget frame (view). Handshake: the pane creates a MessageChannel and posts one window message, initEnvelope, with the second port to the frame's contentWindow. After that, every message goes over that port only, and the pane ignores window messages from the frame. Messages are JSON-RPC 2.0 and use the MCP Apps (SEP-1865, 2026-01-26) method names where the spec has one; cmux additions use the cmux/ prefix. The bridge version is fixed per port by the ui/initialize negotiation, so a message does not repeat it. The pane validates every view message against viewMessage and drops one that does not match (a request with an id gets an error response). Caps in limits.json (bridge): compact JSON size per message, messages per second (over the rate the pane closes the port and marks the widget quarantined: rate), heartbeat. No message grants a capability by itself: a capability is a cmux/cap/request (or ui/open-link, ui/message) that the Swift host checks against a user gesture credit and the session roots.",
+  "description": "The message protocol between the host and one code widget (view). The transport is one private channel per widget. v1 (decision D12 item 2, spike W0): each live code widget is its own WKWebView with its own WebContent process; the channel is that view's native script message handler, and the Swift host validates every message against this schema and relays the allowed ones to the agent pane. (An in-pane frame variant uses a MessageChannel port: the pane posts initEnvelope with the port once and then ignores window messages from the frame.) The first host message on a channel is initEnvelope. Messages are JSON-RPC 2.0 and use the MCP Apps (SEP-1865, 2026-01-26) method names where the spec has one; cmux additions use the cmux/ prefix. The bridge version is fixed per port by the ui/initialize negotiation, so a message does not repeat it. The host validates every view message against viewMessage and drops one that does not match (a request with an id gets an error response). Caps in limits.json (bridge): compact JSON size per message, messages per second (over the rate the host closes the channel and marks the widget quarantined: rate), heartbeat, widget process memory. No message grants a capability by itself: a capability is a cmux/cap/request (or ui/open-link, ui/message) that the Swift host checks against a user gesture credit and the session roots.",
   "$defs": {
     "initEnvelope": {
-      "description": "Window message, pane to frame, sent once with the port in the transfer list. It holds nothing secret (the target origin of an opaque-origin frame must be *).",
+      "description": "The first host message on a channel, sent once. In the in-pane frame variant it is a window message with the port in the transfer list. It holds nothing secret (the target origin of an opaque-origin frame must be *).",
       "type": "object",
       "additionalProperties": false,
       "required": ["t", "versions"],
@@ -654,7 +654,7 @@
       }
     },
     "heartbeatRequest": {
-      "description": "Host to view every heartbeatMs. Our runtime (not the agent document) answers with the same seq. After limits.bridge.heartbeatMissedLimit missed answers the pane removes the frame and marks the widget quarantined: hang.",
+      "description": "Host to view every heartbeatMs (limits.bridge.heartbeatIntervalMs). Our runtime (not the agent document) answers with the same seq. After limits.bridge.heartbeatMissedLimit missed answers the host ends the widget's WebContent process (SIGKILL of its pid; removing the view alone leaves a busy process running) and marks the widget quarantined: hang. Above limits.bridge.widgetProcessMemoryMaxBytes (sampled every widgetProcessSampleMs) it does the same with quarantined: memory.",
       "type": "object",
       "additionalProperties": false,
       "required": ["jsonrpc", "id", "method", "params"],

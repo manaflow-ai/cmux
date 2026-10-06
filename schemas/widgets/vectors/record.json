@@ -445,6 +445,22 @@
       }
     },
     {
+      "name": "pane annotation: quarantine after the memory cap",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.html",
+        "flags": {
+          "quarantined": "memory"
+        }
+      }
+    },
+    {
       "name": "pane annotation: Run again clears the quarantine",
       "schema": "record.schema.json",
       "valid": true,
