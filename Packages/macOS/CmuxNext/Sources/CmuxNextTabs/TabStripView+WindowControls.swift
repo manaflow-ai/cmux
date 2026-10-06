@@ -30,7 +30,7 @@ extension TabStripView {
                                      sidebarHidden: Bool = false) -> CGFloat {
         // The corner reveal makes the traffic lights visible while the sidebar is hidden. Keep
         // the strip anchored during that hover; the controls' fade must not reflow its tabs.
-        let lights = sidebarHidden ? nil : lights
+        guard !sidebarHidden else { return 0 }
         let obstacles = (collapsed ? [] : [lights, accessory]).compactMap { $0 }.filter { frame in
             strip.minY < frame.maxY && strip.maxY > frame.minY && strip.minX < frame.maxX && strip.maxX > frame.minX
         }
