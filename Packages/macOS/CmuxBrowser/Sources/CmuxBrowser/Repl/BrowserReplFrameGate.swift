@@ -405,10 +405,15 @@ public final class BrowserReplFrameGate {
     }
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
-    /// force, or its local documents are judged (``scope``).
+    /// force, its local documents are judged (``scope``), or one of its
+    /// frames loaded a page cmux serves from local files
+    /// (``BrowserReplDocumentProvenance/hasLoadedAppServedPage(in:)``).
     public func isActive(in webView: WKWebView) -> Bool {
         let (authority, tab) = authority(in: webView)
-        return authority.isActive(in: tab)
+        if authority.isActive(in: tab) { return true }
+        // A frame of the web view loaded a page cmux serves from local files,
+        // which the authority refuses in any tab, policy or not.
+        return authority.fileRoots != nil && tab != nil && BrowserReplDocumentProvenance.hasLoadedAppServedPage(in: webView)
     }
 
     /// Why a frame of `webView` that shows `document` is refused
@@ -430,16 +435,27 @@ public final class BrowserReplFrameGate {
     /// no file, so an opaque document is judged by its makers
     /// (``BrowserReplDocumentProvenance``, which passes an opaque maker's
     /// own makers on).
+    /// Why a session may not read `document` in any tab, or nil: a page
+    /// cmux serves from local files, a document of its origin
+    /// (``BrowserReplFileSandbox/appServedRefusal(url:documentOrigin:)``),
+    /// or an opaque document such a page made.
+    nonisolated public static func appServedBlockReason(_ document: BrowserReplFrameDocument) -> String? {
+        guard document.isOpaque else {
+            return BrowserReplFileSandbox.appServedRefusal(url: document.place, documentOrigin: document.origin)
+        }
+        for case .page(let page) in document.makers ?? [] {
+            if let reason = appServedBlockReason(page) {
+                return "a \(document.place.dropLast(3)): document made by \(page.place): \(reason)"
+            }
+        }
+        return nil
+    }
+
     nonisolated public static func localBlockReason(_ document: BrowserReplFrameDocument, roots: [String]) -> String? {
         if let local = document.local {
             return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
         }
-        // A page of cmux's own URL scheme (its place names the scheme), or a
-        // document of its origin under another URL.
-        if !document.isOpaque, let reason = BrowserReplFileSandbox.localPageRefusal(url: document.place, documentOrigin: document.origin, roots: roots) {
-            return reason
-        }
-        guard document.isOpaque else { return nil }
+        guard document.isOpaque else { return appServedBlockReason(document) }
         let kind = "a \(document.place.dropLast(3)): document"
         guard let makers = document.makers, !makers.isEmpty else {
             return "\(kind) of an opaque origin whose maker cmux cannot tell, which may be a local file the session may not read; navigate the frame to another page"

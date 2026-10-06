@@ -714,10 +714,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   URL (an `about:blank` page a file page wrote). A page cmux serves through
   its own URL scheme (`cmux-diff-viewer:`, which streams the local files a
   diff registered), or a document of such a page's origin, counts as a
-  local file outside those directories, whatever they are: the session's
-  reads and input on a user's tab that shows one are refused, a tab the
-  session created never loads one in any frame, and a load or a landed
-  page on one is refused. A document of an opaque
+  local file outside those directories, whatever they are and with no
+  domain policy in force: the session's reads, input and captures of a
+  frame that shows one are refused in any tab (a user's tab on one, or a
+  frame a script put into a web page, which WebKit loads; the frame gate
+  judges every frame of a web view once one of its frames loaded such a
+  page), a tab the session created never loads one in any frame, and a
+  load or a landed page on one is refused. A document of an opaque
   origin whose URL names no host (a `data:` page or frame, a `blob:` of an
   opaque origin, a sandboxed `about:srcdoc`) is judged there by the
   documents that made it, as under the domain policy below: it is refused

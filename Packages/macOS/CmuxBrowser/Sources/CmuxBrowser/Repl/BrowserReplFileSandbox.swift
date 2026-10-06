@@ -215,11 +215,26 @@ public struct BrowserReplFileSandbox: Sendable {
         if documentOrigin?.lowercased() == "file://" {
             return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
         }
-        let originScheme = documentOrigin.flatMap { URL(string: $0)?.scheme?.lowercased() }
-        if let served = [scheme, originScheme].compactMap({ $0 }).first(where: isAppServedScheme) {
-            return "the tab shows a page cmux serves from local files through its own \(served): scheme, which a REPL session may not read; open files inside the session's directories with tabs.open"
+        return appServedRefusal(url: url, documentOrigin: documentOrigin)
+    }
+
+    /// Why a session may not read a page at `url`, or a document of
+    /// `documentOrigin`, that cmux serves from local files (``isAppServed(_:)``),
+    /// or nil. It is refused in any tab, under any roots and whatever the
+    /// domain policy: no root of the session granted those files.
+    public static func appServedRefusal(url: String, documentOrigin: String?) -> String? {
+        for candidate in [url, documentOrigin].compactMap({ $0 }) {
+            guard let parsed = URL(string: candidate), isAppServed(parsed) else { continue }
+            return "the tab shows a page cmux serves from local files (\(parsed.scheme?.lowercased() ?? "")), which a REPL session may not read; open files inside the session's directories with tabs.open"
         }
         return nil
+    }
+
+    /// Whether cmux itself serves `url` from local files: a URL of one of
+    /// its own schemes (``isAppServedScheme(_:)``).
+    public static func isAppServed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return isAppServedScheme(scheme)
     }
 
     /// Whether `scheme` (lowercased) is one of cmux's own URL schemes rather
