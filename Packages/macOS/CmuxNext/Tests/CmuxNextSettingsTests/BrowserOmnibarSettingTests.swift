@@ -40,6 +40,20 @@ import Testing
         #expect(snapshot.browserOmnibar == .fallback)
     }
 
+    /// A custom search address must say where the typed text goes: without
+    /// %s or {searchTerms} it is refused when written and reported, at its
+    /// key, when loaded, and the engine keeps no address.
+    @Test func aCustomSearchAddressNeedsAPlaceholder() throws {
+        let row = try #require(SettingsSchema.descriptor(for: BrowserOmnibarSetting.customSearchPath))
+        #expect(!row.accepts("https://search.example/"))
+        #expect(!row.accepts("search.example"))
+        #expect(row.accepts("https://search.example/?q=%s") && row.accepts("https://search.example/?q={searchTerms}") && row.accepts(""))
+        let snapshot = parse(["searchEngine": "custom", "customSearchEngine": ["search": "https://search.example/"]])
+        let diagnostic = try #require(snapshot.diagnostics.first { $0.path == "browser.customSearchEngine.search" })
+        #expect(diagnostic.message.contains("%s") && diagnostic.message.contains("{searchTerms}"))
+        #expect(snapshot.browserOmnibar.searchEngine == "custom" && snapshot.browserOmnibar.customSearch.isEmpty)
+    }
+
     @Test func remoteKeysAreThePersonsAndDisplayKeysAreAgentSettable() throws {
         for path in [BrowserOmnibarSetting.searchEnginePath, BrowserOmnibarSetting.customSearchPath, BrowserOmnibarSetting.customSuggestPath,
                      BrowserOmnibarSetting.remoteSuggestionsPath] {

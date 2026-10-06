@@ -19,7 +19,8 @@ final class ConversationViewController: UIViewController {
     private lazy var observation = StoreObservation { [weak self] in self?.render() }
     private var shown: [TranscriptItem] = []
     private var isVisible = false
-    private var openTask: Task<Void, Never>?
+    /// The screen left the stack: no transcript or binding is made after it.
+    private var closed = false
     private var foregroundObservers: [any NSObjectProtocol] = []
 
     /// The search hit to open at, until its row is loaded and shown (nil
@@ -44,12 +45,10 @@ final class ConversationViewController: UIViewController {
         view.backgroundColor = CmuxiOSDesign.HomePalette.background
         navigationItem.largeTitleDisplayMode = .never
 
-        let store = self.store
-        let id = conversation
-        openTask = Task { [weak self] in
-            await store.open(id)
-            self?.attachTranscript()
-        }
+        // The binding opens the conversation and `close()` stops it, which
+        // closes that open, also while the first page loads. Without an
+        // account yet (`store.me`), nothing opens until it arrives (`render`).
+        attachTranscript()
         observation.start()
         let center = NotificationCenter.default
         for (name, visible) in [(UIApplication.didEnterBackgroundNotification, false),
@@ -87,9 +86,13 @@ final class ConversationViewController: UIViewController {
         close()
     }
 
-    /// Stops the binding and the observers (the screen left the stack).
-    private func close() {
-        openTask?.cancel()
+    /// Stops the binding and the observers (the screen left the stack). A
+    /// screen freed without it (loaded but never shown, or a navigation
+    /// root replaced without a pop) frees its binding, whose deinit closes
+    /// the conversation; the observers capture this screen weakly.
+    func close() {
+        guard !closed else { return }
+        closed = true
         binding?.stop()
         observation.stop()
         for o in foregroundObservers { NotificationCenter.default.removeObserver(o) }
@@ -118,9 +121,10 @@ final class ConversationViewController: UIViewController {
 
     // MARK: Transcript
 
-    /// Builds the transcript once the store has opened the conversation (`me` is known).
+    /// Builds the transcript and its binding (which opens the conversation)
+    /// once the account is known (`me`), unless the screen already left.
     private func attachTranscript() {
-        guard transcript == nil, let me = store.me?.id else { return }
+        guard transcript == nil, !closed, let me = store.me?.id else { return }
         let view = HomeTranscriptView(conversation: conversation, me: me, traits: traitCollection)
         view.frame = self.view.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -143,7 +147,7 @@ final class ConversationViewController: UIViewController {
         }
         // An op that ran out of resends unanswered may not have gone through.
         // Hosts set the binding hooks, never store.onUnanswered/onRefusal:
-        // the binding chains the store hook per conversation.
+        // the store tells every live binding of the conversation once each.
         binding.onUnanswered = { [weak self] intent in
             self?.presentRefusal(HomeRefusalAlert(unanswered: intent))
         }
@@ -213,6 +217,7 @@ final class ConversationViewController: UIViewController {
     /// change to them renders once per main-actor turn. The rows themselves
     /// reach the core through `HomeStoreBinding`.
     private func render() {
+        if transcript == nil { attachTranscript() }
         _ = store.transcriptVersion[conversation]
         let row = store.rows.first { $0.id == conversation }
         title = row?.title ?? title
@@ -242,7 +247,7 @@ final class ConversationViewController: UIViewController {
     #if DEBUG
     /// Returns when the transcript exists and its visible rows are drawn (screenshots).
     func rendered() async {
-        await openTask?.value
+        await binding?.opened()
         await transcript?.rendered()
     }
 
@@ -252,7 +257,7 @@ final class ConversationViewController: UIViewController {
     /// the drawn badge with the choice selected.
     func debugTapback(choose: Reaction.Tapback?) async {
         // A pushed screen loads its view during the transition; load it now
-        // so `openTask` exists before `rendered()` waits on it.
+        // so the binding exists before `rendered()` waits on it.
         loadViewIfNeeded()
         await rendered()
         guard let transcript else { return }

@@ -400,3 +400,42 @@ Baked from the pushed head 1526e7816e9 with the operator command. cmux-tui pinne
 | Resources | 1 builder (162 s), 2 clones (136 s, 135 s), all deleted; 1 snapshot kept. 433 VM-seconds at sm (7.2 VM-min) |
 
 End to end against the development API: next, after the backend sets `CLOUD_FREESTYLE_SNAPSHOT` and hands over a dev identity. Sequence: `cloud.machine.create` -> bind (bound.json, install registered) -> first `cloud.vm.status.report` applied -> token minted (challenge + token) -> change report (activity line on the agent socket) -> heartbeat on a test interval (`CMUX_VM_AGENT_HEARTBEAT_MS` test override, to add) -> `cloud.machine.pause` -> `cloud.machine.start` -> report after start.
+
+## 24. Fourth window and the first development end to end (2026-10-05)
+
+Fourth window (23:44:23 to 23:50:07 UTC, 5.7 min): bake from the pushed head 71d9a472c2f, `cmuxnp-dev-vmimg-auto4-71d9a47` = `sh-e4aab9ea589146abb98e356574ffe2de`, 181.9 s, 48 apt packages = lock, root fs 4.97 GB. It carries cmux-cua 0.8.7 (store entry 26 MB; `programs-run` ran 12 commands) and the dev-only heartbeat override. Smoke PASSED (2 clones). Kept. The resize probe took 21.2 s for the call this time (172 to 208 ms in the three earlier windows): provider variance on the create critical path is real, which weakens option B of section 18 (resize after create). Option A (derived sizes) stays the fallback; decide after more samples.
+
+End to end through the development API (`scripts/cmux-next/cloud-dev-e2e.sh`, development only, refuses other origins; Worker image `auto3-1526e78`), run 2026-10-05T23:54:19Z, all steps PASS:
+
+| Step | ms | Result |
+| --- | --- | --- |
+| Stack sign-in (dogfood account) | 595 | session |
+| user.ensure | 1,878 | user_57873416b63e10546f1f |
+| cloud.machine.create | 1,875 | vm_1176120e606b07dcb20d, provisioning |
+| bound (running, host set) | 1,721 | host_0658289e81d8a0aded5a, daemon 0.1.0+4fd459691fe0 |
+| VM agent evidence | 144 | journal: machine-id regenerated, `bind: bound`; bound.json and install key 0600; machine-id marker = this clone's MMDS id |
+| install.register (cli, ES256 key made by the script) + challenge + token | 243 | inst_2c5567287fcec53625c3, token minted |
+| connect_info | 99 | host, epoch 1, running, services daemon+ssh, daemon block `0.1.0+4fd459691fe0` with `loopback-forward-v1`, `vm-agent-v1` |
+| link_token (daemon) | 78 | minted, epoch 1 |
+| pause | 353 | paused |
+| start | 275 | running |
+| VM after start | 75 | agent active |
+| delete (by this run's id) | 263 | deleted; the provider VM `cmuxnp-dev-cld-vm-1176120e606b07dcb20d` answers not found |
+
+Not yet proven, and why:
+- First report applied, change report, heartbeat: the API shows a report only when the daemon block changes, so the evidence is the agent's own log. The agent now logs every report result (`report <reason> applied|held|failed`) and writes `/run/cmux-vm-agent/state.json`; the e2e runs these steps when the snapshot's agent logs results (auto5 or later), else it records them as SKIPPED.
+- Report after start: a pause and start resumes the agent from memory (no boot, same instance id), so the agent did not report on resume. Fix: `cmux-vm-agent-resume.timer` with `OnClockChange=yes` (the provider sets the clock on resume) runs `vm-agent.ts --notify-resume`, which makes the running agent report with reason `resume`. Proven only in unit tests until auto5.
+- Idle pause: the backend acts only on reports whose daemon block has `activity` and that carry activity times. No activity sender exists yet, so the agent does not advertise `activity`; the idle-pause step is blocked on the activity feeder (cmux-tui window, section 17).
+- `cmux link dial` to the daemon: needs a darwin `cmux` binary with the link role on the operator Mac; the e2e stops at link_token.
+
+## 25. Left in this plan
+
+1. Fifth window: bake with report logging and the resume timer (auto5), smoke, then the backend switches development to auto5 and the e2e runs every report step.
+2. Activity feeder (daemon or hooks -> agent socket) and then the `activity` capability (cmux-tui window).
+3. `cmux host run` replacing `cmux-devbox-boot` (idle-CPU blocker, section 21; cmux-tui window).
+4. Session host display supervisor and per-session cgroups (section 16; cmux-tui window).
+5. Browser role: publish `cmux-browser-host`, pin Chrome for Testing, `--no-sandbox` refusal in the host, idle-flag A/B (section 4, 9).
+6. Hosted Linux CI job (section 9) after P1 to P3.
+7. Size decision A or B (section 18), with more resize samples.
+8. `cmux link dial` leg of the e2e.
+9. Delete `cmuxnp-dev-vmimg-auto1-8d111c8` only after the coordinator's OK (rollback target; no dev VM row may record it).

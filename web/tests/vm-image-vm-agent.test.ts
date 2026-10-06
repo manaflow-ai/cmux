@@ -336,3 +336,50 @@ describe("heartbeat interval: a test override only in dev (coordinator 2026-10-0
     for (const bad of ["", "abc", "999", "3600001", "-5", "1e4", "15000.5"]) expect(heartbeatMsFor("dev", bad)).toBe(DEFAULT_HEARTBEAT_MS);
   });
 });
+
+describe("report results are observable (end-to-end evidence)", () => {
+  test("onResult gets each report's reason and whether the server applied or held it", async () => {
+    const store = new MemoryStore();
+    store.write("/var/lib/cmux/bind.json", bindFileText, 0o600);
+    bindCalls = 0;
+    const key = await ensureInstallKey(store, "i-zzz");
+    await bindMachine({ fetch: fakeFetch, store, key, wg, daemon });
+    const clock = new FakeClock();
+    const client = new CloudClient({ fetch: fakeFetch, bound: JSON.parse(store.read("/var/lib/cmux/bound.json")!), key, clock });
+    const results: Array<{ reason: string; ok: boolean; applied: boolean | null }> = [];
+    opsScript = [
+      { status: 200, body: vector("vm.status.report").responses[0].body },
+      { status: 200, body: vector("vm.status.report").responses[1].body },
+      { status: 503, body: { code: "owner.unreachable" } },
+      { status: 200, body: vector("vm.status.report").responses[0].body },
+    ];
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon: await daemon(), heartbeatMs: 60_000, random: () => 0.5, onResult: (r) => results.push({ reason: r.reason, ok: r.ok, applied: r.applied }) });
+    reporter.trigger("bind");
+    await reporter.settled();
+    reporter.update({ active_sessions: 1 });
+    clock.advance(10_000);
+    await reporter.settled();
+    clock.advance(60_000);
+    await reporter.settled();
+    clock.advance(clock.pending()[0]);
+    await reporter.settled();
+    expect(results).toEqual([
+      { reason: "bind", ok: true, applied: true },
+      { reason: "change", ok: true, applied: false },
+      { reason: "heartbeat", ok: false, applied: null },
+      { reason: "heartbeat", ok: true, applied: true },
+    ]);
+  });
+});
+
+describe("resume is an event, not a poll", () => {
+  test('a {"resume": true} socket line (sent by the OnClockChange timer) triggers a report with reason resume', async () => {
+    const { handleAgentLine } = await import("../../images/cmux-vm/guest/vm-agent");
+    const reasons: string[] = [];
+    const running = { reporter: { trigger: (r: string) => reasons.push(r), update: () => undefined }, events: { emit: () => undefined } };
+    handleAgentLine('{"resume": true}', running as never);
+    handleAgentLine("not json", running as never);
+    handleAgentLine('{"resume": false}', running as never);
+    expect(reasons).toEqual(["resume"]);
+  });
+});
