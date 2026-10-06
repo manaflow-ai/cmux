@@ -321,6 +321,47 @@ import Testing
         }
     }
 
+    /// A download no navigation claim or script message describes (WebKit
+    /// started it with no record of the document that asked for it) has no
+    /// known source document. A `data:`, `about:` or opaque `blob:` one is
+    /// that document's writing, so under a domain policy it fails closed in
+    /// the session's own tab (cancelled and reported) and keeps the user's
+    /// location in a user's tab. A web URL is still judged by its address.
+    @Test func aDownloadWhoseWritingDocumentIsUnknownFailsClosed() throws {
+        var policy = BrowserReplDomainPolicy()
+        policy.allowed = [try BrowserReplDomainPattern.parse("allowed.test", title: "test")]
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in policy }
+        let roots: (String) -> [String]? = { _ in ["/private/tmp/agent-root"] }
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "agent")
+
+        for hop in ["data:text/plain,secret", "about:blank", "blob:null/0b6d4a1c"] {
+            let unknown = BrowserReplDownloadSource.unclaimed(hops: [hop])
+            guard case .refused(let refusal) = own.downloadRoute(startedBy: nil, source: unknown, policy: policies, fileRoots: roots) else {
+                Issue.record("a \(hop) download with no known source document reached the session")
+                continue
+            }
+            #expect(refusal.rule == .domainPolicy && refusal.detail.contains("cannot tell"), "\(refusal)")
+        }
+        // A document the policy allows that asked for it: the session's.
+        var claimed = BrowserReplDownloadSource.unclaimed(hops: ["data:text/plain,ok"])
+        claimed.initiator = BrowserReplFrameDocument(origin: "https://allowed.test", place: "https://allowed.test")
+        #expect(own.downloadRoute(startedBy: nil, source: claimed, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // A web URL tells where its bytes came from.
+        let web = BrowserReplDownloadSource.unclaimed(hops: ["https://allowed.test/file.zip"])
+        #expect(own.downloadRoute(startedBy: nil, source: web, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // No policy: nothing to judge the writer by.
+        let open = BrowserReplDownloadSource.unclaimed(hops: ["data:text/plain,hi"])
+        #expect(own.downloadRoute(startedBy: nil, source: open, policy: { _ in nil }, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+        // A navigation the app started (no page initiator, but a claim) is not unknown.
+        let appLoad = BrowserReplDownloadSource(hops: ["data:text/plain,hi"])
+        #expect(own.downloadRoute(startedBy: nil, source: appLoad, policy: policies, fileRoots: roots)
+                == .session(BrowserReplNetworkRecipient(sessionID: "agent", seesCredentials: true)))
+    }
+
     @Test func aSessionTabsDownloadsStillGoToItsCreator() {
         var ownership = BrowserReplTabOwnership()
         ownership.markCreated(by: "creator")
