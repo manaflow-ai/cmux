@@ -95,7 +95,9 @@ final class AppServices {
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar =
-        ServerMenuBarController(makeSource: { [unowned self] in CloudPairingSource.app(feed: feed, auth: cloud.auth) })
+        ServerMenuBarController(makeSource: { [unowned self] in
+            CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [unowned self] in home.refreshChiefTab() })
+        })
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.

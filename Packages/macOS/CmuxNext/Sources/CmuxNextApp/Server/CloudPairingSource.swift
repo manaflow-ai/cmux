@@ -16,6 +16,8 @@ final class CloudPairingSource: ServerSource {
     private let call: Call
     /// The approver's name for the team chip, or nil when signed out.
     private let account: @MainActor () -> String?
+    /// The user's Chief moved to a server (Home re-checks its Chief tab).
+    private let chiefPlaced: @MainActor () -> Void
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
     private var work: [String: Task<Void, Never>] = [:]
 
@@ -23,7 +25,7 @@ final class CloudPairingSource: ServerSource {
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
             inner: LocalServerSource.app(),
             call: { [weak feed] path, body in
@@ -33,14 +35,17 @@ final class CloudPairingSource: ServerSource {
             account: { [weak auth] in
                 guard let auth, auth.isSignedIn else { return nil }
                 return auth.user?.displayName ?? auth.user?.primaryEmail ?? ""
-            }
+            },
+            chiefPlaced: chiefPlaced
         )
     }
 
-    init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?) {
+    init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?,
+         chiefPlaced: @escaping @MainActor () -> Void = {}) {
         self.inner = inner
         self.call = call
         self.account = account
+        self.chiefPlaced = chiefPlaced
     }
 
     func start(_ sink: @escaping @MainActor (ServerSourceEvent) -> Void) {
@@ -159,6 +164,7 @@ final class CloudPairingSource: ServerSource {
         guard let install else { return Self.chiefNotMoved("the server has no install") }
         do {
             _ = try await CloudChiefs.place(CloudChief.BrainPlace(host: host, install: install), key: key, call: call)
+            chiefPlaced()
             return nil
         } catch let FeedServiceError.owner(_, message) {
             return Self.chiefNotMoved(message)
