@@ -56,10 +56,12 @@ extension ConversationClient {
                 let handle = try FileHandle(forReadingFrom: piece.url)
                 defer { try? handle.close() }
                 var offset = 0
-                while true {
+                // Ends at the declared size; a file shorter than declared ends at its EOF
+                // and the commit refuses it (`incomplete`).
+                while offset < piece.size {
                     try Task.checkCancellation()
-                    let bytes = try handle.read(upToCount: Self.attachmentChunkBytes) ?? Data()
-                    if bytes.isEmpty { break }
+                    let bytes = try handle.read(upToCount: min(Self.attachmentChunkBytes, piece.size - offset)) ?? Data()
+                    guard !bytes.isEmpty else { break }
                     _ = try await connection.request(ConversationAttachmentUploadRequest.chunk(upload: upload, piece: piece.variant,
                                                                                                offset: offset, bytes: bytes),
                                                      timeout: Self.attachmentChunkTimeout)
@@ -98,7 +100,9 @@ extension ConversationClient {
         var mimeType = "application/octet-stream"
         do {
             defer { try? handle.close() }
-            while true {
+            var eof = false
+            // Ends at the owner's eof; a read that moves no bytes before it is an error.
+            while !eof {
                 try Task.checkCancellation()
                 let reply = try await connection.request(
                     ConversationAttachmentReadRequest(conversation: conversation, hash: hash, variant: variant, offset: offset,
@@ -108,8 +112,8 @@ extension ConversationClient {
                 try handle.write(contentsOf: bytes)
                 offset += bytes.count
                 mimeType = reply.mimeType
-                if reply.eof { break }
-                guard !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
+                eof = reply.eof
+                guard eof || !bytes.isEmpty else { throw DaemonError.malformedResponse("attachment read: no progress before eof") }
             }
             try handle.synchronize()
         }

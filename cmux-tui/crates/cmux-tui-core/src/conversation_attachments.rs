@@ -677,11 +677,15 @@ impl ConversationStore {
         client: u64,
         upload: &str,
     ) -> anyhow::Result<StoredAttachment> {
-        let owned = self.attachments.uploads.get(upload).is_some_and(|u| u.client == client);
-        if !owned {
-            return Err(refused("unknown_upload"));
-        }
-        let upload = self.attachments.uploads.remove(upload).expect("checked above");
+        let upload = match self.attachments.uploads.remove(upload) {
+            Some(found) if found.client == client => found,
+            Some(other) => {
+                // Another connection's upload stays where it was.
+                self.attachments.uploads.insert(upload.to_string(), other);
+                return Err(refused("unknown_upload"));
+            }
+            None => return Err(refused("unknown_upload")),
+        };
         let complete = upload.pieces.iter().all(|piece| piece.received == piece.byte_count);
         let matches =
             upload.pieces.iter().all(|piece| hex_digest(piece.hasher.clone()) == piece.hash);

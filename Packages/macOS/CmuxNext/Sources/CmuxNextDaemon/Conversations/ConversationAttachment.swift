@@ -72,8 +72,3 @@ public struct StoredConversationAttachment: Decodable, Sendable, Hashable {
         case byteCount = "byte_count"
     }
 }
-
-/// Which bytes of an attachment a read returns.
-public enum ConversationAttachmentVariant: String, Codable, Sendable, Hashable {
-    case original, poster, preview
-}
