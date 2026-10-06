@@ -41,7 +41,7 @@ import Testing
         #expect(claude.title == "Start Claude Code YOLO")
         #expect(claude.icon == .image(URL(filePath: "/tmp/cmux-config-test/icons/claude.svg")))
         #expect(claude.target == .newTabInCurrentPane)
-        #expect(result.diagnostics.isEmpty)
+        #expect(result.diagnostics.map(\.message) == [SurfaceTabBarParser.removedMessage])
     }
 
     @Test func emptyListHidesEveryButton() throws {
@@ -82,7 +82,7 @@ import Testing
         #expect(byName["codex-new-tab"]?.target == .currentTerminal)
         #expect(byName["command.npm test"]?.command == "npm test")
         #expect(byName["ship"]?.command == "claude -p ship")
-        #expect(result.diagnostics.isEmpty)
+        #expect(result.diagnostics.map(\.message) == [SurfaceTabBarParser.removedMessage])
     }
 
     @Test func badEntriesAreReportedAndSkipped() throws {
@@ -171,6 +171,7 @@ import Testing
     @Test func aSetButtonListIsReportedAsIgnored() throws {
         let set = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": ["splitRight", "does.not.exist"]}}}"#)
         #expect(set.filter { $0.message == Self.message }.map(\.path) == ["ui.surfaceTabBar.buttons"])
+        #expect(set.filter { $0.message == Self.message }.map(\.kind) == [.removedSetting])
         let empty = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": []}}}"#)
         #expect(empty.filter { $0.message == Self.message }.map(\.path) == ["ui.surfaceTabBar.buttons"])
         let wrongType = try diagnostics(#"{"ui": {"surfaceTabBar": {"buttons": "splitRight"}}}"#)
