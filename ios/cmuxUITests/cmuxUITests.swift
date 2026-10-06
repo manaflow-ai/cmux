@@ -1091,6 +1091,10 @@ final class cmuxUITests: XCTestCase {
             app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
             "Add Computer must present the manual pairing form under Auto-Connect."
         )
+        XCTAssertFalse(
+            app.buttons["ssh.pairing.connectWithSSH"].exists,
+            "Add Computer must not offer the removed SSH shortcut."
+        )
         let cancelPairing = app.buttons["MobilePairingCancelButton"]
         XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
         tap(cancelPairing, in: app)
