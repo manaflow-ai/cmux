@@ -41,6 +41,10 @@ pub struct HeadlessSource {
     routes: Mutex<crate::headless_routes::Routes>,
     /// Each subscriber's policy log (D2 log).
     policy_logs: Mutex<HashMap<u64, PolicyLogSink>>,
+    /// Tab -> the sessions that called it (bounded: per tab until
+    /// `tab.closed`, per session until its end). When the last one leaves,
+    /// the input it left pressed is released.
+    driven: Mutex<HashMap<String, HashSet<u64>>>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -91,6 +95,7 @@ impl HeadlessSource {
             filters: Mutex::default(),
             routes: Mutex::default(),
             policy_logs: Mutex::default(),
+            driven: Mutex::default(),
             _browser: browser,
         });
         let _ = me.set(Arc::downgrade(&source));
@@ -147,6 +152,12 @@ impl HeadlessSource {
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
+        self.driven
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .entry(target.to_owned())
+            .or_default()
+            .insert(session);
         let changed = self
             .filters
             .lock()
@@ -184,6 +195,11 @@ impl HeadlessSource {
         let sinks: Vec<(u64, EventSink)> =
             self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let attached = |session: u64| sinks.iter().any(|(s, _)| *s == session);
+        if event.name == "tab.closed"
+            && let Some(target) = event.payload.get("targetId").and_then(Value::as_str)
+        {
+            self.driven.lock().unwrap_or_else(PoisonError::into_inner).remove(target);
+        }
         let route = self.routes().route(&event, &attached);
         match route {
             Route::Everyone => sinks.iter().for_each(|(_, sink)| sink(event.clone())),
@@ -417,6 +433,21 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.routes().session_ended(session);
+        // The last session left these tabs: release what was left pressed.
+        let left: Vec<String> = {
+            let mut driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut left = Vec::new();
+            driven.retain(|target, sessions| {
+                if sessions.remove(&session) && sessions.is_empty() {
+                    left.push(target.clone());
+                }
+                !sessions.is_empty()
+            });
+            left
+        };
+        for target in left {
+            let _ = self.0.driver.release_held_input(&target);
+        }
         let removed = self
             .0
             .filters
