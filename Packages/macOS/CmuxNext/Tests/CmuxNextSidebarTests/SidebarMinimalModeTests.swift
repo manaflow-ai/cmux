@@ -47,4 +47,19 @@ import Testing
         off.setChromeRevealed(false)
         #expect(bandAlpha(off.aboveRegion) == 1 && bandAlpha(off.belowRegion) == 1)
     }
+    /// The update notice is the Settings row's control (no card, Lawrence
+    /// 2026-10-05): while Settings carries it, minimal mode keeps the
+    /// bottom band visible, so a staged update shows without a hover.
+    @Test func anItemControlKeepsItsBandVisible() {
+        let (view, restore) = sidebar(.bottom)
+        defer { restore() }
+        var info = SidebarItemInfo(title: "Settings", symbol: "gearshape")
+        info.accessory = .update(title: "Restart to Update")
+        view.model.itemInfo[LayoutItemID("itm_settings")] = info
+        view.setChromeRevealed(false)
+        #expect(bandAlpha(view.belowRegion) == 1)
+        view.model.itemInfo[LayoutItemID("itm_settings")]?.accessory = nil
+        view.setChromeRevealed(false)
+        #expect(bandAlpha(view.belowRegion) == 0)
+    }
 }

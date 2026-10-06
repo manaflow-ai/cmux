@@ -15,16 +15,14 @@ nonisolated public struct UpdateBlockers: Equatable, Sendable {
 }
 
 /// The card above Settings for the update, or what `cmux update status`
-/// reports as visible.
+/// reports as visible. A found or staged update is never a card: it is the
+/// compact control on the Settings row (``UpdateIndicatorPhase/badgeTitle``;
+/// Lawrence 2026-10-05, "more minimal").
 nonisolated public enum UpdateCard: Equatable, Sendable {
     /// The user asked to check.
     case checking
     /// The user asked and a found update downloads.
     case downloading(progress: Double?)
-    /// Found, not downloaded: one click downloads and installs.
-    case available(version: String?)
-    /// Downloaded and verified: one click installs and relaunches.
-    case ready(version: String?)
     /// The user clicked; the install waits for busy agents.
     case waiting(version: String?, busyAgents: Int)
     case installing

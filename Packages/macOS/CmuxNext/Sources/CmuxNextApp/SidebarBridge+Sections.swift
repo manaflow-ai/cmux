@@ -86,17 +86,17 @@ extension SidebarBridge {
             // So are the shown workspace (Home's selected tile) and the
             // unread count (Notifications' dot), and an available update
             // (the badge on Settings).
-            for await (layout, homeShown, unread, update) in Observations({ () -> (SidebarLayoutDocument, Bool, Int, Bool) in
+            for await (layout, homeShown, unread, update) in Observations({ () -> (SidebarLayoutDocument, Bool, Int, String?) in
                 _ = apps.apps
                 let shown = window?.workspaceID
                 return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
-                        updater.showsSettingsBadge)
+                        updater.settingsBadgeTitle)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
                                           homeShown: homeShown, unread: unread,
-                                          app: { Self.appInfo($0, registry: apps) }, updateAvailable: update)
+                                          app: { Self.appInfo($0, registry: apps) }, updateBadge: update)
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -107,11 +107,12 @@ extension SidebarBridge {
     /// Presentation of every built-in item in `layout`; `registered` says
     /// whether an action exists. Home is active while `homeShown`, and
     /// Notifications carries `unread`. Settings carries the update badge
-    /// while `updateAvailable` (the window rail's update circle is gone, R52).
+    /// while `updateBadge` is set, labelled with it (the window rail's update
+    /// circle is gone, R52; the update card is gone, Lawrence 2026-10-05).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          homeShown: Bool = false, unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         updateAvailable: Bool = false) -> [LayoutItemID: SidebarItemInfo] {
+                         updateBadge: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
@@ -128,7 +129,7 @@ extension SidebarBridge {
                 switch builtIn {
                 case .home: info.isActive = homeShown
                 case .notifications: info.badge = unread > 0 ? unread : nil
-                case .settings: info.accessory = updateAvailable ? .update : nil
+                case .settings: info.accessory = updateBadge.map { .update(title: $0) }
                 default: break
                 }
                 infos[item.id] = info

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// A ready-made screen layout variants can use: title, one sentence, the
-/// control, and the footer ("2 of 4", Skip, Continue). Every measure is on
+/// control, and the footer (Skip, Continue). Every measure is on
 /// the 4 pt grid; `Style` picks alignment, title scale and spacing.
 @MainActor
 enum OnboardingScaffold {
@@ -61,11 +61,15 @@ enum OnboardingScaffold {
     }
 }
 
-/// "2 of 4" on the left, Skip and Continue (Done on the last step, Import
-/// while the import step has a choice to run) on the right.
+/// "2 of 4" on the left (runs of more than three screens), Skip and
+/// Continue (Done on the last step, Import while the import step has a
+/// choice to run) on the right.
 final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
+
+    /// A counter only helps on a long run; two or three screens need none.
+    static func showsCounter(count: Int) -> Bool { count > 3 }
 
     init(context: OnboardingStepContext, glassContinue: Bool = true, showsCounter: Bool = true) {
         self.context = context
@@ -73,7 +77,7 @@ final class OnboardingFooter: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
-        counter.isHidden = !showsCounter
+        counter.isHidden = !showsCounter || !Self.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
         let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, target: self, action: #selector(nextPressed))
         for view in [counter, skip, next] as [NSView] { addSubview(view) }
