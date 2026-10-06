@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 import GhosttyNextKit
 
 /// The files behind the applied Ghostty config (`ghostty_config_loaded_file`):
