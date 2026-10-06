@@ -206,10 +206,20 @@ jobs:
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         uses: ./.github/actions/setup-cmux-tui-rust
 
+      # The generator script comes from this workflow's ref, not the stack,
+      # which may predate it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          path: .next-batch-tools
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next/regenerate-swift-exports.sh
+          sparse-checkout-cone-mode: false
+
       - name: Regenerate the Swift exports
         id: regen
         continue-on-error: true
-        run: scripts/cmux-next/regenerate-swift-exports.sh
+        run: bash .next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh
 
       - name: Commit the exports as a patch
         env:
