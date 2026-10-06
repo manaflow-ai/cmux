@@ -538,8 +538,11 @@ export function useSession(): SessionState {
       createSocket: () => new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + appPath("/ws")),
       onSocket: (ws) => {
         wsRef.current = ws;
-        if (!ws) failFileDiffRequests();
-        if (!ws) latestCommandRequestsRef.current.clear();
+        if (!ws) {
+          setReady(false);
+          failFileDiffRequests();
+          latestCommandRequestsRef.current.clear();
+        }
       },
       onOpen: () => {
         for (const requestId of pendingStartStopsRef.current) sendRaw({ op: "stop", requestId });
