@@ -160,6 +160,38 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
     }
 }
 
+/// The preset a child starts with: its harness and this process's pinned
+/// cmux env (the `chief` launcher bakes it in), so the child's `cmux` calls
+/// reach the same app daemon as the Chief's, whoever started acpmux
+/// (cmux_env). None when this process has no pinned socket or acpmux refuses
+/// the preset (an older daemon): the child then runs with the daemon's env.
+fn child_preset(client: &RpcClient, harness: &str) -> Option<String> {
+    let current: BTreeMap<String, String> = std::env::vars().collect();
+    let env = crate::cmux_env::pinned_subset(&current);
+    let home = crate::paths::home_id(&crate::paths::mux_home());
+    let name = child_preset_name(&home, harness)?;
+    env.contains_key(crate::cmux_env::SOCKET_KEYS[0])
+        .then_some(())?;
+    client
+        .request(
+            "_acpmux/presets",
+            json!({"name": name, "set": {"harness": harness, "env": env}}),
+        )
+        .ok()
+        .map(|_| name)
+}
+
+/// `chief-child-<home id>-<harness>`, or None for a harness name that is not
+/// `[A-Za-z0-9._-]`.
+pub fn child_preset_name(home_id: &str, harness: &str) -> Option<String> {
+    let plain = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    };
+    plain(harness).then(|| format!("chief-child-{home_id}-{harness}"))
+}
+
 /// Runs one `agents` verb; Ok carries what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
     let words = &flags.words[1..];
@@ -178,7 +210,11 @@ pub fn run(flags: &Flags) -> Result<String, String> {
             let existing = spawn_target(&sessions(&client)?, name, &parent)?;
             let id = match existing {
                 Some(id) => id,
-                None => new_session(&client, &child_spec(flags, name, cwd), None)?,
+                None => {
+                    let spec = child_spec(flags, name, cwd);
+                    let preset = child_preset(&client, &spec.harness);
+                    new_session(&client, &spec, preset.as_deref())?
+                }
             };
             client
                 .request(

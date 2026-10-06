@@ -20,6 +20,10 @@ enum SectionStrings {
     static var importSyncCaption: String { String(localized: "sidebar.builtin.importSync.caption", defaultValue: "Import", bundle: .module) }
     /// The rail's button for items that do not fit.
     static var customize: String { String(localized: "sidebar.builtin.customize", defaultValue: "Customize Appearance", bundle: .module) }
+    /// An icon's tooltip with its shortcut: "Settings (⌘,)".
+    static func titleWithShortcut(_ title: String, _ shortcut: String) -> String {
+        String(format: String(localized: "sidebar.item.titleWithShortcut", defaultValue: "%1$@ (%2$@)", bundle: .module), title, shortcut)
+    }
     static var collapse: String { String(localized: "sidebar.sections.collapse", defaultValue: "Collapse", bundle: .module) }
     static var expand: String { String(localized: "sidebar.sections.expand", defaultValue: "Expand", bundle: .module) }
 }

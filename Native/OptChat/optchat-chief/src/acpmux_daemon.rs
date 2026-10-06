@@ -39,6 +39,16 @@ pub fn reachable(path: &Path) -> bool {
     UnixStream::connect(path).is_ok()
 }
 
+/// Env the daemon this process starts gets over its own (the host's pinned
+/// cmux env, so the children it runs reach the app's daemon; cmux_env).
+static CHILD_ENV: std::sync::OnceLock<std::collections::BTreeMap<String, String>> =
+    std::sync::OnceLock::new();
+
+/// Sets the started daemon's extra env (once per process; later calls keep the first).
+pub fn set_child_env(env: std::collections::BTreeMap<String, String>) {
+    let _ = CHILD_ENV.set(env);
+}
+
 /// Who owns the acpmux daemon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
@@ -176,7 +186,11 @@ fn spawn(socket: &Path, bin: Option<&str>, log: &dyn Fn(&str)) -> Result<u32, St
         .open(home.join("daemon.log"))
         .map_err(|e| format!("opening the daemon log: {e}"))?;
     let err = out.try_clone().map_err(|e| e.to_string())?;
-    let mut child = Command::new(bin)
+    let mut command = Command::new(bin);
+    if let Some(extra) = CHILD_ENV.get() {
+        command.envs(extra);
+    }
+    let mut child = command
         .args(["daemon", "run"])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", socket)
