@@ -44,8 +44,9 @@ final class FieldChrome: NSView {
             b.isBordered = false
             b.bezelStyle = .regularSquare
             b.imagePosition = .imageOnly
-            let cfg = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-            b.image = NSImage(systemSymbolName: sym, accessibilityDescription: label)?.withSymbolConfiguration(cfg)
+            let cfg = FieldChrome.glyphConfig
+            b.image = (sym == "face.smiling" ? FieldChrome.emojiGlyph(tinted: false) : NSImage(systemSymbolName: sym, accessibilityDescription: label)?.withSymbolConfiguration(cfg))
+            b.image?.accessibilityDescription = label
             b.contentTintColor = .white
             b.setAccessibilityLabel(label)
             b.toolTip = label
@@ -296,7 +297,7 @@ final class InlineEditor: NSView {
         textView.textContainerInset = NSSize(width: 0, height: Fixture.textBaseline - 13.26)
         textView.textStorage?.setAttributedString(NSAttributedString(string: text, attributes: ComposeView.typing))
         textView.typingAttributes = ComposeView.typing
-        textView.insertionPointColor = Fixture.outgoing
+        textView.insertionPointColor = Fixture.caret
         textView.isContinuousSpellCheckingEnabled = true
         textView.writingToolsBehavior = ComposeView.writingTools
         textView.setAccessibilityLabel(Strings.menuEdit)
@@ -306,4 +307,22 @@ final class InlineEditor: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
     override var isFlipped: Bool { true }
+}
+
+extension FieldChrome {
+    /// Compose glyphs, fitted to the lossless stills: plus and emoji 15.5 pt medium.
+    static let glyphConfig = NSImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
+    /// Messages' emoji button glyph: the private SF Symbol `emoji.face.grinning`
+    /// (CoreGlyphsPrivate.bundle, a named symbol image; README: Glyphs). Falls back to
+    /// the public `face.smiling.inverse`. `tinted` bakes white in (layer drawing);
+    /// the button tints it itself.
+    static func emojiGlyph(tinted: Bool = true) -> NSImage? {
+        let base = Bundle(path: "/System/Library/CoreServices/CoreGlyphsPrivate.bundle")?.image(forResource: "emoji.face.grinning")
+            ?? NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil)
+        guard let img = base?.withSymbolConfiguration(glyphConfig) else { return nil }
+        guard tinted else { return img }
+        return NSImage(size: img.size, flipped: false) { r in
+            img.draw(in: r); NSColor.white.set(); r.fill(using: .sourceAtop); return true
+        }
+    }
 }

@@ -106,7 +106,10 @@ final class TranscriptSelection {
 
     init(controller: ChatController) {
         self.controller = controller
-        layer.fillColor = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.55).cgColor
+        // Screen blend of P3 (2.6, 37.7, 85): over the incoming bubble (59, 59, 61) it gives
+        // Messages' highlight (61, 88, 126) and over its text (225) the selected text
+        // (225, 229, 235) (lossless still selected-text.png).
+        layer.fillColor = Fixture.p3(2.6, 37.7, 85).cgColor
         layer.actions = ["path": NSNull(), "position": NSNull(), "bounds": NSNull()]
         layer.compositingFilter = "screenBlendMode"
     }
@@ -141,6 +144,22 @@ final class TranscriptSelection {
     func clear() {
         anchor = nil; focus = nil
         refresh()
+    }
+
+    /// Selects the word at a point (AppKit's double-click word rule). Returns false
+    /// when the point is not on text.
+    @discardableResult
+    func selectWord(at p: CGPoint) -> Bool {
+        guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
+              case let .part(row) = demo.model.rows[i].spec.kind, let tl = row.text else { return false }
+        let str = NSAttributedString(string: tl.text)
+        guard str.length > 0 else { return false }
+        let r = str.doubleClick(at: min(pos.offset, str.length - 1))
+        anchor = TextPosition(key: pos.key, offset: r.location)
+        focus = TextPosition(key: pos.key, offset: NSMaxRange(r))
+        downPoint = nil
+        refresh()
+        return true
     }
 
     /// Rows with text, in transcript order (model index).

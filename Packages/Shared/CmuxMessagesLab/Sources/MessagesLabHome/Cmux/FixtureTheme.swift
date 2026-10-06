@@ -52,12 +52,13 @@ struct FixtureTheme: Equatable {
             let bg = p.background
             let light = 0.2126 * bg.red + 0.7152 * bg.green + 0.0722 * bg.blue > 0.5
             isLight = light
-            // MessagesLab's measured dark values (Transcript, Compose).
-            typingDot = light ? c(p.typingDot) : NSColor(white: 82 / 255, alpha: 1)
-            typingDotHighlight = light ? c(p.typingDotHighlight) : NSColor(white: 123 / 255, alpha: 1)
-            placeholder = light ? c(p.placeholder) : NSColor(white: 0.43, alpha: 1)
-            waveform = light ? c(p.placeholder) : NSColor(white: 0.45, alpha: 1)
-            caret = light ? c(p.caret) : NSColor(red: 0.04, green: 0.52, blue: 1, alpha: 1)
+            // MessagesLab's measured dark values (Transcript, Compose), made in
+            // Display P3 like its palette (Fixture.p3; the measurements are P3).
+            typingDot = light ? c(p.typingDot) : Fixture.p3(91, 91, 94)
+            typingDotHighlight = light ? c(p.typingDotHighlight) : Fixture.p3(133, 133, 135)
+            placeholder = light ? c(p.placeholder) : NSColor(white: 123 / 255, alpha: 1)
+            waveform = light ? c(p.placeholder) : NSColor(white: 144 / 255, alpha: 1)
+            caret = light ? c(p.caret) : Fixture.p3(63, 143, 247)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 
@@ -67,7 +68,7 @@ struct FixtureTheme: Equatable {
     let active: Colors
     let inactive: Colors
     /// The theme names no accent: sent bubbles keep MessagesLab's measured
-    /// blue and gradient (Fixture.outgoing, activeStops) and white text.
+    /// blue and gradient (Fixture.outgoing, gradientStops) and white text.
     let measuredAccent: Bool
 
     init(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {

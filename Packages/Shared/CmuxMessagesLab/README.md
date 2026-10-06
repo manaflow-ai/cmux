@@ -72,7 +72,23 @@ scripts/cmux-next/sync-messageslab.sh --write-patches # after editing a vendored
 ```
 
 A patch that no longer applies stops the sync; fix that file by hand, then
-`--write-patches`. Then run the harness on cmux-lawrence-2
+`--write-patches`.
+
+Partial roll-ins: a vendor.tsv row with a third column takes that file from
+its own MessagesLab commit (the pin stays for the rest), for upstream commits
+that are wip checkpoints. Current per-file pins (2026-10-05): Fixture, Header,
+Layout and appkit-native Compose at 7f1a811 (Display P3 palette and measured
+colours, wide-colour caret, text thread preview); RowDrawing and Transcript at
+4173e9f (colours, WideBitmap); Morph at d163ddf; Materials and TranscriptAccess
+at 4173e9f (compose glyphs: plus 15.5 pt, the private emoji.face.grinning
+symbol; double-click word selection, P3 selection); Shapes at 25b2ad9 (which
+reverts 7dea554's tail refit). Not taken: 4173e9f's catalyst Layout,
+Fixture and WindowView and appkit-native Compose (ComposeMetrics' 31 pt field
+and the thread work are unfinished there), and every SwipeReply change. Host.swift
+is not vendored: 7f1a811's press and hold, picker dim and Esc, double-click
+word and menu tapback rows are carried in Cmux/PaneInteractions.swift and
+PaneHost; its layout-before-field-chrome fix was already PaneHost's. For the
+harness oracle, build MessagesLab from the pin with each pinned file overlaid. Then run the harness on cmux-lawrence-2
 (`scripts/cmux-next/home-messageslab-harness.sh`, header): the Home path must
 commit MessagesLab's animations byte for byte, and the vendored files must
 match the upstream app's `--diff-harness` output.

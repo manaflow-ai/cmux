@@ -77,7 +77,7 @@ enum RowDraw {
             let f = UIFont.systemFont(ofSize: 10, weight: .semibold)
             let s = Strings.replies(count)
             let w = TextDraw.width(s, font: f, kern: captionKern)
-            TextDraw.line(s, font: f, color: UIColor(red: 0.16, green: 0.52, blue: 0.93, alpha: 1),
+            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue,
                           x: outgoing ? m.receiptRight - w : Fixture.labelLeft, baseline: top + 14, in: ctx, kern: captionKern)
         case let .part(p):
             let x = p.outgoing ? m.rightEdge - p.size.width : Fixture.leftEdge
@@ -174,7 +174,7 @@ enum PartRenderer {
                          tail: Bool, outgoing: Bool) {
         let (_, ih) = Sizing.linkImageSize(image)
         let captionColor = dark ? (image == nil ? UIColor(white: 49 / 255, alpha: 1) : UIColor(red: 35 / 255, green: 55 / 255, blue: 68 / 255, alpha: 1))
-            : UIColor(white: 230 / 255, alpha: 1)
+            : UIColor(white: 235 / 255, alpha: 1)   // light caption: 235, title 36, site 118 (lossless still)
         let shape = BubblePath.make(body: card, outgoing: outgoing, tail: tail)
         ctx.saveGState()
         captionColor.setFill()
@@ -186,8 +186,8 @@ enum PartRenderer {
             img.draw(in: CGRect(x: card.minX, y: card.minY + ih - h, width: card.width, height: h))
         }
         ctx.restoreGState()
-        let titleColor = dark ? UIColor(white: 0.93, alpha: 1) : UIColor(white: 0.1, alpha: 1)
-        let siteColor = dark ? UIColor(white: 0.68, alpha: 1) : UIColor(white: 0.4, alpha: 1)
+        let titleColor = dark ? UIColor(white: 0.93, alpha: 1) : UIColor(white: 36 / 255, alpha: 1)
+        let siteColor = dark ? UIColor(white: 0.68, alpha: 1) : UIColor(white: 118 / 255, alpha: 1)
         var y = card.minY + ih + 18
         for s in Sizing.linkTitleLines(title, width: card.width) {
             TextDraw.line(s, font: Sizing.linkTitleFont, color: titleColor, x: card.minX + 10, baseline: y, in: ctx, kern: -0.005)
@@ -372,6 +372,12 @@ enum PartRenderer {
                 img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
             }
             ctx.restoreGState()
+        } else if pv.isText {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.stroke.setStroke()
+            path.stroke()
+            TextDraw.line(pv.textLine, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8, baseline: box.minY + 16.5, in: ctx)
         } else {
             let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
             path.lineWidth = 1
@@ -398,7 +404,7 @@ enum PartRenderer {
         UIBezierPath(roundedRect: CGRect(x: 32.5, y: stubTop, width: 2.5, height: stubH), cornerRadius: 1.25).fill()
         if pv.count >= 2 {
             let f = UIFont.systemFont(ofSize: 10, weight: .semibold)
-            TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + 11.5, in: ctx,
+            TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
                           kern: RowDraw.captionKern)
         }
     }
@@ -467,7 +473,7 @@ enum PartRenderer {
         TextDraw.line(subtitle, font: .systemFont(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx)
     }
 
-    /// Tapback badges on the part's top corner (outer side), stacked, mine blue.
+    /// Tapback badges on the part's top corner (outer side), stacked, all grey (macOS 27).
     /// Tapback badges (measured on macOS 26 Messages, 2x screenshot): a 27.5 pt
     /// disc whose center is 2 pt inside the bubble's top outer corner and
     /// 8.25 pt above its top edge, colour (59, 59, 61), the tapback as a colour
@@ -480,8 +486,8 @@ enum PartRenderer {
             let d: CGFloat = 27.5
             let cx = (outgoing ? body.minX + 2 : body.maxX - 2) - side * CGFloat(i) * 12
             let c = CGPoint(x: cx, y: body.minY - 8.25)
-            let mine = r.senderId == "me"
-            let fill = mine ? Fixture.outgoing : Fixture.badge
+            // macOS 27: my tapback badge is grey too (lossless still, (59, 59, 61)).
+            let fill = Fixture.badge
             ctx.saveGState()
             ctx.setShadow(offset: CGSize(width: 0, height: 0.5), blur: 1.5, color: UIColor(white: 0, alpha: 0.35).cgColor)
             fill.setFill()
@@ -640,14 +646,33 @@ final class RowBitmaps {
     static func render(_ spec: RowSpec) -> CGImage {
         let span = RowDraw.drawSpan(spec)
         let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
+        return WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
+            ctx.translateBy(x: -span.lowerBound, y: 0)
+            RowDraw.drawStatic(spec, ctx, windowY: .nan)
+        }
+    }
+}
+
+/// An 8-bit Display P3 bitmap with a y-down UIKit drawing context. The palette is
+/// Display P3 (README: Colour); an sRGB bitmap clips the P3 colours outside sRGB
+/// (the replies blue, the outgoing blues in the header backdrop). Same 4 bytes per
+/// pixel as the sRGB `.standard` renderer it replaces. AppKit builds draw through the
+/// shim's renderer, whose bitmaps are in the window's colour space already.
+enum WideBitmap {
+    static let space = CGColorSpace(name: CGColorSpace.displayP3)!
+    static func make(size: CGSize, scale: CGFloat, opaque: Bool, _ draw: (CGContext) -> Void) -> CGImage {
+        #if canImport(UIKit)
         let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = Fixture.renderScale
-        fmt.opaque = false
-        fmt.preferredRange = .standard
-        return UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
-            ctx.cgContext.translateBy(x: -span.lowerBound, y: 0)
-            RowDraw.drawStatic(spec, ctx.cgContext, windowY: .nan)
-        }.cgImage!
+        fmt.scale = scale
+        fmt.opaque = opaque
+        fmt.preferredRange = .extended
+        return UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage!
+        #else
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        fmt.opaque = opaque
+        return UIGraphicsImageRenderer(size: size, format: fmt).image { draw($0.cgContext) }.cgImage!
+        #endif
     }
 }
 
@@ -689,5 +714,8 @@ enum PreviewStyle {
     static let stroke = UIColor(white: 80 / 255, alpha: 1)
     static let title = UIColor(white: 143 / 255, alpha: 1)
     static let subtitle = UIColor(white: 86 / 255, alpha: 1)
-    static let repliesBlue = UIColor(red: 63 / 255, green: 143 / 255, blue: 247 / 255, alpha: 1)
+    /// "N Replies" (thread previews and reply labels), Display P3 (screencapture -l).
+    static let repliesBlue = Fixture.p3(63, 143, 247)
+    /// A text root's line (screencapture -l, macOS 27: glyph core 129).
+    static let textGray = UIColor(white: 129 / 255, alpha: 1)
 }

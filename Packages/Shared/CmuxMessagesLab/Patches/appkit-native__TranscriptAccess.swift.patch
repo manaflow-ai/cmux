@@ -6,11 +6,12 @@
  extension NativeStrings {
 -    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative") }
 -    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative") }
-+    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
-+    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
-     /// "Attachment: %@"
+-    /// "Attachment: %@"
 -    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative") }
 -    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative") }
++    static var messagesList: String { String(localized: "ax.messages", defaultValue: "Messages", table: "AppKitNative", bundle: .module) }
++    static var messageRole: String { String(localized: "ax.message.role", defaultValue: "message", table: "AppKitNative", bundle: .module) }
++    /// "Attachment: %@"
 +    static var attachmentFormat: String { String(localized: "ax.attachment", defaultValue: "Attachment: %@", table: "AppKitNative", bundle: .module) }
 +    static var you: String { String(localized: "ax.you", defaultValue: "You", table: "AppKitNative", bundle: .module) }
      /// sender, text, time

@@ -185,12 +185,24 @@ struct ThreadPreview: Hashable {
         var p = ThreadPreview(root: root, part: part, count: count, box: .zero)
         if p.isThumbnail, case let .attachment(a) = part {
             p.box = CGSize(width: 48, height: (48 * CGFloat(a.height ?? 450) / CGFloat(max(1, a.width ?? 600))).rounded())
+        } else if p.isText {
+            p.box = CGSize(width: (TextDraw.width(p.textLine, font: ThreadPreview.textFont) + 16.5).rounded(.toNearestOrEven), height: 24.25)
         } else {
             let (title, sub) = p.lines
             let w = max(TextDraw.width(title, font: ThreadPreview.titleFont), TextDraw.width(sub, font: ThreadPreview.subFont))
             p.box = CGSize(width: min(300, (39 + w + 15).rounded()), height: 48.5)
         }
         return p
+    }
+    /// A text root (measured, macOS 27, 2026-10-05 interaction references): a small
+    /// outlined bubble with a tail, the text in one line of 10 pt regular, 8 pt in from
+    /// the outline; 24.25 pt tall (outline outside to outside 24 pt); the stub 5.5 pt under it (the tail is between).
+    var isText: Bool { if case .text = part { return true }; return false }
+    static let textFont = UIFont.systemFont(ofSize: 10)
+    var textLine: String {
+        guard case let .text(t, _) = part else { return "" }
+        let one = t.replacingOccurrences(of: "\n", with: " ")
+        return one.count > 40 ? String(one.prefix(39)) + "…" : one
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
     static let subFont = UIFont.systemFont(ofSize: 12)
@@ -208,8 +220,8 @@ struct ThreadPreview: Hashable {
     }
     /// Row content height: box, stub.
     /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
-    var stubGap: CGFloat { isThumbnail ? 5.5 : ThreadPreview.stubGap }
-    var stubHeight: CGFloat { isThumbnail ? 11.5 : ThreadPreview.stubHeight }
+    var stubGap: CGFloat { isThumbnail || isText ? 5.5 : ThreadPreview.stubGap }
+    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 11.25 : ThreadPreview.stubHeight }
     var height: CGFloat { box.height + stubGap + stubHeight }
 }
 

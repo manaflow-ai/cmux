@@ -238,6 +238,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var viewWakeAt = Double.infinity
     private(set) var start: CFTimeInterval = CACurrentMediaTime()
     private(set) var picker: TapbackPickerView?
+    private var pickerDim: PickerDimView?
+    private var pickerKeys: Any?
+    /// Press and hold on a message (MessagesLab 7f1a811).
+    private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`); HomeOp has no
@@ -261,6 +265,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         wake.cancel()
+        hold.cancel()
+        if let m = pickerKeys { NSEvent.removeMonitor(m) }
     }
 
     /// cmux: install the window view over the adapter's projection (the
@@ -444,9 +450,19 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
-        if e.clickCount == 1 { selection.mouseDown(p) }
+        if e.clickCount == 1 {
+            selection.mouseDown(p)
+            // MessagesLab 7f1a811: press and hold on a message opens the tapback picker.
+            if picker == nil, intents?.canReact == true, let hit = demo?.hit(p) {
+                hold.start(at: p) { [weak self] in
+                    self?.selection.clear()
+                    self?.showPicker(for: hit)
+                }
+            }
+        }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        hold.moved(to: p)
         let doc = host.scrollView.document
         if selection.mouseDragged(p) {
             if window?.firstResponder !== doc { window?.makeFirstResponder(doc) }
@@ -455,6 +471,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        let held = hold.fired
+        hold.cancel()
+        if held { return }
         if selection.mouseUp() { return }
         if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
     }
@@ -482,9 +501,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         focusCompose()
     }
 
+    /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
+    /// the word under the cursor; the picker is press and hold.
     func doubleClicked(_ p: CGPoint) {
-        guard intents?.canReact == true, let hit = demo?.hit(p) else { return }
-        showPicker(for: hit)
+        guard demo?.hit(p) != nil else { return }
+        if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker
@@ -500,10 +521,26 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let size = p.fittingSize
         let x = min(max(8, hit.row.outgoing ? hit.body.maxX - size.width : hit.body.minX), host.bounds.width - size.width - 8)
         p.frame = CGRect(x: x, y: max(Fixture.headerHeight + 4, hit.body.minY - size.height - 6), width: size.width, height: size.height)
+        // The pane dims under the picker; a click on the dim closes it.
+        let dim = PickerDimView(frame: host.bounds)
+        dim.onClick = { [weak self] in self?.closePicker() }
+        host.addSubview(dim, positioned: .below, relativeTo: host.above)
+        pickerDim = dim
         host.addSubview(p, positioned: .below, relativeTo: host.above)
         picker = p
+        // Esc closes the picker wherever the key focus is (the press may have
+        // left it on the transcript, not the field).
+        pickerKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
+            guard e.keyCode == 53, let self, self.picker != nil else { return e }
+            self.closePicker()
+            return nil
+        }
     }
-    func closePicker() { picker?.removeFromSuperview(); picker = nil }
+    func closePicker() {
+        picker?.removeFromSuperview(); picker = nil
+        pickerDim?.removeFromSuperview(); pickerDim = nil
+        if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
+    }
 
     // MARK: Context menu
 
@@ -513,16 +550,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let current = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
         let menu = NSMenu()
         if intents?.canReact == true {
-            let tapbacks = NSMenu()
-            for t in TapbackGlyph.all {
-                let item = MenuAction(title: Strings.tapbackName(t)) { [weak self] in self?.intents?.react(ref, .tapback(t)) }
-                item.state = current == .tapback(t) ? .on : .off
-                tapbacks.addItem(item)
-            }
-            let tb = NSMenuItem(title: Strings.menuTapback, action: nil, keyEquivalent: "")
-            tb.image = NSImage(systemSymbolName: "heart", accessibilityDescription: nil)
-            tb.submenu = tapbacks
-            menu.addItem(tb)
+            // MessagesLab 7f1a811: the two tapback palette rows at the top.
+            TapbackMenuRows.items(current: current, react: { [weak self] in self?.intents?.react(ref, $0) },
+                                  emojiPicker: { [weak self] in self?.showEmojiPicker() }).forEach(menu.addItem)
+            menu.addItem(.separator())
         }
         if case let .text(text, _) = hit.row.part {
             menu.addItem(MenuAction(title: Strings.menuCopy, symbol: "doc.on.doc") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })

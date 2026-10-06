@@ -23,7 +23,7 @@
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
              }
-@@ -578,7 +585,8 @@
+@@ -590,7 +597,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -33,7 +33,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -635,7 +643,7 @@
+@@ -647,7 +655,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -42,7 +42,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -644,7 +652,7 @@
+@@ -656,7 +664,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -51,7 +51,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -663,45 +671,47 @@
+@@ -675,45 +683,47 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

@@ -386,7 +386,7 @@ final class RowCell: UICollectionViewCell {
         connector.lineWidth = 2.6
         connector.lineCap = .round
         fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
+            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
         fillGradient.locations = (Fixture.themedGradient?.map(\.0) ?? Fixture.gradientStops.map(\.0)).map { NSNumber(value: Double($0 / (Fixture.gradientHeight * 2))) }
         fillContainer.addSublayer(fillGradient)
         fillContainer.mask = fillMask
@@ -400,7 +400,8 @@ final class RowCell: UICollectionViewCell {
         for i in 0..<3 {
             let d = CALayer()
             d.actions = noActions
-            d.backgroundColor = Fixture.typingDot.cgColor  // cmux: themed
+            // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
+            d.backgroundColor = Fixture.typingDot.cgColor  // cmux: themed (Fixture keeps the measured levels)
             d.cornerRadius = 3.25
             let hi = CALayer()
             hi.actions = noActions
@@ -473,7 +474,7 @@ final class RowCell: UICollectionViewCell {
                 d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
             }
             fillGradient.colors = Fixture.themedGradient?.map { $0.1.cgColor }  // cmux: themed accent
-            ?? Fixture.gradientStops.map { UIColor(red: $0.1 / 255, green: $0.2 / 255, blue: Fixture.gradientBlue / 255, alpha: 1).cgColor }
+            ?? Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
             CATransaction.commit()
             self.spec = nil
         }

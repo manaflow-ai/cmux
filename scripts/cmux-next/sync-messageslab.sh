@@ -13,6 +13,11 @@
 #   sync-messageslab.sh --check [messageslab-dir]
 #       Fails unless every vendored file equals pin + its patch.
 #
+# A vendor.tsv row may carry a third column, its own MessagesLab commit: that
+# file comes from that commit instead of the pin (a partial roll-in of a
+# commit whose other files are unfinished). Its patch is against that commit.
+# Remove the column to follow the pin again.
+#
 # messageslab-dir defaults to ~/fun/messageslab. Uncommitted MessagesLab work
 # is never read (git show <commit>:path).
 set -euo pipefail
@@ -24,7 +29,7 @@ mode=sync
 case "${1:-}" in
   --write-patches) mode=write; shift ;;
   --check) mode=check; shift ;;
-  ""|-h|--help) sed -n '2,19p' "$0"; exit 2 ;;
+  ""|-h|--help) sed -n '2,24p' "$0"; exit 2 ;;
 esac
 if [[ "$mode" == sync ]]; then commit="$1"; shift; fi
 ml="${1:-$HOME/fun/messageslab}"
@@ -34,10 +39,10 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 name() { local n="${1#Sources/MessagesLabHome/}"; echo "${n#Vendor/}" | sed 's|/|__|g'; }
 mkdir -p "$patches"
 bad=0
-while IFS=$'\t' read -r up local; do
+while IFS=$'\t' read -r up local filepin; do
   [[ -z "$up" || "$up" == \#* ]] && continue
   p="$patches/$(name "$local").patch"
-  git -C "$ml" show "$commit:$up" > "$tmp/upstream"
+  git -C "$ml" show "${filepin:-$commit}:$up" > "$tmp/upstream"
   case "$mode" in
     write)
       if cmp -s "$tmp/upstream" "$pkg/$local"; then rm -f "$p"

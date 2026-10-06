@@ -114,7 +114,7 @@ final class ComposeView: UIView {
         didSet {
             caret.isHidden = !captureMode
             textSnapshot.isHidden = !captureMode
-            textView.view.insertionPointColor = captureMode ? .clear : Fixture.outgoing
+            textView.view.insertionPointColor = captureMode ? .clear : Fixture.caret
         }
     }
     var onRemoveChip: (ID) -> Void = { _ in }
@@ -197,7 +197,7 @@ final class ComposeView: UIView {
         tv.backgroundColor = .clear
         tv.font = ComposeView.font
         tv.textColor = Fixture.incomingText
-        tv.insertionPointColor = Fixture.outgoing
+        tv.insertionPointColor = Fixture.caret
         tv.textContainer?.lineFragmentPadding = 0
         tv.textContainerInset = NSSize(width: 0, height: ComposeView.textTopInset)
         tv.isRichText = false
@@ -228,7 +228,7 @@ final class ComposeView: UIView {
         tv.writingToolsBehavior = ComposeView.writingTools
         tv.setAccessibilityLabel(Strings.placeholder)
 
-        caret.backgroundColor = NSColor(red: 0.04, green: 0.52, blue: 1, alpha: 1).cgColor
+        caret.backgroundColor = Fixture.caret.cgColor
         caret.isHidden = true
         layer.addSublayer(caret)
         layer.addSublayer(plusLayer)
@@ -494,7 +494,7 @@ final class ComposeView: UIView {
         let base = f.minY + (chips.isEmpty ? 0 : 30) + ComposeView.firstBaseline
         CATransaction.begin(); CATransaction.setDisableActions(true)
         caret.frame = CGRect(x: cx.px, y: base - 12.5 + row * 16, width: 1, height: 16.5)
-        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor  // cmux: themed caret
+        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()
     }

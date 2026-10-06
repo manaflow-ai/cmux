@@ -35,10 +35,10 @@ enum BubblePath {
 extension BubblePath {
     /// The tail in "outgoing" space, relative to the body's (maxX, maxY): the
     /// caller mirrors it for an incoming bubble. Fitted to real Messages
-    /// (references/real-messages state screenshots and a 65-frame recording
-    /// average, 2x): the 0.5-coverage outline of the tail is 0.21-0.49 px
-    /// from Messages' outline on average at 2x, 1.8 px at most (was 0.96-1.03
-    /// px, 3.2 px at most). Messages' two tails differ slightly, so each side
+    /// (the lossless screenshots references/real-messages/state-*.png, 2x;
+    /// not the HEVC 4:2:0 recording stills, whose chroma smears edges): the
+    /// 0.5-coverage outline of the tail is 0.2-0.4 px from Messages' outline
+    /// on average at 2x (was about 1.0 px, 3.2 px at most). Messages' two tails differ slightly, so each side
     /// has its own points. appkit-native/README.md: Bubble outline fit.
     static func tailPath(outgoing: Bool) -> UIBezierPath {
         let t = UIBezierPath()

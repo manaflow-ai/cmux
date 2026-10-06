@@ -13,8 +13,10 @@ final class HeaderView: UIView {
     fileprivate static var currentTitle = "Instinct"
     private let backdrop = UIImageView()
     private let overlay: CanvasView
-    private static let ci = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                                .outputColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
+    // Display P3: the same transfer curve as sRGB (the fitted blur is unchanged for
+    // greys) without clipping the P3 blues under the header.
+    private static let ci = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.displayP3)!,
+                                                .outputColorSpace: CGColorSpace(name: CGColorSpace.displayP3)!])
     // Fitted to the reference header (least squares over three frames):
     // out = base + gain * (w * blur(s1) + (1 - w) * blur(s2)), sigmas in 2x px.
     static let blurSigma1: Double = 5.3
@@ -72,18 +74,14 @@ final class HeaderView: UIView {
         // Outside the window there is nothing to blur, so pad with the
         // background colour (this gives the darker fringe at the edges).
         let rect = CGRect(x: -pad, y: -pad, width: bounds.width + 2 * pad, height: bounds.height + 2 * pad)
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = scale
-        fmt.preferredRange = .standard
-        fmt.opaque = true
-        let img = UIGraphicsImageRenderer(size: rect.size, format: fmt).image { ctx in
-            Fixture.background.setFill()
-            ctx.fill(CGRect(origin: .zero, size: rect.size))
-            ctx.cgContext.translateBy(x: -rect.minX + source.frame.minX - source.bounds.minX, y: -rect.minY + source.frame.minY - source.bounds.minY)
+        let img = WideBitmap.make(size: rect.size, scale: scale, opaque: true) { c in
+            c.setFillColor(Fixture.background.cgColor)
+            c.fill(CGRect(origin: .zero, size: rect.size))
+            c.translateBy(x: -rect.minX + source.frame.minX - source.bounds.minX, y: -rect.minY + source.frame.minY - source.bounds.minY)
             source.layer.displayRecursively()
-            source.layer.render(in: ctx.cgContext)
+            source.layer.render(in: c)
         }
-        guard let cg = img.cgImage else { return }
+        let cg = img
         let input = CIImage(cgImage: cg).clampedToExtent()
         let w = HeaderView.blurWeight1
         let b1 = input.applyingGaussianBlur(sigma: HeaderView.blurSigma1)
@@ -131,8 +129,8 @@ final class HeaderView: UIView {
         chev.lineJoinStyle = .round
         UIColor(white: 0.42, alpha: 1).setStroke()
         chev.stroke()
-        // Avatar.
-        UIColor(white: 253 / 255, alpha: 1).setFill()
+        // Avatar (the contact's picture; colours from screencapture -l, Display P3).
+        UIColor(white: 1, alpha: 1).setFill()
         UIBezierPath(ovalIn: CGRect(x: 294, y: 8, width: 40, height: 40)).fill()
         // Monogram "I": a thin flared stem (no installed font matched it).
         let stem = UIBezierPath()
@@ -143,7 +141,7 @@ final class HeaderView: UIView {
         stem.addLine(to: CGPoint(x: cx - end, y: y1))
         stem.addQuadCurve(to: CGPoint(x: cx - end, y: y0), controlPoint: CGPoint(x: cx - 2 * mid + end, y: (y0 + y1) / 2))
         stem.close()
-        UIColor.black.setFill()
+        Fixture.p3(7, 10, 9).setFill()
         stem.fill()
         ctx.restoreGState()
         ctx.translateBy(x: dx, y: 0)

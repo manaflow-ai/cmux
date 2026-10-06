@@ -229,6 +229,6 @@ final class MorphBubble {
         while i < s.count - 1, s[i].0 < px { i += 1 }
         let a = s[i - 1], b = s[i]
         let f = max(0, min(1, (px - a.0) / max(1, b.0 - a.0)))
-        return UIColor(red: (a.1 + (b.1 - a.1) * f) / 255, green: (a.2 + (b.2 - a.2) * f) / 255, blue: Fixture.gradientBlue / 255, alpha: 1)
+        return Fixture.gradientColor(a.1 + (b.1 - a.1) * f, a.2 + (b.2 - a.2) * f)
     }
 }
