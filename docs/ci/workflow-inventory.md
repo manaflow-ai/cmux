@@ -110,7 +110,6 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `sdk-bootstrap-pypi.yml` | repo_dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #9376 | Lawrence Chen 2026-08-03 | 2 wf refs; 5 docs/tests |  |
 | `presence.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-09-10 | lawrencecchen #5792 | Abdulaziz Albahar 2026-07-29 | 3 docs/tests |  |
 | `claude.yml` | issue_comment pr_review_comment issues pr_review | blacksmith | 10,239 | 7 / 40 / 9,780 / 0 | 0 | 2026-09-21 | lawrencecchen #965 | Lawrence Chen 2026-09-02 | none | **b** 9,780/10,239 skipped |
-| `cmux-tui-nightly.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | 2 wf refs; 3 docs/tests | paused (dispatch-only), 0 runs |
 | `tmux-corpus.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-07-14 | lawrencecchen #4323 | Leo 2026-09-20 | 2 docs/tests | **dead**: disabled_manually, manual-only since 07-13 |
 | `cmux-browser.yml` | pr push (paths) | gh-ubuntu | 0 | 0 / 0 / 0 / 0 | 0 | 2026-08-27 | lawrencecchen #8717 | Lawrence Chen 2026-07-23 | none |  |
 | `sdk-publish-go.yml` | call dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-07-08 | lawrencecchen #7601 | Lawrence Chen 2026-08-03 | called by cmux-tui-sdks, sdk-release-cut; 1 docs/tests |  |
@@ -130,6 +129,6 @@ Sorted by estimated runner minutes. Trigger abbreviations: pr = pull_request, pr
 | `iroh-relay-minter.yml` | dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-07-15 | azooz2003-bit #7908 | Lawrence Chen 2026-08-25 | none |  |
 | `sdk-publish-crates.yml` | call dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #7601 | Lawrence Chen 2026-08-03 | called by cmux-tui-sdks, sdk-release-cut; 1 docs/tests |  |
 | `merge-group-fail-fast.yml` | wf_run | gh-ubuntu | 11,427 | 23 / 2 / 11,324 / 78 | 0 | 2026-09-20 | teamleaderleo #13117 | Leo 2026-09-21 | 1 docs/tests | b (fixed by #13476); dormant, merge queue off since 09-20 |
-| `cmux-tui-build-package.yml` | call | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | called by cmux-tui-artifacts, cmux-tui-nightly, cmux-tui-release; 8 docs/tests |  |
+| `cmux-tui-build-package.yml` | call | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | lawrencecchen #7710 | Lawrence Chen 2026-09-16 | called by cmux-tui-artifacts, cmux-tui-release; 7 docs/tests |  |
 | `resolve-dispatch-ref.yml` | call | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | never | teamleaderleo #13616 | Leo 2026-09-21 | called by cloud-machine-tests, ios-screenshots, iroh-release-gate; 2 docs/tests |  |
 | `sdk-publish-npm.yml` | call dispatch | blacksmith | 0 | 0 / 0 / 0 / 0 | 0 | 2026-08-27 | lawrencecchen #7601 | Lawrence Chen 2026-08-03 | called by cmux-tui-sdks, sdk-release-cut; 1 docs/tests |  |
