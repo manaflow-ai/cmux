@@ -956,3 +956,46 @@ pre.cv-math-source {
     animation: cv-caret-wait 1s ease-in-out infinite;
   }
 }
+
+/* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
+   under a rule at the end of the reply, in a smaller, quieter type. */
+.cv-fnref {
+  line-height: 0;
+  font-size: 0.75em;
+}
+.cv-fnref > button {
+  margin: 0;
+  padding: 0 1px;
+  border: 0;
+  background: none;
+  color: var(--cv-link);
+  font: inherit;
+  cursor: pointer;
+}
+.cv-fnref > button:hover {
+  text-decoration: underline;
+}
+.cv-footnotes {
+  margin: 16px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--cv-faint-rule);
+  font-size: 12.5px;
+  line-height: 19px;
+  color: var(--cv-text-muted);
+}
+.cv-footnotes > ol {
+  margin: 0;
+  padding-left: 20px;
+}
+.cv-footnote + .cv-footnote {
+  margin-top: 4px;
+}
+
+/* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
+.cv-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 6px 0;
+  border-radius: 8px;
+}

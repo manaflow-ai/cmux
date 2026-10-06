@@ -1,7 +1,7 @@
 // What of a streaming reply's last block may draw now (plans/cmux-next/acp-streaming.md
 // "Streaming-safe tail", from hq-48's prototype). Half-written Markdown would draw wrongly and
 // then flip when the rest arrives: a fence opener reads `t`, `ty` before `TypeScript`, a table
-// header draws as a paragraph of pipes until its separator row, a link shows its brackets, and a
+// header draws as a paragraph of pipes until its separator row, a link or image shows its brackets, and a
 // bold or code run draws its markers until the closer. So the tail holds back a fence opener until
 // its newline, a table header until its separator row and each row until its newline, a link
 // until its `)`, and a marker typed at the very end; an open `**` or backtick run is closed for
@@ -67,8 +67,11 @@ export function safeTail(tail: string): string {
       // A separator row still being typed holds its header back too.
       if (!/-\s*\|/.test(complete[header]!)) lines[header] = lines[header - 1] = "";
     }
+    // A `[` is held only while it can still become a link (or an image): `[text`, `[text]` at
+    // the end, `[text](url` before its `)`. `[^1] more` and `[x] text` can no longer.
     const open = last.lastIndexOf("[");
-    if (open >= 0 && !/\]\([^)]*\)/.test(last.slice(open))) last = last.slice(0, open);
+    if (open >= 0 && /^\[[^\]]*(?:\](?:\([^)]*)?)?$/.test(last.slice(open)))
+      last = last.slice(0, open > 0 && last[open - 1] === "!" ? open - 1 : open);
   }
   lines[lines.length - 1] = last;
   let text = lines.join("\n");
