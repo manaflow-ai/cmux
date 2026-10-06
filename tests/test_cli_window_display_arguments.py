@@ -107,6 +107,11 @@ class WindowDisplayArgumentTests(unittest.TestCase):
 
     def test_window_option_requires_a_value(self) -> None:
         self.assert_rejected(["window", "display", "LG HDR 4K", "--window"], "--window requires a value")
+        self.assert_rejected(["window", "display", "LG HDR 4K", "--window", ""], "--window requires a value")
+
+    def test_window_value_is_not_read_as_the_list_flag(self) -> None:
+        # `-l` here is the value of --window, not the listing flag.
+        self.assert_rejected(["window", "display", "LG HDR 4K", "--window", "-l"], "Invalid window handle: -l")
 
     def test_missing_name_is_still_an_error(self) -> None:
         self.assert_rejected(["window", "display"], "window display requires a display name")

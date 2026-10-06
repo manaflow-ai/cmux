@@ -11537,8 +11537,10 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
-        let optionTerminator = commandArgs.firstIndex(of: "--") ?? commandArgs.endIndex
-        let lists = commandArgs[..<optionTerminator].contains { $0 == "--list" || $0 == "-l" }
+        // Strip --window and its value first, so a value like `-l` isn't read as the list flag.
+        let (_, withoutWindow) = parseOption(commandArgs, name: "--window")
+        let optionTerminator = withoutWindow.firstIndex(of: "--") ?? withoutWindow.endIndex
+        let lists = withoutWindow[..<optionTerminator].contains { $0 == "--list" || $0 == "-l" }
         // One display name (quote a name with spaces), or none when listing.
         try rejectUnexpectedArguments(
             commandArgs,
@@ -11551,14 +11553,16 @@ struct CMUXCLI {
             try runWindowDisplaysCommand(client: client, jsonOutput: jsonOutput)
             return
         }
-        let (_, withoutWindow) = parseOption(commandArgs, name: "--window")
         guard let displayName = firstPositionalArgument(withoutWindow, valueOptions: []), !displayName.isEmpty else {
             throw CLIError(message: "window display requires a display name. Usage: cmux window display \"LG HDR 4K\"  (list names with: cmux window displays)")
         }
         var params: [String: Any] = ["display": displayName]
         // --window works after the subcommand too; dropping it would move every main window.
         if let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride) {
-            let normalized = try normalizeWindowHandle(windowRaw, client: client) ?? windowRaw
+            guard let normalized = try normalizeWindowHandle(windowRaw, client: client) else {
+                // An empty --window would otherwise be sent as an empty window id.
+                throw missingOptionValueError("--window", commandName: "window display")
+            }
             params["window_id"] = normalized
         }
         let response = try client.sendV2(method: "window.display", params: params)
