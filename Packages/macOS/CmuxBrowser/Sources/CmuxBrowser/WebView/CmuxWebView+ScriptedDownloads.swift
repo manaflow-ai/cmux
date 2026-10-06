@@ -305,7 +305,8 @@ extension CmuxWebView {
         )
     }
 
-    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any], isMainFrame: Bool) {
+    fileprivate func handleScriptedDownloadMessage(_ body: [String: Any], frame: WKFrameInfo) {
+        let isMainFrame = frame.isMainFrame
         let expectedToken = objc_getAssociatedObject(
             configuration.userContentController,
             &Self.scriptedDownloadTokenKey
@@ -358,12 +359,13 @@ extension CmuxWebView {
             return
         }
 
-        startScriptedDownload(url, suggestedFilename: suggestedFilename)
+        startScriptedDownload(url, suggestedFilename: suggestedFilename, initiator: frame)
     }
 
     private func startScriptedDownload(
         _ url: URL,
-        suggestedFilename: String?
+        suggestedFilename: String?,
+        initiator: WKFrameInfo
     ) {
         guard Self.isScriptedDownloadSupportedURL(url) else {
 #if DEBUG
@@ -375,7 +377,7 @@ extension CmuxWebView {
         debugContextDownload("browser.scriptdl.start trace=\(traceID) scheme=\(url.scheme ?? "nil")")
         let routed = (cmuxDownloadDelegate as? any BrowserScriptedDownloadRouting)?.routesScriptedDownloadsThroughWebKit == true
         if routed || url.scheme?.caseInsensitiveCompare("blob") == .orderedSame {
-            startScriptedWebKitDownload(url, suggestedFilename: suggestedFilename, traceID: traceID)
+            startScriptedWebKitDownload(url, suggestedFilename: suggestedFilename, initiator: initiator, traceID: traceID)
             return
         }
         downloadURLViaSession(
@@ -396,6 +398,7 @@ extension CmuxWebView {
     private func startScriptedWebKitDownload(
         _ url: URL,
         suggestedFilename: String?,
+        initiator: WKFrameInfo,
         traceID: String
     ) {
         guard let downloadDelegate = cmuxDownloadDelegate else {
@@ -412,6 +415,9 @@ extension CmuxWebView {
                 if let browserDownloadDelegate = downloadDelegate as? any BrowserSuggestedFilenameOverriding {
                     browserDownloadDelegate.setSuggestedFilenameOverride(suggestedFilename, for: download)
                 }
+                // The frame that asked for it, bound before WebKit asks for
+                // a destination, so a REPL session judges its document.
+                (downloadDelegate as? any BrowserScriptedDownloadRouting)?.scriptedDownloadStarted(download, url: url, initiator: initiator)
                 download.delegate = downloadDelegate
             }
         } else {
@@ -481,7 +487,7 @@ private final class ScriptedDownloadMessageHandler: NSObject, WKScriptMessageHan
             return
         }
         MainActor.assumeIsolated {
-            webView.handleScriptedDownloadMessage(body, isMainFrame: message.frameInfo.isMainFrame)
+            webView.handleScriptedDownloadMessage(body, frame: message.frameInfo)
         }
     }
 }

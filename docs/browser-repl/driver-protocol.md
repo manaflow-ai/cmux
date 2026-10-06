@@ -85,7 +85,9 @@ the tab waits for it. A download keeps the route it started with. A
 download reaches a session only when the session's domain policy allows
 every address its request went through (the navigation's URL and its
 redirects, the download's own redirects, the response's URL; a `data:` or
-opaque `blob:` one is judged by the document that started the navigation)
+opaque `blob:` one is judged by the document that started the navigation,
+or for a scripted download (`<a download>`) by the frame that asked for it,
+and under a domain policy is refused when cmux has no record of either)
 and each local file among them lies inside the session's working or
 temporary directory. Otherwise, in a tab the session created, the download
 is cancelled and `navigation.blocked` reports why; in a user's tab it keeps

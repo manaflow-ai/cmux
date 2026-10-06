@@ -17,4 +17,12 @@ public protocol BrowserSuggestedFilenameOverriding: AnyObject {
 /// reports those downloads to its session. Read on the main thread.
 public protocol BrowserScriptedDownloadRouting: AnyObject {
     var routesScriptedDownloadsThroughWebKit: Bool { get }
+
+    /// WebKit made `download` of `url` for the scripted-download request
+    /// that the frame `initiator` sent (WebKit's record of the message's
+    /// frame, not anything the page says), before it asks for a
+    /// destination. The REPL binds that document to the download, so a
+    /// session judges who wrote a `data:` download's bytes.
+    @MainActor
+    func scriptedDownloadStarted(_ download: WKDownload, url: URL, initiator: WKFrameInfo)
 }

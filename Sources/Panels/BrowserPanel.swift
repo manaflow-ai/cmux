@@ -8503,6 +8503,14 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         MainActor.assumeIsolated { replAttachment?()?.routesToSessions(.download) == true }
     }
 
+    /// Binds the frame that asked for a scripted download to it, so a REPL
+    /// session judges the document that wrote a `data:` download; one with
+    /// no such record fails closed under a domain policy.
+    @MainActor
+    func scriptedDownloadStarted(_ download: WKDownload, url: URL, initiator: WKFrameInfo) {
+        BrowserReplTabAttachment.claimScriptedDownload(download, url: url, initiator: initiator)
+    }
+
     static let tempDir: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

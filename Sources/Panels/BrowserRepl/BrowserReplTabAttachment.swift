@@ -1641,6 +1641,15 @@ final class BrowserReplTabAttachment {
         bind(download, to: ownership.takeDownloadClaim(responseInFrame: frame))
     }
 
+    /// Binds to `download`, a scripted download WebKit made of `url` for
+    /// the request the frame `initiator` sent, that frame's document
+    /// (WebKit's record of the message's frame): a `data:` download is that
+    /// document's writing, judged by it. No session's input started it.
+    static func claimScriptedDownload(_ download: WKDownload, url: URL, initiator: WKFrameInfo) {
+        let source = BrowserReplDownloadSource(hops: [url.absoluteString], initiator: BrowserReplFrameDocument(info: initiator))
+        objc_setAssociatedObject(download, &downloadClaimKey, BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: source)), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+
     private func bind(_ download: WKDownload, to claim: BrowserReplDownloadClaim?) {
         guard let claim else { return }
         objc_setAssociatedObject(download, &Self.downloadClaimKey, BrowserReplDownloadClaimBox(claim), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -1660,8 +1669,11 @@ final class BrowserReplTabAttachment {
     /// Where `download` came from: its navigation's URLs and starter (when
     /// a navigation became it), then each redirect of the download itself
     /// (``downloadRedirected(_:to:)``).
+    /// With no claim (no navigation or scripted-download message made it),
+    /// the source is unclaimed: who wrote a `data:` one is unknown, and a
+    /// domain policy refuses it (``BrowserReplDownloadSource/unclaimed(hops:)``).
     nonisolated static func downloadSource(of download: WKDownload) -> BrowserReplDownloadSource {
-        claimBox(of: download)?.claim.source ?? BrowserReplDownloadSource()
+        claimBox(of: download)?.claim.source ?? .unclaimed()
     }
 
     /// Records that `download` was redirected to `url`.
@@ -1673,7 +1685,7 @@ final class BrowserReplTabAttachment {
             objc_setAssociatedObject(
                 download,
                 &downloadClaimKey,
-                BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: BrowserReplDownloadSource(hops: [url.absoluteString]))),
+                BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed(hops: [url.absoluteString]))),
                 .OBJC_ASSOCIATION_RETAIN_NONATOMIC
             )
         }

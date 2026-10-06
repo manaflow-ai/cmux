@@ -9,7 +9,8 @@ import Foundation
 /// `download.path()` and `fs` read it. Its bytes are a read of each place
 /// the request went, so a session gets it only when its domain policy allows
 /// every one of them and its local files lie inside the session's own
-/// directories (``refusal(policy:fileRoots:)``). The policy never filters a
+/// directories (``refusal(policy:fileRoots:)``), and a document's own
+/// writing (`data:`) only when cmux knows that document. The policy never filters a
 /// user's tab: there such a download keeps the user's own download location.
 public struct BrowserReplDownloadSource: Sendable, Equatable {
     /// The URLs in the order the request went through them.
@@ -18,6 +19,13 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
     /// source frame), when one did: a `data:`, `about:` or opaque `blob:`
     /// download is its writing.
     public var initiator: BrowserReplFrameDocument?
+    /// Whether a record says who started the download: a navigation claim
+    /// (whose ``initiator`` is nil when no page started it), or a scripted
+    /// download's message, which names its frame. False for a download
+    /// WebKit made with no such record (``unclaimed(hops:)``): then a
+    /// `data:`, `about:` or opaque `blob:` URL is the writing of a document
+    /// cmux cannot tell, and a domain policy refuses it.
+    public private(set) var isClaimed = true
 
     /// The most URLs kept; a request that goes through more is refused.
     public static let maximumHops = 32
@@ -25,6 +33,14 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
     public init(hops: [String] = [], initiator: BrowserReplFrameDocument? = nil) {
         self.hops = hops
         self.initiator = initiator
+    }
+
+    /// A download no navigation claim or scripted-download message
+    /// describes; ``initiator`` stays unknown until one is set.
+    public static func unclaimed(hops: [String] = []) -> Self {
+        var source = Self(hops: hops)
+        source.isClaimed = false
+        return source
     }
 
     /// The request went on to `url` (a redirect, or the response's URL).
@@ -58,7 +74,9 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
             }
             guard let policy, policy.isActive else { continue }
             let reason: String?
-            if let url = URL(string: hop) {
+            if !isClaimed, initiator == nil, Self.isWriting(hop) {
+                reason = "cmux cannot tell which document wrote this \(scheme): download, which a domain policy refuses"
+            } else if let url = URL(string: hop) {
                 reason = policy.navigationBlockReason(url, initiator: initiator)
             } else {
                 // Not a URL Foundation reads (a `data:` URL with spaces):
@@ -70,6 +88,18 @@ public struct BrowserReplDownloadSource: Sendable, Equatable {
             }
         }
         return nil
+    }
+
+    /// Whether `hop` is a document's own writing rather than a place
+    /// (``BrowserReplDomainPolicy/navigationBlockReason(_:initiator:)``
+    /// judges such a URL by its initiator): `data:`, `about:`, or a `blob:`
+    /// of an opaque origin.
+    static func isWriting(_ hop: String) -> Bool {
+        switch hop.prefix(while: { $0 != ":" }).lowercased() {
+        case "data", "about": return true
+        case "blob": return BrowserReplDomainPolicy.blobOrigin(hop) == nil
+        default: return false
+        }
     }
 }
 
