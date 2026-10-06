@@ -18,6 +18,9 @@ final class WorkspaceRowView: SidebarRowView {
     private var lastConfiguration: (SidebarWorkspace, SidebarRow)?
     private var activityState = StatusIndicatorState.idle
     private let badge = UnreadBadgeView()
+    /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
+    /// in the trailing cluster, in the tertiary text color; hidden otherwise.
+    let mutedMark = NSImageView()
     /// A single colored segment connects grouped workspace rows.
     private let groupRail = CALayer()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
@@ -58,7 +61,10 @@ final class WorkspaceRowView: SidebarRowView {
         title.font = SidebarStyle.titleFont
         agentMark.imageScaling = .scaleProportionallyDown
         agentMark.isHidden = true
-        [icon, title, subtitle, activity, agentMark, badge, closeButton, disclosureButton, tabCount, placeholderBar].forEach(addSubview)
+        mutedMark.imageScaling = .scaleProportionallyDown
+        mutedMark.isHidden = true
+        mutedMark.setAccessibilityElement(false)
+        [icon, title, subtitle, activity, agentMark, mutedMark, badge, closeButton, disclosureButton, tabCount, placeholderBar].forEach(addSubview)
         disclosureButton.isHidden = true
         tabCount.isHidden = true
         tabCount.alignment = .right
@@ -140,6 +146,10 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil
         badge.configure(ws.unread)
+        let config = NSImage.SymbolConfiguration(pointSize: SidebarStyle.indicatorSize - Metrics.space1, weight: .regular)
+        mutedMark.image = ws.muted && !isShowingPlaceholder
+            ? NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)?.withSymbolConfiguration(config) : nil
+        mutedMark.isHidden = mutedMark.image == nil
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.symbol = row.tabDisclosure == .expanded ? "chevron.down" : "chevron.right"
@@ -168,6 +178,7 @@ final class WorkspaceRowView: SidebarRowView {
         default: break
         }
         if let text = Strings.activity(ws.activity) { parts.append(text) }
+        if ws.muted { parts.append(Strings.muted) }
         return parts.joined(separator: ", ")
     }
 
@@ -207,6 +218,7 @@ final class WorkspaceRowView: SidebarRowView {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
             tabCount.textColor = Palette.textTertiary
+            mutedMark.contentTintColor = Palette.textTertiary
             agentMark.contentTintColor = activityState == .waiting ? Palette.attention : Palette.textSecondary
             // Fills only, no borders: drop target, selection, multi-selection, hover.
             paintFill(isDropTarget || isSelected ? Palette.selectionFill
@@ -292,6 +304,10 @@ final class WorkspaceRowView: SidebarRowView {
             trailing -= ind + Metrics.space2
         } else if activity.showsGlyph {
             activity.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
+            trailing -= ind + Metrics.space2
+        }
+        if !mutedMark.isHidden {
+            mutedMark.frame = NSRect(x: trailing - ind, y: (b.height - ind) / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
 
