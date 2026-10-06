@@ -423,6 +423,7 @@
       "conversation-typing",
       "conversation-bind",
       "conversation-agent-token",
+      "conversation-import",
       "browser-host-provider",
       "cloud-session-set",
       "cloud-session-clear",
