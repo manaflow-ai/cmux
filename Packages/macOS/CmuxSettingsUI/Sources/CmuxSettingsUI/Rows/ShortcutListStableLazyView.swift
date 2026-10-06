@@ -22,6 +22,7 @@ struct ShortcutListStableLazyView: View {
     @State private var lastReportedHeight: CGFloat = 0
     /// Actions matching `query` when it last changed, or `nil` when unfiltered.
     @State private var matchedActions: [ShortcutAction]?
+    @State private var matchedActionsQuery: ShortcutListSearchQuery?
     @State private var searchIndex: ShortcutListSearchIndex?
     @State private var searchIndexRevision = 0
     @State private var preserveShownOnIndexRefresh = false
@@ -58,6 +59,7 @@ struct ShortcutListStableLazyView: View {
         .task(id: SearchTaskID(query: query, revision: searchIndexRevision)) {
             if query.isEmpty {
                 matchedActions = nil
+                matchedActionsQuery = nil
                 preserveShownOnIndexRefresh = false
                 return
             }
@@ -75,6 +77,7 @@ struct ShortcutListStableLazyView: View {
             }.value
             guard !Task.isCancelled else { return }
             matchedActions = results
+            matchedActionsQuery = query
             preserveShownOnIndexRefresh = false
         }
     }
@@ -137,6 +140,10 @@ struct ShortcutListStableLazyView: View {
         searchIndex = model.shortcutSearchIndex()
         searchIndexRevision &+= 1
         guard !query.isEmpty else { return }
+        guard matchedActionsQuery == query else {
+            preserveShownOnIndexRefresh = false
+            return
+        }
         shownActionsForIndexRefresh = matchedActions ?? []
         preserveShownOnIndexRefresh = true
     }
