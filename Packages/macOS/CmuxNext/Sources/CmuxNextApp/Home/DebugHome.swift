@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CmuxNextDaemon
 import CmuxNextSettings
 
@@ -13,6 +14,13 @@ enum DebugHome {
                 "rev": .number(Double(summary.rev)),
                 "participants": .array(summary.participants.map { .string($0.id) }),
             ]
+            // What the Home view shows (HomeStore: owner mirror + cache + intent log).
+            let shown = home.homeStore.transcript(for: ConversationID(summary.id))
+            row["shown_count"] = .number(Double(shown.count))
+            row["shown_tail"] = .array(shown.suffix(20).map { item in
+                .object(["seq": item.seq.map { .number(Double($0)) } ?? .null, "author": .string(item.author.rawValue),
+                         "text": .string(item.plainText), "delivery": .string(String(describing: item.delivery))])
+            })
             if let session = home.sessions[summary.id] {
                 row["mirror_rev"] = session.mirror.map { .number(Double($0.rev)) } ?? .null
                 row["pending"] = .array(session.log.entries.map { entry in
@@ -47,6 +55,8 @@ enum DebugHome {
             "connected": .bool(chief.connection != nil),
             "daemon_pid": chief.identity.map { .number(Double($0.pid)) } ?? .null,
             "error": chief.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "store_online": .bool(home.homeStore.isOnline),
+            "cache": home.homeStore.cache.map { .string($0.url.path) } ?? .null,
         ])
         return .object(["available": .bool(home.isAvailable), "chief_owner": owner, "home_workspace": setup,
                         "conversations": .array(conversations)])
