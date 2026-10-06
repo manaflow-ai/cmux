@@ -90,6 +90,22 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
         performWithTheme { writeScoped(text, style: style) }
     }
 
+    /// A density change sets the font in place, as a theme change recolors:
+    /// the field editor keeps its text, selection and marked text, the
+    /// resting text is written again. Writing the editor's text replaced it,
+    /// which dropped an input method's composition and moved the caret.
+    func restyle(_ text: String, style: OmnibarPresentation.Style) {
+        let font = self.font ?? OmnibarStyle.font
+        guard let editor = currentEditor() as? NSTextView else {
+            write(text, style: style)
+            return
+        }
+        if let storage = editor.textStorage {
+            storage.addAttribute(.font, value: font, range: NSRange(location: 0, length: storage.length))
+        }
+        editor.typingAttributes[.font] = font
+    }
+
     // theme-scoped: called only inside performWithTheme
     private func writeScoped(_ text: String, style: OmnibarPresentation.Style) {
         let font = font ?? OmnibarStyle.font

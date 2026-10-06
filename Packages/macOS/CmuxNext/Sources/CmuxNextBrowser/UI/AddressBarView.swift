@@ -156,7 +156,7 @@ public final class AddressBarView: NSView {
         density.update { [unowned self] in
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
-            field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
             updateChrome()
         }
         density.start()
