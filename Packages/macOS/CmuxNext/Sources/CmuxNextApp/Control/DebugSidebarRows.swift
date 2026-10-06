@@ -28,6 +28,11 @@ enum DebugSidebarRows {
         })])
     }
 
+    /// The window's sidebar layout items (debug.sidebar_rows "items").
+    static func items(of controller: WindowController) -> [JSONValue] {
+        []
+    }
+
     private static func rect(_ r: CGRect) -> JSONValue {
         .object(["x": .number(r.minX), "y": .number(r.minY), "width": .number(r.width), "height": .number(r.height)])
     }

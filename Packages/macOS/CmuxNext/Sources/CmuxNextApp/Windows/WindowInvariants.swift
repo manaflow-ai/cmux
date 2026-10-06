@@ -56,5 +56,10 @@ enum WindowInvariants {
         ])
     }
 
+    /// The page fields of one window in `debug.windows`.
+    static func pageFields(state: WindowState?, controller: WindowController?) -> [String: JSONValue] {
+        [:]
+    }
+
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.windows")
 }
