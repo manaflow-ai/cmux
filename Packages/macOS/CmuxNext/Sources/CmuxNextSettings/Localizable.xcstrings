@@ -1,2753 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "settings.app.warnBeforeClosingTab": {
+    "settings.section.home": {
+      "comment": "Settings window section: the Home tab's conversations.",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "التحذير قبل إغلاق برنامج قيد التشغيل"
+            "value": "Home"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الرئيسية"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Upozori prije zatvaranja pokrenutog programa"
+            "state": "needs_review",
+            "value": "Početna"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Advar før lukning af et kørende program"
+            "state": "needs_review",
+            "value": "Hjem"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines laufenden Programms warnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warn Before Closing a Running Program"
+            "state": "needs_review",
+            "value": "Home"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avisar antes de cerrar un programa en ejecución"
+            "state": "needs_review",
+            "value": "Inicio"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avertir avant de fermer un programme en cours"
+            "state": "needs_review",
+            "value": "Accueil"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avvisa prima di chiudere un programma in esecuzione"
+            "state": "needs_review",
+            "value": "Home"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "実行中のプログラムを閉じる前に確認"
+            "state": "needs_review",
+            "value": "ホーム"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ព្រមានមុនពេលបិទកម្មវិធីដែលកំពុងដំណើរការ"
+            "state": "needs_review",
+            "value": "ទំព័រដើម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "실행 중인 프로그램을 닫기 전에 경고"
+            "state": "needs_review",
+            "value": "홈"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Advar før et kjørende program lukkes"
+            "state": "needs_review",
+            "value": "Hjem"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ostrzegaj przed zamknięciem działającego programu"
+            "state": "needs_review",
+            "value": "Strona główna"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avisar antes de fechar um programa em execução"
+            "state": "needs_review",
+            "value": "Início"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Предупреждать перед закрытием работающей программы"
+            "state": "needs_review",
+            "value": "Главная"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เตือนก่อนปิดโปรแกรมที่กำลังทำงาน"
+            "state": "needs_review",
+            "value": "หน้าแรก"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Çalışan bir programı kapatmadan önce uyar"
+            "state": "needs_review",
+            "value": "Ana Sayfa"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Попереджати перед закриттям запущеної програми"
+            "state": "needs_review",
+            "value": "Головна"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cảnh báo trước khi đóng chương trình đang chạy"
+            "state": "needs_review",
+            "value": "Trang chủ"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭正在运行的程序前发出警告"
+            "state": "needs_review",
+            "value": "主页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "關閉執行中的程式前發出警告"
+            "state": "needs_review",
+            "value": "主頁"
           }
         }
       }
     },
-    "settings.app.warnBeforeClosingTab.help": {
+    "settings.group.attachments": {
+      "comment": "Settings group in Home: attachments in conversations.",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب أو مساحة عمل تشغّل الطرفية فيها برنامجًا. علامات التبويب الخاملة تُغلق فورًا دائمًا."
+            "value": "Attachments"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المرفقات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice ili radnog prostora čiji terminal pokreće program. Neaktivne kartice se uvijek odmah zatvaraju."
+            "state": "needs_review",
+            "value": "Prilozi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en fane eller et arbejdsområde, hvor terminalen kører et program. Inaktive faner lukkes altid med det samme."
+            "state": "needs_review",
+            "value": "Vedhæftninger"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Tabs oder Arbeitsbereichs fragen, dessen Terminal ein Programm ausführt. Untätige Tabs schließen immer sofort."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+            "state": "needs_review",
+            "value": "Anhänge"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña o un espacio de trabajo cuyo terminal ejecuta un programa. Las pestañas inactivas se cierran siempre al instante."
+            "state": "needs_review",
+            "value": "Archivos adjuntos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet ou un espace de travail dont le terminal exécute un programme. Les onglets inactifs se ferment toujours immédiatement."
+            "state": "needs_review",
+            "value": "Pièces jointes"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda o uno spazio di lavoro il cui terminale esegue un programma. Le schede inattive si chiudono sempre subito."
+            "state": "needs_review",
+            "value": "Allegati"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ターミナルでプログラムが実行中のタブやワークスペースを閉じる前に確認します。アイドル状態のタブはいつでもすぐに閉じます。"
+            "state": "needs_review",
+            "value": "添付ファイル"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំង ឬកន្លែងធ្វើការដែលទែមីណាល់កំពុងដំណើរការកម្មវិធី។ ផ្ទាំងទំនេរតែងតែបិទភ្លាមៗ។"
+            "state": "needs_review",
+            "value": "ឯកសារភ្ជាប់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "터미널에서 프로그램이 실행 중인 탭이나 워크스페이스를 닫기 전에 묻습니다. 유휴 탭은 항상 바로 닫힙니다."
+            "state": "needs_review",
+            "value": "첨부 파일"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en fane eller et arbeidsområde lukkes når terminalen kjører et program. Inaktive faner lukkes alltid med en gang."
+            "state": "needs_review",
+            "value": "Vedlegg"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty lub obszaru roboczego, w którego terminalu działa program. Bezczynne karty zawsze zamykają się od razu."
+            "state": "needs_review",
+            "value": "Załączniki"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba ou um espaço de trabalho cujo terminal está executando um programa. Abas ociosas sempre fecham na hora."
+            "state": "needs_review",
+            "value": "Anexos"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки или рабочего пространства, в терминале которых работает программа. Неактивные вкладки всегда закрываются сразу."
+            "state": "needs_review",
+            "value": "Вложения"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บหรือพื้นที่ทำงานที่เทอร์มินัลกำลังเรียกใช้โปรแกรม แท็บที่ว่างอยู่จะปิดทันทีเสมอ"
+            "state": "needs_review",
+            "value": "ไฟล์แนบ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Terminalinde bir program çalışan sekmeyi veya çalışma alanını kapatmadan önce sor. Boştaki sekmeler her zaman hemen kapanır."
+            "state": "needs_review",
+            "value": "Ekler"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки чи робочого простору, у терміналі яких працює програма. Неактивні вкладки завжди закриваються одразу."
+            "state": "needs_review",
+            "value": "Вкладення"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab hoặc không gian làm việc có terminal đang chạy chương trình. Tab rảnh luôn đóng ngay."
+            "state": "needs_review",
+            "value": "Tệp đính kèm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭终端正在运行程序的标签页或工作区前先询问。空闲的标签页始终会立即关闭。"
+            "state": "needs_review",
+            "value": "附件"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "關閉終端機正在執行程式的分頁或工作區前先詢問。閒置的分頁一律立即關閉。"
+            "state": "needs_review",
+            "value": "附件"
           }
         }
       }
     },
-    "settings.app.warnBeforeClosingAgentSession": {
+    "settings.home.keepLocation": {
+      "comment": "Settings toggle (home.attachments.keepLocation): attached photos and videos keep their location metadata.",
       "extractionState": "manual",
       "localizations": {
-        "ar": {
+        "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "التحذير قبل إغلاق وكيل قيد العمل"
+            "value": "Keep Location in Photos and Videos"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الاحتفاظ بالموقع في الصور ومقاطع الفيديو"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Upozori prije zatvaranja agenta koji radi"
+            "state": "needs_review",
+            "value": "Zadrži lokaciju u fotografijama i videozapisima"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Advar før lukning af en agent, der arbejder"
+            "state": "needs_review",
+            "value": "Behold lokation i fotos og videoer"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines arbeitenden Agenten warnen"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Warn Before Closing a Working Agent"
+            "state": "needs_review",
+            "value": "Ort in Fotos und Videos behalten"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avisar antes de cerrar un agente que está trabajando"
+            "state": "needs_review",
+            "value": "Mantener la ubicación en fotos y vídeos"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avertir avant de fermer un agent au travail"
+            "state": "needs_review",
+            "value": "Conserver la position dans les photos et vidéos"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avvisa prima di chiudere un agente al lavoro"
+            "state": "needs_review",
+            "value": "Mantieni la posizione in foto e video"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "作業中のエージェントを閉じる前に確認"
+            "state": "needs_review",
+            "value": "写真とビデオの位置情報を残す"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ព្រមានមុនពេលបិទភ្នាក់ងារដែលកំពុងធ្វើការ"
+            "state": "needs_review",
+            "value": "រក្សាទីតាំងក្នុងរូបថត និងវីដេអូ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "작업 중인 에이전트를 닫기 전에 경고"
+            "state": "needs_review",
+            "value": "사진 및 비디오의 위치 정보 유지"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Advar før en agent som arbeider lukkes"
+            "state": "needs_review",
+            "value": "Behold posisjon i bilder og videoer"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ostrzegaj przed zamknięciem pracującego agenta"
+            "state": "needs_review",
+            "value": "Zachowaj lokalizację w zdjęciach i filmach"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Avisar antes de fechar um agente trabalhando"
+            "state": "needs_review",
+            "value": "Manter a localização em fotos e vídeos"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Предупреждать перед закрытием работающего агента"
+            "state": "needs_review",
+            "value": "Сохранять геопозицию в фото и видео"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "เตือนก่อนปิดเอเจนต์ที่กำลังทำงาน"
+            "state": "needs_review",
+            "value": "เก็บตำแหน่งที่ตั้งไว้ในรูปภาพและวิดีโอ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Çalışan bir ajanı kapatmadan önce uyar"
+            "state": "needs_review",
+            "value": "Fotoğraf ve videolarda konumu koru"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Попереджати перед закриттям агента, що працює"
+            "state": "needs_review",
+            "value": "Зберігати геопозицію у фото й відео"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cảnh báo trước khi đóng tác tử đang làm việc"
+            "state": "needs_review",
+            "value": "Giữ vị trí trong ảnh và video"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭正在工作的智能体前发出警告"
+            "state": "needs_review",
+            "value": "在照片和视频中保留位置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "關閉正在工作的代理程式前發出警告"
+            "state": "needs_review",
+            "value": "在照片和影片中保留位置"
           }
         }
       }
     },
-    "settings.app.warnBeforeClosingAgentSession.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "السؤال قبل إغلاق علامة تبويب طرفية لا يزال وكيلها يعمل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pitaj prije zatvaranja kartice terminala čiji agent još radi."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spørg før lukning af en terminalfane, hvor agenten stadig arbejder."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vor dem Schließen eines Terminal-Tabs fragen, dessen Agent noch arbeitet."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ask before closing a terminal tab whose agent is still working."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Preguntar antes de cerrar una pestaña de terminal cuyo agente sigue trabajando."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Demander avant de fermer un onglet de terminal dont l’agent travaille encore."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Chiedi prima di chiudere una scheda del terminale il cui agente sta ancora lavorando."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントがまだ作業中のターミナルタブを閉じる前に確認します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សួរមុនពេលបិទផ្ទាំងទែមីណាល់ដែលភ្នាក់ងាររបស់វានៅតែកំពុងធ្វើការ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트가 아직 작업 중인 터미널 탭을 닫기 전에 묻습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Spør før en terminalfane lukkes når agenten fortsatt arbeider."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pytaj przed zamknięciem karty terminala, której agent wciąż pracuje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Perguntar antes de fechar uma aba de terminal cujo agente ainda está trabalhando."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Спрашивать перед закрытием вкладки терминала, агент которой ещё работает."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ถามก่อนปิดแท็บเทอร์มินัลที่เอเจนต์ยังทำงานอยู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajanı hâlâ çalışan bir terminal sekmesini kapatmadan önce sor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Питати перед закриттям вкладки термінала, агент якої ще працює."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hỏi trước khi đóng tab terminal có tác tử vẫn đang làm việc."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "关闭智能体仍在工作的终端标签页前先询问。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "關閉代理程式仍在工作的終端機分頁前先詢問。"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.calculator": {
+    "settings.home.keepLocation.help": {
+      "comment": "Help under the Keep Location toggle.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Calculator Answers"
+            "value": "When off, location data is removed from photos and videos before they are attached."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إجابات الآلة الحاسبة"
+            "value": "عند الإيقاف، تُزال بيانات الموقع من الصور ومقاطع الفيديو قبل إرفاقها."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odgovori kalkulatora"
+            "value": "Kada je isključeno, podaci o lokaciji uklanjaju se iz fotografija i videozapisa prije prilaganja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lommeregnersvar"
+            "value": "Når den er slået fra, fjernes lokationsdata fra fotos og videoer, før de vedhæftes."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rechnerergebnisse"
+            "value": "Wenn aus, werden Ortsdaten aus Fotos und Videos entfernt, bevor sie angehängt werden."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Respuestas de la calculadora"
+            "value": "Si está desactivado, los datos de ubicación se eliminan de las fotos y los vídeos antes de adjuntarlos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Réponses de la calculatrice"
+            "value": "Si désactivé, les données de position sont supprimées des photos et vidéos avant leur ajout en pièce jointe."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Risposte della calcolatrice"
+            "value": "Se disattivato, i dati sulla posizione vengono rimossi da foto e video prima di allegarli."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "計算結果"
+            "state": "needs_review",
+            "value": "オフのときは、写真とビデオを添付する前に位置情報を削除します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចម្លើយម៉ាស៊ីនគិតលេខ"
+            "value": "នៅពេលបិទ ទិន្នន័យទីតាំងត្រូវបានលុបចេញពីរូបថត និងវីដេអូ មុនពេលភ្ជាប់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "계산기 답"
+            "value": "끄면 사진과 비디오를 첨부하기 전에 위치 데이터를 제거합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kalkulatorsvar"
+            "value": "Når den er av, fjernes posisjonsdata fra bilder og videoer før de legges ved."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wyniki kalkulatora"
+            "value": "Gdy wyłączone, dane lokalizacji są usuwane ze zdjęć i filmów przed ich załączeniem."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Respostas da calculadora"
+            "value": "Quando desativado, os dados de localização são removidos de fotos e vídeos antes de serem anexados."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ответы калькулятора"
+            "value": "Если выключено, данные о местоположении удаляются из фото и видео перед вложением."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "คำตอบเครื่องคิดเลข"
+            "value": "เมื่อปิด ข้อมูลตำแหน่งที่ตั้งจะถูกลบออกจากรูปภาพและวิดีโอก่อนแนบ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hesap Makinesi Yanıtları"
+            "value": "Kapalıyken, konum verileri fotoğraf ve videolar eklenmeden önce kaldırılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відповіді калькулятора"
+            "value": "Якщо вимкнено, дані про геопозицію видаляються з фото й відео перед вкладенням."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kết quả máy tính"
+            "value": "Khi tắt, dữ liệu vị trí sẽ bị xóa khỏi ảnh và video trước khi đính kèm."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "计算结果"
+            "value": "关闭时，照片和视频在附加前会移除位置数据。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "計算結果"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.calculator.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shows the answer to arithmetic you type. Return copies it."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض ناتج العملية الحسابية التي تكتبها. يؤدي Return إلى نسخه."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazuje rezultat računa koji upišete. Return ga kopira."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser resultatet af det regnestykke, du skriver. Retur kopierer det."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zeigt das Ergebnis eingetippter Rechnungen. Der Zeilenschalter kopiert es."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Muestra el resultado de las operaciones que escribes. Retorno lo copia."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Affiche le résultat du calcul saisi. Retour le copie."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra il risultato dei calcoli che digiti. A capo lo copia."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力した計算式の答えを表示します。Return キーでコピーします。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បង្ហាញចម្លើយនៃការគណនាដែលអ្នកវាយ។ Return ចម្លងវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "입력한 계산의 답을 보여 줍니다. Return 키로 복사합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viser svaret på regnestykket du skriver. Retur kopierer det."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokazuje wynik wpisanego działania. Return go kopiuje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra o resultado das contas que você digita. Return o copia."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывает ответ на введённое выражение. Return копирует его."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แสดงผลลัพธ์ของการคำนวณที่คุณพิมพ์ กด Return เพื่อคัดลอก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Yazdığınız işlemin sonucunu gösterir. Return kopyalar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показує відповідь на введений вираз. Return копіює її."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiện kết quả phép tính bạn nhập. Return sẽ sao chép."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示你输入的算式的结果。按 Return 复制。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示你輸入的算式結果。按 Return 拷貝。"
-          }
-        }
-      }
-    },
-    "settings.browser.searchEngine": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Engine"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "محرك البحث"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pretraživač"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søgemaskine"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suchmaschine"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Motor de búsqueda"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Moteur de recherche"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Motore di ricerca"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索エンジン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ាស៊ីនស្វែងរក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "검색 엔진"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søkemotor"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wyszukiwarka"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mecanismo de pesquisa"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поисковая система"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เครื่องมือค้นหา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arama Motoru"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошукова система"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Công cụ tìm kiếm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索引擎"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋引擎"
-          }
-        }
-      }
-    },
-    "settings.browser.searchEngine.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The address bar searches here and asks it for suggestions."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يبحث شريط العنوان هنا ويطلب منه الاقتراحات."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresna traka pretražuje ovdje i od njega traži prijedloge."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresselinjen søger her og henter forslag herfra."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Die Adressleiste sucht hier und fragt hier nach Vorschlägen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La barra de direcciones busca aquí y le pide sugerencias."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La barre d'adresse recherche ici et lui demande des suggestions."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "La barra degli indirizzi cerca qui e gli chiede i suggerimenti."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アドレスバーはここで検索し、候補もここから取得します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "របារអាសយដ្ឋានស្វែងរកនៅទីនេះ ហើយសុំការណែនាំពីវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "주소 표시줄은 여기에서 검색하고 추천 검색어를 받습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresselinjen søker her og henter forslag herfra."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pasek adresu wyszukuje tutaj i pobiera stąd podpowiedzi."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "A barra de endereços pesquisa aqui e pede sugestões a ele."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адресная строка ищет здесь и получает отсюда подсказки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "แถบที่อยู่จะค้นหาที่นี่และขอคำแนะนำจากที่นี่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adres çubuğu burada arar ve önerileri buradan alır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адресний рядок шукає тут і отримує звідси підказки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thanh địa chỉ tìm kiếm tại đây và lấy gợi ý từ đây."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "地址栏在此搜索，并从此获取建议。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "網址列在此搜尋，並從此取得建議。"
-          }
-        }
-      }
-    },
-    "settings.choice.searchEngine.custom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Custom"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مخصص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prilagođeno"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilpasset"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Eigene"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personalizado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personnalisé"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personalizzato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カスタム"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사용자 지정"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Egendefinert"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Własna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Personalizado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Свой"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "กำหนดเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Özel"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Власна"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tùy chỉnh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自定义"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自訂"
-          }
-        }
-      }
-    },
-    "settings.browser.customSearch": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Custom Search Address"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عنوان البحث المخصص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresa prilagođene pretrage"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse for tilpasset søgning"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse der eigenen Suche"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dirección de búsqueda personalizada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse de recherche personnalisée"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Indirizzo di ricerca personalizzato"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カスタム検索のアドレス"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អាសយដ្ឋានស្វែងរកផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사용자 지정 검색 주소"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse for egendefinert søk"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adres własnej wyszukiwarki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endereço de pesquisa personalizado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адрес своего поиска"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ที่อยู่การค้นหาแบบกำหนดเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Özel Arama Adresi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адреса власного пошуку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Địa chỉ tìm kiếm tùy chỉnh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自定义搜索地址"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自訂搜尋網址"
-          }
-        }
-      }
-    },
-    "settings.browser.customSearch.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يُستخدم عندما يكون محرك البحث مخصصًا. ضع {searchTerms} حيث يوضع النص المكتوب."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Koristi se kada je pretraživač Prilagođeno. Stavite {searchTerms} gdje ide upisani tekst."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bruges når søgemaskinen er Tilpasset. Skriv {searchTerms} der, hvor den indtastede tekst skal stå."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gilt, wenn als Suchmaschine „Eigene“ gewählt ist. {searchTerms} steht für den eingegebenen Text."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se usa cuando el motor de búsqueda es Personalizado. Pon {searchTerms} donde va el texto escrito."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Utilisé quand le moteur de recherche est Personnalisé. Placez {searchTerms} à l'endroit du texte saisi."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usato quando il motore di ricerca è Personalizzato. Metti {searchTerms} dove va il testo digitato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索エンジンが「カスタム」のときに使います。入力した文字が入る位置に {searchTerms} を書きます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ប្រើពេលម៉ាស៊ីនស្វែងរកជាផ្ទាល់ខ្លួន។ ដាក់ {searchTerms} នៅកន្លែងអត្ថបទដែលបានវាយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "검색 엔진이 사용자 지정일 때 사용합니다. 입력한 텍스트가 들어갈 자리에 {searchTerms}를 넣으세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Brukes når søkemotoren er Egendefinert. Skriv {searchTerms} der den innskrevne teksten skal stå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Używany, gdy wyszukiwarka to Własna. Wpisz {searchTerms} w miejscu wpisanego tekstu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usado quando o mecanismo de pesquisa é Personalizado. Coloque {searchTerms} onde vai o texto digitado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Используется, когда выбран свой поиск. Поставьте {searchTerms} на место введённого текста."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ใช้เมื่อเครื่องมือค้นหาเป็นแบบกำหนดเอง ใส่ {searchTerms} ในตำแหน่งของข้อความที่พิมพ์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arama motoru Özel olduğunda kullanılır. Yazılan metnin geleceği yere {searchTerms} koyun."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Використовується, коли вибрано власний пошук. Поставте {searchTerms} на місце введеного тексту."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dùng khi công cụ tìm kiếm là Tùy chỉnh. Đặt {searchTerms} vào chỗ của văn bản đã nhập."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索引擎为“自定义”时使用。在输入文字所在的位置写 {searchTerms}。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋引擎為「自訂」時使用。在輸入文字的位置寫上 {searchTerms}。"
-          }
-        }
-      }
-    },
-    "settings.browser.customSuggest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Custom Suggestions Address"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عنوان الاقتراحات المخصص"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresa prilagođenih prijedloga"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse for tilpassede forslag"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse der eigenen Vorschläge"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dirección de sugerencias personalizada"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse des suggestions personnalisées"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Indirizzo dei suggerimenti personalizzati"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "カスタム候補のアドレス"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អាសយដ្ឋានការណែនាំផ្ទាល់ខ្លួន"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사용자 지정 추천 검색어 주소"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresse for egendefinerte forslag"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adres własnych podpowiedzi"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Endereço de sugestões personalizado"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адрес своих подсказок"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ที่อยู่คำแนะนำแบบกำหนดเอง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Özel Öneri Adresi"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Адреса власних підказок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Địa chỉ gợi ý tùy chỉnh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自定义建议地址"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "自訂建議網址"
-          }
-        }
-      }
-    },
-    "settings.browser.customSuggest.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اختياري. يجيب بتنسيق اقتراحات OpenSearch، مع {searchTerms} للنص المكتوب."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Neobavezno. Odgovara u OpenSearch formatu prijedloga, s {searchTerms} za upisani tekst."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Valgfri. Svarer i OpenSearch-forslagsformatet med {searchTerms} for den indtastede tekst."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Optional. Antwortet im OpenSearch-Vorschlagsformat, {searchTerms} steht für den eingegebenen Text."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opcional. Responde en el formato de sugerencias de OpenSearch, con {searchTerms} para el texto escrito."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Facultatif. Répond au format de suggestions OpenSearch, avec {searchTerms} pour le texte saisi."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Facoltativo. Risponde nel formato dei suggerimenti OpenSearch, con {searchTerms} per il testo digitato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "任意。OpenSearch の候補形式で応答します。入力した文字は {searchTerms} です。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ស្រេចចិត្ត។ ឆ្លើយតបជាទម្រង់ការណែនាំ OpenSearch ដោយមាន {searchTerms} សម្រាប់អត្ថបទដែលបានវាយ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "선택 사항입니다. OpenSearch 추천 형식으로 응답하며, 입력한 텍스트는 {searchTerms}입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Valgfritt. Svarer i OpenSearch-forslagsformatet, med {searchTerms} for den innskrevne teksten."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opcjonalnie. Odpowiada w formacie podpowiedzi OpenSearch, z {searchTerms} w miejscu wpisanego tekstu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Opcional. Responde no formato de sugestões OpenSearch, com {searchTerms} para o texto digitado."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Необязательно. Отвечает в формате подсказок OpenSearch, {searchTerms} — введённый текст."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไม่บังคับ ตอบกลับในรูปแบบคำแนะนำ OpenSearch โดยใช้ {searchTerms} แทนข้อความที่พิมพ์"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "İsteğe bağlı. OpenSearch öneri biçiminde yanıt verir; yazılan metin için {searchTerms} kullanılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Необов'язково. Відповідає у форматі підказок OpenSearch, {searchTerms} — введений текст."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Không bắt buộc. Trả lời theo định dạng gợi ý OpenSearch, với {searchTerms} cho văn bản đã nhập."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "可选。以 OpenSearch 建议格式回应，{searchTerms} 代表输入的文字。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "選填。以 OpenSearch 建議格式回應，{searchTerms} 代表輸入的文字。"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.remoteSuggestions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search Suggestions"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "اقتراحات البحث"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prijedlozi pretrage"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søgeforslag"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suchvorschläge"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sugerencias de búsqueda"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suggestions de recherche"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suggerimenti di ricerca"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "検索候補"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការណែនាំស្វែងរក"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "검색어 추천"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Søkeforslag"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Podpowiedzi wyszukiwania"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sugestões de pesquisa"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Поисковые подсказки"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คำแนะนำการค้นหา"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Arama Önerileri"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Пошукові підказки"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gợi ý tìm kiếm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜索建议"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "搜尋建議"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.remoteSuggestions.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يرسل ما تكتبه إلى محرك البحث للحصول على اقتراحات. لا يرسل العناوين أو الملفات أو المضيفين المحليين أبدًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Šalje ono što upišete pretraživaču radi prijedloga. Nikada adrese, datoteke ni lokalne hostove."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sender det, du skriver, til søgemaskinen for at få forslag. Aldrig adresser, filer eller lokale værter."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sendet Eingaben für Vorschläge an die Suchmaschine. Nie Adressen, Dateien oder lokale Hosts."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Envía lo que escribes al motor de búsqueda para obtener sugerencias. Nunca direcciones, archivos ni hosts locales."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Envoie votre saisie au moteur de recherche pour obtenir des suggestions. Jamais d'adresses, de fichiers ni d'hôtes locaux."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Invia ciò che digiti al motore di ricerca per i suggerimenti. Mai indirizzi, file o host locali."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "入力した文字を検索エンジンに送り、候補を受け取ります。アドレス、ファイル、ローカルホストは送りません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ផ្ញើអ្វីដែលអ្នកវាយទៅម៉ាស៊ីនស្វែងរកដើម្បីទទួលការណែនាំ។ មិនដែលផ្ញើអាសយដ្ឋាន ឯកសារ ឬម៉ាស៊ីនមូលដ្ឋានទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "입력한 내용을 검색 엔진에 보내 추천 검색어를 받습니다. 주소, 파일, 로컬 호스트는 보내지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sender det du skriver til søkemotoren for å få forslag. Aldri adresser, filer eller lokale verter."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wysyła wpisywany tekst do wyszukiwarki po podpowiedzi. Nigdy adresów, plików ani hostów lokalnych."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Envia o que você digita ao mecanismo de pesquisa para obter sugestões. Nunca endereços, arquivos ou hosts locais."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Отправляет вводимый текст поисковой системе за подсказками. Никогда не отправляет адреса, файлы и локальные хосты."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ส่งสิ่งที่คุณพิมพ์ไปยังเครื่องมือค้นหาเพื่อรับคำแนะนำ ไม่ส่งที่อยู่ ไฟล์ หรือโฮสต์ในเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Öneri almak için yazdıklarınızı arama motoruna gönderir. Adresleri, dosyaları ve yerel ana bilgisayarları asla göndermez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Надсилає введений текст пошуковій системі по підказки. Ніколи не надсилає адреси, файли й локальні хости."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gửi những gì bạn nhập đến công cụ tìm kiếm để lấy gợi ý. Không bao giờ gửi địa chỉ, tệp hay máy chủ cục bộ."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "将你输入的内容发送给搜索引擎以获取建议。绝不发送网址、文件或本地主机。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "將你輸入的內容傳送給搜尋引擎以取得建議。絕不傳送網址、檔案或本機主機。"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.inlineAutocomplete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Complete Addresses Inline"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "إكمال العناوين داخل الشريط"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dovrši adrese u traci"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuldfør adresser i linjen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adressen in der Zeile vervollständigen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completar direcciones en la barra"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Compléter les adresses dans la barre"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completa gli indirizzi nella barra"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アドレスをその場で補完"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំពេញអាសយដ្ឋានក្នុងបន្ទាត់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "주소 바로 완성"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fullfør adresser i linjen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uzupełniaj adresy w pasku"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completar endereços na barra"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дополнять адреса в строке"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เติมที่อยู่ในแถบโดยอัตโนมัติ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Adresleri Satır İçinde Tamamla"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доповнювати адреси в рядку"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tự hoàn tất địa chỉ trong thanh"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在地址栏内补全网址"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在網址列內補全網址"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.inlineAutocomplete.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Completes a site you typed before or visit often."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يُكمل موقعًا كتبته من قبل أو تزوره كثيرًا."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dovršava stranicu koju ste ranije upisali ili često posjećujete."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fuldfører et websted, du har skrevet før eller besøger ofte."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vervollständigt Websites, die du schon eingetippt hast oder oft besuchst."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completa un sitio que ya escribiste o visitas a menudo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Complète un site déjà saisi ou souvent visité."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completa un sito che hai già digitato o visiti spesso."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "以前に入力したサイトやよく訪れるサイトを補完します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំពេញគេហទំព័រដែលអ្នកធ្លាប់វាយ ឬចូលមើលញឹកញាប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "전에 입력했거나 자주 방문하는 사이트를 완성합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fullfører et nettsted du har skrevet før eller besøker ofte."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uzupełnia witrynę, którą już wpisywano lub często odwiedzasz."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Completa um site que você já digitou ou visita com frequência."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Дополняет сайт, который вы уже вводили или часто посещаете."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เติมเว็บไซต์ที่คุณเคยพิมพ์หรือเข้าชมบ่อย"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Daha önce yazdığınız veya sık ziyaret ettiğiniz bir siteyi tamamlar."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Доповнює сайт, який ви вже вводили або часто відвідуєте."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hoàn tất trang bạn đã từng nhập hoặc hay truy cập."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "补全你输入过或经常访问的网站。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "補全你輸入過或經常造訪的網站。"
-          }
-        }
-      }
-    },
-    "settings.browser.omnibar.maxRows": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggestions Shown"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عدد الاقتراحات المعروضة"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prikazani prijedlozi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viste forslag"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Angezeigte Vorschläge"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sugerencias mostradas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suggestions affichées"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Suggerimenti mostrati"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "表示する候補の数"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ការណែនាំដែលបង្ហាញ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "표시할 추천 수"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Viste forslag"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokazywane podpowiedzi"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sugestões mostradas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показывать подсказок"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "จำนวนคำแนะนำที่แสดง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gösterilen Öneriler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Показувати підказок"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Số gợi ý hiển thị"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "显示的建议数"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "顯示的建議數"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.hintsGroup": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shortcut Hints"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tastenkürzel-Hinweise"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indications des raccourcis"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "تلميحات اختصارات لوحة المفاتيح"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Indicaciones de atajos"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "快速鍵提示"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "快捷键提示"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "단축키 힌트"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ショートカットのヒント"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Savjeti za prečice"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genvejstip"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Suggerimenti delle scorciatoie"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ព័ត៌មានជំនួយផ្លូវកាត់"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Snarveistips"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podpowiedzi skrótów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dicas de atalhos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Подсказки сочетаний клавиш"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "คำแนะนำปุ่มลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kısayol ipuçları"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Підказки сполучень клавіш"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gợi ý phím tắt"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showModifierHoldHints": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Show Shortcuts When Holding a Modifier"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tastenkürzel beim Halten einer Zusatztaste anzeigen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Afficher les raccourcis en maintenant une touche de modification"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "إظهار الاختصارات عند الضغط المطول على مفتاح تعديل"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar atajos al mantener un modificador"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住修飾鍵時顯示快速鍵"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住修饰键时显示快捷键"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "보조 키를 누르고 있을 때 단축키 표시"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修飾キーを押し続けるとショートカットを表示"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prikaži prečice pri držanju modifikatora"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis genveje, når en modifikatortast holdes nede"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostra le scorciatoie tenendo premuto un modificatore"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "បង្ហាញផ្លូវកាត់ពេលសង្កត់គ្រាប់ចុចកែប្រែ"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vis snarveier når en modifikatortast holdes inne"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pokaż skróty po przytrzymaniu modyfikatora"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mostrar atalhos ao segurar um modificador"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показывать сочетания при удержании модификатора"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แสดงปุ่มลัดเมื่อกดปุ่มปรับค่าไว้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Değiştirici basılı tutulduğunda kısayolları göster"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Показувати сполучення під час утримання модифікатора"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hiển thị phím tắt khi giữ phím bổ trợ"
-          }
-        }
-      }
-    },
-    "settings.shortcuts.showModifierHoldHints.help": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hold Command or Control for 0.30 seconds to show shortcut hints."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command oder Control 0,30 Sekunden halten, um Tastenkürzel-Hinweise anzuzeigen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maintenez Command ou Control pendant 0,30 seconde pour afficher les indications des raccourcis."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اضغط مطولاً على Command أو Control لمدة 0.30 ثانية لإظهار تلميحات الاختصارات."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mantén Command o Control durante 0,30 segundos para mostrar las indicaciones de atajos."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Control 0.30 秒以顯示快速鍵提示。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "按住 Command 或 Control 0.30 秒以显示快捷键提示。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command 또는 Control을 0.30초 동안 누르면 단축키 힌트가 표시됩니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Command または Control を0.30秒押し続けるとショートカットのヒントが表示されます。"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Držite Command ili Control 0,30 sekundi da prikažete savjete za prečice."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hold Command eller Control nede i 0,30 sekunder for at vise genvejstip."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tieni premuto Command o Control per 0,30 secondi per mostrare i suggerimenti delle scorciatoie."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សង្កត់ Command ឬ Control រយៈពេល 0.30 វិនាទី ដើម្បីបង្ហាញព័ត៌មានជំនួយផ្លូវកាត់។"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hold Command eller Control inne i 0,30 sekunder for å vise snarveistips."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Przytrzymaj Command lub Control przez 0,30 sekundy, aby wyświetlić podpowiedzi skrótów."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Segure Command ou Control por 0,30 segundos para mostrar dicas de atalhos."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Удерживайте Command или Control в течение 0,30 секунды, чтобы увидеть подсказки сочетаний клавиш."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "กด Command หรือ Control ค้างไว้ 0.30 วินาทีเพื่อแสดงคำแนะนำปุ่มลัด"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kısayol ipuçlarını göstermek için Command veya Control tuşunu 0,30 saniye basılı tutun."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Утримуйте Command або Control протягом 0,30 секунди, щоб побачити підказки сполучень клавіш."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Giữ Command hoặc Control trong 0,30 giây để hiển thị gợi ý phím tắt."
+            "value": "關閉時，照片和影片在附加前會移除位置資料。"
           }
         }
       }
@@ -48890,6 +46667,2757 @@
         }
       }
     },
+    "settings.app.warnBeforeClosingTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق برنامج قيد التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozori prije zatvaranja pokrenutog programa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før lukning af et kørende program"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines laufenden Programms warnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing a Running Program"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar un programa en ejecución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un programme en cours"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa prima di chiudere un programma in esecuzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中のプログラムを閉じる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រមានមុនពេលបិទកម្មវិធីដែលកំពុងដំណើរការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실행 중인 프로그램을 닫기 전에 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før et kjørende program lukkes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzegaj przed zamknięciem działającego programu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de fechar um programa em execução"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждать перед закрытием работающей программы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เตือนก่อนปิดโปรแกรมที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan bir programı kapatmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям запущеної програми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo trước khi đóng chương trình đang chạy"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭正在运行的程序前发出警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉執行中的程式前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل إغلاق علامة تبويب أو مساحة عمل تشغّل الطرفية فيها برنامجًا. علامات التبويب الخاملة تُغلق فورًا دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj prije zatvaranja kartice ili radnog prostora čiji terminal pokreće program. Neaktivne kartice se uvijek odmah zatvaraju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før lukning af en fane eller et arbejdsområde, hvor terminalen kører et program. Inaktive faner lukkes altid med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Tabs oder Arbeitsbereichs fragen, dessen Terminal ein Programm ausführt. Untätige Tabs schließen immer sofort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de cerrar una pestaña o un espacio de trabajo cuyo terminal ejecuta un programa. Las pestañas inactivas se cierran siempre al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant de fermer un onglet ou un espace de travail dont le terminal exécute un programme. Les onglets inactifs se ferment toujours immédiatement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di chiudere una scheda o uno spazio di lavoro il cui terminale esegue un programma. Le schede inattive si chiudono sempre subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルでプログラムが実行中のタブやワークスペースを閉じる前に確認します。アイドル状態のタブはいつでもすぐに閉じます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរមុនពេលបិទផ្ទាំង ឬកន្លែងធ្វើការដែលទែមីណាល់កំពុងដំណើរការកម្មវិធី។ ផ្ទាំងទំនេរតែងតែបិទភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널에서 프로그램이 실행 중인 탭이나 워크스페이스를 닫기 전에 묻습니다. 유휴 탭은 항상 바로 닫힙니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før en fane eller et arbeidsområde lukkes når terminalen kjører et program. Inaktive faner lukkes alltid med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj przed zamknięciem karty lub obszaru roboczego, w którego terminalu działa program. Bezczynne karty zawsze zamykają się od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar antes de fechar uma aba ou um espaço de trabalho cujo terminal está executando um programa. Abas ociosas sempre fecham na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать перед закрытием вкладки или рабочего пространства, в терминале которых работает программа. Неактивные вкладки всегда закрываются сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อนปิดแท็บหรือพื้นที่ทำงานที่เทอร์มินัลกำลังเรียกใช้โปรแกรม แท็บที่ว่างอยู่จะปิดทันทีเสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminalinde bir program çalışan sekmeyi veya çalışma alanını kapatmadan önce sor. Boştaki sekmeler her zaman hemen kapanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати перед закриттям вкладки чи робочого простору, у терміналі яких працює програма. Неактивні вкладки завжди закриваються одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi đóng tab hoặc không gian làm việc có terminal đang chạy chương trình. Tab rảnh luôn đóng ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭终端正在运行程序的标签页或工作区前先询问。空闲的标签页始终会立即关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉終端機正在執行程式的分頁或工作區前先詢問。閒置的分頁一律立即關閉。"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingAgentSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التحذير قبل إغلاق وكيل قيد العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upozori prije zatvaranja agenta koji radi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før lukning af en agent, der arbejder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines arbeitenden Agenten warnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warn Before Closing a Working Agent"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de cerrar un agente que está trabajando"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avertir avant de fermer un agent au travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvisa prima di chiudere un agente al lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業中のエージェントを閉じる前に確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព្រមានមុនពេលបិទភ្នាក់ងារដែលកំពុងធ្វើការ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업 중인 에이전트를 닫기 전에 경고"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Advar før en agent som arbeider lukkes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostrzegaj przed zamknięciem pracującego agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avisar antes de fechar um agente trabalhando"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предупреждать перед закрытием работающего агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เตือนก่อนปิดเอเจนต์ที่กำลังทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışan bir ajanı kapatmadan önce uyar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Попереджати перед закриттям агента, що працює"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cảnh báo trước khi đóng tác tử đang làm việc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭正在工作的智能体前发出警告"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉正在工作的代理程式前發出警告"
+          }
+        }
+      }
+    },
+    "settings.app.warnBeforeClosingAgentSession.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السؤال قبل إغلاق علامة تبويب طرفية لا يزال وكيلها يعمل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj prije zatvaranja kartice terminala čiji agent još radi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg før lukning af en terminalfane, hvor agenten stadig arbejder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor dem Schließen eines Terminal-Tabs fragen, dessen Agent noch arbeitet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask before closing a terminal tab whose agent is still working."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar antes de cerrar una pestaña de terminal cuyo agente sigue trabajando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander avant de fermer un onglet de terminal dont l’agent travaille encore."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi prima di chiudere una scheda del terminale il cui agente sta ancora lavorando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントがまだ作業中のターミナルタブを閉じる前に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរមុនពេលបិទផ្ទាំងទែមីណាល់ដែលភ្នាក់ងាររបស់វានៅតែកំពុងធ្វើការ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 아직 작업 중인 터미널 탭을 닫기 전에 묻습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør før en terminalfane lukkes når agenten fortsatt arbeider."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj przed zamknięciem karty terminala, której agent wciąż pracuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar antes de fechar uma aba de terminal cujo agente ainda está trabalhando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать перед закрытием вкладки терминала, агент которой ещё работает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถามก่อนปิดแท็บเทอร์มินัลที่เอเจนต์ยังทำงานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanı hâlâ çalışan bir terminal sekmesini kapatmadan önce sor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати перед закриттям вкладки термінала, агент якої ще працює."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi trước khi đóng tab terminal có tác tử vẫn đang làm việc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭智能体仍在工作的终端标签页前先询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉代理程式仍在工作的終端機分頁前先詢問。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.calculator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calculator Answers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إجابات الآلة الحاسبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odgovori kalkulatora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lommeregnersvar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechnerergebnisse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respuestas de la calculadora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réponses de la calculatrice"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Risposte della calcolatrice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "計算結果"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចម្លើយម៉ាស៊ីនគិតលេខ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "계산기 답"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kalkulatorsvar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyniki kalkulatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Respostas da calculadora"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ответы калькулятора"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำตอบเครื่องคิดเลข"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hesap Makinesi Yanıtları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповіді калькулятора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết quả máy tính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "计算结果"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "計算結果"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.calculator.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows the answer to arithmetic you type. Return copies it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعرض ناتج العملية الحسابية التي تكتبها. يؤدي Return إلى نسخه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazuje rezultat računa koji upišete. Return ga kopira."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser resultatet af det regnestykke, du skriver. Retur kopierer det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zeigt das Ergebnis eingetippter Rechnungen. Der Zeilenschalter kopiert es."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Muestra el resultado de las operaciones que escribes. Retorno lo copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Affiche le résultat du calcul saisi. Retour le copie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra il risultato dei calcoli che digiti. A capo lo copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力した計算式の答えを表示します。Return キーでコピーします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញចម្លើយនៃការគណនាដែលអ្នកវាយ។ Return ចម្លងវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력한 계산의 답을 보여 줍니다. Return 키로 복사합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viser svaret på regnestykket du skriver. Retur kopierer det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazuje wynik wpisanego działania. Return go kopiuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra o resultado das contas que você digita. Return o copia."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывает ответ на введённое выражение. Return копирует его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงผลลัพธ์ของการคำนวณที่คุณพิมพ์ กด Return เพื่อคัดลอก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazdığınız işlemin sonucunu gösterir. Return kopyalar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показує відповідь на введений вираз. Return копіює її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện kết quả phép tính bạn nhập. Return sẽ sao chép."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示你输入的算式的结果。按 Return 复制。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示你輸入的算式結果。按 Return 拷貝。"
+          }
+        }
+      }
+    },
+    "settings.browser.searchEngine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Engine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "محرك البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraživač"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søgemaskine"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suchmaschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motor de búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Moteur de recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Motore di ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索エンジン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 엔진"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søkemotor"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyszukiwarka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mecanismo de pesquisa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поисковая система"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เครื่องมือค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arama Motoru"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошукова система"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Công cụ tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索引擎"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋引擎"
+          }
+        }
+      }
+    },
+    "settings.browser.searchEngine.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The address bar searches here and asks it for suggestions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يبحث شريط العنوان هنا ويطلب منه الاقتراحات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresna traka pretražuje ovdje i od njega traži prijedloge."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresselinjen søger her og henter forslag herfra."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Adressleiste sucht hier und fragt hier nach Vorschlägen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La barra de direcciones busca aquí y le pide sugerencias."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La barre d'adresse recherche ici et lui demande des suggestions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La barra degli indirizzi cerca qui e gli chiede i suggerimenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスバーはここで検索し、候補もここから取得します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "របារអាសយដ្ឋានស្វែងរកនៅទីនេះ ហើយសុំការណែនាំពីវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 표시줄은 여기에서 검색하고 추천 검색어를 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresselinjen søker her og henter forslag herfra."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pasek adresu wyszukuje tutaj i pobiera stąd podpowiedzi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A barra de endereços pesquisa aqui e pede sugestões a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адресная строка ищет здесь и получает отсюда подсказки."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถบที่อยู่จะค้นหาที่นี่และขอคำแนะนำจากที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres çubuğu burada arar ve önerileri buradan alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адресний рядок шукає тут і отримує звідси підказки."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh địa chỉ tìm kiếm tại đây và lấy gợi ý từ đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "地址栏在此搜索，并从此获取建议。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "網址列在此搜尋，並從此取得建議。"
+          }
+        }
+      }
+    },
+    "settings.choice.searchEngine.custom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مخصص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagođeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasset"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eigene"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnalisé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizzato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Egendefinert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Własna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свой"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Власна"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Search Address"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان البحث المخصص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa prilagođene pretrage"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse for tilpasset søgning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse der eigenen Suche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirección de búsqueda personalizada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse de recherche personnalisée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzo di ricerca personalizzato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム検索のアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានស្វែងរកផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 검색 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse for egendefinert søk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres własnej wyszukiwarki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereço de pesquisa personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес своего поиска"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่การค้นหาแบบกำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel Arama Adresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса власного пошуку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ tìm kiếm tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义搜索地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂搜尋網址"
+          }
+        }
+      }
+    },
+    "settings.browser.customSearch.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُستخدم عندما يكون محرك البحث مخصصًا. ضع {searchTerms} حيث يوضع النص المكتوب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koristi se kada je pretraživač Prilagođeno. Stavite {searchTerms} gdje ide upisani tekst."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bruges når søgemaskinen er Tilpasset. Skriv {searchTerms} der, hvor den indtastede tekst skal stå."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gilt, wenn als Suchmaschine „Eigene“ gewählt ist. {searchTerms} steht für den eingegebenen Text."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se usa cuando el motor de búsqueda es Personalizado. Pon {searchTerms} donde va el texto escrito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utilisé quand le moteur de recherche est Personnalisé. Placez {searchTerms} à l'endroit du texte saisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usato quando il motore di ricerca è Personalizzato. Metti {searchTerms} dove va il testo digitato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索エンジンが「カスタム」のときに使います。入力した文字が入る位置に {searchTerms} を書きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រើពេលម៉ាស៊ីនស្វែងរកជាផ្ទាល់ខ្លួន។ ដាក់ {searchTerms} នៅកន្លែងអត្ថបទដែលបានវាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색 엔진이 사용자 지정일 때 사용합니다. 입력한 텍스트가 들어갈 자리에 {searchTerms}를 넣으세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brukes når søkemotoren er Egendefinert. Skriv {searchTerms} der den innskrevne teksten skal stå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Używany, gdy wyszukiwarka to Własna. Wpisz {searchTerms} w miejscu wpisanego tekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usado quando o mecanismo de pesquisa é Personalizado. Coloque {searchTerms} onde vai o texto digitado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Используется, когда выбран свой поиск. Поставьте {searchTerms} на место введённого текста."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ใช้เมื่อเครื่องมือค้นหาเป็นแบบกำหนดเอง ใส่ {searchTerms} ในตำแหน่งของข้อความที่พิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arama motoru Özel olduğunda kullanılır. Yazılan metnin geleceği yere {searchTerms} koyun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Використовується, коли вибрано власний пошук. Поставте {searchTerms} на місце введеного тексту."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dùng khi công cụ tìm kiếm là Tùy chỉnh. Đặt {searchTerms} vào chỗ của văn bản đã nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索引擎为“自定义”时使用。在输入文字所在的位置写 {searchTerms}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋引擎為「自訂」時使用。在輸入文字的位置寫上 {searchTerms}。"
+          }
+        }
+      }
+    },
+    "settings.browser.customSuggest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Suggestions Address"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان الاقتراحات المخصص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa prilagođenih prijedloga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse for tilpassede forslag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse der eigenen Vorschläge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirección de sugerencias personalizada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse des suggestions personnalisées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzo dei suggerimenti personalizzati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム候補のアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានការណែនាំផ្ទាល់ខ្លួន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 추천 검색어 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse for egendefinerte forslag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres własnych podpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereço de sugestões personalizado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес своих подсказок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่คำแนะนำแบบกำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel Öneri Adresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса власних підказок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ gợi ý tùy chỉnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义建议地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂建議網址"
+          }
+        }
+      }
+    },
+    "settings.browser.customSuggest.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختياري. يجيب بتنسيق اقتراحات OpenSearch، مع {searchTerms} للنص المكتوب."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neobavezno. Odgovara u OpenSearch formatu prijedloga, s {searchTerms} za upisani tekst."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valgfri. Svarer i OpenSearch-forslagsformatet med {searchTerms} for den indtastede tekst."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Optional. Antwortet im OpenSearch-Vorschlagsformat, {searchTerms} steht für den eingegebenen Text."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opcional. Responde en el formato de sugerencias de OpenSearch, con {searchTerms} para el texto escrito."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Facultatif. Répond au format de suggestions OpenSearch, avec {searchTerms} pour le texte saisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Facoltativo. Risponde nel formato dei suggerimenti OpenSearch, con {searchTerms} per il testo digitato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "任意。OpenSearch の候補形式で応答します。入力した文字は {searchTerms} です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្រេចចិត្ត។ ឆ្លើយតបជាទម្រង់ការណែនាំ OpenSearch ដោយមាន {searchTerms} សម្រាប់អត្ថបទដែលបានវាយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "선택 사항입니다. OpenSearch 추천 형식으로 응답하며, 입력한 텍스트는 {searchTerms}입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valgfritt. Svarer i OpenSearch-forslagsformatet, med {searchTerms} for den innskrevne teksten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opcjonalnie. Odpowiada w formacie podpowiedzi OpenSearch, z {searchTerms} w miejscu wpisanego tekstu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opcional. Responde no formato de sugestões OpenSearch, com {searchTerms} para o texto digitado."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Необязательно. Отвечает в формате подсказок OpenSearch, {searchTerms} — введённый текст."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่บังคับ ตอบกลับในรูปแบบคำแนะนำ OpenSearch โดยใช้ {searchTerms} แทนข้อความที่พิมพ์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İsteğe bağlı. OpenSearch öneri biçiminde yanıt verir; yazılan metin için {searchTerms} kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Необов'язково. Відповідає у форматі підказок OpenSearch, {searchTerms} — введений текст."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bắt buộc. Trả lời theo định dạng gợi ý OpenSearch, với {searchTerms} cho văn bản đã nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "可选。以 OpenSearch 建议格式回应，{searchTerms} 代表输入的文字。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選填。以 OpenSearch 建議格式回應，{searchTerms} 代表輸入的文字。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.remoteSuggestions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Suggestions"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اقتراحات البحث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijedlozi pretrage"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søgeforslag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suchvorschläge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerencias de búsqueda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggestions de recherche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggerimenti di ricerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索候補"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការណែនាំស្វែងរក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "검색어 추천"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søkeforslag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podpowiedzi wyszukiwania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugestões de pesquisa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поисковые подсказки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คำแนะนำการค้นหา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arama Önerileri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошукові підказки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gợi ý tìm kiếm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜索建议"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "搜尋建議"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.remoteSuggestions.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يرسل ما تكتبه إلى محرك البحث للحصول على اقتراحات. لا يرسل العناوين أو الملفات أو المضيفين المحليين أبدًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šalje ono što upišete pretraživaču radi prijedloga. Nikada adrese, datoteke ni lokalne hostove."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sender det, du skriver, til søgemaskinen for at få forslag. Aldrig adresser, filer eller lokale værter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sendet Eingaben für Vorschläge an die Suchmaschine. Nie Adressen, Dateien oder lokale Hosts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envía lo que escribes al motor de búsqueda para obtener sugerencias. Nunca direcciones, archivos ni hosts locales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envoie votre saisie au moteur de recherche pour obtenir des suggestions. Jamais d'adresses, de fichiers ni d'hôtes locaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Invia ciò che digiti al motore di ricerca per i suggerimenti. Mai indirizzi, file o host locali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力した文字を検索エンジンに送り、候補を受け取ります。アドレス、ファイル、ローカルホストは送りません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ញើអ្វីដែលអ្នកវាយទៅម៉ាស៊ីនស្វែងរកដើម្បីទទួលការណែនាំ។ មិនដែលផ្ញើអាសយដ្ឋាន ឯកសារ ឬម៉ាស៊ីនមូលដ្ឋានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력한 내용을 검색 엔진에 보내 추천 검색어를 받습니다. 주소, 파일, 로컬 호스트는 보내지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sender det du skriver til søkemotoren for å få forslag. Aldri adresser, filer eller lokale verter."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wysyła wpisywany tekst do wyszukiwarki po podpowiedzi. Nigdy adresów, plików ani hostów lokalnych."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Envia o que você digita ao mecanismo de pesquisa para obter sugestões. Nunca endereços, arquivos ou hosts locais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отправляет вводимый текст поисковой системе за подсказками. Никогда не отправляет адреса, файлы и локальные хосты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ส่งสิ่งที่คุณพิมพ์ไปยังเครื่องมือค้นหาเพื่อรับคำแนะนำ ไม่ส่งที่อยู่ ไฟล์ หรือโฮสต์ในเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öneri almak için yazdıklarınızı arama motoruna gönderir. Adresleri, dosyaları ve yerel ana bilgisayarları asla göndermez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надсилає введений текст пошуковій системі по підказки. Ніколи не надсилає адреси, файли й локальні хости."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gửi những gì bạn nhập đến công cụ tìm kiếm để lấy gợi ý. Không bao giờ gửi địa chỉ, tệp hay máy chủ cục bộ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "将你输入的内容发送给搜索引擎以获取建议。绝不发送网址、文件或本地主机。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "將你輸入的內容傳送給搜尋引擎以取得建議。絕不傳送網址、檔案或本機主機。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.inlineAutocomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete Addresses Inline"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إكمال العناوين داخل الشريط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dovrši adrese u traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuldfør adresser i linjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adressen in der Zeile vervollständigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completar direcciones en la barra"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compléter les adresses dans la barre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa gli indirizzi nella barra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アドレスをその場で補完"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំពេញអាសយដ្ឋានក្នុងបន្ទាត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 바로 완성"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fullfør adresser i linjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzupełniaj adresy w pasku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completar endereços na barra"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дополнять адреса в строке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เติมที่อยู่ในแถบโดยอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresleri Satır İçinde Tamamla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доповнювати адреси в рядку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự hoàn tất địa chỉ trong thanh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在地址栏内补全网址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在網址列內補全網址"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.inlineAutocomplete.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completes a site you typed before or visit often."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يُكمل موقعًا كتبته من قبل أو تزوره كثيرًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dovršava stranicu koju ste ranije upisali ili često posjećujete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fuldfører et websted, du har skrevet før eller besøger ofte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vervollständigt Websites, die du schon eingetippt hast oder oft besuchst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa un sitio que ya escribiste o visitas a menudo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Complète un site déjà saisi ou souvent visité."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa un sito che hai già digitato o visiti spesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前に入力したサイトやよく訪れるサイトを補完します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បំពេញគេហទំព័រដែលអ្នកធ្លាប់វាយ ឬចូលមើលញឹកញាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전에 입력했거나 자주 방문하는 사이트를 완성합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fullfører et nettsted du har skrevet før eller besøker ofte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzupełnia witrynę, którą już wpisywano lub często odwiedzasz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Completa um site que você já digitou ou visita com frequência."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дополняет сайт, который вы уже вводили или часто посещаете."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เติมเว็บไซต์ที่คุณเคยพิมพ์หรือเข้าชมบ่อย"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daha önce yazdığınız veya sık ziyaret ettiğiniz bir siteyi tamamlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Доповнює сайт, який ви вже вводили або часто відвідуєте."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoàn tất trang bạn đã từng nhập hoặc hay truy cập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "补全你输入过或经常访问的网站。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "補全你輸入過或經常造訪的網站。"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.maxRows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggestions Shown"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدد الاقتراحات المعروضة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikazani prijedlozi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viste forslag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angezeigte Vorschläge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugerencias mostradas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggestions affichées"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suggerimenti mostrati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示する候補の数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការណែនាំដែលបង្ហាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "표시할 추천 수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Viste forslag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokazywane podpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sugestões mostradas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показывать подсказок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จำนวนคำแนะนำที่แสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gösterilen Öneriler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показувати підказок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Số gợi ý hiển thị"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示的建议数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示的建議數"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.hintsGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shortcut Hints"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel-Hinweise"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indications des raccourcis"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تلميحات اختصارات لوحة المفاتيح"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indicaciones de atajos"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速鍵提示"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快捷键提示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단축키 힌트"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショートカットのヒント"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Savjeti za prečice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genvejstip"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suggerimenti delle scorciatoie"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ព័ត៌មានជំនួយផ្លូវកាត់"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snarveistips"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podpowiedzi skrótów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dicas de atalhos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подсказки сочетаний клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำแนะนำปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayol ipuçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Підказки сполучень клавіш"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gợi ý phím tắt"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.showModifierHoldHints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Shortcuts When Holding a Modifier"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel beim Halten einer Zusatztaste anzeigen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les raccourcis en maintenant une touche de modification"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الاختصارات عند الضغط المطول على مفتاح تعديل"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar atajos al mantener un modificador"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住修飾鍵時顯示快速鍵"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住修饰键时显示快捷键"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보조 키를 누르고 있을 때 단축키 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修飾キーを押し続けるとショートカットを表示"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži prečice pri držanju modifikatora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis genveje, når en modifikatortast holdes nede"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le scorciatoie tenendo premuto un modificatore"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្លូវកាត់ពេលសង្កត់គ្រាប់ចុចកែប្រែ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis snarveier når en modifikatortast holdes inne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż skróty po przytrzymaniu modyfikatora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar atalhos ao segurar um modificador"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать сочетания при удержании модификатора"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงปุ่มลัดเมื่อกดปุ่มปรับค่าไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirici basılı tutulduğunda kısayolları göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати сполучення під час утримання модифікатора"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiển thị phím tắt khi giữ phím bổ trợ"
+          }
+        }
+      }
+    },
+    "settings.shortcuts.showModifierHoldHints.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Command or Control for 0.30 seconds to show shortcut hints."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command oder Control 0,30 Sekunden halten, um Tastenkürzel-Hinweise anzuzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenez Command ou Control pendant 0,30 seconde pour afficher les indications des raccourcis."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اضغط مطولاً على Command أو Control لمدة 0.30 ثانية لإظهار تلميحات الاختصارات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantén Command o Control durante 0,30 segundos para mostrar las indicaciones de atajos."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 Command 或 Control 0.30 秒以顯示快速鍵提示。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 Command 或 Control 0.30 秒以显示快捷键提示。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command 또는 Control을 0.30초 동안 누르면 단축키 힌트가 표시됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command または Control を0.30秒押し続けるとショートカットのヒントが表示されます。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Držite Command ili Control 0,30 sekundi da prikažete savjete za prečice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Command eller Control nede i 0,30 sekunder for at vise genvejstip."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tieni premuto Command o Control per 0,30 secondi per mostrare i suggerimenti delle scorciatoie."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សង្កត់ Command ឬ Control រយៈពេល 0.30 វិនាទី ដើម្បីបង្ហាញព័ត៌មានជំនួយផ្លូវកាត់។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold Command eller Control inne i 0,30 sekunder for å vise snarveistips."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przytrzymaj Command lub Control przez 0,30 sekundy, aby wyświetlić podpowiedzi skrótów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Segure Command ou Control por 0,30 segundos para mostrar dicas de atalhos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Удерживайте Command или Control в течение 0,30 секунды, чтобы увидеть подсказки сочетаний клавиш."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กด Command หรือ Control ค้างไว้ 0.30 วินาทีเพื่อแสดงคำแนะนำปุ่มลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kısayol ipuçlarını göstermek için Command veya Control tuşunu 0,30 saniye basılı tutun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Утримуйте Command або Control протягом 0,30 секунди, щоб побачити підказки сполучень клавіш."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ Command hoặc Control trong 0,30 giây để hiển thị gợi ý phím tắt."
+          }
+        }
+      }
+    },
     "settings.group.links": {
       "extractionState": "manual",
       "localizations": {
@@ -57532,534 +58060,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "無"
-          }
-        }
-      }
-    },
-    "settings.section.home": {
-      "comment": "Settings window section: the Home tab's conversations.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Home"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الرئيسية"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Početna"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hjem"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Home"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Inicio"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Accueil"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Home"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ホーム"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ទំព័រដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "홈"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hjem"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Strona główna"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Início"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Главная"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "หน้าแรก"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ana Sayfa"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Головна"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Trang chủ"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主页"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "主頁"
-          }
-        }
-      }
-    },
-    "settings.group.attachments": {
-      "comment": "Settings group in Home: attachments in conversations.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Attachments"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "المرفقات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Prilozi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vedhæftninger"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anhänge"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Archivos adjuntos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pièces jointes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Allegati"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "添付ファイル"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ឯកសារភ្ជាប់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "첨부 파일"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vedlegg"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Załączniki"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Anexos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вложения"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ไฟล์แนบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekler"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вкладення"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tệp đính kèm"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "附件"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "附件"
-          }
-        }
-      }
-    },
-    "settings.home.keepLocation": {
-      "comment": "Settings toggle (home.attachments.keepLocation): attached photos and videos keep their location metadata.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep Location in Photos and Videos"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "الاحتفاظ بالموقع في الصور ومقاطع الفيديو"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zadrži lokaciju u fotografijama i videozapisima"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Behold lokation i fotos og videoer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ort in Fotos und Videos behalten"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantener la ubicación en fotos y vídeos"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Conserver la position dans les photos et vidéos"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mantieni la posizione in foto e video"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "写真とビデオの位置情報を残す"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រក្សាទីតាំងក្នុងរូបថត និងវីដេអូ"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "사진 및 비디오의 위치 정보 유지"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Behold posisjon i bilder og videoer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zachowaj lokalizację w zdjęciach i filmach"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Manter a localização em fotos e vídeos"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Сохранять геопозицию в фото и видео"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เก็บตำแหน่งที่ตั้งไว้ในรูปภาพและวิดีโอ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fotoğraf ve videolarda konumu koru"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Зберігати геопозицію у фото й відео"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Giữ vị trí trong ảnh và video"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在照片和视频中保留位置"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "在照片和影片中保留位置"
-          }
-        }
-      }
-    },
-    "settings.home.keepLocation.help": {
-      "comment": "Help under the Keep Location toggle.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "When off, location data is removed from photos and videos before they are attached."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "عند الإيقاف، تُزال بيانات الموقع من الصور ومقاطع الفيديو قبل إرفاقها."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kada je isključeno, podaci o lokaciji uklanjaju se iz fotografija i videozapisa prije prilaganja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når den er slået fra, fjernes lokationsdata fra fotos og videoer, før de vedhæftes."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Wenn aus, werden Ortsdaten aus Fotos und Videos entfernt, bevor sie angehängt werden."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Si está desactivado, los datos de ubicación se eliminan de las fotos y los vídeos antes de adjuntarlos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Si désactivé, les données de position sont supprimées des photos et vidéos avant leur ajout en pièce jointe."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Se disattivato, i dati sulla posizione vengono rimossi da foto e video prima di allegarli."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "オフのときは、写真とビデオを添付する前に位置情報を削除します。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅពេលបិទ ទិន្នន័យទីតាំងត្រូវបានលុបចេញពីរូបថត និងវីដេអូ មុនពេលភ្ជាប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "끄면 사진과 비디오를 첨부하기 전에 위치 데이터를 제거합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Når den er av, fjernes posisjonsdata fra bilder og videoer før de legges ved."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Gdy wyłączone, dane lokalizacji są usuwane ze zdjęć i filmów przed ich załączeniem."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quando desativado, os dados de localização são removidos de fotos e vídeos antes de serem anexados."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Если выключено, данные о местоположении удаляются из фото и видео перед вложением."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อปิด ข้อมูลตำแหน่งที่ตั้งจะถูกลบออกจากรูปภาพและวิดีโอก่อนแนบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kapalıyken, konum verileri fotoğraf ve videolar eklenmeden önce kaldırılır."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Якщо вимкнено, дані про геопозицію видаляються з фото й відео перед вкладенням."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi tắt, dữ liệu vị trí sẽ bị xóa khỏi ảnh và video trước khi đính kèm."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭时，照片和视频在附加前会移除位置数据。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉時，照片和影片在附加前會移除位置資料。"
           }
         }
       }
