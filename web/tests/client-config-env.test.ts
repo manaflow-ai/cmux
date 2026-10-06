@@ -111,9 +111,9 @@ describe("client config env validation", () => {
     const result = await importEnv({
       ...requiredEnv,
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
-      STRIPE_PRO_YEARLY_550_PRICE_ID: "price_pro_550",
+      STRIPE_PRO_YEARLY_540_PRICE_ID: "price_pro_540",
       STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
-      STRIPE_TEAM_YEARLY_660_PRICE_ID: "price_team_660",
+      STRIPE_TEAM_YEARLY_648_PRICE_ID: "price_team_648",
     });
 
     expect(result.status).toBe(0);

@@ -2007,7 +2007,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Paid plans are billed monthly or annually. Pro is $50/mo or $550/year, Max is $200/mo, and Team is $60/user/mo or $660/user/year. The terminal and local agents stay free."
+          "a": "Paid plans are billed monthly. Pro is $50/mo, Max is $200/mo, and Team is $60/user/mo. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2015,7 +2015,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $60/user/mo or $660/user/year, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo with centralized billing for your whole team and priority support."
         }
       ]
     },

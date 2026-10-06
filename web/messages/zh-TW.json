@@ -5201,7 +5201,16 @@
     "billingUnavailable": "目前無法使用結算功能。請稍後再試。",
     "signedOutNotice": "你尚未登入。登入後可查看目前方案或恢復既有購買。",
     "signedOutSignIn": "登入",
-    "manageInAppStore": "在 App Store 中管理"
+    "manageInAppStore": "在 App Store 中管理",
+    "perMonthBilledYearly": "/月，按年計費",
+    "perUserMonthBilledYearly": "/使用者/月，按年計費",
+    "billingPeriod": "計費週期",
+    "monthly": "每月",
+    "annual": "每年",
+    "saveAnnual": "省下 {discount}%",
+    "annualComparePrice": "${monthly}/月",
+    "teamAnnualComparePrice": "${monthly}/使用者/月",
+    "billingAnnualUnavailable": "此方案不支援按年計費，請在下方選擇按月方案。"
   },
   "platforms": {
     "macos": "macOS",

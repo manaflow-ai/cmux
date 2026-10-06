@@ -5200,7 +5200,16 @@
     "billingUnavailable": "Faturalandırma şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.",
     "signedOutNotice": "Oturum açmadınız. Mevcut planınızı görmek veya önceki bir satın almayı geri yüklemek için oturum açın.",
     "signedOutSignIn": "Oturum aç",
-    "manageInAppStore": "App Store'da yönet"
+    "manageInAppStore": "App Store'da yönet",
+    "perMonthBilledYearly": "/ay, yıllık faturalandırılır",
+    "perUserMonthBilledYearly": "/kullanıcı/ay, yıllık faturalandırılır",
+    "billingPeriod": "Faturalandırma dönemi",
+    "monthly": "Aylık",
+    "annual": "Yıllık",
+    "saveAnnual": "{discount}% tasarruf edin",
+    "annualComparePrice": "${monthly}/ay",
+    "teamAnnualComparePrice": "${monthly}/kullanıcı/ay",
+    "billingAnnualUnavailable": "Bu plan için yıllık faturalandırma kullanılamıyor. Aşağıdan aylık bir plan seçin."
   },
   "platforms": {
     "macos": "macOS",

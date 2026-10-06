@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type ReactNode,
   type Ref,
+  type ReactNode,
 } from "react";
 import { posthog } from "../lib/posthog-client";
 import {
@@ -18,6 +18,7 @@ import {
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
   type BillingInterval,
+  type PlanPrice,
 } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
 import {
@@ -241,7 +242,9 @@ function PricingCheckoutButtonWithInterval({
     ? PRO_PRICING_USD[interval]
     : plan === "team"
       ? TEAM_PRICING_USD[interval]
-      : PLAN_PRICES[plan];
+      : plan === "max"
+        ? MAX_PRICING_USD[interval]
+        : PLAN_PRICES[plan];
   const checkoutHref = hrefs?.[interval] ?? href;
   if (!checkoutHref) throw new Error("Pricing checkout requires href or hrefs");
   return renderPricingCheckoutButton(
@@ -262,7 +265,7 @@ function renderPricingCheckoutButton(
   }: PricingCheckoutButtonProps,
   interval: BillingInterval,
   checkoutHref: string,
-  pricing: (typeof PRO_PRICING_USD)[BillingInterval] | (typeof TEAM_PRICING_USD)[BillingInterval] | (typeof PLAN_PRICES)[PricingPlan],
+  pricing: PlanPrice,
 ) {
   return (
     <CheckoutButton

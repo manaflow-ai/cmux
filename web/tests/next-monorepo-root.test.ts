@@ -13,6 +13,8 @@ import {
 describe("Next monorepo module boundary", () => {
   test("allows generated cmux development publication origins for HMR", () => {
     expect(nextConfig.allowedDevOrigins).toContain("*.cmux.sh");
+    expect(nextConfig.allowedDevOrigins).toContain("127.0.0.1");
+    expect(nextConfig.allowedDevOrigins).toContain("localhost");
   });
 
   test("keeps runtime imports inside web while generated consumers remain identical", () => {

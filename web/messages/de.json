@@ -5202,7 +5202,16 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "perMonthBilledYearly": "/Monat, jährlich abgerechnet",
+    "perUserMonthBilledYearly": "/Benutzer/Monat, jährlich abgerechnet",
+    "billingPeriod": "Abrechnungszeitraum",
+    "monthly": "Monatlich",
+    "annual": "Jährlich",
+    "saveAnnual": "Sparen Sie {discount}%",
+    "annualComparePrice": "${monthly}/Monat",
+    "teamAnnualComparePrice": "${monthly}/Benutzer/Monat",
+    "billingAnnualUnavailable": "Jährliche Abrechnung ist für diesen Tarif nicht verfügbar. Wählen Sie unten einen Monatstarif."
   },
   "platforms": {
     "macos": "macOS",

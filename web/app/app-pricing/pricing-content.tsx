@@ -6,12 +6,12 @@ import {
   FREE_PLAN_ID,
   MAX_PLAN_ID,
   GO_PLAN_ID,
-  PRO_PLAN_ID,
   type BillingManagementKind,
   type PersonalBillingSource,
 } from "../../services/billing/pro";
 import { APPLE_MANAGE_SUBSCRIPTIONS_URL } from "../../services/billing/apple/config";
-import enMessages from "../../messages/en.json";
+export type AppPricingMessages =
+  typeof import("../../messages/en.json")["pricing"];
 import {
   appPricingCheckoutURL,
   isAppStoreDistributionMode,
@@ -55,7 +55,6 @@ import {
 import { isVaultEnabled } from "../../services/vault/config";
 
 const ENTERPRISE_CTA_URL = withExternalBrowserIntent("/enterprise");
-const pricing = enMessages.pricing;
 const HOSTED_NETWORKING_ENABLED = false;
 
 // oxlint-disable-next-line complexity -- Embedded actions retain native return and App Store rules.
@@ -64,6 +63,7 @@ export function AppPricingContent({
   headersList,
   snapshot,
   goPlanEnabled,
+  pricing,
   pending = false,
   section,
   personalization,
@@ -72,6 +72,7 @@ export function AppPricingContent({
   headersList: Headers;
   snapshot: AppPlanSnapshot;
   goPlanEnabled: boolean;
+  pricing: AppPricingMessages;
   pending?: boolean;
   section?: "individual" | "team" | "comparison" | "banner";
   personalization?: {
@@ -152,7 +153,6 @@ export function AppPricingContent({
       attribution,
     ),
   };
-  // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref =
     snapshot.isPro && !isMax
       ? withExternalBrowserIntent(
@@ -166,10 +166,23 @@ export function AppPricingContent({
           attribution,
         );
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${pricing.perMonth}`;
+  const maxAnnualComparePrice = pricingMessage(pricing.annualComparePrice, {
+    monthly: MAX_PRICING_USD.year.monthlyEquivalent,
+  });
+  const maxCheckoutHrefs: PricingCheckoutHrefs = {
+    month: maxCheckoutHref,
+    year: appPricingCheckoutURL(
+      "max",
+      requestOrigin,
+      cmuxScheme,
+      "year",
+      attribution,
+    ),
+  };
   const signInHref = appPricingSignInHref(cmuxScheme, params);
   const banner = pending
     ? null
-    : appPricingBanner(params, snapshot, signInHref);
+    : appPricingBanner(params, snapshot, signInHref, pricing);
   const theme = appPricingTheme(params);
   const featureVisibility = {
     vault: isVaultEnabled(),
@@ -245,7 +258,7 @@ export function AppPricingContent({
           }
         >
           {appStoreManaged ? (
-            <AppStoreManageAction portalVisible={portalVisible} />
+            <AppStoreManageAction portalVisible={portalVisible} pricing={pricing} />
           ) : isGo ? (
             <div className="space-y-2">
               {portalVisible ? (
@@ -299,11 +312,12 @@ export function AppPricingContent({
           ) : null
         }
       >
-        <PersonalPlanAction
-          state={proAction}
-          unavailableLabel={pending ? pricing.pro.cta : undefined}
-          portalVisible={portalVisible}
-          checkout={
+          <PersonalPlanAction
+            state={proAction}
+            unavailableLabel={pending ? pricing.pro.cta : undefined}
+            portalVisible={portalVisible}
+            pricing={pricing}
+            checkout={
             <PricingCheckoutButton
               hrefs={proCheckoutHrefs}
               requiresSignIn={!pending && !snapshot.authenticated}
@@ -320,8 +334,18 @@ export function AppPricingContent({
       {/* Max: larger machines on the monthly personal plan. */}
       <PlanCard
         name={pricing.max.name}
-        price={`$${MAX_PRICING_USD.month.billedAmount}`}
-        period={pricing.perMonth}
+        price={
+          <PricingIntervalValue
+            monthly={`$${MAX_PRICING_USD.month.billedAmount}`}
+            annual={`$${MAX_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={pricing.perMonth}
+            annual={pricing.perMonthBilledYearly}
+          />
+        }
         badge={
           isMax ? (
             <CurrentPlanBadge>{pricing.currentPlan}</CurrentPlanBadge>
@@ -332,9 +356,10 @@ export function AppPricingContent({
           state={maxAction}
           unavailableLabel={pending ? pricing.max.cta : undefined}
           portalVisible={portalVisible}
+          pricing={pricing}
           checkout={
             <PricingCheckoutButton
-              href={maxCheckoutHref}
+              hrefs={maxCheckoutHrefs}
               requiresSignIn={!pending && !snapshot.authenticated}
               location="app_pricing"
               plan="max"
@@ -370,7 +395,12 @@ export function AppPricingContent({
             annual={proAnnualComparePrice}
           />
         ),
-        max: maxComparePrice,
+        max: (
+          <PricingIntervalValue
+            monthly={maxComparePrice}
+            annual={maxAnnualComparePrice}
+          />
+        ),
         team: (
           <PricingIntervalValue
             monthly={teamMonthlyComparePrice}
@@ -549,15 +579,17 @@ function PersonalPlanAction({
   portalVisible,
   unavailableLabel,
   checkout,
+  pricing,
 }: {
   state: PersonalPlanActionState;
   portalVisible: boolean;
   unavailableLabel?: string;
   checkout: ReactNode;
+  pricing: AppPricingMessages;
 }) {
   switch (state) {
     case "app_store":
-      return <AppStoreManageAction portalVisible={portalVisible} />;
+      return <AppStoreManageAction portalVisible={portalVisible} pricing={pricing} />;
     case "current":
       return portalVisible ? (
         <SecondaryLink href="/api/billing/portal">
@@ -580,7 +612,13 @@ function PersonalPlanAction({
 }
 
 /** "Manage in the App Store", plus Stripe's portal while a Stripe subscription still bills. */
-function AppStoreManageAction({ portalVisible }: { portalVisible: boolean }) {
+function AppStoreManageAction({
+  portalVisible,
+  pricing,
+}: {
+  portalVisible: boolean;
+  pricing: AppPricingMessages;
+}) {
   return (
     <div className="space-y-2">
       <SecondaryLink href={APPLE_MANAGE_SUBSCRIPTIONS_URL}>
@@ -629,6 +667,7 @@ function appPricingBanner(
   params: Record<string, string | string[] | undefined>,
   snapshot: AppPlanSnapshot,
   signInHref: string,
+  pricing: AppPricingMessages,
 ): BillingBannerModel | null {
   const welcome = firstParam(params.welcome);
   const billing = firstParam(params.billing);

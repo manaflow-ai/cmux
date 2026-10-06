@@ -120,7 +120,24 @@ const unknownPlan: PlanSnapshot = {
   billingManagement: "none",
 };
 
-export default async function PricingPage({
+export default function PricingPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ locale: string }>;
+  searchParams?: Promise<PricingQuery>;
+}) {
+  // The marketing layout opts into instant navigation. URL data must resolve
+  // inside a Suspense boundary so the shell never contains inert server HTML
+  // while the billing interval is being read.
+  return (
+    <Suspense fallback={<PricingPageFallback />}>
+      <PricingRequest params={params} searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function PricingRequest({
   params,
   searchParams,
 }: {
@@ -165,7 +182,14 @@ export default async function PricingPage({
   );
 }
 
+function PricingPageFallback() {
+  return <main className="min-h-screen" aria-busy="true" />;
+}
+
 const pricingState = cache(async (searchParams?: Promise<PricingQuery>) => {
+  // Keep the flag provider in the request-bound stream; its SDK dependencies
+  // use runtime clocks that Next cannot safely prerender.
+  await connection();
   const [snapshot, query] = await Promise.all([
     currentPlanSnapshot(),
     searchParams ?? Promise.resolve({}),
@@ -252,7 +276,6 @@ function PricingContent({
     TEAM_CHECKOUT_URL,
     attribution,
   );
-  // Max is monthly only: one checkout link, no interval parameter.
   const maxCheckoutHref = withCheckoutAttribution(
     snapshot.authenticated && snapshot.isPro && !isMax
       ? "/api/billing/portal?flow=switch_plan&plan=max"
@@ -267,7 +290,14 @@ function PricingContent({
     month: withCheckoutInterval(teamCheckoutURL, "month"),
     year: withCheckoutInterval(teamCheckoutURL, "year"),
   };
+  const maxCheckoutHrefs = {
+    month: withCheckoutInterval(maxCheckoutHref, "month"),
+    year: withCheckoutInterval(maxCheckoutHref, "year"),
+  };
   const maxComparePrice = `$${MAX_PRICING_USD.month.billedAmount} ${t("perMonth")}`;
+  const maxAnnualComparePrice = t("annualComparePrice", {
+    monthly: MAX_PRICING_USD.year.monthlyEquivalent,
+  });
   const proAnnualComparePrice = t("annualComparePrice", {
     monthly: PRO_PRICING_USD.year.monthlyEquivalent,
   });
@@ -417,8 +447,18 @@ function PricingContent({
                 Pro subscription to the Stripe portal upgrade flow. */}
       <PlanCard
         name={t("max.name")}
-        price={`$${MAX_PRICING_USD.month.billedAmount}`}
-        period={t("perMonth")}
+        price={
+          <PricingIntervalValue
+            monthly={`$${MAX_PRICING_USD.month.billedAmount}`}
+            annual={`$${MAX_PRICING_USD.year.monthlyEquivalent}`}
+          />
+        }
+        period={
+          <PricingIntervalValue
+            monthly={t("perMonth")}
+            annual={t("perMonthBilledYearly")}
+          />
+        }
         badge={
           isMax ? <CurrentPlanBadge>{t("currentPlan")}</CurrentPlanBadge> : null
         }
@@ -435,7 +475,7 @@ function PricingContent({
           </SecondaryLink>
         ) : (
           <PricingCheckoutButton
-            href={maxCheckoutHref}
+            hrefs={maxCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="pricing_page"
             plan="max"
@@ -469,7 +509,12 @@ function PricingContent({
             annual={proAnnualComparePrice}
           />
         ),
-        max: maxComparePrice,
+        max: (
+          <PricingIntervalValue
+            monthly={maxComparePrice}
+            annual={maxAnnualComparePrice}
+          />
+        ),
         team: (
           <PricingIntervalValue
             monthly={teamMonthlyComparePrice}
@@ -508,7 +553,7 @@ function PricingContent({
           </SecondaryLink>
         ) : (
           <PricingCheckoutButton
-            href={maxCheckoutHref}
+            hrefs={maxCheckoutHrefs}
             requiresSignIn={!pending && !snapshot.authenticated}
             location="pricing_compare_header"
             plan="max"

@@ -97,8 +97,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-pro-yearly-550") &&
-          call.args.includes("unit_amount=55000"),
+          call.args.includes("lookup_key=cmux-pro-yearly-540") &&
+          call.args.includes("unit_amount=54000"),
       ),
     ).toBe(true);
     expect(
@@ -115,8 +115,8 @@ describe("Stripe catalog provisioning", () => {
         (call) =>
           call.args.includes("https://api.stripe.com/v1/prices") &&
           call.args.includes("POST") &&
-          call.args.includes("lookup_key=cmux-team-yearly-660") &&
-          call.args.includes("unit_amount=66000"),
+          call.args.includes("lookup_key=cmux-team-yearly-648") &&
+          call.args.includes("unit_amount=64800"),
       ),
     ).toBe(true);
   });
@@ -133,7 +133,7 @@ describe("Stripe catalog provisioning", () => {
     expect(description("prod_team")).toBe("description=Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support.");
   });
 
-  test("provisions the monthly-only Max price and the Pro/Max plan switch portal", async () => {
+  test("provisions monthly and annual Max prices and the Pro/Max plan switch portal", async () => {
     const result = await runProvision("test", "valid");
 
     expect(result.exitCode).toBe(0);
@@ -144,9 +144,7 @@ describe("Stripe catalog provisioning", () => {
     );
     expect(maxPriceLookups.length).toBeGreaterThan(0);
     expect(result.calls.some((call) => call.args.includes("lookup_keys[]=cmux-go-monthly-10"))).toBe(true);
-    expect(
-      result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly"))),
-    ).toBe(false);
+    expect(result.calls.some((call) => call.args.some((argument) => argument.includes("cmux-max-yearly-2160")))).toBe(true);
     const portalCreate = result.calls.find(
       (call) =>
         call.args.includes("https://api.stripe.com/v1/billing_portal/configurations") &&
@@ -410,9 +408,9 @@ const prices = {
     interval: "month",
     product: "pro",
   },
-  "cmux-pro-yearly-550": {
-    id: "price_pro_year_550",
-    unit_amount: 55000,
+  "cmux-pro-yearly-540": {
+    id: "price_pro_year_540",
+    unit_amount: 54000,
     interval: "year",
     product: "pro",
   },
@@ -428,15 +426,21 @@ const prices = {
     interval: "month",
     product: "max",
   },
+  "cmux-max-yearly-2160": {
+    id: "price_max_year_2160",
+    unit_amount: 216000,
+    interval: "year",
+    product: "max",
+  },
   "cmux-team-monthly-60": {
     id: "price_team_month_60",
     unit_amount: 6000,
     interval: "month",
     product: "team",
   },
-  "cmux-team-yearly-660": {
-    id: "price_team_year_660",
-    unit_amount: 66000,
+  "cmux-team-yearly-648": {
+    id: "price_team_year_648",
+    unit_amount: 64800,
     interval: "year",
     product: "team",
   },
@@ -485,7 +489,7 @@ if (url.endsWith("/prices") && !isPost) {
       scenario === "unrelated-product" &&
       (
         lookupKey?.startsWith("cmux-pro") ||
-        lookupKey === "cmux-team-yearly-660" ||
+        lookupKey === "cmux-team-yearly-648" ||
         lookupKey === "cmux-team-yearly-336" ||
         lookupKey === "cmux-team-yearly-576"
       )

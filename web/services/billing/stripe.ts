@@ -77,16 +77,19 @@ export async function resolveProPrice(interval: BillingInterval): Promise<string
   const plan = PRO_PRICING_USD[interval];
   const overridden = interval === "month"
     ? env.STRIPE_PRO_MONTHLY_50_PRICE_ID
-    : env.STRIPE_PRO_YEARLY_550_PRICE_ID;
+    : env.STRIPE_PRO_YEARLY_540_PRICE_ID;
   return resolvePlanPrice(plan, interval, overridden, resolvedProPriceIds, "pro");
 }
 
-/** Max is sold monthly only; there is no yearly Price to resolve. */
-export async function resolveMaxPrice(): Promise<string> {
+export async function resolveMaxPrice(interval: BillingInterval = "month"): Promise<string> {
+  const plan = MAX_PRICING_USD[interval];
+  const overridden = interval === "month"
+    ? env.STRIPE_MAX_MONTHLY_200_PRICE_ID
+    : env.STRIPE_MAX_YEARLY_2160_PRICE_ID;
   return resolvePlanPrice(
-    MAX_PRICING_USD.month,
-    "month",
-    env.STRIPE_MAX_MONTHLY_200_PRICE_ID,
+    plan,
+    interval,
+    overridden,
     resolvedMaxPriceIds,
     "max",
   );
@@ -106,7 +109,7 @@ export async function resolveTeamPrice(interval: BillingInterval): Promise<strin
   const plan = TEAM_PRICING_USD[interval];
   const overridden = interval === "month"
     ? env.STRIPE_TEAM_MONTHLY_60_PRICE_ID
-    : env.STRIPE_TEAM_YEARLY_660_PRICE_ID;
+    : env.STRIPE_TEAM_YEARLY_648_PRICE_ID;
   return resolvePlanPrice(plan, interval, overridden, resolvedTeamPriceIds, "team");
 }
 

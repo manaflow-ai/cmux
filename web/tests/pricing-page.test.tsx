@@ -111,7 +111,7 @@ mock.module("../db/client", () => ({
   }),
 }));
 
-const { default: PricingPage } = await import("../app/[locale]/(landing)/pricing/page");
+const { default: PricingPage } = await import("../app/[locale]/(pricing)/pricing/page");
 
 describe("localized pricing page", () => {
   test("hides Go and all annual offers when the Go rollout is disabled", async () => {
@@ -168,14 +168,14 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("shows the 11-month annual prices when annual billing is selected", async () => {
+  test("shows the 10%-off annual prices when annual billing is selected", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }), searchParams: Promise.resolve({ interval: "year" }) });
     const html = (await renderSettled(element));
-    expect(html).toContain("$45.83");
-    expect(html).toContain("$55");
-    expect(html).toContain("$200");
+    expect(html).toContain("$45");
+    expect(html).toContain("$54");
+    expect(html).toContain("$180");
     expect(html).toContain('role="radiogroup"');
-    expect(html).toContain("Save 8.33%");
+    expect(html).toContain("Save 10%");
     expect(html).toContain("interval=year");
     expect(html).toContain("billed annually");
   });
@@ -299,25 +299,19 @@ describe("localized pricing page", () => {
     expect(html).not.toContain("cmux Vault");
   });
 
-  test("sells Max at $200/mo on a monthly-only checkout link, between Pro and Team", async () => {
+  test("sells Max at $180/mo on the annual checkout link, between Pro and Team", async () => {
     const element = await PricingPage({
       params: Promise.resolve({ locale: "en" }),
       searchParams: Promise.resolve({ interval: "year" }),
     });
     const html = (await renderSettled(element));
 
-    // The annual selector must not touch Max: no interval on its checkout
-    // link and no "billed yearly" label on its card or table column.
-    expect(html).toContain(
-      "plan%253Dmax%2526cmux_external_browser",
-    );
-    expect(html).toContain(
-      "plan%253Dmax%2526cmux_external_browser",
-    );
-    expect(html).not.toMatch(/plan%253Dmax[^\"]*interval%253D/);
-    expect(html).toContain("$200");
-    expect(html).toContain("$200 /mo");
-    expect(html).not.toContain("$200/mo, billed yearly");
+    // The streamed signed-out fallback links directly to checkout; a
+    // personalized signed-out render wraps the same destination in sign-in.
+    expect(html).toMatch(/plan(?:%253D|=)max/);
+    expect(html).toMatch(/interval(?:%253D|=)year/);
+    expect(html).toContain("$180");
+    expect(html).toContain("/mo, billed annually");
     expect(html).toContain("Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
@@ -399,14 +393,14 @@ describe("localized pricing page", () => {
     });
     const html = (await renderSettled(element));
 
-    expect(html).toContain("$45.83");
+    expect(html).toContain("$45");
     expect(html).toContain("/mo");
-    expect(html).toContain("$45.83/mo");
-    expect(html).toContain("$55");
+    expect(html).toContain("$45/mo");
+    expect(html).toContain("$54");
     expect(html).toContain("/user/mo");
     expect(html).toContain("/mo, billed annually");
     expect(html).toContain("/user/mo, billed annually");
-    expect(html).toContain("$55/user/mo");
+    expect(html).toContain("$54/user/mo");
     expect(html).not.toContain("$480/year");
     expect(html).not.toContain("$576/user/year");
     expect(html).toContain("plan%253Dpro%2526cmux_external_browser");

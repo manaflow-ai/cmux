@@ -21,7 +21,7 @@ import {
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
-  test("prices Pro at $50/mo and $550/year (11 months)", () => {
+  test("prices Pro at $50/mo and $45/mo billed annually", () => {
     expect(PRO_PRICING_USD).toEqual({
       month: {
         billedAmount: 50,
@@ -30,15 +30,15 @@ describe("pricing plans", () => {
         lookupKey: "cmux-pro-monthly-50",
       },
       year: {
-        billedAmount: 550,
-        monthlyEquivalent: 45.83,
-        discountPercent: 8.33,
-        lookupKey: "cmux-pro-yearly-550",
+        billedAmount: 540,
+        monthlyEquivalent: 45,
+        discountPercent: 10,
+        lookupKey: "cmux-pro-yearly-540",
       },
     });
   });
 
-  test("prices Team at $60/user/mo and $660/user/year (11 months)", () => {
+  test("prices Team at $60/user/mo and $54/user/mo billed annually", () => {
     expect(TEAM_PRICING_USD).toEqual({
       month: {
         billedAmount: 60,
@@ -47,15 +47,15 @@ describe("pricing plans", () => {
         lookupKey: "cmux-team-monthly-60",
       },
       year: {
-        billedAmount: 660,
-        monthlyEquivalent: 55,
-        discountPercent: 8.33,
-        lookupKey: "cmux-team-yearly-660",
+        billedAmount: 648,
+        monthlyEquivalent: 54,
+        discountPercent: 10,
+        lookupKey: "cmux-team-yearly-648",
       },
     });
   });
 
-  test("prices Max at $200/mo, monthly only", () => {
+  test("prices Max at $200/mo or $180/mo billed annually", () => {
     expect(MAX_PRICING_USD).toEqual({
       month: {
         billedAmount: 200,
@@ -63,9 +63,14 @@ describe("pricing plans", () => {
         discountPercent: 0,
         lookupKey: "cmux-max-monthly-200",
       },
+      year: {
+        billedAmount: 2160,
+        monthlyEquivalent: 180,
+        discountPercent: 10,
+        lookupKey: "cmux-max-yearly-2160",
+      },
     });
-    expect("year" in MAX_PRICING_USD).toBe(false);
-    expect(MAX_BILLING_INTERVALS).toEqual(["month"]);
+    expect(MAX_BILLING_INTERVALS).toEqual(["month", "year"]);
   });
 
   test("lookup keys carry their amount and never reuse a grandfathered key", () => {

@@ -19,7 +19,6 @@ import { dashboardReturnPath } from "../../../../services/billing/returnTo";
 import {
   MAX_PLAN_ID,
   GO_PLAN_ID,
-  PRO_PLAN_ID,
   isStripePortalRecoverable,
   resolveProPlanStatus,
   stripeBillingStatusForTeam,
@@ -392,7 +391,7 @@ async function stripePersonalCheckout(
       line_items: [
         {
           price: plan === MAX_PLAN_ID
-            ? await resolveMaxPrice()
+            ? await resolveMaxPrice(interval)
             : plan === GO_PLAN_ID
               ? await resolveGoPrice()
               : await resolveProPrice(interval),
@@ -757,7 +756,7 @@ function resolveCheckoutInterval(
   const raw = request.nextUrl.searchParams.get("interval");
   if (raw === null || raw === "month") return { interval: "month", error: null };
   if (raw === "year") {
-    if (plan === "go" || plan === "max") {
+    if (plan === "go") {
       return {
         interval: "year",
         error: NextResponse.redirect(new URL("/pricing?billing=annual_unavailable", requestOrigin(request))),

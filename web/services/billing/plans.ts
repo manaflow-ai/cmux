@@ -9,8 +9,6 @@ export type PlanPrice = {
 };
 
 type PlanPricing = Record<BillingInterval, PlanPrice>;
-
-/** A plan sold on one billing interval only; `year` is deliberately absent. */
 type MonthlyOnlyPlanPricing = Record<"month", PlanPrice>;
 
 // Stripe Price amounts are immutable, so every price change mints a new
@@ -25,10 +23,10 @@ export const PRO_PRICING_USD = {
     lookupKey: "cmux-pro-monthly-50",
   },
   year: {
-    billedAmount: 550,
-    monthlyEquivalent: 45.83,
-    discountPercent: 8.33,
-    lookupKey: "cmux-pro-yearly-550",
+    billedAmount: 540,
+    monthlyEquivalent: 45,
+    discountPercent: 10,
+    lookupKey: "cmux-pro-yearly-540",
   },
 } as const satisfies PlanPricing;
 
@@ -50,17 +48,17 @@ export const TEAM_PRICING_USD = {
     lookupKey: "cmux-team-monthly-60",
   },
   year: {
-    billedAmount: 660,
-    monthlyEquivalent: 55,
-    discountPercent: 8.33,
-    lookupKey: "cmux-team-yearly-660",
+    billedAmount: 648,
+    monthlyEquivalent: 54,
+    discountPercent: 10,
+    lookupKey: "cmux-team-yearly-648",
   },
 } as const satisfies PlanPricing;
 
 /**
  * Max is a personal plan above Pro: the same machine count, plus the 16, 24,
- * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. It is monthly only, so there is no
- * annual price and no interval selector on its card.
+ * and 32 GB machine sizes (up to 16 vCPU) Pro cannot start. Annual billing is
+ * advertised at the rounded $180/month equivalent ($2,160 billed yearly).
  */
 export const MAX_PRICING_USD = {
   month: {
@@ -69,11 +67,17 @@ export const MAX_PRICING_USD = {
     discountPercent: 0,
     lookupKey: "cmux-max-monthly-200",
   },
-} as const satisfies MonthlyOnlyPlanPricing;
+  year: {
+    billedAmount: 2160,
+    monthlyEquivalent: 180,
+    discountPercent: 10,
+    lookupKey: "cmux-max-yearly-2160",
+  },
+} as const satisfies PlanPricing;
 
 /** New subscriptions default to monthly when no interval is selected. */
 export const CHECKOUT_BILLING_INTERVAL = "month" as const;
-export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
+export const MAX_BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 export const GO_BILLING_INTERVALS: readonly BillingInterval[] = ["month"];
 
 /**

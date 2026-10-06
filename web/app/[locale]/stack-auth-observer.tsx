@@ -2,7 +2,12 @@
 
 import { useUser } from "@hexclave/next";
 import { usePathname } from "next/navigation";
-import { Suspense, useLayoutEffect, useRef } from "react";
+import {
+  Suspense,
+  useLayoutEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { STACK_AUTH_CHANGED_EVENT } from "../../services/analytics/stackIdentity";
 import { IsolatedErrorBoundary } from "../components/error-boundary";
 
@@ -27,6 +32,21 @@ function StackAuthObserver() {
   return null;
 }
 
+/** Keep the session hook out of the server render so a failed auth request
+ * cannot turn the whole localized page into inert client-rendered HTML. */
+function ClientStackAuthObserver() {
+  const mounted = useSyncExternalStore(
+    subscribeNever,
+    () => true,
+    () => false,
+  );
+  return mounted ? <StackAuthObserver /> : null;
+}
+
+function subscribeNever() {
+  return () => {};
+}
+
 /**
  * Tells the analytics identity tracker when the Hexclave session changes
  * without a navigation. `useUser` throws when a Hexclave request fails, even
@@ -38,10 +58,10 @@ export function IsolatedStackAuthObserver() {
   // retries an observer that failed during a Hexclave outage.
   usePathname();
   return (
-    <IsolatedErrorBoundary name="stack-auth-observer" fallback={null}>
-      <Suspense fallback={null}>
-        <StackAuthObserver />
-      </Suspense>
-    </IsolatedErrorBoundary>
+      <IsolatedErrorBoundary name="stack-auth-observer" fallback={null}>
+        <Suspense fallback={null}>
+          <ClientStackAuthObserver />
+        </Suspense>
+      </IsolatedErrorBoundary>
   );
 }
