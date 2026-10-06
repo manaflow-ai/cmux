@@ -133,7 +133,12 @@ pub(super) fn note_person_input(mux: &Mux, client: u64) {
 }
 
 /// A v2 `terminal.input.*` operation that succeeded counts when a person's client sent it.
-pub(super) fn note_resource_input(mux: &Mux, client: u64, operation: ResourceOperation, response: &Value) {
+pub(super) fn note_resource_input(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+    response: &Value,
+) {
     let input = matches!(
         operation,
         ResourceOperation::TerminalInputWrite
