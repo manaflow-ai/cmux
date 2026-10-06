@@ -299,7 +299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "agent",
+      "default" : "page",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
