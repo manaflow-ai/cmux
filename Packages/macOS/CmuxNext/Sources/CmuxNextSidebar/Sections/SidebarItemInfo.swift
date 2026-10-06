@@ -29,6 +29,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var accessory: SidebarItemAccessory?
     /// The shorter caption a tile draws under its glyph; nil uses `title`.
     public var caption: String?
+    /// The item's action shortcut as menus show it (`⌘,`), for the tooltip.
+    public var shortcut: String?
 
     public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
                 isHidden: Bool = false, caption: String? = nil) {
@@ -93,6 +95,14 @@ extension SidebarBuiltIn {
     }
 
     public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, caption: caption) }
+}
+
+extension SidebarItemInfo {
+    /// An icon's tooltip: the title, and the shortcut when there is one
+    /// ("Settings (⌘,)").
+    public var toolTip: String {
+        shortcut.map { SectionStrings.titleWithShortcut(title, $0) } ?? title
+    }
 }
 
 extension SidebarItemInfo {

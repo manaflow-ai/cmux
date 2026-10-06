@@ -114,7 +114,7 @@ extension SidebarBridge {
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
                          shownPage: TopPageRoute? = nil, unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
-                         updateBadge: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
+                         updateBadge: String? = nil, shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
@@ -127,6 +127,7 @@ extension SidebarBridge {
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
+                info.shortcut = builtInActions[builtIn].flatMap(shortcut)
                 info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
                 switch builtIn {
                 case .notifications: info.badge = unread > 0 ? unread : nil

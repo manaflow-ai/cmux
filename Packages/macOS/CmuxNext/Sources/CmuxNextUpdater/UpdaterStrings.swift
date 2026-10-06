@@ -68,6 +68,11 @@ nonisolated enum UpdaterStrings {
         format("updater.card.waitingDetail", "Installs when the running agents finish (%ld)", count)
     }
     static var installNow: String { text("updater.button.installNow", "Install Now") }
+    /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
+    /// the relaunch keeps terminals and agents (browser pages reload).
+    static var restartKeepsSessions: String {
+        text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
+    }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

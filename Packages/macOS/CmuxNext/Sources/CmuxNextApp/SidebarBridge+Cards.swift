@@ -59,6 +59,11 @@ enum SidebarCardFeed {
         }
     }
 
+    /// The footer pill for a staged update (nil while checking or downloading).
+    static func updatePill(_ updater: UpdaterService) -> SidebarUpdatePill? {
+        updater.footerPill.map { SidebarUpdatePill(title: $0.title, help: $0.help, isEnabled: $0.isEnabled) }
+    }
+
     /// The update card first, then the test-feed notice while one is active.
     static func cards(_ updater: UpdaterService) -> [SidebarCard] {
         var cards = updater.card.map { [sidebarCard($0)] } ?? []

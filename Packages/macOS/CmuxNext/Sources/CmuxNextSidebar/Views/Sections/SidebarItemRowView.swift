@@ -36,6 +36,8 @@ final class SidebarItemRowView: NSView {
     var isAccessoryShown: Bool { !accessoryView.isHidden }
     /// The accessory's frame while it draws (tests).
     var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The glyph's tint (tests).
+    var glyphTint: NSColor? { icon.contentTintColor }
     /// The accessory glyph's tint (tests).
     var accessoryTint: NSColor? { accessoryView.contentTintColor }
     /// The trailing control (`SidebarItemInfo.accessory`): the update badge.

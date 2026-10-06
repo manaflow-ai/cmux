@@ -55,6 +55,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
     /// Run an item's trailing control (`SidebarItemInfo.accessory`).
     case activateItemAccessory(LayoutItemID)
+    /// The footer's update pill: install the staged update and relaunch
+    /// (`SidebarModel.updatePill`).
+    case installUpdate
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Collapse or expand a titled section (client view state).

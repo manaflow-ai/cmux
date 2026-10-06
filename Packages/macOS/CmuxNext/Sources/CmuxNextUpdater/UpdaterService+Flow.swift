@@ -12,6 +12,11 @@ extension UpdaterService {
         flow.card
     }
 
+    /// The footer's update pill, or nil when it does not show.
+    public var footerPill: UpdateFooterPill? {
+        flow.footerPill(preferences: preferences)
+    }
+
     /// The badge on the Settings item.
     public var showsSettingsBadge: Bool {
         flow.showsSettingsBadge(preferences: preferences)

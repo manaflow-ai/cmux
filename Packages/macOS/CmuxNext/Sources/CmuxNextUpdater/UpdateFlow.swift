@@ -130,6 +130,15 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         }
     }
 
+    /// INTERIM (red commit): the footer pill follows the Settings control
+    /// it replaces (found, staged or installing).
+    public func footerPill(preferences: UpdatePreferences) -> UpdateFooterPill? {
+        switch phase {
+        case .installing: .installing
+        default: settingsBadgeTitle(preferences: preferences) == nil ? nil : .ready
+        }
+    }
+
     /// The badge on the Settings item: a staged update, unless silent.
     public func showsSettingsBadge(preferences: UpdatePreferences) -> Bool {
         settingsBadgeTitle(preferences: preferences) != nil
@@ -140,4 +149,24 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     public func settingsBadgeTitle(preferences: UpdatePreferences) -> String? {
         preferences.notify == .silent ? nil : phase.badgeTitle
     }
+}
+
+/// The footer's update pill (SIDEBAR-FOOTER-MINIMAL): its label, and its
+/// tooltip and VoiceOver label, which say that the relaunch keeps the
+/// terminals and agents (browser pages reload, so they are not named).
+nonisolated public enum UpdateFooterPill: Equatable, Sendable {
+    /// A staged update: a click installs and relaunches.
+    case ready
+    /// The click was taken: the pill stays, disabled, until the relaunch.
+    case installing
+
+    public var title: String {
+        switch self {
+        case .ready: UpdaterStrings.readyToInstall
+        case .installing: UpdaterStrings.installing
+        }
+    }
+
+    public var help: String { UpdaterStrings.restartKeepsSessions }
+    public var isEnabled: Bool { self == .ready }
 }

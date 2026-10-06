@@ -109,6 +109,8 @@ extension SidebarBridge {
             if isUpdate || model.layout.item(id)?.ref == .builtIn(.settings) {
                 services.updater.installClicked()
             }
+        case .installUpdate:
+            services.updater.installClicked()
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:

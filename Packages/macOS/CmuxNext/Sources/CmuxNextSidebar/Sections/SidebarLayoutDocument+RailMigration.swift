@@ -53,6 +53,15 @@ extension SidebarLayoutDocument {
         return result
     }
 
+    /// R53's bottom row (Settings with its label over 7 of 8 columns, the
+    /// account over the last), only to recognize it.
+    public nonisolated static let gridBottomSection = LayoutSection(
+        id: bottomSectionID, region: .bottom, look: .builtIn,
+        arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
+            LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
+        ])
+
     /// The sections default before R53 (one inline bottom line with
     /// Settings leading and the account trailing), only to recognize it.
     public nonisolated static let inlineBottomDefaults = SidebarLayoutDocument(sections: [

@@ -56,6 +56,8 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     private var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    /// INTERIM (red commit): not shown yet.
+    let updatePillView = SidebarUpdatePillView()
     let helpButton = SidebarHelpButton()
     /// Where the spaces dots sit (`sidebar.spacesPosition`, R109).
     public var spacesPosition: SpacesPosition = .bottom {
