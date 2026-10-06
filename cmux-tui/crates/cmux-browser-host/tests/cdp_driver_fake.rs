@@ -27,6 +27,8 @@ struct Browser {
     tabs: HashMap<String, FakeTab>,
     /// Every message the driver sent, in order.
     sent: Vec<Value>,
+    /// When each message in `sent` arrived.
+    sent_at: Vec<std::time::Instant>,
     /// Chromium's double report: after the agent world's context (20) a
     /// second context with the same name (21) where the agent script never ran.
     empty_agent_world: bool,
@@ -77,6 +79,7 @@ impl FakeWire {
     fn respond(&self, message: &Value) -> (Value, Vec<Value>) {
         let mut browser = self.browser.lock().unwrap();
         browser.sent.push(message.clone());
+        browser.sent_at.push(std::time::Instant::now());
         let id = message["id"].clone();
         let method = message["method"].as_str().unwrap_or("");
         let params = &message["params"];
@@ -1422,4 +1425,26 @@ fn a_cancelled_tab_fetch_is_aborted_at_once() {
         );
         assert!(fetch.join().unwrap().is_err(), "a cancelled fetch fails");
     });
+}
+
+/// A shell never reports the host world's context, so a tab-less fetch
+/// creates the world at once instead of waiting the context grace (500 ms)
+/// first.
+#[test]
+fn a_shell_fetch_creates_the_host_world_without_waiting() {
+    let h = Harness::new();
+    let mark = h.mark();
+    h.call("net.fetch", json!({"url": "https://a.test/data", "timeoutMs": 2000}));
+    let browser = h.wire.browser.lock().unwrap();
+    let at = |method: &str| {
+        (mark..browser.sent.len())
+            .find(|&i| browser.sent[i]["method"] == method)
+            .map(|i| browser.sent_at[i])
+            .unwrap_or_else(|| panic!("no {method}"))
+    };
+    let waited = at("Page.createIsolatedWorld").duration_since(at("Page.navigate"));
+    assert!(
+        waited < std::time::Duration::from_millis(250),
+        "the shell waited {waited:?} for a context it never reports"
+    );
 }

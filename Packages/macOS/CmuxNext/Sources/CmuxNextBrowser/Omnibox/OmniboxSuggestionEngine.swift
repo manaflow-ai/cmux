@@ -128,7 +128,8 @@ public final class OmniboxSuggestionEngine {
             }
             guard !Task.isCancelled, request.gate.isCurrent(request.generation) else { return continuation.finish() }
             continuation.yield(.local(rows))
-            if let remote, let more = await Self.remoteRows(text, engine: engine, remote: remote),
+            let answer = rows.first { $0.kind == .answer }?.content
+            if let remote, let more = await Self.remoteRows(text, engine: engine, remote: remote, answer: answer),
                !Task.isCancelled, request.gate.isCurrent(request.generation) {
                 continuation.yield(.more(more, capacity: maxRows))
             }
