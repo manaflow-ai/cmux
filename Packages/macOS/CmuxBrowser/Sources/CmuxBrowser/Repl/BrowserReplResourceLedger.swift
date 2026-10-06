@@ -78,6 +78,17 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     /// Everything the session holds in memory together: the sum of the
     /// resources that are memory (``isMemory``), each also within its own limit.
     case sessionMemoryBytes
+    /// The stack of the session's JavaScript thread
+    /// (``BrowserReplJSThread/stackSize``), reserved before the thread
+    /// starts and held until the session closes. Counted only toward
+    /// ``processMemoryBytes``, never the session's own memory.
+    case threadStackBytes
+    /// What every REPL session of this cmux holds together: each one's
+    /// memory (``sessionMemoryBytes``, its heap included) and its thread's
+    /// stack. Only the process-wide ledger
+    /// (``BrowserReplResourceLedger/process``) holds it; each session's
+    /// ledger reserves there too (``isProcessMemory``).
+    case processMemoryBytes
 
     /// How a limit counts.
     public enum Scope: Sendable {
@@ -102,7 +113,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         switch self {
         case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
              .driverResultBytes, .hostCallBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
-             .fileBytesWritten, .sessionMemoryBytes:
+             .fileBytesWritten, .sessionMemoryBytes, .threadStackBytes, .processMemoryBytes:
             true
         default:
             false
@@ -119,6 +130,12 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         default:
             false
         }
+    }
+
+    /// Whether it counts toward ``processMemoryBytes`` in the parent
+    /// ledger: the session's memory and its thread's stack.
+    public var isProcessMemory: Bool {
+        isMemory || self == .threadStackBytes
     }
 
     /// Whether it is measured after the fact rather than reserved before:
@@ -159,6 +176,8 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .secretSourceFiles: "files secrets.load read and protects from every tab"
         case .typedDomainSets: "distinct domain sets of the secrets and sign-in credentials the session typed"
         case .sessionMemoryBytes: "memory the session holds in all"
+        case .threadStackBytes: "the stack of the session's JavaScript thread"
+        case .processMemoryBytes: "memory all REPL sessions of this cmux hold together (each one's memory and thread stack)"
         }
     }
 
@@ -184,6 +203,8 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .secretSourceFiles: "load secrets from fewer files (one file holds many), or set them with secrets.set"
         case .typedDomainSets: "type secrets on fewer domain sets, or reset the session (cmux browser repl reset NAME)"
         case .sessionMemoryBytes: "await results and let cells finish before starting more"
+        case .threadStackBytes, .processMemoryBytes:
+            "reset REPL sessions no longer used (cmux browser repl list --all-workspaces lists them; cmux browser repl reset NAME), or hold less in each"
         }
     }
 }
@@ -281,6 +302,15 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
         ]
     )
 
+    /// The process-wide limits (``BrowserReplResourceLedger/process``):
+    /// all sessions together hold at most 4 GiB of memory and thread
+    /// stacks. Decided 2026-10-06 (r23 native#3): eight sessions at their
+    /// full 512 MiB (``standard``) and 8 MiB stack fit, a quarter of what
+    /// the 32-session cap (``BrowserReplSessionRegistry/defaultMaximumSessions``)
+    /// would otherwise allow (about 16.3 GiB), and all 32 sessions fit at
+    /// 128 MiB each, far above an idle session's heap.
+    public static let process = BrowserReplResourceLimits(totals: [.processMemoryBytes: 4 << 30], items: [:])
+
     /// `64 MiB`, `2 GiB`, `1000 bytes` or `256` (items).
     static func describe(_ amount: Int, of resource: BrowserReplResource) -> String {
         guard resource.isBytes else { return "\(amount)" }
@@ -334,12 +364,28 @@ public struct BrowserReplResourceLimitError: Error, Sendable, Equatable {
 /// work has drained, which a test checks for every holder.
 public final class BrowserReplResourceLedger: @unchecked Sendable {
     public let limits: BrowserReplResourceLimits
+    /// The ledger every session's ledger also reserves its memory and
+    /// thread stack in (``BrowserReplResource/processMemoryBytes``), so all
+    /// sessions together stay within ``BrowserReplResourceLimits/process``.
+    public static let process = BrowserReplResourceLedger(limits: .process)
+    /// Where this ledger also reserves what counts toward
+    /// ``BrowserReplResource/processMemoryBytes``, or nil. Its lock is
+    /// taken inside this ledger's, never the other way.
+    public let parent: BrowserReplResourceLedger?
     private let lock = NSLock()
     private var held: [BrowserReplResource: Int] = [:]
     private var peaks: [BrowserReplResource: Int] = [:]
 
-    public init(limits: BrowserReplResourceLimits = .standard) {
+    public init(limits: BrowserReplResourceLimits = .standard, parent: BrowserReplResourceLedger? = nil) {
         self.limits = limits
+        self.parent = parent
+    }
+
+    /// What a holder never released goes back to the parent, so a session
+    /// that leaked a reservation cannot shrink every later session's room.
+    deinit {
+        let remaining = (held[.sessionMemoryBytes] ?? 0) + (held[.threadStackBytes] ?? 0)
+        if remaining > 0 { parent?.release(remaining, of: .processMemoryBytes) }
     }
 
     /// Reserves `amount` of `resource`, or returns why it does not fit and
@@ -382,16 +428,21 @@ public final class BrowserReplResourceLedger: @unchecked Sendable {
             assert((held[resource] ?? 0) >= amount, "\(resource) released more than it reserved")
             addLocked(-amount, to: resource)
             if resource.isMemory { addLocked(-amount, to: .sessionMemoryBytes) }
+            if resource.isProcessMemory { parent?.release(amount, of: .processMemoryBytes) }
         }
     }
 
     /// Releases everything held of `resources` (what close() drops at once).
     public func releaseAll(_ resources: [BrowserReplResource]) {
         lock.withLock {
+            var processMemory = 0
             for resource in resources where resource.scope != .lifetime {
-                if resource.isMemory { addLocked(-(held[resource] ?? 0), to: .sessionMemoryBytes) }
+                let amount = held[resource] ?? 0
+                if resource.isMemory { addLocked(-amount, to: .sessionMemoryBytes) }
+                if resource.isProcessMemory { processMemory += amount }
                 held[resource] = nil
             }
+            if processMemory > 0 { parent?.release(processMemory, of: .processMemoryBytes) }
         }
     }
 
@@ -433,6 +484,15 @@ public final class BrowserReplResourceLedger: @unchecked Sendable {
             let total = limits[.sessionMemoryBytes]
             if growth > total - memory {
                 return BrowserReplResourceLimitError(resource: .sessionMemoryBytes, limit: total, isPerItem: false, held: memory, requested: growth)
+            }
+        }
+        // All sessions together: also a measured heap, which the session
+        // ends for when it does not fit (BrowserReplSession).
+        if resource.isProcessMemory, let parent, growth != 0 {
+            if growth < 0 {
+                parent.release(-growth, of: .processMemoryBytes)
+            } else if let refusal = parent.reserve(growth, of: .processMemoryBytes, force: force) {
+                return refusal
             }
         }
         addLocked(growth, to: resource)

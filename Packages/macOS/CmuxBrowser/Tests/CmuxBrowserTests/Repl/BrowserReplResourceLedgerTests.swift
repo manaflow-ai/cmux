@@ -198,8 +198,9 @@ struct BrowserReplResourceLedgerTests {
         // file protections a secrets file in the working directory; their
         // bounds have their own tests (secretSourceFilesAreBoundedPerSession);
         // typed domain sets need a typed secret
-        // (typedDomainSetsAreCanonicalAndBounded).
-        let unused = BrowserReplResource.allCases.filter { ![.heldEvents, .secretSourceFiles, .typedDomainSets].contains($0) && ledger.peak($0) == 0 }
+        // (typedDomainSetsAreCanonicalAndBounded); only the process-wide
+        // ledger holds processMemoryBytes (BrowserReplProcessBudgetTests).
+        let unused = BrowserReplResource.allCases.filter { ![.heldEvents, .secretSourceFiles, .typedDomainSets, .processMemoryBytes].contains($0) && ledger.peak($0) == 0 }
         #expect(unused.isEmpty, "no holder reserved \(unused)")
 
         session.close()

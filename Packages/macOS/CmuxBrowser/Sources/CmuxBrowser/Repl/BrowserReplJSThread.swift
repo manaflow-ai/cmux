@@ -15,6 +15,12 @@ public final class BrowserReplJSThread: @unchecked Sendable {
     /// Signalled once the thread's loop has ended.
     private let exited: DispatchSemaphore
 
+    /// The thread's stack: JavaScriptCore needs more than the 512 KiB
+    /// secondary-thread default for deeply nested runtime code. A session
+    /// reserves it in the process-wide ledger before it makes the thread
+    /// (``BrowserReplResource/threadStackBytes``).
+    public static let stackSize = 8 << 20
+
     /// Creates and starts the thread.
     /// - Parameter name: Thread name shown in crash reports and samples.
     public init(name: String) {
@@ -35,9 +41,7 @@ public final class BrowserReplJSThread: @unchecked Sendable {
             }
         }
         thread.name = name
-        // JavaScriptCore needs more than the 512 KiB secondary-thread default
-        // for deeply nested runtime code.
-        thread.stackSize = 8 << 20
+        thread.stackSize = Self.stackSize
         thread.qualityOfService = .userInitiated
         thread.start()
         box.started.wait()

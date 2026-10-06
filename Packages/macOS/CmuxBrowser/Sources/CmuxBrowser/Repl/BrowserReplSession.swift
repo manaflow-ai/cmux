@@ -547,6 +547,10 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     /// - Parameters:
     ///   - limits: The session's resource limits (tests lower them).
+    ///   - processLedger: The ledger all sessions share
+    ///     (``BrowserReplResourceLedger/process``; tests pass their own). A
+    ///     session that cannot reserve its thread's stack there starts
+    ///     closed: every cell fails with the limit.
     ///   - executionTimeLimitSupported: Whether this JavaScriptCore can stop
     ///     a running script (tests pass false); without it the session
     ///     refuses every cell.
@@ -560,9 +564,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         homeDirectory: String? = nil,
         callbackTimeLimit: Duration = BrowserReplSession.defaultCallbackTimeLimit,
         limits: BrowserReplResourceLimits = .standard,
+        processLedger: BrowserReplResourceLedger = .process,
         executionTimeLimitSupported: Bool
     ) {
-        let ledger = BrowserReplResourceLedger(limits: limits)
+        let ledger = BrowserReplResourceLedger(limits: limits, parent: processLedger)
+        // Before the thread exists; refused, the session closes below.
+        let admission = ledger.reserve(BrowserReplJSThread.stackSize, of: .threadStackBytes)
         self.ledger = ledger
         self.gate = BrowserReplEvalGate(ledger: ledger)
         let temporaryRoot = BrowserReplFileSandbox.canonicalize(
@@ -617,6 +624,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
         driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
         driver.setSecretCheck { name, revision in boundary.secretIsCurrent(name: name, revision: revision) }
+        if let admission {
+            stateLock.withLock {
+                endReason = "Error: REPL session '\(id)' could not start: \(admission.message)"
+            }
+            close()
+        }
     }
 
     /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
@@ -738,6 +751,11 @@ public final class BrowserReplSession: @unchecked Sendable {
                 durationMilliseconds: 0
             )
         }
+        // A session that never started (or ended) says why before it
+        // reserves anything for the cell.
+        if let reason = stateLock.withLock({ closed ? endReason : nil }) {
+            return BrowserReplEvalResult(lines: [], error: reason, durationMilliseconds: 0)
+        }
         if let refusal = await gate.acquire(sourceBytes: code.utf8.count) {
             return BrowserReplEvalResult(lines: [], error: "Error: REPL session '\(id)': \(refusal.message)", durationMilliseconds: 0)
         }
@@ -779,7 +797,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             lastUsedAt = .now
             var refusal: String?
             if closed {
-                refusal = "Error: REPL session '\(id)' is closed"
+                refusal = endReason ?? "Error: REPL session '\(id)' is closed"
             } else if case .failure(let reason) = pinned {
                 refusal = "Error: \(reason.message)"
             } else if cwd == nil, let reason = rootRejection(workingDirectory) {
@@ -923,7 +941,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedDriverCalls.removeAll()
         // What those held: their tasks no longer release it.
         ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
-                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes])
+                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes,
+                           .threadStackBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -1347,6 +1366,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         ledger.resize(.scriptHeapBytes, from: held, to: bytes, force: true)
         let describe = { BrowserReplResourceLimits.describe($0, of: BrowserReplResource.scriptHeapBytes) }
         let resource = BrowserReplResource.scriptHeapBytes
+        if refusal.resource == .processMemoryBytes {
+            // All sessions together: this one's heap grew past what is left.
+            return "Error: REPL session '\(id)' ended: REPL session limit: \(refusal.resource.title) at most \(describe(refusal.limit)) "
+                + "(\(describe(refusal.held)) held, this session's heap held \(describe(bytes)) after a full garbage collection); "
+                + "\(refusal.resource.remedy). The next command starts a new session"
+        }
         return "Error: REPL session '\(id)' ended: REPL session limit: \(resource.title) at most \(describe(refusal.limit)) "
             + "(it held \(describe(bytes)) after a full garbage collection); \(resource.remedy). The next command starts a new session"
     }

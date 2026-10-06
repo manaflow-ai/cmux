@@ -230,6 +230,12 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
                 throw Refusal.tooManyPrivateSessions(limit: maximumPrivateSessions)
             }
             session = make(key)
+            // All sessions together could not hold its thread: it started
+            // closed, its cells fail with the limit, and it takes no slot.
+            if session.isClosed {
+                lock.unlock()
+                return (key, session)
+            }
             // A session that ended by itself (its JavaScript heap passed
             // its limit) tells the next one of its name, for the same client.
             if let ended = sessions[key], owners[key] == owner, let reason = ended.endedReason {

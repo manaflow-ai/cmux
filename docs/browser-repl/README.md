@@ -702,6 +702,7 @@ checks nothing stays reserved after the session ends.
 | A screenshot / PDF | 16,384 CSS pixels an edge and 33,554,432 pixels / 14,400-point edges | `invalid` |
 | An owner token / a working directory | 128 bytes / 1,024 bytes (`PATH_MAX`) | refused before a session is made |
 | Sessions in one cmux instance | 32 | the next is refused |
+| Memory all sessions hold together: each one's memory (the rows marked M, its heap included) and its JavaScript thread's 8 MiB stack | 4 GiB at once (eight sessions at their full 512 MiB; all 32 at 128 MiB each) | a reservation is refused; a session whose thread's stack does not fit does not start (each cell fails with the limit, and it takes no slot); a heap measure past it, after a full garbage collection, ends that session |
 | Sessions driving one tab | 4 at once | the next session's call on the tab fails with `limit` |
 | Secrets per session | 256, each at most 4 KiB with 64 domains | refused, naming the limit |
 | Distinct domain sets of the secrets and sign-in credentials the session typed (kept so the policy never reaches past them; one set however its domains are ordered or repeated) | 1,024 over the session's life | typing a secret, or asking the sign-in sheet, on a new set is refused |
@@ -712,7 +713,10 @@ measure, not a refusal: a cell or callback can allocate past it between
 two measures. A run that goes on is measured at JavaScriptCore's execution
 checks, so the session ends there, during the run, not only once it
 returns. It counts toward the
-session's memory, so other holders are refused beside a large heap.
+session's memory, so other holders are refused beside a large heap, and
+toward the memory all sessions hold together: one session's large heap
+leaves less for every other, and a session whose heap grows past what is
+left ends.
 
 Outside the session's ledger, bounded by their own tables: the driver's
 per-tab holders (unfinished network requests, 1,000 or 8 MiB a tab; the
