@@ -507,6 +507,35 @@ test("cancel: a cancelled cell that resumes later is refused host work", async (
   assert.deepEqual(ops.filter((op) => op === "writeFile"), []);
 });
 
+// r20 native#1: the guarded host and driver are the only capability objects
+// agent code reaches; their prototypes are not the raw ones, so a cancelled
+// cell's continuation cannot call around the cancellation check.
+test("cancel: a cancelled cell cannot reach the raw host or driver through a prototype", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "const h = page._session.host, d = page._session.driver; await new Promise((r) => { globalThis.resumeCell = r; });" +
+      " const late = []; for (const o of [h, d]) { let p = o; while ((p = Object.getPrototypeOf(p))) late.push(p); }" +
+      " globalThis.lateOutcome = []; for (const p of late) { for (const [fn, args] of [['fsOp', ['writeFile', { path: 'late.txt' }]], ['call', ['page.goto', {}]], ['setTimeout', [() => {}, 1]]]) {" +
+      " if (typeof p[fn] !== 'function') continue; try { await p[fn](...args); globalThis.lateOutcome.push(fn + ':ran'); } catch (e) { globalThis.lateOutcome.push(fn + ':' + e.code); } } }" +
+      " try { h.fsOp('writeFile', { path: 'late.txt' }); } catch (e) { globalThis.lateOutcome.push('own:' + e.code); }" +
+      " globalThis.frozen = [Object.isFrozen(h), Object.isFrozen(d)];",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const before = ops.length;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.frozen === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const { lateOutcome, frozen } = globalThis;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  delete globalThis.frozen;
+  assert.deepEqual(lateOutcome, ["own:cancelled"]);
+  assert.deepEqual(frozen, [true, true]);
+  assert.deepEqual(ops.slice(before), []);
+});
+
 test("cancel: a page listener a cancelled cell registered never runs later", async () => {
   const { repl, ops, emit } = cancelFixture();
   const hung = repl.evaluate("page.on('console', () => fs.writeFileSync('late.txt', 'x')); globalThis.listening = true; await new Promise(() => {})", { id: 1 });
