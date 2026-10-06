@@ -25,10 +25,8 @@ public nonisolated enum TabTunables {
     public static let closeMinContentsWidth = points("closeMinContentsWidth", "Close button threshold", help: "Contents width from which a hovered inactive tab shows its x (Chromium: 68).",
                                                      range: 0...200) { 4 * Metrics.space6 + Metrics.space2 }
     public static let titleMinVisibleWidth = points("titleMinVisibleWidth", "Shortest title", help: "Narrowest title fragment worth showing after the icon.") { Metrics.space5 }
-    public static let trailingButtonSpacing = points("trailingButtonSpacing", "Trailing button gap", help: "Gap between the strip's trailing buttons.") { Metrics.space1 }
-    public static let trailingGroupGap = points("trailingGroupGap", "Trailing group gap", help: "Space between the tabs and the trailing buttons.") { Metrics.space2 }
     public static let scrollFadeWidth = points("scrollFadeWidth", "Strip scroll fade", help: "Length of the fade on a scrolled strip edge (also the drag autoscroll zone).") { Metrics.space6 + Metrics.space4 }
-    public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the separator between inactive tabs. Default: half the tab height.") { Metrics.tabHeight / 2 }
+    public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the separator between tabs. Default: half the tab height.") { Metrics.tabHeight / 2 }
     public static let groupChipPadding = points("groupChipPadding", "Group chip padding", help: "Horizontal padding inside a tab group chip.") { Metrics.space3 }
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
@@ -54,7 +52,7 @@ public nonisolated enum TabTunables {
         default: 0.8, range: 0...3, step: 0.05, unit: .seconds, code: "TabTunables.hoverCardMaximumDelay")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
-         titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, trailingButtonSpacing, trailingGroupGap, scrollFadeWidth,
+         titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [groupJoinHysteresis.descriptor, autoscrollGain.descriptor]
             + [hoverCardMinimumDelay, hoverCardMaximumDelay].map(\.descriptor)
