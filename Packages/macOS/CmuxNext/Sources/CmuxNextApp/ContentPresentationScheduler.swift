@@ -57,6 +57,18 @@ final class ContentPresentationScheduler {
         return true
     }
 
+    /// A selection change in `pane` (a tab click, Ctrl-Tab): content that is
+    /// already alive swaps in now, in the same frame as the strip's
+    /// highlight; content that needs a new surface waits for the frame, so a
+    /// burst of selections creates one only for the tab selected by then.
+    func showSelection(_ pane: any PresentablePane) {
+        if pane.selectedContentIsAlive {
+            showNow(pane)
+        } else {
+            setNeedsShowSelected(pane)
+        }
+    }
+
     /// Drops a pane that is going away.
     func cancel(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
