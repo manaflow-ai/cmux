@@ -19,16 +19,16 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
-    @Test func sixStepsWithAccountsFiveWithout() {
-        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.role, .projects, .defaultBrowser, .importData, .theme])
+    @Test func twoStepsWithAccountsOneWithout() {
+        #expect(OnboardingModel(services: MockOnboardingServices()).steps == [.importData])
         let services = MockOnboardingServices()
         services.accountsView = NSView()
         let model = OnboardingModel(services: services)
-        #expect(model.steps == [.role, .projects, .defaultBrowser, .importData, .theme, .accounts])
-        for _ in 0..<5 { model.next() }
-        #expect(model.step == .accounts && model.isLast)
+        #expect(model.steps == [.accounts, .importData])
+        model.next()
+        #expect(model.step == .importData && model.isLast)
         model.back()
-        #expect(model.step == .theme)
+        #expect(model.step == .accounts)
         model.next()
         model.next()
         #expect(services.ended == true && model.ended)
@@ -93,10 +93,10 @@ import Testing
         await settle { if case .finished = model.importer.phase { true } else { false } }
         #expect(services.plans.count == 1)
         #expect(model.step == .importData, "Import stays on the step so its rows show the result")
-        #expect(model.primaryTitle == OnboardingStrings.continueButton)
+        #expect(model.primaryTitle == OnboardingStrings.done)
         model.next()
-        #expect(model.step == .theme)
-        #expect(services.plans.count == 1, "Continue after an import does not run it again")
+        #expect(services.ended == true)
+        #expect(services.plans.count == 1, "Done after an import does not run it again")
     }
 
     @Test func nothingCheckedContinuesWithoutImporting() async {
@@ -107,9 +107,9 @@ import Testing
         model.stepDidAppear()
         await settle { model.importer.phase == .ready }
         model.importer.toggle(work)
-        #expect(model.primaryTitle == OnboardingStrings.continueButton)
+        #expect(model.primaryTitle == OnboardingStrings.done)
         model.next()
-        #expect(model.step == .theme && services.plans.isEmpty)
+        #expect(services.ended == true && services.plans.isEmpty)
     }
 
     @Test func rowsShowEachProfilesProgressThenItsCounts() async {

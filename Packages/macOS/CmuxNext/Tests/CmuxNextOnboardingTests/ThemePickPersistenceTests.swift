@@ -21,7 +21,6 @@ import Testing
     }
 
     func showTheme(_ model: OnboardingModel) async {
-        model.go(to: .theme)
         model.stepDidAppear()
         for _ in 0..<200 where model.theme.choices.count < 2 { await Task.yield() }
     }
@@ -31,7 +30,7 @@ import Testing
         let services = services(pick: "Catppuccin Mocha")
         // First run, then a rerun (a version bump or the palette's "Show Onboarding").
         for _ in 0..<2 {
-            let model = OnboardingModel(services: services)
+            let model = OnboardingModel(services: services, start: .theme)
             await showTheme(model)
             #expect(model.theme.selected == "Catppuccin Mocha")
             if completes { model.next() } else { model.skipStep() }
@@ -55,7 +54,7 @@ import Testing
     /// after trying another theme puts that pick back instead of removing it.
     @Test func aPickThatArrivesAfterTheWindowOpenedIsWhatSkipRestores() async {
         let services = services(pick: nil)
-        let model = OnboardingModel(services: services)
+        let model = OnboardingModel(services: services, start: .theme)
         services.selectedThemeName = "Catppuccin Mocha"
         await showTheme(model)
         #expect(model.theme.selected == "Catppuccin Mocha")
@@ -64,7 +63,7 @@ import Testing
         model.skipStep()
         #expect(services.selectedThemeName == "Catppuccin Mocha")
 
-        let closing = OnboardingModel(services: services)
+        let closing = OnboardingModel(services: services, start: .theme)
         services.selectedThemeName = "Vesper"
         await showTheme(closing)
         closing.theme.select("Nord")
