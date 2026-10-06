@@ -114,7 +114,9 @@ export function useUiAnchor(
       if (!anchorNode || !overlayNode) return;
       const a = anchorNode.getBoundingClientRect();
       const o = overlayNode.getBoundingClientRect();
-      const direction = requestedDirection ?? (getComputedStyle(anchorNode).direction === "rtl" ? "rtl" : "ltr");
+      const direction =
+        requestedDirection ??
+        (anchorNode.ownerDocument.defaultView?.getComputedStyle(anchorNode).direction === "rtl" ? "rtl" : "ltr");
       const position = resolveUiOverlayPosition(
         { left: a.left, top: a.top, right: a.right, bottom: a.bottom },
         { width: o.width, height: o.height },
