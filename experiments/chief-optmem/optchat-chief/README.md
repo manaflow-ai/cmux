@@ -330,6 +330,11 @@ one:
 | 1M | SQLite | 8.00 s | 111 MB | 156 MB | 0.18 / 1.75 ms | 898 MB db |
 
 The migration (first open) took 0.35 s, 4.5 s and 48 s at 10k, 100k and 1M.
+
+On a Mac (cmux-lawrence-2, Apple M5 Pro, macOS 27.0.1, F_FULLFSYNC), 500
+short notes through `optchat-chief import` (each one message commit plus its
+free node commit): 8.5 ms per append on SQLite (bd583f5eaa8), 11.5 ms on
+the line store (0af8c9ba1b5, two fsynced lines).
 The database is 1.4x the JSONL it came from (FTS and indexes), and a
 migrated home also keeps the export (1x) and the backup copy (1x).
 

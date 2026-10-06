@@ -163,7 +163,13 @@ impl CompactModel for Deferred {
 pub fn open_offline(dir: &Path, db: &Path) -> Result<OptChat, String> {
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        reporter: Arc::new(|r| crate::log::log(format!("memory: {r}"))),
+        // The migration and skipped lines are worth a line; nodes waiting
+        // for the host's compactor are not.
+        reporter: Arc::new(|r| {
+            if !matches!(r, optchat_host::Report::NodeFailed { .. }) {
+                crate::log::log(format!("memory: {r}"))
+            }
+        }),
         db: Some(db.to_owned()),
         ..Config::default()
     };
