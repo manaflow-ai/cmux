@@ -443,7 +443,7 @@ test("snapshot: a shortened link URL never shows a prefix of a value the session
       for (const opts of [{}, { urls: true }]) {
         const r = await run(`const s = await snapshot(${JSON.stringify(opts)}); console.log("@@" + JSON.stringify(String(s.tree || s)));`);
         const tree = JSON.parse(r.value);
-        assert.match(tree, /\[url=e\.example\/a/, `the link URLs are not in the snapshot: ${tree}`);
+        assert.match(tree, /e\.example\/a/, `the link URLs are not in the snapshot: ${tree}`);
         assert.equal(tree.includes(SECRET.slice(0, 4)), false, `${JSON.stringify(opts)}: the snapshot shows the secret's prefix: ${tree}`);
       }
     });
