@@ -117,11 +117,13 @@
             content: { text },
             sent: ["text"],
             observe: async () => ({}),
-            act: async (page) => {
+            act: async (page, press) => {
               await page.locator(".kix-appview-editor").first().click();
               await page.keyboard.press("Meta+ArrowDown");
-              await page.keyboard.press("Enter");
-              await page.keyboard.insertText(text);
+              await press.input(async () => {
+                await page.keyboard.press("Enter");
+                await page.keyboard.insertText(text);
+              });
               const verified = await ed.verify(async () => (await plain(r)).trimEnd().endsWith(text));
               return { status: "appended", verified };
             },

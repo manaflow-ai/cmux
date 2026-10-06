@@ -90,9 +90,19 @@ rules neither reference enforces together:
    the press (`{ account }` in the commit), so a switch while the rest is
    read back fails with `account_mismatch`. The remaining window is
    between that last account read and the press, which no site API
-   closes: none binds a click to an account. Keyboard
-   and menu writes (Sheets' paste and Delete, Slides' notes, Drive's trash) are
-   checked once, before their first input. Slack's
+   closes: none binds a click to an account. The Google editors' keyboard
+   and menu writes (Sheets' paste, typed cells and Delete, Slides' typed
+   notes, Docs' typed append) send each batch of keys or a paste through
+   `press.input`, which reads the editor's account again (`{ account }`
+   and `{ inputs: "guarded" }` in the commit) right before that batch;
+   Drive's File > Move to trash is pressed like Send (pinned, read back
+   again, account last). A switch after the read-back fails with
+   `account_mismatch` (`account_unverified` when the account cannot be
+   read) and that batch, and every later one, is not sent; batches sent
+   before it stay sent (Slides' Delete of the old notes before a typed
+   line). A guarded commit whose act uses neither `press` nor
+   `press.input` fails as `commit_unverified`. The remaining window is
+   between the last account read and the batch reaching the page. Slack's
    `chat.postMessage` checks the member again in the same page call
    (`account_changed`); Notion reads and writes with
    `x-notion-active-user-header` set to the drafted user, so Notion runs

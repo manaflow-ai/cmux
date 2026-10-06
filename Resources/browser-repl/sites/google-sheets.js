@@ -72,7 +72,7 @@
             const now = usedRows((await api.read(sheet, options || {})).rows);
             return { ...at, range: `A${now + 1}:${ed.colName(c0 + width - 1)}${now + values.length}` };
           },
-          act: async (page) => {
+          act: async (page, press) => {
             const want = new Map();
             values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
             const check = async () => {
@@ -82,8 +82,10 @@
             // One paste of the rows as TSV at the top-left cell, as a person
             // pastes a range: Sheets reads the paste event's clipboardData.
             await selectRange(page, start);
-            await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
-            await page.keyboard.press("ControlOrMeta+v");
+            await press.input(async () => {
+              await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
+              await page.keyboard.press("ControlOrMeta+v");
+            });
             await ed.saved(page);
             if (await ed.verify(check, [800, 1500, 2500])) return { status: "written", range: target, verified: true };
             // An editor that dropped the paste gets typed keys, cell by cell
@@ -93,11 +95,13 @@
               row.forEach((v, j) => {
                 rowOps.push([String(v === null || v === undefined ? "" : v), j < row.length - 1]);
               });
-              for (const [text, tab] of rowOps.splice(0)) {
-                if (text) await page.keyboard.type(text);
-                if (tab) await page.keyboard.press("Tab");
-              }
-              await page.keyboard.press("Enter");
+              await press.input(async () => {
+                for (const [text, tab] of rowOps.splice(0)) {
+                  if (text) await page.keyboard.type(text);
+                  if (tab) await page.keyboard.press("Tab");
+                }
+                await page.keyboard.press("Enter");
+              });
             }
             await ed.saved(page);
             return { status: "written", range: target, verified: await ed.verify(check) };
@@ -218,9 +222,9 @@
             content: { range },
             sent: ["range"],
             observe: async (page) => ({ tab: tabOf(page) }),
-            act: async (page) => {
+            act: async (page, press) => {
               await selectRange(page, range);
-              await page.keyboard.press("Delete");
+              await press.input(() => page.keyboard.press("Delete"));
               await ed.saved(page);
               const verified = await ed.verify(async () => (await api.cells(sheet, { ...(options || {}), range })).cells.length === 0);
               return { status: "cleared", range: range.toUpperCase(), verified };

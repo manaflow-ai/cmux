@@ -72,11 +72,13 @@
                 if (at < 0) return { slideId: null };
                 return { slide: at + 1, slideId: slide.id, slideTitle: now[at].title };
               },
-              act: (p) => setNotesOn(p, `[id="filmstrip-slide-${index - 1}-${slide.id}"]`, index),
+              act: (p, press) => setNotesOn(p, press, `[id="filmstrip-slide-${index - 1}-${slide.id}"]`, index),
             };
           });
           // The slide's thumbnail in the filmstrip, then the notes box, with typed keys.
-          async function setNotesOn(page, thumbnail, at) {
+          // Each batch of keys that changes the notes goes through press.input
+          // (the account read again right before it).
+          async function setNotesOn(page, press, thumbnail, at) {
             await page.locator(thumbnail).first().click();
             await t.sleep(500);
             await page.locator("#speakernotes-workspace").click();
@@ -84,11 +86,13 @@
             // Select all notes (Meta+A selects nothing there): to the start, then to the end; delete.
             await page.keyboard.press("Meta+ArrowUp");
             await page.keyboard.press("Meta+Shift+ArrowDown");
-            await page.keyboard.press("Delete");
+            await press.input(() => page.keyboard.press("Delete"));
             const lines = text.split("\n");
             for (let i = 0; i < lines.length; i++) {
-              if (i) await page.keyboard.press("Enter");
-              if (lines[i]) await page.keyboard.type(lines[i]);
+              await press.input(async () => {
+                if (i) await page.keyboard.press("Enter");
+                if (lines[i]) await page.keyboard.type(lines[i]);
+              });
             }
             await page.keyboard.press("Escape");
             await ed.saved(page);

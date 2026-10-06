@@ -10,8 +10,10 @@
     (t) => {
       const g = S.shared.google;
       const ed = S.shared.editors.create(t);
-      // Moves the file open in `page` (its editor) to the trash.
-      async function trashIn(page, ref) {
+      // Moves the file open in `page` (its editor) to the trash. The menu
+      // item is pressed through the commit's press (the file and account
+      // read again right before the click).
+      async function trashIn(page, ref, press) {
         await t.waitIn(page, () => !!document.querySelector("#docs-file-menu"), undefined, { signIn: [/^https:\/\/accounts\.google\.com\//], name: "googleDrive.trash", what: "the editor's File menu", timeout: 45000 });
         await t.sleep(1500);
         // File > Move to trash (matched by the item's text; retried once if the menu did not open).
@@ -23,7 +25,7 @@
           await page.keyboard.press("Escape").catch(() => {});
           await t.sleep(1500);
         }
-        await item.click();
+        await press(item);
         await t.waitIn(page, () => /moved to (the )?(trash|bin)|in (the )?(trash|bin)/i.test(document.body.innerText), undefined, { name: "googleDrive.trash", what: "the trash confirmation", timeout: 15000 }).catch(() => {});
         // A trashed file still opens for its owner, with "File is in trash".
         return t.withTab(ed.editURL(ref), async (check) => {
@@ -150,7 +152,7 @@
               category: "[1] delete data",
               summary: `Move Google file ${ref.id}${title ? ` ("${title}")` : ""} to the trash`,
               observe: async () => ({}),
-              act: (p) => trashIn(p, ref),
+              act: (p, press) => trashIn(p, ref, press),
             };
           });
         },
