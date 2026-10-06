@@ -3943,6 +3943,13 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
   background: color-mix(in srgb, var(--agent-highlight, var(--agent-text)) 74%, var(--agent-text));
 }
 
+/* Send off (the folder's trust question is open, useFolderTrustAsk.ts): a quiet disc, no step on hover. */
+button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
+  background: var(--acpmux-composer-hover);
+  color: var(--agent-muted);
+  cursor: default;
+}
+
 /* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
 .acpmux-mic:hover {
   background: var(--acpmux-composer-hover);
