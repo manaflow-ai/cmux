@@ -697,7 +697,7 @@ jobs:
           echo "Test targets: $SWIFT_TARGETS"
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
-          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip BranchStateResourcesTests
+          ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests --skip ActionRunWaitTests --skip DaemonClosedHistoryTests --skip EphemeralWorkspaceTests --skip StateMutationRoutingTests --skip OmnibarTypingTests --skip OmnibarFieldEditorTests --skip BranchStateResourcesTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
@@ -725,13 +725,16 @@ jobs:
       # The real field editor and state-resource event round trips need their
       # own process: unrelated UI suites can change focus or delay callbacks
       # beyond these tests' existing deadlines. Every test still runs.
+      # OmnibarFieldEditorTests: in the shared process the field editor lost its
+      # IME marked text mid-test (1 of 4 package runs; 0 of 11 alone or with
+      # only the browser target).
       - name: Run field-editor and state-resource regressions
         if: ${{ !cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests') || contains(env.SWIFT_TARGETS, 'CmuxNextDaemonTests')) }}
         timeout-minutes: 10
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "480"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|BranchStateResourcesTests'
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter 'OmnibarTypingTests|OmnibarFieldEditorTests|BranchStateResourcesTests'
 
       # The WebKit driver tests drive real WKWebViews against wall-clock load
       # deadlines through main-actor navigation callbacks. They run in a
@@ -1252,6 +1255,24 @@ jobs:
           # The app links C++, iroh-ffi and CCmuxAppFFI; compact unwind holds
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
+
+      # Launch-time budget (#17587): warm launches of this build, on a copy
+      # named for a tag of its own (its own socket, daemon and state), from an
+      # empty profile. Budgets are about 4x a capture Mac's medians, so this
+      # catches a launch that blocks (a daemon wait on the main path, a sync
+      # read), not run-to-run noise.
+      - name: Launch-time budget
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          tag="ci-launch-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/launch-budget/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/launch-budget"
+          /bin/cp -R "$built" "$app"
+          trap 'pkill -f "$RUNNER_TEMP/launch-budget/" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/tags/$tag" "$HOME/.cmux/mux/tags/$tag" "$RUNNER_TEMP/launch-budget"' EXIT
+          python3 scripts/cmux-next/bench-startup.py --app "$app" --profile empty --mode warm --runs 3 --timeout 6 \
+            --budget did_finish_launching_end=800 --budget first_window_frame_committed=1000 --budget sidebar_rows_shown=1000
 
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
