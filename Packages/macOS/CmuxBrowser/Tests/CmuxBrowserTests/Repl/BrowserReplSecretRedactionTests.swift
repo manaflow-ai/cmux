@@ -318,6 +318,46 @@ struct BrowserReplSecretRedactionTests {
         }
     }
 
+    /// Value masking covers what `fs` reads back, but a tab renders a local
+    /// file's text as pixels no mask covers, and its page scripts read it.
+    /// So the file `secrets.load` read never loads in a tab, by its identity
+    /// (device and inode): renamed, or hard-linked under another name, too.
+    @Test("A file secrets.load read never loads in a tab, also renamed or hard-linked")
+    func secretsSourceNeverLoadsInATab() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-source-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        try Data("plain".utf8).write(to: work.appendingPathComponent("other.txt"))
+        let driver = ScriptedPageDriver()
+        let session = try #require(makeSession(driver, cwd: work.path))
+        defer { session.close() }
+        let base = "file://" + work.path
+        var result = await run(session, """
+        const fs = await import("node:fs");
+        secrets.load("./secrets.json");
+        console.log(await page.goto("\(base)/secrets.json").then(() => "loaded", (e) => e.message));
+        fs.renameSync("./secrets.json", "./notes.txt");
+        """)
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        // Another name for the same file, made outside the session.
+        try FileManager.default.linkItem(at: work.appendingPathComponent("notes.txt"), to: work.appendingPathComponent("alias.txt"))
+        result = await run(session, """
+        for (const name of ["notes.txt", "alias.txt", "other.txt"]) {
+          console.log(name, await page.goto("\(base)/" + name).then(() => "loaded", (e) => e.message));
+        }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        let navigated = driver.params("tab.navigate").compactMap { $0["url"] as? String }
+        for name in ["secrets.json", "notes.txt", "alias.txt"] {
+            #expect(!navigated.contains { $0.hasSuffix("/" + name) }, "\(name) loaded in a tab: \(navigated) \(output)")
+            // A page's own navigation to it (a link, a frame) is refused by the same rule.
+            #expect(BrowserReplFileSandbox.navigationRefusal("\(base)/\(name)", roots: [work.path]) != nil, "\(name)")
+        }
+        #expect(navigated.contains { $0.hasSuffix("/other.txt") }, "another file in the directory did not load: \(navigated) \(output)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
