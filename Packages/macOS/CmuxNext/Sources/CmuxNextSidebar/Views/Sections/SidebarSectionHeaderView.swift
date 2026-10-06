@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The title row of a titled pinned section. A click collapses or expands
 /// it; the chevron shows on hover and while collapsed.
@@ -45,8 +46,7 @@ final class SidebarSectionHeaderView: NSView {
     }
 
     private func updateChevron() {
-        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig)
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
         chevron.isHidden = !(collapsed || isHovered)
     }
 
