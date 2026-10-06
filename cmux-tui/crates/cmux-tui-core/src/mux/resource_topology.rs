@@ -3586,14 +3586,12 @@ impl Mux {
             workspace_close =
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             split_index_changed = true;
-        } else if close_emptied_workspaces
-            && let Some(emptied) = self.close_emptied_workspaces_locked(
-                registry,
-                state,
-                &mut projected,
-                Some(notifications),
-            )?
-        {
+        } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
+            registry,
+            state,
+            &mut projected,
+            notifications, close_emptied_workspaces,
+        )? {
             (delta, changed_screens, workspace_was_active) =
                 (emptied.delta, emptied.changed_screens, emptied.was_active);
             workspace_close = Some(emptied.close);
