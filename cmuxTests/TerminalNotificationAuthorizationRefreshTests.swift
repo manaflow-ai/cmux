@@ -66,6 +66,10 @@ struct TerminalNotificationAuthorizationRefreshTests {
         )
     }
 
+    private func drainMainActor() async {
+        for _ in 0..<20 { await Task.yield() }
+    }
+
     @Test
     func initialRefreshWaitsForScheduledTick() async {
         let scheduler = ManualScheduler()
@@ -85,6 +89,33 @@ struct TerminalNotificationAuthorizationRefreshTests {
         #expect(provider.reads == 1)
         #expect(store.authorizationState == .denied)
         #expect(scheduler.pending.isEmpty)
+    }
+
+    @Test
+    func activationBeforeWindowSetupDoesNotPublish() async {
+        let scheduler = ManualScheduler()
+        let provider = StatusProvider()
+        provider.result = .success(.notDetermined)
+        let notificationCenter = NotificationCenter()
+        let store = makeStore(scheduler: scheduler, provider: provider, notificationCenter: notificationCenter)
+        let recorder = PublicationRecorder()
+        let subscription = store.objectWillChange.sink { recorder.recordChange() }
+        let observer = notificationCenter.addObserver(
+            forName: TerminalNotificationStore.authorizationStatusDidChangeNotification,
+            object: nil,
+            queue: nil
+        ) { _ in recorder.recordPost() }
+        defer {
+            subscription.cancel()
+            notificationCenter.removeObserver(observer)
+        }
+
+        #expect(scheduler.pending.count == 1)
+        store.handleApplicationDidBecomeActive()
+        await drainMainActor()
+        #expect(store.authorizationState == .unknown)
+        #expect(recorder.changes == 0)
+        #expect(recorder.posts == 0)
     }
 
     @Test
