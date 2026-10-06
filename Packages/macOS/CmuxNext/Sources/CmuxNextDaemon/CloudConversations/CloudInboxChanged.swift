@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-inbox-changed`: the inbox entries one owner commit wrote.
 

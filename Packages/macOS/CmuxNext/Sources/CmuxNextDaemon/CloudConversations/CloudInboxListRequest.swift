@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-inbox-list`: the account inbox (UserDO `inbox.list`).
 

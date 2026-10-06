@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-history`: up to `limit` (1...200) messages before `beforeSeq`, ascending.
 

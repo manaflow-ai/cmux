@@ -1,3 +1,5 @@
+import Foundation
+
 public import Foundation
 
 /// The cloud conversation commands a Home source needs, so the source can be

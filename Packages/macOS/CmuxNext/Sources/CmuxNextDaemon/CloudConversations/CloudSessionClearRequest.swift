@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-session-clear`: ends the lease (sign-out, account switch).
 

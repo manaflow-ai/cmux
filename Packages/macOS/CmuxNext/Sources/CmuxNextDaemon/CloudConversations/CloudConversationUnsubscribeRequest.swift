@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-unsubscribe`.
 

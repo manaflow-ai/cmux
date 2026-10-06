@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-subscription-state` of the inbox or one conversation socket.
 

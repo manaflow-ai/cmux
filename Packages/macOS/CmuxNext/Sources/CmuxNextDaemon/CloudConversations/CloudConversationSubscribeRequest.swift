@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-subscribe`: at most 64 per daemon (`too_many_subscriptions`).
 

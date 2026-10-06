@@ -1,3 +1,4 @@
+import Foundation
 
 /// The `cloud-conversations-v1` events (home-cloud-proxy.md section 5).
 

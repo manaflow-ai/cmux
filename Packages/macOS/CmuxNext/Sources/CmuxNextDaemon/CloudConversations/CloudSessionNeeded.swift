@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-session-needed`: the daemon asks for a new lease.
 

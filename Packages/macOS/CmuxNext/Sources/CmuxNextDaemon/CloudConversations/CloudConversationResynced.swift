@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-resynced`: the owner's current head and tail, after
 /// the first subscribe, a snapshot resume or a detected gap.

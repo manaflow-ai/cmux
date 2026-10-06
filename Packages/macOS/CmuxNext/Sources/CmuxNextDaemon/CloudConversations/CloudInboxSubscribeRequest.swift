@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-inbox-subscribe`: the daemon's shared inbox socket for this connection.
 

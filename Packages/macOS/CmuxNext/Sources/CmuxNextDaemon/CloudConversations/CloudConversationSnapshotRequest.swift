@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-snapshot`: the head and the newest `tail` (1...50) messages.
 

@@ -1,3 +1,4 @@
+import Foundation
 
 /// `cloud-conversation-op`: one typed op, forwarded with the client's key
 /// and origin. A retry with the same key answers `replayed: true`.
