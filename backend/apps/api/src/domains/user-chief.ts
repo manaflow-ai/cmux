@@ -98,13 +98,18 @@ export const placedChiefClasses = async (
   install: string,
   agent: string,
   classes: ReadonlyArray<string>,
-  confirm: (team: string, host: string) => Promise<boolean>
+  confirm: (team: string, host: string) => Promise<boolean>,
+  current: () => UserState = () => state
 ): Promise<ReadonlyArray<string> | undefined> => {
   if (!chiefActive(state, agent)) return undefined
   const widened = chiefGrantClasses(state, install, agent, classes)
   if (widened === classes) return classes
   const place = state.chiefs?.[agent]?.brain_place
-  return inst.bound_team && place && (await confirm(inst.bound_team, place.host)) ? widened : undefined
+  if (!inst.bound_team || !place || !(await confirm(inst.bound_team, place.host))) return undefined
+  // Read again after the await: a revoke, a move or an archive may have committed meanwhile.
+  const now = current()
+  const still = now.installs?.[install]?.revoked_at === null && chiefActive(now, agent) && now.chiefs?.[agent]?.brain_place?.host === place.host
+  return still && chiefGrantClasses(now, install, agent, classes) !== classes ? widened : undefined
 }
 
 /** Active chiefs' ids (the ones that receive the text confirmation level). */
