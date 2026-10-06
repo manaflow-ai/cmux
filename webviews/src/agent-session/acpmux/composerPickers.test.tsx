@@ -8,7 +8,15 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
 const { proseMirrorGlobals, promptField, typeInto } = await import("./promptFieldTesting");
 Object.assign(globals, {
@@ -18,9 +26,23 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   // The composer's prompt is a Milkdown (ProseMirror) editor.
   ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
+  // The context popover is the shared Base UI Popover (src/ui), which animates on frames.
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// Base UI reaches for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle|Node)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -89,10 +111,11 @@ describe("acpmux composer pickers", () => {
     return () => void pendingSettles.delete(job);
   };
   const settle = () => act(async () => [...pendingSettles].forEach((job) => job()));
-  const render = async (value: AcpmuxSnapshot) =>
+  const render = async (value: AcpmuxSnapshot, extra: { showPlan?: boolean; onCompact?(): void } = {}) =>
     act(async () =>
       root.render(
         createElement(ComposerPickers, {
+          ...extra,
           snapshot: value,
           settleTimer,
           // Room beside the menu for the cascade; the model picker's tests cover the narrow drill.
@@ -125,6 +148,28 @@ describe("acpmux composer pickers", () => {
     act(async () => {
       target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
     });
+  /// The model menu's Reasoning row, opened to its slider (the menu opens first when closed).
+  const openReasoning = async () => {
+    const model = button("Model")!;
+    if (model.getAttribute("aria-expanded") !== "true") await act(async () => model.click());
+    const row = [...doc.querySelectorAll<HTMLElement>(".acpmux-mp-row")].find(
+      (candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === "Reasoning",
+    )!;
+    // Menu rows act on mousedown, so the chip keeps focus.
+    await act(async () => {
+      row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    return doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
+  };
+  /// Moves a slider through React's change handler: react-dom may load before the DOM exists (see typeInto).
+  const slide = (range: HTMLInputElement, value: string) =>
+    act(async () => {
+      range.value = value;
+      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
+      props.onChange({ target: range });
+    });
 
   beforeEach(() => {
     calls = [];
@@ -135,11 +180,14 @@ describe("acpmux composer pickers", () => {
     await act(async () => root.unmount());
   });
 
-  test("the model chip opens the model picker on the current model; the effort is a stepped slider", async () => {
+  test("one chip names the model and its effort; its menu holds the model and the reasoning slider", async () => {
     await render(snapshot({ configOptions: [effort] }));
     const model = button("Model")!;
-    expect(model.textContent).toBe("6 Astra");
-    expect(button("Effort")!.textContent).toBe("High");
+    // The model in primary text, the effort after it in secondary text, one chevron, no second chip.
+    expect(model.querySelector(".acpmux-model-name")!.textContent).toBe("6 Astra");
+    expect(model.querySelector(".acpmux-model-effort")!.textContent).toBe("High");
+    expect(model.querySelectorAll("svg")).toHaveLength(1);
+    expect(button("Effort")).toBeNull();
     expect(button("Mode")).toBeNull();
     await act(async () => model.click());
     const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
@@ -152,24 +200,28 @@ describe("acpmux composer pickers", () => {
     await key(model, "Enter");
     expect(calls).toEqual(["model sol"]);
     expect(doc.querySelector(".acpmux-mp")).toBeNull();
-    await act(async () => button("Effort")!.click());
-    // The popover names the effort and the model over one stop per level.
-    expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("High");
-    expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("6 Astra");
-    const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
+    // The same menu's Reasoning row opens the stepped slider, one stop per level.
+    const range = await openReasoning();
     expect([range.min, range.max, range.value]).toEqual(["0", "1", "1"]);
-    // Through React's change handler: react-dom may load before the DOM exists (see typeInto).
-    await act(async () => {
-      range.value = "0";
-      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
-        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
-      ]!;
-      props.onChange({ target: range });
-    });
+    await slide(range, "0");
     expect(calls).toEqual(["model sol", "effort reasoning_effort medium"]);
-    // Escape closes it back to the chip.
-    await key(range, "Escape");
-    expect(doc.querySelector(".acpmux-effort-pop")).toBeNull();
+  });
+
+  test("the chip shows no effort for the agent's default level", async () => {
+    await render(
+      snapshot({
+        configOptions: [{ ...effort, currentValue: "default", options: [{ value: "default", name: "Default" }] }],
+      }),
+    );
+    expect(button("Model")!.textContent).toBe("6 Astra");
+    expect(doc.querySelector(".acpmux-model-effort")).toBeNull();
+  });
+
+  test("the permission chip stays in the bar when Plan lives in the + menu", async () => {
+    await render(snapshot({ modes: { ...modes, currentModeId: "bypassPermissions" } }), { showPlan: false });
+    expect(button("Mode")!.textContent).toBe("Full access");
+    expect(button("Mode")!.closest(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(true);
+    expect(doc.querySelector(".acpmux-plan")).toBeNull();
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
@@ -278,16 +330,8 @@ describe("acpmux composer pickers", () => {
     // Astra arrives offering Low and Medium, not yet High; the user slides to Low.
     const low = { value: "low", name: "Low" };
     await render(long({ model: "astra", configOptions: [{ ...medium, options: [low, effort.options[0]!] }] }));
-    await act(async () => button("Effort")!.click());
-    await act(async () => {
-      const range = doc.querySelector<HTMLInputElement>(".acpmux-effort-range")!;
-      range.value = "0";
-      const props = (range as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
-        Object.keys(range).find((key) => key.startsWith("__reactProps$"))!
-      ]!;
-      props.onChange({ target: range });
-    });
-    await key(doc.querySelector(".acpmux-effort-range")!, "Escape");
+    await slide(await openReasoning(), "0");
+    await key(button("Model")!, "Escape");
     await render(
       long({
         model: "astra",
@@ -402,8 +446,9 @@ describe("acpmux composer pickers", () => {
 
     test('the chips name the model the default runs and never the agent\'s "choice" phrasing', async () => {
       await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
+      // The default effort adds nothing after the model.
       expect(button("Model")!.textContent).toBe("Opus 5.5");
-      expect(button("Effort")!.textContent).toBe("Reasoning");
+      expect(button("Effort")).toBeNull();
       await act(async () => button("Model")!.click());
       const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
       expect(menu.textContent).not.toMatch(/choice/i);
@@ -415,10 +460,10 @@ describe("acpmux composer pickers", () => {
       )!;
       expect(fallback.querySelector(".acpmux-menu-label")!.textContent).toBe("Opus 5.5");
       expect(fallback.textContent).toContain("Default");
-      await key(button("Model")!, "Escape");
-      await act(async () => button("Effort")!.click());
-      expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("Default");
-      expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("Opus 5.5");
+      const reasoning = [...menu.querySelectorAll(".acpmux-mp-row")].find(
+        (row) => row.querySelector(".acpmux-menu-label")?.textContent === "Reasoning",
+      )!;
+      expect(reasoning.textContent).toContain("Default");
       expect(doc.body.textContent).not.toMatch(/choice/i);
     });
 
@@ -472,7 +517,7 @@ describe("acpmux composer pickers", () => {
 
   test("automation opens a menu by its label, through the click path, with no pointer event", async () => {
     await render(snapshot({ configOptions: [effort] }));
-    expect(pickerLabels().sort()).toEqual(["Effort", "Model"]);
+    expect(pickerLabels().sort()).toEqual(["Context window", "Effort", "Model"]);
     expect(openPicker("Approvals")).toBe(false);
     let opened = false;
     await act(async () => {
@@ -498,15 +543,14 @@ describe("acpmux composer pickers", () => {
     expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
     expect(doc.activeElement).toBe(button("Model"));
     expect(doc.querySelector('button[data-menu="Model"]')).toBe(button("Model"));
+    // "Effort" opens the same menu, which holds the reasoning slider.
+    await key(button("Model")!, "Escape");
+    expect(button("Model")!.getAttribute("aria-expanded")).toBe("false");
     await act(async () => {
       openPicker("Effort");
     });
-    await act(async () => {
-      openPicker("Effort");
-    });
-    expect(button("Effort")!.getAttribute("aria-expanded")).toBe("true");
-    expect(doc.activeElement).toBe(doc.querySelector(".acpmux-effort-range"));
-    expect(doc.querySelector('button[data-menu="Effort"]')).toBe(button("Effort"));
+    expect(button("Model")!.getAttribute("aria-expanded")).toBe("true");
+    expect(doc.querySelector('button[data-menu="Effort"]')).toBeNull();
   });
 
   test("opening a menu by its label takes focus off the prompt first, as a click does", async () => {
@@ -619,16 +663,55 @@ describe("acpmux composer pickers", () => {
 
   test("the context ring shows the share of the window used, and warns near full", async () => {
     await render(snapshot({ usage: { used: 33551, size: 200000 } }));
-    const ring = () => doc.querySelector(".acpmux-context-ring")!;
+    const ring = () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    const full = () => ring().closest(".acpmux-context")!.classList.contains("acpmux-context-full");
     expect(ring().getAttribute("aria-label")).toBe("17% of context used");
-    expect(ring().classList.contains("acpmux-context-full")).toBe(false);
+    expect(full()).toBe(false);
     await render(snapshot({ usage: { used: 180000, size: 200000 } }));
-    expect(ring().classList.contains("acpmux-context-full")).toBe(true);
+    expect(full()).toBe(true);
     // An empty window draws only the track, no dot from the round cap.
     await render(snapshot({ usage: { used: 0, size: 200000 } }));
     expect(ring().querySelectorAll("circle").length).toBe(1);
+    // A live chat keeps the ring before its first usage update; no chat has none.
     await render(snapshot());
+    expect(ring().querySelectorAll("circle").length).toBe(1);
+    await render(snapshot({ sessionId: undefined }));
     expect(doc.querySelector(".acpmux-context-ring")).toBeNull();
+  });
+
+  test("a click on the context ring opens the usage details and Compact", async () => {
+    let compacted = 0;
+    const withCompact = (summary: Parameters<typeof snapshot>[0], isWorking = false) => ({
+      ...snapshot(summary, isWorking),
+      commands: [{ name: "compact", description: "Compact the conversation" }],
+    });
+    const onCompact = () => void (compacted += 1);
+    await render(withCompact({ usage: { used: 34000, size: 200000 } }), { onCompact });
+    const ring = doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!;
+    const pop = () => doc.querySelector(".acpmux-context-pop");
+    expect(pop()).toBeNull();
+    await act(async () => ring.click());
+    expect(ring.getAttribute("aria-expanded")).toBe("true");
+    expect(pop()!.closest("[role=dialog]")).not.toBeNull();
+    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("17% used");
+    expect(pop()!.querySelector(".acpmux-context-tokens")!.textContent).toBe("34K of 200K tokens");
+    // A second click closes it; so does Escape.
+    await act(async () => ring.click());
+    expect(pop()).toBeNull();
+    await act(async () => ring.click());
+    await key(ring, "Escape");
+    expect(pop()).toBeNull();
+    // Compact runs the agent's command and closes the details.
+    await act(async () => ring.click());
+    await act(async () => pop()!.querySelector<HTMLButtonElement>(".acpmux-context-compact")!.click());
+    expect(compacted).toBe(1);
+    expect(pop()).toBeNull();
+    // Without the agent's compact command there is no Compact; before any usage there are no token counts.
+    await render(snapshot({}), { onCompact });
+    await act(async () => doc.querySelector<HTMLButtonElement>("button.acpmux-context-ring")!.click());
+    expect(pop()!.querySelector(".acpmux-context-compact")).toBeNull();
+    expect(pop()!.querySelector(".acpmux-context-percent")!.textContent).toBe("0% used");
+    expect(pop()!.querySelector(".acpmux-context-tokens")).toBeNull();
   });
 });
 

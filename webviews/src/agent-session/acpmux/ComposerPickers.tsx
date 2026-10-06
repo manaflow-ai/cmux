@@ -11,6 +11,7 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Popover } from "../../ui/Popover";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 
@@ -92,15 +93,18 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
-  /// Mode and Plan live in the composer's + menu in the default pane.
-  showModePlan?: boolean;
+  /// The Plan/Build toggle lives in the composer's + menu in the default pane.
+  showPlan?: boolean;
+  /// Runs the agent's compact command from the context popover; offered only when set and the
+  /// agent lists a `compact` command.
+  onCompact?(): void;
 };
 
 /// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
-/// Plan/Build toggle after the attach button, then the model and the effort as
-/// two dropdowns and the context used at the right. Groups are set apart by a
-/// hairline; each control shows only when the agent offers it.
+/// Plan/Build toggle after the attach button, then at the right the context
+/// ring and one model chip that names the effort beside the model (its menu
+/// holds both). Each control shows only when the agent offers it.
 export function ComposerPickers({
   snapshot,
   onModel,
@@ -111,7 +115,8 @@ export function ComposerPickers({
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
-  showModePlan = true,
+  showPlan = true,
+  onCompact,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
@@ -217,10 +222,15 @@ export function ComposerPickers({
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
   const modelName = defaulted ? (resolvedName ?? t("picker.default")) : (model?.name ?? summary?.model);
   const usage = summary?.usage;
+  // The chip names a chosen effort in secondary text; the agent's default level adds nothing.
+  const currentEffortChoice = efforts.find((choice) => choice.id === currentEffort);
+  const effortDetail =
+    currentEffortChoice && !isDefaultChoice(currentEffortChoice) ? currentEffortChoice.name : undefined;
+  const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
   return (
     <div className="acpmux-chips">
-      {showModePlan && modes.length > 0 && (
+      {modes.length > 0 && (
         <Picker
           label={t(PICKER_LABELS.mode)}
           warnUnrestricted
@@ -237,7 +247,7 @@ export function ComposerPickers({
           align="start"
         />
       )}
-      {showModePlan && plan && (
+      {showPlan && plan && (
         <button
           type="button"
           className="acpmux-plan"
@@ -250,12 +260,17 @@ export function ComposerPickers({
         </button>
       )}
       <span className="acpmux-chips-spacer" />
+      {/* A live chat keeps its ring from the first frame; usage fills it in place. */}
+      {(usage || summary?.sessionId) && (
+        <ContextRing used={usage?.used} size={usage?.size} onCompact={compact} working={snapshot.isWorking} />
+      )}
       {models.length > 0 && (
         <ModelPicker
           catalog={snapshot.catalog}
           harness={harness}
           model={shown}
           label={modelName ?? t(PICKER_LABELS.model)}
+          detail={effortDetail}
           resolvedDefault={resolvedName}
           efforts={efforts}
           effort={currentEffort}
@@ -275,7 +290,8 @@ export function ComposerPickers({
           measureRoom={measurePickerRoom}
         />
       )}
-      {effort && efforts.length > 0 && (
+      {/* Without a model list the effort keeps a chip of its own. */}
+      {models.length === 0 && effort && efforts.length > 0 && (
         <EffortPicker
           label={t(PICKER_LABELS.effort)}
           efforts={efforts}
@@ -289,8 +305,6 @@ export function ComposerPickers({
           }}
         />
       )}
-      {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
-      {(models.length > 0 || efforts.length > 0 || usage) && <span className="acpmux-separator" aria-hidden="true" />}
     </div>
   );
 }
@@ -300,38 +314,92 @@ export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as a ring that fills.
-export function ContextRing({ used, size }: { used: number; size: number }) {
+/// How much of the context window the session has used, as a ring that fills. A click opens
+/// the details: the share used, tokens used of the window, and Compact when the agent offers it.
+export function ContextRing({
+  used,
+  size,
+  onCompact,
+  working = false,
+}: {
+  used?: number;
+  size?: number;
+  onCompact?(): void;
+  working?: boolean;
+}) {
   const t = useT();
-  const fraction = Math.min(1, Math.max(0, used / size));
+  const [open, setOpen] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const known = used !== undefined && size !== undefined && size > 0;
+  const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
-  const label = t(PICKER_LABELS.context, { percent });
-  const radius = 7;
+  const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
+  const radius = 6.5;
   const circumference = 2 * Math.PI * radius;
+  useEffect(() => registerPicker(t("context.title"), () => setOpen(true)), [t]);
+  const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
+  const full = fraction >= 0.8 ? " acpmux-context-full" : "";
   return (
-    <span
-      className={`acpmux-context-ring${fraction >= 0.8 ? " acpmux-context-full" : ""}`}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="img"
-      aria-label={label}
-      title={label}
-    >
-      <svg width={18} height={18} viewBox="0 0 18 18" aria-hidden="true" focusable="false">
-        <circle cx="9" cy="9" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
-        {fraction > 0 && (
-          <circle
-            cx="9"
-            cy="9"
-            r={radius}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeDasharray={`${circumference * fraction} ${circumference}`}
-            transform="rotate(-90 9 9)"
-          />
+    <span className={`acpmux-picker acpmux-context${full}`}>
+      <button
+        ref={trigger}
+        type="button"
+        className="acpmux-context-ring"
+        data-menu={t("context.title")}
+        aria-label={label}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <circle cx="8" cy="8" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
+          {fraction > 0 && (
+            <circle
+              cx="8"
+              cy="8"
+              r={radius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeDasharray={`${circumference * fraction} ${circumference}`}
+              transform="rotate(-90 8 8)"
+            />
+          )}
+        </svg>
+      </button>
+      <Popover
+        open={open}
+        onOpenChange={setOpen}
+        anchor={open ? trigger.current : null}
+        label={t("context.title")}
+        className={`acpmux-context-pop${full}`}
+        finalFocus={trigger}
+      >
+        <div className="acpmux-context-title">{t("context.title")}</div>
+        <div className="acpmux-context-percent">{t("context.percent", { percent })}</div>
+        <div className="acpmux-context-bar" aria-hidden="true">
+          <span style={{ width: `${percent}%` }} />
+        </div>
+        {known && (
+          <div className="acpmux-context-tokens">
+            {t("context.tokens", { used: tokens.format(used), size: tokens.format(size) })}
+          </div>
         )}
-      </svg>
+        {onCompact && (
+          <button
+            type="button"
+            className="acpmux-context-compact"
+            disabled={working}
+            onClick={() => {
+              setOpen(false);
+              onCompact();
+            }}
+          >
+            {t("context.compact")}
+          </button>
+        )}
+      </Popover>
     </span>
   );
 }
