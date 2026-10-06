@@ -22,6 +22,14 @@ import Testing
 
         init(on transport: AgentPaneTransport, reply: Bool?) {
             self.reply = reply
+            // A test's sheets take a gate of their own. The app-wide gate is one per process, and
+            // other suites run in parallel: a sheet this test holds open (oneSheetAtATime) refused
+            // their asks with mode_not_confirmed before any sheet, and theirs refused this test's.
+            // A test of two panes on one gate sets that gate first and keeps it.
+            // everyPaneSharesTheAppWideGate checks the app's default.
+            if transport.confirmationGate === AgentPaneConfirmationGate.shared {
+                transport.confirmationGate = AgentPaneConfirmationGate()
+            }
             transport.requestModeConfirmation = { [self] mode, answer in
                 asked.append(mode.description)
                 requests.append(mode)
