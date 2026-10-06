@@ -34,7 +34,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -119,7 +132,8 @@
+@@ -121,7 +134,8 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -44,7 +44,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -132,8 +146,8 @@
+@@ -134,8 +148,8 @@
          default: return .limited
          }
      }()
@@ -55,7 +55,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -332,11 +346,11 @@
+@@ -334,11 +348,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -69,7 +69,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -396,7 +410,7 @@
+@@ -398,7 +412,7 @@
          placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -78,7 +78,7 @@
          let old = fieldHeight
          fieldHeight = h
          place(height: h)
-@@ -474,7 +488,7 @@
+@@ -476,7 +490,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

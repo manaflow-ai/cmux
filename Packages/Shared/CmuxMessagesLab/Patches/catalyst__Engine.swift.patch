@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
-@@ -62,6 +62,9 @@
+@@ -65,6 +65,9 @@
      case evict(top: Int, bottom: Int)
      /// Jump: replace the loaded window.
      case replaceWindow([Message], start: Int)
@@ -10,7 +10,7 @@
  }
  
  enum Reducer {
-@@ -156,6 +159,11 @@
+@@ -164,6 +167,11 @@
              s.conversation.messages = msgs
              s.windowStart = start
              s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
@@ -22,7 +22,7 @@
          }
          return nil
      }
-@@ -611,7 +619,8 @@
+@@ -629,7 +637,8 @@
          // Two or more questions in one turn: one answer each (the earlier ones
          // end up threaded, because a newer question follows them).
          if questions.count >= 2 {

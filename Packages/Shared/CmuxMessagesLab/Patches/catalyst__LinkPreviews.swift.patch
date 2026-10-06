@@ -1,8 +1,8 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
-@@ -21,7 +21,10 @@
-     private var cache: [String: LinkMetadata?] = [:]
-     private var waiting: [String: [(LinkMetadata) -> Void]] = [:]
+@@ -27,7 +27,10 @@
+     /// Fetches running now (tests).
+     var inFlight: Int { waiting.count }
      private let dir: URL = {
 -        let d = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("MessagesLab/link-previews", isDirectory: true)
 +        // cmux: the app's own caches folder (MessagesLab's would be shared with the MessagesLab app's index).
@@ -12,7 +12,7 @@
          try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
          return d
      }()
-@@ -34,6 +37,10 @@
+@@ -40,6 +43,10 @@
      }
      private struct Saved: Codable { var ok: Bool; var title: String?; var site: String?; var image: String? }
  
@@ -20,6 +20,6 @@
 +    /// HomeStore rebuild maps a link part again; it shows what was already fetched.
 +    func cached(_ url: String) -> LinkMetadata? { cache[url] ?? nil }
 +
-     func fetch(_ url: String, done: @escaping (LinkMetadata) -> Void) {
+     func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void) {
          dispatchPrecondition(condition: .onQueue(.main))
-         if let hit = cache[url] { if let hit { done(hit) }; return }
+         if let hit = cache[url] { done(hit); return }

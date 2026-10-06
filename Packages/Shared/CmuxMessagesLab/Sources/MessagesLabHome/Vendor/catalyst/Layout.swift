@@ -225,7 +225,7 @@ struct ThreadPreview: Hashable {
     static let textFont = UIFont.systemFont(ofSize: 10)
     var textLine: String {
         guard case let .text(t, _) = part else { return "" }
-        let one = t.replacingOccurrences(of: "\n", with: " ")
+        let one = String(t.prefix(80)).replacingOccurrences(of: "\n", with: " ")
         return one.count > 40 ? String(one.prefix(39)) + "…" : one
     }
     static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
@@ -235,7 +235,7 @@ struct ThreadPreview: Hashable {
         switch part {
         case let .link(url, title, site, _, _): return (title ?? site ?? url, site ?? url)
         case let .text(t, _):
-            let one = t.replacingOccurrences(of: "\n", with: " ")
+            let one = String(t.prefix(80)).replacingOccurrences(of: "\n", with: " ")
             return (String(one.prefix(28)), one.count > 28 ? String(one.dropFirst(28).prefix(30)) : "")
         case let .attachment(a): return (a.fileName, Format.bytes(a.byteSize))
         case let .location(_, _, title, _): return (title ?? Strings.location, "")
@@ -280,7 +280,8 @@ enum Sizing {
             let tl = TextLayout.make(t, runs: runs, maxWidth: maxTextWidth)
             let w = min(tl.width, maxTextWidth) + 2 * Fixture.bubblePadX
             return (CGSize(width: w, height: CGFloat(tl.lines.count) * Fixture.lineHeight + 2 * Fixture.bubblePadY), tl)
-        case let .link(_, title, _, image, _):
+        case let .link(_, title, site, image, _):
+            if Sizing.linkPending(title: title, site: site, image: image) { return (Sizing.linkPlaceholder, nil) }
             let (w, ih) = linkImageSize(image, maxWidth: m.maxLinkWidth)
             let lines = linkTitleLines(title ?? "", width: w)
             return (CGSize(width: w, height: ih + linkCaptionHeight(lines: lines.count)), nil)
@@ -291,8 +292,9 @@ enum Sizing {
                 var pw = CGFloat(a.width ?? 480), ph = CGFloat(a.height ?? 360)
                 // Never larger than the source pixels allow (resolution brief):
                 // a 354 px asset is at most 177 pt wide at 2x, whatever the metadata says.
-                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
-                    let srcW = img.size.width * Images.assetScale
+                // Pixel size from metadata (MediaCache): no decode to size a row.
+                if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let px = Images.pixelSize(ref) {
+                    let srcW = px.width
                     if srcW < pw { ph = ph * srcW / pw; pw = srcW }
                 }
                 let w = min(max(mediaWidth, min(300, m.maxTextWidth + 2 * Fixture.bubblePadX)), pw / 2)
@@ -315,7 +317,19 @@ enum Sizing {
     }
 
     /// Link previews: the image at its 2x point size, width capped at 350.
+    /// A link whose metadata is still loading: Messages shows a grey rounded
+    /// square (137.5 x 103.5 pt, 15 pt corners, no tail; lossless take
+    /// link-url-and-text, t+0.6-1.9 s) until the card replaces it.
+    static let linkPlaceholder = CGSize(width: 137.5, height: 103.5)
+    static func linkPending(title: String?, site: String?, image: String?) -> Bool { title == nil && site == nil && image == nil }
+
     static func linkImageSize(_ image: String?, maxWidth: CGFloat = Fixture.maxLinkWidth) -> (CGFloat, CGFloat) {
+        // Raster previews are sized from metadata (no decode while rows are derived); an asset
+        // with a vector sibling keeps the drawn image's size.
+        if let image, !VectorAsset.hasSibling(image), let px = Images.pixelSize(image) {
+            let w = min(maxWidth, px.width / 2)
+            return (w, w * px.height / px.width)
+        }
         guard let image, let img = Images.load(image) else { return (min(266, maxWidth), 0) }
         let px = img.size.width * img.scale, py = img.size.height * img.scale
         let w = min(maxWidth, px / 2)
@@ -339,27 +353,21 @@ enum Images {
     /// Map snapshots are assets named `real/map-<lat>_<lon>.png` (no network).
     static let mapOverhang: CGFloat = 5
     static func mapSnapshot(_ lat: Double, _ lon: Double) -> UIImage? { load(String(format: "real/map-%.4f_%.4f.png", lat, lon)) }
-    private static var cache: [String: UIImage] = [:]
-    private static let lock = NSLock()
     /// Assets are 2x bitmaps (their point size is pixels / 2). An asset with
     /// a vector sibling (`name.svg`, see `VectorAsset`) is drawn from the
     /// vector at the current render scale instead, at the same point size.
-    /// Thread safe; decoded once per scale (prefetch warms it).
+    /// Thread safe; decoded once per scale into MediaCache (bounded by bytes;
+    /// sources above 2048 px are decoded downsampled).
     static func load(_ ref: String) -> UIImage? {
         let scale = Fixture.renderScale
         let key = ref + "@" + String(describing: scale)
-        lock.lock()
-        if let c = cache[key] { lock.unlock(); return c }
-        lock.unlock()
+        if let c = MediaCache.shared.cached(key) { return c }
         if let v = VectorAsset.image(for: ref, scale: scale) {
-            lock.lock(); cache[key] = v; lock.unlock()
+            MediaCache.shared.store(key, v)
             return v
         }
-        guard let data = try? Data(contentsOf: Fixtures.assetURL(ref)), let raw = UIImage(data: data),
-              let cg = raw.cgImage else { return nil }
-        let s = Images.assetScale
-        let img = UIImage(cgImage: cg, scale: s, orientation: .up).preparingForDisplay() ?? UIImage(cgImage: cg, scale: s, orientation: .up)
-        lock.lock(); cache[key] = img; lock.unlock()
+        guard let img = MediaCache.shared.decode(Fixtures.assetURL(ref), scale: Images.assetScale) else { return nil }
+        MediaCache.shared.store(key, img)
         return img
     }
 }
@@ -495,6 +503,10 @@ final class MeasureCache: @unchecked Sendable {
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
+        // Long text: blocks, estimated then measured near the viewport (LongText.swift); never hashed or cached here.
+        if case let .text(t, _) = m.parts[pi], LongText.isLong(t) {
+            return Value(size: LongTextStore.shared.size(t, width: width), text: nil, width: width)
+        }
         let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi])
         let k = Key(id: m.id, part: pi, version: version, width: width)
         lock.lock()

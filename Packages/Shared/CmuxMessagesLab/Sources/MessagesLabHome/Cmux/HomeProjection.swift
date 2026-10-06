@@ -69,7 +69,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private(set) var appliedUpdates = 0
 
     /// Link card previews (LinkPresentation, MessagesLab's LinkPreviews): fetched
-    /// once per URL for links the user or an agent sent; nil keeps domain cards.
+    /// once per URL for links this Mac sends or the user taps; nil keeps domain cards.
     let linkPreviews: HomeLinkPreviews?
 
     init(store: HomeStore, conversation: ConversationID, me: ParticipantID, controller: ChatController,
@@ -141,9 +141,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         } else {
             for a in diff.actions {
                 if case .prependPage = a { olderRequested = false }
-                if case let .receive(m) = a, m.senderId == me.rawValue || HomeMapping.isAgent(ParticipantID(m.senderId), summary) {
-                    linkPreviews?.allow(m.parts)
-                }
                 controller.dispatch(a)
             }
         }
@@ -318,6 +315,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func draftChanged() { onDraftTextChange() }
+
+    /// A received card fetches its preview only after a tap (HomeLinkPreviews, through LinkGuard).
+    func linkTapped(_ ref: PartRef, url: String) {
+        guard let linkPreviews, !stopped else { return }
+        linkPreviews.allowTap(url)
+        linkPreviews.fetch(url) { [weak self] meta in
+            guard let self, !self.stopped, let meta else { return }
+            self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
+        }
+    }
 
     /// lane 16's rule (HomeController.cancellableSend): my pending send while
     /// it uploads, or a failed one.

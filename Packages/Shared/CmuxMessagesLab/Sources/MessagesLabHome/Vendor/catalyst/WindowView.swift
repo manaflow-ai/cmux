@@ -78,6 +78,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         collection = MessagesWindowView.useRecycler ? RowRecycler(frame: cvFrame, layout: layout)
             : UICollectionView(frame: cvFrame, collectionViewLayout: layout)
         super.init(frame: CGRect(origin: .zero, size: Fixture.windowSize))
+        LongTextCenter.handler = { [weak self] lineages, apply in if let self { self.applyLongTextHeights(lineages, apply) } else { apply() } }
         backgroundColor = Fixture.background
         layer.cornerRadius = Fixture.windowCornerRadius
         layer.cornerCurve = .continuous
@@ -237,6 +238,11 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         guard bounds.size != laidOutSize else { return }
         let widthChanged = laidOutSize.width != 0 && bounds.width != laidOutSize.width
         laidOutSize = bounds.size
+        // Pinned to the bottom, a resize keeps the bottom pinned: the last row stays on the
+        // field while the rows above reflow (macOS 27 Messages, narrow, widen and corner
+        // live-resize references, frame by frame: the last bubble's bottom stays at 971 pt
+        // through every width from 628 to 445, and at height - 70 in a corner drag).
+        // Scrolled up, the first visible row keeps its place.
         let anchor = visibleAnchor()
         layoutFrames()
         compose.layoutIfNeeded()
@@ -280,7 +286,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func restore(_ a: (key: String, y: CGFloat)?) {
         collection.contentInset.top = -minOffset
         if let a, let i = model.index[a.key] {
-            setOffset(layout.contentTop(i) + MessagesWindowView.cvTop - a.y)
+            // The anchored row keeps its place, within the scrollable range: when the content
+            // gets shorter (a wider window) the bottom stays pinned (macOS 27 live resize).
+            setOffset(min(max(layout.contentTop(i) + MessagesWindowView.cvTop - a.y, minOffset), pinnedOffset))
         } else {
             setOffset(pinnedOffset)
         }
@@ -369,9 +377,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         var rowsChange = true, paging = false, animate = true
         switch action {
         case .setDraft, .attach, .removeDraftAttachment, .reply, .closeThread: rowsChange = false
+        case .appendText: animate = false
         case .prependPage, .appendPage, .evict, .replaceWindow: paging = true; animate = false
         default: break
         }
+        RowCell.inPaging = paging
+        defer { RowCell.inPaging = false }
         let send: Bool = { if case .send = action { return true }; return false }()
         let el = element(for: action, me: state.me)
 
@@ -457,9 +468,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func deriveRows(_ action: Action, _ state: AppState, _ old: AppState, _ t: Double) -> [RowSpec] {
         let msgs = state.conversation.messages
         let now = store.date(at: t)
-        guard let from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
+        guard var from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
             return RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)
         }
+        // A deleted message (tombstone) owns no rows: the cut below must start at a message
+        // that does, or it finds nothing and keeps every row (rows doubled: the scrolled-up
+        // send after a delete showed empty bands, self-test coverage step).
+        while from > 0, msgs[from].deletedAt != nil { from -= 1 }
+        guard from > 0 else { return RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width) }
         let firstID = Substring(msgs[from].id)
         let live = model.rows.filter { !$0.ghost }
         // Rows of `firstID` and later messages are at the tail: scan back from
@@ -495,7 +511,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
-        case let .edit(id, _), let .unsend(id), let .delete(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id), let .appendText(id, _):
             guard let i = index(id) else { return nil }
             idx.append(i)
             if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
@@ -681,6 +697,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                     receiptChanges[key] = (ob, orest)
                     ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptOldOut, begin: begin)
                     ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptNewIn, begin: begin)
+                }
+                // A link card replacing its loading square fades in while the rows
+                // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
+                if case let .part(np) = r.spec.kind, case let .link(_, nt, ns, ni, _) = np.part, !Sizing.linkPending(title: nt, site: ns, image: ni),
+                   let oi = oldSnap.index[key], case let .part(op) = oldSnap.rows[oi].spec.kind,
+                   case let .link(_, ot, os, oimg, _) = op.part, Sizing.linkPending(title: ot, site: os, image: oimg) {
+                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, Springs.ghostOut, begin: begin)
                 }
                 continue
             }
@@ -1215,5 +1238,64 @@ final class ThreadBackdrop {
         if delay > 0 { f.beginTime = CACurrentMediaTime() + delay; f.fillMode = .backwards }
         f.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(f, forKey: "thread.fade")
+    }
+}
+
+// MARK: Long text heights (LongText.swift, shared/LONG-MESSAGES.md)
+
+extension MessagesWindowView {
+    /// Measured line counts replace estimates in long text rows, without animation.
+    /// Pinned stays pinned. Scrolled up, the text under the top of the viewport keeps its
+    /// window position: inside a long row the anchor is a text position (block start byte
+    /// and offset), else the first visible row, so corrections move only content outside.
+    func applyLongTextHeights(_ lineages: Set<Int>, _ apply: () -> Void) {
+        guard model.count > 0 else { apply(); return }
+        let pinned = store.state.ui.scroll.pinnedToBottom && store.state.atNewest
+        let oldOffset = collection.contentOffset.y
+        let i0 = firstVisibleRow
+        let key0 = model.rows[i0].spec.key
+        let oldTop = layout.contentTop(i0)
+        var inner: (LongTextLayout, LongTextLayout.Anchor, CGFloat)?
+        let textTop = Fixture.bubblePadY
+        if case let .part(p) = model.rows[i0].spec.kind, case let .text(t, _) = p.part, p.text == nil {
+            let l = LongTextStore.shared.layout(t, width: model.rows[i0].spec.width)
+            let y = oldOffset + Fixture.headerHeight + 8 - MessagesWindowView.cvTop - oldTop - textTop
+            inner = (l, l.anchor(atTextY: y), y)
+        }
+        apply()
+        var changed = false
+        let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
+            guard case var .part(p) = r.spec.kind, case let .text(t, _) = p.part, p.text == nil,
+                  let lin = LongTextStore.shared.lineage(t), lineages.contains(lin) else { return r.spec }
+            let size = LongTextStore.shared.size(t, width: r.spec.width)
+            guard size != p.size else { return r.spec }
+            changed = true
+            var s = r.spec
+            p.size = size
+            s.kind = .part(p)
+            s.height = size.height
+            return s
+        }
+        guard changed else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        model.set(rows, at: clock(), ghosts: false)
+        let rebase = layout.rebaseIfNeeded()
+        layout.invalidateLayout()
+        var newOffset = oldOffset + rebase
+        if pinned {
+            newOffset = pinnedOffset
+        } else if let i = model.index[key0] {
+            newOffset += layout.contentTop(i) - (oldTop + rebase)
+            if let (old, a, y) = inner, case let .part(p) = model.rows[i].spec.kind, case let .text(t, _) = p.part {
+                let l = LongTextStore.shared.layout(t, width: model.rows[i].spec.width)
+                newOffset += (l === old ? old.textY(of: a) : l.textY(of: a)) - y
+            }
+        }
+        collection.contentInset.top = -minOffset
+        setOffset(min(max(newOffset, minOffset), pinnedOffset))
+        collection.setNeedsLayout(); collection.layoutIfNeeded()
+        refreshVisibleCells()
+        updateThumb()
+        CATransaction.commit()
     }
 }

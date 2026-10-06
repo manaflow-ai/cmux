@@ -38,7 +38,7 @@
      var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
      var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
  }
-@@ -640,7 +653,8 @@
+@@ -652,7 +665,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -48,7 +48,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -697,7 +711,7 @@
+@@ -709,7 +723,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -57,7 +57,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -706,7 +720,7 @@
+@@ -718,7 +732,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -66,7 +66,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -725,56 +739,58 @@
+@@ -737,56 +751,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  

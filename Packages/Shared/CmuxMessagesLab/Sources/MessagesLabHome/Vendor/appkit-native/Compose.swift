@@ -128,6 +128,8 @@ final class ComposeView: UIView {
     var onFieldResize: ((CGFloat, CGFloat, SpringElement, CFTimeInterval) -> Void)?
     /// The field changed height at once (attachments): the native glass follows without animation.
     var onFieldJump: (() -> Void)?
+    /// The attachments changed (the host's hover tracking follows them).
+    var onAttachmentsChanged: (() -> Void)?
     /// The send's field opacity pulse (begin), for the live glass view.
     var onSendPulse: ((CFTimeInterval) -> Void)?
 
@@ -402,7 +404,7 @@ final class ComposeView: UIView {
         // Messages grows the field for an attachment at once (no in-between frame at
         // 120 Hz, compose-attach-image paste take); typing still uses the growth spring.
         let attachmentsChanged = d.attachments != chips
-        if attachmentsChanged { chips = d.attachments; renderChips() }
+        if attachmentsChanged { chips = d.attachments; renderChips(); onAttachmentsChanged?() }
         text = d.text
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // With an attachment Messages shows neither the placeholder nor the audio glyph

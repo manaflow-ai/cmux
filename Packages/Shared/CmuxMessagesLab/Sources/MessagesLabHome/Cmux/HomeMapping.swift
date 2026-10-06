@@ -84,8 +84,12 @@ enum HomeMapping {
                 let (rendered, runs) = HomeMarkdown.render(t)
                 return .text(rendered, runs: runs)
             case let .link(url, title, site, image, theme):
-                // A preview fetched before (this view's sends and receives) fills the card, as `.linkMetadata` did.
-                guard let meta = links(url) else { return shown }
+                // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
+                // otherwise the domain card (HomeStore's message is settled: no grey loading card).
+                guard let meta = links(url) else {
+                    let host = URL(string: url).map(TextParts.host) ?? url
+                    return .link(url: url, title: title ?? host, siteName: site ?? host, image: image, theme: theme)
+                }
                 return .link(url: url, title: meta.title ?? title, siteName: meta.site ?? site, image: meta.image ?? image, theme: theme)
             default:
                 return shown

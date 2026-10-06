@@ -37,7 +37,7 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
-  `HomeLinkPreviews` and `LinkPreviewAddressPolicy` (which links may fetch a preview),
+  `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -65,6 +65,7 @@ and render-server field animation, blurred header and native scrolling.
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
+| NativeScroll | the drawn scroll indicator sits 2 pt from the scroller's own right edge (in a pane the window's edge is not the transcript's) |
 | LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
 | ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
@@ -82,23 +83,14 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-05): every file at cd2bc08
-(Messages' link rule: a line that is only a URL becomes the link card in its
-place, the other lines stay one text bubble, a URL inside a sentence gets no
-card; the size cache keyed by part content, `MeasureCache.partVersion`;
-outgoing links in the theme's text colour; LinkPresentation previews;
-compose attachment previews; da2b8ae's text column, 358.4 - 0.654 x (628 - W)
-pt) except WindowView and NativeScroll at 69f4256 and SwipeReply at 0c8147b.
-89a1c5b and 2a0805d are not taken yet: their WindowView needs their Layout
-(`Sizing.linkPending`, the grey loading card) and Engine (`done(nil)`), and
-2a0805d's URLSession LinkPreviews has no address guard upstream; they come in
-as one pin with MessagesLab's guarded fetcher.
-WindowView: cd2bc08 keeps the first visible row in place when the width
-changes while pinned to the bottom (Messages reflows rows downward under the
-field); Home keeps its pinned live resize. NativeScroll: 2f22022's drawn
-scroll indicator sits 2 pt from the window's right edge, which in a pane is
-not the transcript's edge. No SwipeReply change is taken: it is not
-installed while HomeOp has no reply.
+that are wip checkpoints. Current pins (2026-10-06): every file at 93cf61f
+(89a1c5b, 2a0805d and 93cf61f as one pin: resize anchoring like Messages, the
+grey loading card and its fade-in, URLSession link previews through LinkGuard,
+long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
+track click, compose hover only over the field) except SwipeReply at 0c8147b
+(not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
+rule, size cache keyed by part content, compose image previews; da2b8ae's text
+column, 358.4 - 0.654 x (628 - W) pt.
 
 The link rule on the Home path: HomeStore stores a text part as typed, and
 `HomeMapping.projectedParts` shows it through the vendored
@@ -106,23 +98,22 @@ The link rule on the Home path: HomeStore stores a text part as typed, and
 send and the stored message show the same bubbles. A text with mentions
 stays one bubble, and so does an agent's Markdown with a fenced block. A
 split text is still one HomeStore part: a tapback on its card or its text
-bubble is on that part and shows on its first bubble.
+bubble is on that part and shows on its first bubble. A stored message's card
+is never the grey loading card: it shows a fetched preview or the domain.
 
-Link previews (LinkPresentation, `LinkPreviews.shared`) fetch a card's page
-title, site and image for links in messages sent or received while the
-conversation is open (the live view only; tests and the harness pass none):
-once per URL, off main, 8 s timeout, results and failures cached on disk,
-the domain card kept on failure. Privacy: this makes a network request to a
-URL taken from chat content, as Messages does. `Cmux/HomeLinkPreviews`
-lets a fetch through only for links the user or an agent (the Chief) sent;
-another person's links keep the domain card. `Cmux/LinkPreviewAddressPolicy`
-fetches only http(s) to a public host: no localhost, `.local`, `.ts.net` or
-other private names, and every resolved address public (no loopback,
-private, link-local, CGNAT/Tailscale, ULA; mapped IPv6 checked as IPv4).
-Limit: LinkPresentation resolves again and follows redirects itself, so DNS
-rebinding or a redirect to a private address is not caught; MessagesLab's
-guarded URLSession fetcher (after 2a0805d) will replace it. History loaded later (install,
-older pages, rebuilds) shows only cached previews and never fetches.
+Link previews (coordinator decision 2026-10-06, as iMessage): the SENDER makes
+the preview. `Cmux/HomeLinkPreviews` lets MessagesLab's `LinkPreviews` fetch
+only for a link in a message this Mac sends, or a card the user clicks; a
+received card shows what the sender attached, else the domain, and never
+fetches by itself (no request to a URL another person or an agent chose, and
+the receiver's address never reaches the sender's server). Every fetch goes
+through MessagesLab's LinkGuard: http(s) on the default port, every resolved
+address public (no loopback, private, CGNAT/Tailscale, link-local, ULA;
+mapped and NAT64 IPv6 as IPv4), the connected address re-checked, at most 5
+redirects each re-checked and no https to http, an ephemeral session, 512 KB
+of HTML and 5 MB of image. Not yet: the sender attaching the preview to the
+message (a `link_preview` wire part with the poster as an attachment record,
+shape agreed with the images lane), so another device shows the domain card.
 
 Messages' 434 pt window minimum (Host.swift) is not applied: a Home tab is a
 pane in the cmux-next window, whose layout has one global minimum pane width

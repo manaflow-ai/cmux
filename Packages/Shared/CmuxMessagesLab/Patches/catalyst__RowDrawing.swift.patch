@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
-@@ -226,7 +226,7 @@
+@@ -243,7 +243,7 @@
              drawSaveButton(ctx, body: body, outgoing: p.outgoing)
          case "voiceMemo":
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
@@ -9,7 +9,7 @@
              fg.setFill()
              UIBezierPath(ovalIn: CGRect(x: body.minX + 8, y: body.midY - 11, width: 22, height: 22)).fill()
              let tri = UIBezierPath()
-@@ -248,7 +248,7 @@
+@@ -265,7 +265,7 @@
                            baseline: body.midY + 4, in: ctx)
          default:
              fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)

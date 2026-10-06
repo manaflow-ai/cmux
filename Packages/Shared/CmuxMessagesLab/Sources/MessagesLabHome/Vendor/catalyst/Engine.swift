@@ -49,6 +49,9 @@ enum Action {
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
     case receive(Message)
+    /// Streamed output (an agent): text appended to the message's last text part in place
+    /// (no Edited label, no animation). shared/LONG-MESSAGES.md.
+    case appendText(ID, String)
     case status(ID, DeliveryStatus)
     /// A link preview's metadata arrived (LinkPreviews): every link part with
     /// this URL takes the title, site and image (nil keeps the current value).
@@ -135,6 +138,11 @@ enum Reducer {
             s.total += 1
         case let .status(id, st):
             if let i = s.conversation.messages.firstIndex(where: { $0.id == id }) { s.conversation.messages[i].status = st }
+        case let .appendText(id, more):
+            guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
+                  let pi = s.conversation.messages[i].parts.lastIndex(where: { if case .text = $0 { return true }; return false }),
+                  case let .text(t, runs) = s.conversation.messages[i].parts[pi] else { break }
+            s.conversation.messages[i].parts[pi] = .text(t + more, runs: runs)
         case let .linkMetadata(url, title, site, image):
             for i in s.conversation.messages.indices {
                 for (pi, p) in s.conversation.messages[i].parts.enumerated() {
@@ -174,8 +182,9 @@ enum Reducer {
 /// a URL becomes a rich link part (the card), in its place among the lines; the
 /// other lines stay text bubbles, a URL inside a sentence an underlined link
 /// run with no card. "URL, line break, text" is a card followed by a text
-/// bubble; a bare URL is only the card. The card starts as the domain (title =
-/// site = host) until LinkPreviews fills it.
+/// bubble; a bare URL is only the card. The card starts pending (Messages'
+/// grey placeholder square, 137.5 x 103.5 pt) until LinkPreviews fills it or,
+/// without metadata, the domain card (title = site = host) replaces it.
 enum TextParts {
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     static func host(_ url: URL) -> String {
@@ -198,6 +207,8 @@ enum TextParts {
         return url
     }
     static func parts(for text: String) -> [Part] {
+        // Long text stays one part; its links are detected per visible block (LongText.swift).
+        if LongText.isLong(text) { return [.text(text, runs: [])] }
         var parts: [Part] = []
         var pending: [String] = []
         func flush() {
@@ -212,8 +223,9 @@ enum TextParts {
         for line in text.components(separatedBy: "\n") {
             if let url = soleURL(line) {
                 flush()
-                let h = host(url)
-                parts.append(.link(url: url.absoluteString, title: h, siteName: h, image: nil, theme: "dark"))
+                // Pending (no title, no site): Messages' grey placeholder until the
+                // metadata or the domain fallback arrives (Store.apply).
+                parts.append(.link(url: url.absoluteString, title: nil, siteName: nil, image: nil, theme: "dark"))
             } else {
                 pending.append(line)
             }
@@ -260,11 +272,11 @@ extension Reducer {
 }
 
 /// Link-preview metadata for a URL (LinkPreviews.swift implements it with
-/// LinkPresentation). `done` runs on the main thread once, only when metadata
-/// was found; a failure or a timeout keeps the domain card.
+/// LinkPresentation). `done` runs on the main thread once per request.
 struct LinkMetadata: Hashable { var title: String?; var site: String?; var image: String? }
 protocol LinkPreviewFetching: AnyObject {
-    func fetch(_ url: String, done: @escaping (LinkMetadata) -> Void)
+    /// `done(nil)`: no metadata (failure, timeout): the caller shows the domain card.
+    func fetch(_ url: String, done: @escaping (LinkMetadata?) -> Void)
 }
 
 protocol Responder: AnyObject {
@@ -342,13 +354,19 @@ final class Store {
         if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }
-        if let linkPreviews {
-            let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
-            for p in fresh?.parts ?? [] {
-                guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
-                linkPreviews.fetch(url) { [weak self] meta in
-                    self?.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
-                }
+        let fresh: Message? = { if let sent { return sent }; if case let .receive(m) = action { return m }; return nil }()
+        for p in fresh?.parts ?? [] {
+            guard case let .link(url, title, site, image, _) = p, image == nil, title == nil || title == site else { continue }
+            let host = URL(string: url).map(TextParts.host) ?? url
+            let pending = title == nil && site == nil
+            guard let linkPreviews else {
+                // No fetcher: a pending card becomes the domain card at once.
+                if pending { dispatch(.linkMetadata(url: url, title: host, site: host, image: nil)) }
+                continue
+            }
+            linkPreviews.fetch(url) { [weak self] meta in
+                guard meta != nil || pending else { return }
+                self?.dispatch(.linkMetadata(url: url, title: meta?.title ?? host, site: meta?.site ?? host, image: meta?.image))
             }
         }
     }
