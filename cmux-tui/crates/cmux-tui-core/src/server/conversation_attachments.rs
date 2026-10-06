@@ -98,7 +98,8 @@ fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(super) fn upload(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Result<Value> {
+/// `conversation-attachment-upload`, one step per call.
+pub(super) fn put(mux: &Mux, client: u64, params: UploadParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let actor = mux.conversation_principal(client);
     match params.op.as_str() {

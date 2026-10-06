@@ -14403,12 +14403,8 @@ fn handle_command_with_cancellation(
         Command::CloudConversationUnsubscribe(params) => {
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
-        Command::ConversationAttachmentUpload(params) => {
-            conversation_attachments::upload(mux, client, params)
-        }
-        Command::ConversationAttachmentRead(params) => {
-            conversation_attachments::read(mux, client, params)
-        }
+        Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
+        Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::CreateProfile {
             name,
             profile,
