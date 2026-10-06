@@ -114,6 +114,12 @@ enum LiveProbes {
     }
 }
 SWIFT
+      # FlashCheck's compose checks (2f22022 on) attach files with Host.swift's
+      # AttachmentFactory; Host.swift is not vendored, so the enum comes along.
+      if grep -q "AttachmentFactory" "$up/FlashCheck.swift" && ! grep -q "enum AttachmentFactory" "$up/FlashCheck.swift"; then
+        { printf '@testable import MessagesLabHome\nimport Foundation\nimport ImageIO\nimport UniformTypeIdentifiers\n'
+          awk '/^enum AttachmentFactory/{p=1} p{print} p&&/^}/{exit}' "$ml/appkit-native/Sources/Host.swift"; } > "$up/AttachmentFactory.swift"
+      fi
       cp "$pkg/Harness/HomeCoverageCheck.swift" "$up/HomeCoverageCheck.swift"
     fi
     (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --filter UpstreamHarnessTests)
