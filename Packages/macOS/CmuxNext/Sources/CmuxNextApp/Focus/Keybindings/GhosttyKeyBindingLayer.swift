@@ -48,6 +48,12 @@ struct GhosttyKeyBindingLayer {
         return fallbacks + terminal
     }
 
+    /// The probe Ghostty's binding set matches for a table key: the physical
+    /// key named `shortcut.key` and the codepoint it types (nil: no key).
+    static func probe(for shortcut: Shortcut, keyNames: [UInt16: String]) -> GhosttyKeyProbe? {
+        nil
+    }
+
     /// The table key of a trigger: its codepoint, or the physical key's name.
     func shortcut(for bind: GhosttyHostKeybind) -> Shortcut? {
         switch bind.key {
@@ -63,9 +69,10 @@ extension KeyRouter {
     /// Loads the user's Ghostty keybinds (`binds`, the loaded config) and
     /// Ghostty's own defaults (`defaults`, a config with no user files) into
     /// the registry's binding table.
-    func loadGhosttyKeybinds(_ binds: [GhosttyHostKeybind], defaults: [GhosttyHostKeybind],
+    func loadGhosttyKeybinds(_ binds: [GhosttyHostKeybind], defaults: [GhosttyHostKeybind], claims: [Shortcut] = [],
                              keyNames: [UInt16: String] = KeyCodeLayout.currentKeyNames()) {
-        KeyBindingLoader(registry).loadGhostty(GhosttyKeyBindingLayer(binds: binds, defaults: defaults, keyNames: keyNames).entries)
+        KeyBindingLoader(registry).loadGhostty(GhosttyKeyBindingLayer(binds: binds, defaults: defaults, keyNames: keyNames).entries,
+                                               claims: claims)
     }
 }
 

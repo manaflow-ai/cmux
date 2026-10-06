@@ -67,12 +67,16 @@ public nonisolated struct KeyBindingTable: Sendable {
     /// Default and app entries that user removals took out (the editor
     /// lists them so a person can reset them); never resolved.
     public let removed: [KeyBinding]
+    /// Default entries on keys the user's Ghostty config claims (a terminal
+    /// action or `unbind`); listed with their source, never resolved.
+    public let claimedByGhostty: [KeyBinding]
     /// Entry indexes by first key, ascending.
     private let byFirstKey: [Shortcut: [Int]]
 
-    public init(_ entries: [KeyBinding], removed: [KeyBinding] = []) {
+    public init(_ entries: [KeyBinding], removed: [KeyBinding] = [], claimedByGhostty: [KeyBinding] = []) {
         self.entries = entries
         self.removed = removed
+        self.claimedByGhostty = claimedByGhostty
         var index: [Shortcut: [Int]] = [:]
         for (offset, entry) in entries.enumerated() {
             guard let first = entry.keys.first, entry.keys.count <= Self.maxSequenceLength else { continue }
