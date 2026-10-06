@@ -122,3 +122,30 @@ fn only_focus_and_workspace_reads_involve_the_app() {
     assert_eq!(follow_for(ResourceOperation::PaneSplit), Follow::Nothing);
     assert_eq!(follow_for(ResourceOperation::WorkspaceList), Follow::Focused);
 }
+
+#[test]
+fn pane_focus_runs_the_apps_pane_focus() {
+    let (socket, app) = fake_app(vec![ok(json!({"ran": true}))]);
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!({"value": {"id": "pane_1", "focused": true}});
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::PaneFocus), &mut reply).unwrap();
+    drop(stream);
+    let received = app.join().unwrap();
+    assert_eq!(received.len(), 1, "{received:?}");
+    assert_eq!(received[0]["params"]["action"], "pane.focus");
+    assert_eq!(received[0]["params"]["target"], "pane_1");
+}
+
+#[test]
+fn screen_focus_runs_the_apps_screen_focus() {
+    let (socket, app) = fake_app(vec![ok(json!({"ran": true}))]);
+    let mut stream = UnixStream::connect(&socket).unwrap();
+    let mut reply = json!({"value": {"id": "screen_1", "focused": true}});
+    after_daemon_with(&mut stream, &follow_for(ResourceOperation::ScreenFocus), &mut reply)
+        .unwrap();
+    drop(stream);
+    let received = app.join().unwrap();
+    assert_eq!(received.len(), 1, "{received:?}");
+    assert_eq!(received[0]["params"]["action"], "screen.focus");
+    assert_eq!(received[0]["params"]["target"], "screen_1");
+}

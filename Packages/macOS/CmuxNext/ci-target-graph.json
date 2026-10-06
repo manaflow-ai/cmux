@@ -10,6 +10,7 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
+    "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
@@ -574,11 +575,13 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHome",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": [
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ]
     },
     "CmuxNextHomeTests": {
@@ -586,11 +589,13 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeTests",
       "targets": [
         "CmuxNextDesign",
-        "CmuxNextHome"
+        "CmuxNextHome",
+        "CmuxNextIcons"
       ],
       "packages": [
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ],
       "reads": []
     },
@@ -614,6 +619,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextLayout",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -622,6 +628,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests",
       "targets": [
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextWakeups"
       ],

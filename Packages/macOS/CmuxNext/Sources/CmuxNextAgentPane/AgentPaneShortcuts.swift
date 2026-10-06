@@ -12,6 +12,9 @@ public nonisolated struct AgentPaneShortcuts: Equatable, Sendable {
         "agentPane.permission.allowOnce", "agentPane.permission.allowChat", "agentPane.permission.deny",
         "agentPane.permission.expand", "agentPane.permission.retry", "agentPane.permission.revoke",
         "agentPane.permission.refresh", "palette.copySurfaceLink",
+        // The chat header's tools and "..." menu (AgentPaneModel.headerActions).
+        "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
+        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "closeTab",
     ]
 
     public var labels: [String: String] = [:]

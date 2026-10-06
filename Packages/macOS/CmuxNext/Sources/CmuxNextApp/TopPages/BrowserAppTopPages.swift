@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextIcons
 
 extension InternalPageID {
     /// History as a top page (TOP-SECTION-ITEMS-ARE-PAGES Q3).
@@ -23,6 +24,7 @@ final class HistoryTopPage: InternalPageProvider {
     var page: InternalPageID { .history }
     var title: String { HistoryPageStrings.title }
     var symbol: String { "clock" }
+    var icon: IconName? { .history }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
@@ -52,6 +54,7 @@ final class BookmarksTopPage: InternalPageProvider {
     var page: InternalPageID { .bookmarks }
     var title: String { BookmarkStrings.pageTitle }
     var symbol: String { "book" }
+    var icon: IconName? { .bookmarkManager }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }

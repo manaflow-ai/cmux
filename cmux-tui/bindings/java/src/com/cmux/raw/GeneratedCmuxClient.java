@@ -258,6 +258,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationHistoryResult.fromWire(result);
     }
 
+    public final ConversationImportResult conversationImport(ConversationImportRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_IMPORT, request.toWire());
+        return ConversationImportResult.fromWire(result);
+    }
+
     public final ConversationListResult conversationList() throws CmuxException {
         Object result = execute(Commands.CONVERSATION_LIST, Map.of());
         return ConversationListResult.fromWire(result);

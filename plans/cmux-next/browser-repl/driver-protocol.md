@@ -98,18 +98,91 @@ entries, which only the person (user origin) reads, as `tab.info
 unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
 events named `host.policyLog` are dropped: only the host writes that log.
 
+cmux-next shared headless browser, clipboard (item 19): Copy, Cut and Paste
+never use the browser's clipboard (the system's, or the X11 one of a headful
+browser on Xvfb). The driver records the shortcut's `keydown` (a prevented
+one runs no command), then sends the page a `copy`, `cut` or `paste` event
+with a `DataTransfer` in the focused frame and does the default action
+itself: the selection's text to the tab's clipboard, a cut's deletion, a
+paste's `text/plain` through `Input.insertText` (trusted `input`). These
+clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
+design. A Copy or Cut the page has not finished within 5 s fails with
+`timeout` and its late result is dropped; the tab's web content process is
+not ended, because no clipboard outside the tab can be written (an
+intentional cmux-next difference from WebKit). Page script never reaches
+the browser's clipboard either: the page clipboard guard
+(`js/page-clipboard.js`, through the page-world binding `__cmuxPageClipboard`,
+which it removes before any page script runs) is installed at document start
+in every frame, script-made `about:blank` frames included, so the page's
+`navigator.clipboard` and `execCommand("copy" | "cut")` write the tab's
+clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
+`clipboard-write`, sanitized or not) in every store, for a document or world
+the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
+with a copy, cut or paste editing command.
+
+cmux-next shared headless browser, background tabs (chief, 2026-10-06): a tab
+an agent session drove (any call on it) or opened in the last 30 s runs at
+full rate; every other tab (kept tabs, tabs of sessions that went quiet) is
+throttled with `Emulation.setCPUThrottlingRate` 4 (Chromium's low-end
+setting), and its next call puts it back to full rate first. The host has no
+timer for this (zero idle work): tabs cool down at the next call on any tab.
+The parity runner closes the tabs each scenario leaves open, so a host reused
+across scenarios does not pile them up.
+
+cmux-next shared browser, file choosers (items 10/11): a headless browser
+intercepts the file choosers of every tab (no person can see an Open panel),
+so D2 applies to all of them. A headful browser (`CMUX_BROWSER_HOST_HEADLESS=0`,
+for example on Xvfb, which a person may use) intercepts only the tabs a
+session created or drives, from the session's first call on the tab until
+the last session leaves it; a person's own tab keeps the browser's Open
+panel and is never cancelled. Interception is turned on after a tab's or
+frame's setup has resumed it, so a chooser the page opens in the first
+moments of a new document (before that call lands) can still reach the
+browser's own panel (headless: none is shown; headful: the person's panel).
+A popup of a session's tab on a headful browser intercepts from the first
+session call on it.
+
 cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
 starts with its opener's) on the tabs the session created and did not keep;
 `tab.keep` and the session's end restore the browser's own. `proxy` opens a
-private browser context (its own cookie jar) for the tabs the session opens
-afterwards, popups included. Its tabs list the dataStore
+private browser context (its own cookie jar, starting with a one-way copy of
+the profile's cookies, like every store a session makes) for the tabs the
+session opens afterwards, popups included. Its tabs list the dataStore
 `<profile>/proxy-<n>` (stable while the store is open); the session's
 `cookies.*` without `targetId` use it, and with `targetId` the tab's own
 store. It closes at the session's end unless a tab in it (a popup too) was
 kept, then at host exit. Known gap: proxy credentials answer `unsupported`
-(they need `Fetch.authRequired`). Not yet: `permissions` (`unsupported`,
-owner decision pending).
+(they need `Fetch.authRequired`). `permissions` (chief, 2026-10-06, option
+2): CDP grants per browser context, never per tab, so the session's new tabs
+open in a private store (`<profile>/private-<n>`, or its proxy store) that
+holds the grants; no grant reaches a person's tab. A private store starts
+with a one-way copy of the profile's cookies (never written back), and closes
+like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
+drops the grants and new tabs open in the profile again (a proxy store keeps
+them). A proxy set after permissions gets the same grants and the same cookie
+copy.
+
+Permission names are Playwright's. The classic column is what the classic
+WebKit backend (the dev driver's Playwright WebKit) accepts; a name not known
+to work there is `unsupported` on WebKit.
+
+| Name | Headless Chromium (CDP) | Classic WebKit |
+| --- | --- | --- |
+| `geolocation` | `geolocation` | supported |
+| `notifications` | `notifications` | supported |
+| `camera` | `videoCapture` | unsupported |
+| `microphone` | `audioCapture` | unsupported |
+| `midi`, `midi-sysex` | `midi`, `midiSysex` | unsupported |
+| `background-sync` | `backgroundSync` | unsupported |
+| `ambient-light-sensor`, `accelerometer`, `gyroscope`, `magnetometer` | `sensors` | unsupported |
+| `payment-handler` | `paymentHandler` | unsupported |
+| `storage-access` | `storageAccess` | unsupported |
+| `local-fonts` | `localFonts` | unsupported |
+| `idle-detection` | `idleDetection` | unsupported |
+| `window-management` | `windowManagement` | unsupported |
+| `screen-wake-lock` | `wakeLockScreen` | unsupported |
+| `clipboard-read`, `clipboard-write` | refused (`forbidden`) | unsupported |
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
@@ -190,6 +263,15 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
 | `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window gets the private pasteboard too |
 
+On Chromium (CDP driver) `input.drag` turns on drag interception
+(`Input.setInterceptDrags`) for the call: the press and the moves are
+trusted mouse events; when the page starts a drag, Chromium hands its data
+to the driver (`Input.dragIntercepted`) instead of the system, and the
+driver sends `dragenter`, `dragover` at each further point and `drop` at
+the last one (`Input.dispatchDragEvent`). The drag's data never reaches a
+system pasteboard. After a drop the page gets no `mouseup`, as with a drag
+the system runs; a path that starts no drag ends with a plain release.
+
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
 
@@ -205,6 +287,16 @@ naming the session that holds the mouse.
 | --- | --- | --- |
 | `tab.screenshot` | `{ targetId, clip?, fullPage?, format: "png"\|"jpeg"\|"webp", quality? }` (the session adds `secretMasks`) | `{ base64, width, height }` |
 | `tab.pdf` | `{ targetId, format?, width?, height?, landscape?, printBackground?, margin? }` | `{ base64 }` |
+
+Captures of one tab run one at a time; a capture waits for the tab's
+other capture within its own timeout. Chromium answers overlapping
+`Page.captureScreenshot` calls of one page with the wrong region (a
+clipped capture changes the page's emulation while it runs). The host's
+secret mask hides the fields that hold a secret before a capture and
+checks them after it. The check uses the secrets the tab has after the
+capture, so a secret that another session types into the tab during the
+capture (it is recorded for the tab before its input is sent) refuses the
+capture.
 
 ## Files, dialogs, popups, downloads
 

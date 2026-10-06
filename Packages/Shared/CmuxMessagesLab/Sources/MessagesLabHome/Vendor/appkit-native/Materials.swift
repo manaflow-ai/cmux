@@ -34,13 +34,22 @@ final class FieldChrome: NSView {
         addSubview(container)
         field.cornerRadius = 15
         field.style = .regular
+        // Real Messages' field glass reacts to a press (field-keyboard reference: the rim
+        // and a light under the pointer brighten 14 ms after the click and fade in 0.1 s).
+        // `effectIsInteractive` is declared only in the macOS 27 SDK; Swift 6.4 ships with
+        // it (Xcode 27), Swift 6.3.3 with the 26.5 SDK (Xcode 26.6), where #available
+        // cannot hide an undeclared symbol.
+        #if compiler(>=6.4)
+        if #available(macOS 27.0, *) { field.effectIsInteractive = true }
+        #endif
         group.addSubview(field)
         for (g, b, sym, label, sel) in [(plusGlass, plus, "plus", NativeStrings.attach, #selector(plusClicked)),
                                          (emojiGlass, emoji, "face.smiling", NativeStrings.emoji, #selector(emojiClicked))] {
             g.cornerRadius = 15
             g.style = .regular
-            // cmux: by key (the macOS 27 SDK property is missing from Xcode 26.6's SDK).
-            if #available(macOS 27.0, *), g.responds(to: NSSelectorFromString("setEffectIsInteractive:")) { g.setValue(true, forKey: "effectIsInteractive") }
+            #if compiler(>=6.4)
+            if #available(macOS 27.0, *) { g.effectIsInteractive = true }
+            #endif
             b.isBordered = false
             b.bezelStyle = .regularSquare
             b.imagePosition = .imageOnly
@@ -227,7 +236,8 @@ final class TapbackPickerView: NSGlassEffectView {
     /// glyphs 20 pt.
     static let size = NSSize(width: 286, height: 42)
     static let pitch: CGFloat = 37.8, firstCenter: CGFloat = 21, glyphSize: CGFloat = 20
-    static let extras = ["\u{1F440}", "\u{2705}"]
+    /// The strip's recent emoji after the six tapbacks (the last one clipped by the strip).
+    static var extras: [String] { Array(RecentEmoji.list.prefix(2)) }
 
     init(ref: PartRef, selected: Reaction.Kind?, pick: @escaping (Reaction.Kind) -> Void) {
         self.ref = ref
@@ -288,15 +298,28 @@ final class TapbackPickerView: NSGlassEffectView {
                 Fixture.outgoing.setFill()
                 NSBezierPath(ovalIn: CGRect(x: r.midX - 16, y: r.midY - 16, width: 32, height: 32)).fill()
             }
-            let g = CGRect(x: r.midX - glyphSize / 2, y: r.midY - glyphSize / 2, width: glyphSize, height: glyphSize)
-            switch kind {
-            case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
-            case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)
-            case .tapback("question"): TapbackGlyph.draw("question", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.62, green: 0.45, blue: 1, alpha: 1), ctx: ctx)
-            case let .tapback(t): if let e = TapbackGlyph.emoji(t) { PartRenderer.drawEmoji(e, in: g, ctx: ctx) }
-            case let .emoji(e): PartRenderer.drawEmoji(e, in: g, ctx: ctx)
-            }
+            drawGlyph(kind, in: CGRect(x: r.midX - glyphSize / 2, y: r.midY - glyphSize / 2, width: glyphSize, height: glyphSize), ctx: ctx)
             return true
+        }
+    }
+
+    /// The same glyph alone (glyphSize square), for the context menu's palette rows:
+    /// AppKit fits a palette image into a 20 pt box, so padding would shrink the glyph.
+    static func menuGlyph(_ kind: Reaction.Kind) -> NSImage {
+        NSImage(size: NSSize(width: glyphSize, height: glyphSize), flipped: true) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            drawGlyph(kind, in: r, ctx: ctx)
+            return true
+        }
+    }
+
+    private static func drawGlyph(_ kind: Reaction.Kind, in g: CGRect, ctx: CGContext) {
+        switch kind {
+        case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
+        case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)
+        case .tapback("question"): TapbackGlyph.draw("question", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.62, green: 0.45, blue: 1, alpha: 1), ctx: ctx)
+        case let .tapback(t): if let e = TapbackGlyph.emoji(t) { PartRenderer.drawEmoji(e, in: g, ctx: ctx) }
+        case let .emoji(e): PartRenderer.drawEmoji(e, in: g, ctx: ctx)
         }
     }
 

@@ -107,15 +107,17 @@ final class TitlebarToolbarBand: NSView {
 /// An icon button of the toolbar band: the chrome's hover and pressed look.
 final class TitlebarBandButton: NSButton {
     static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    private let symbol: String
+    private var renderedIconSize: CGFloat = 0
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
 
     init(symbol: String) {
+        self.symbol = symbol
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular))
+        renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
         _ = hover
     }
@@ -124,6 +126,19 @@ final class TitlebarBandButton: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override var mouseDownCanMoveWindow: Bool { false }
+
+    override func layout() {
+        super.layout()
+        renderSymbol()
+    }
+
+    private func renderSymbol() {
+        let size = Metrics.smallIconSize
+        guard size != renderedIconSize else { return }
+        renderedIconSize = size
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+    }
 
     /// A right-click or long-press menu (Back / Forward lists).
     var menuProvider: (() -> NSMenu?)?

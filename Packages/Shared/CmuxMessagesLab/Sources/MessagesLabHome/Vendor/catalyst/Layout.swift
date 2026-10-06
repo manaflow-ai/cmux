@@ -679,6 +679,10 @@ enum RowBuilder {
             }
             prev = m
         }
+        // cmux: the host's notice, centered like the date row, under the newest message.
+        if !threadMode, span.upperBound == messages.count, s.atNewest, let notice = s.ui.notice {
+            rows.append(RowSpec(key: "notice", kind: .separator(bold: "", rest: notice), gap: 0, height: 35.5))
+        }
         if !threadMode, span.upperBound == messages.count, s.atNewest, s.ui.typing.contains(where: { $0 != me }) {
             rows.append(RowSpec(key: "typing", kind: .typing, gap: 0, height: 35))
         }
@@ -706,12 +710,19 @@ enum RowBuilder {
     static func receiptTargets(_ messages: [Message], me: ID) -> [ID: (String, String)] {
         var lastRead: (Int, Message, String)?
         var lastDelivered: (Int, Message)?
-        for (i, m) in messages.enumerated() where m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
-            switch m.status {
-            case let .read(at): lastRead = (i, m, at)
-            case .delivered: lastDelivered = (i, m)
-            default: break
+        // From the newest message back to my newest read one (a delivered one older than it
+        // shows nothing): O(tail), not O(loaded window), per derive.
+        var i = messages.count - 1
+        scan: while i >= 0 {
+            let m = messages[i]
+            if m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
+                switch m.status {
+                case let .read(at): lastRead = (i, m, at); break scan
+                case .delivered: if lastDelivered == nil { lastDelivered = (i, m) }
+                default: break
+                }
             }
+            i -= 1
         }
         var out: [ID: (String, String)] = [:]
         if let r = lastRead { out[r.1.id] = (Strings.read, "\u{00A0}" + Format.time(Instant.parse(r.2))) }

@@ -36,8 +36,9 @@ BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 ACPMUX = os.path.join(APP, "Contents/Resources/bin/acpmux")
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
-MUX_HOME = os.path.expanduser(f"~/.cmux/mux/tags/{TAG}")
-ACPMUX_HOME = os.path.expanduser(f"~/.acpmux/tags/{TAG}")
+# A no-activate launch is an isolated Chief home (ChiefHome.swift).
+MUX_HOME = os.path.expanduser(f"~/.cmux/chief/isolated/{TAG}")
+ACPMUX_HOME = os.path.join(MUX_HOME, "acpmux")
 SCRATCH = tempfile.mkdtemp(prefix=f"chief-flows-{TAG}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 open(CONFIG, "w").write("{}")
@@ -139,19 +140,33 @@ def chief_conversation():
     return next((c for c in home.get("conversations", []) if "agent_mux" in c.get("participants", [])), None)
 
 
+def memory(query, args=()):
+    """Read-only rows of the Chief's memory database (optchat/memory.sqlite3)."""
+    import sqlite3
+    path = os.path.join(MUX_HOME, "optchat", "memory.sqlite3")
+    if not os.path.exists(path):
+        return []
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+        try:
+            return db.execute(query, args).fetchall()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return []
+
+
 def log_items():
     """The Chief's OptChat log (user, talk, tool, echo, work items), oldest first."""
-    folder = os.path.join(MUX_HOME, "optchat", "chat", "main")
-    items = []
-    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        for line in open(os.path.join(folder, name)):
-            line = line.strip()
-            if line:
-                try:
-                    items.append(json.loads(line))
-                except ValueError:
-                    pass
-    return items
+    return [{"kind": kind, "text": text} for kind, text in memory("SELECT kind, text FROM messages ORDER BY id")]
+
+
+def host_state(key):
+    rows = memory("SELECT value FROM state WHERE key = ?", (f"host/{key}",))
+    try:
+        return json.loads(rows[0][0]) if rows else None
+    except ValueError:
+        return None
 
 
 def ask(text):
@@ -255,16 +270,20 @@ def cleanup():
                    capture_output=True, timeout=30)
     subprocess.run([CLI, "server", "stop", "--session", f"cmux-app-{TAG}", "--end-terminals"],
                    env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-    # Anything of this bundle left with ppid 1, by exact pid.
-    ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    for line in ps.splitlines():
-        parts = line.split(None, 2)
-        if len(parts) == 3 and parts[1] == "1" and APP in parts[2]:
-            print("leftover", line[:200], flush=True)
-            try:
-                os.kill(int(parts[0]), signal.SIGTERM)
-            except OSError:
-                pass
+    # Every process left from this tag's bundle (its own path), by exact pid;
+    # twice, as terminal hosts outlive their session owner.
+    for _ in range(2):
+        ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        for line in ps.splitlines():
+            parts = line.split(None, 1)
+            # The bundle's own executables only (this script's argv names the bundle too).
+            if len(parts) == 2 and parts[1].startswith(APP + "/") and int(parts[0]) != os.getpid():
+                print("leftover", line[:160], flush=True)
+                try:
+                    os.kill(int(parts[0]), signal.SIGTERM)
+                except OSError:
+                    pass
+        time.sleep(3)  # test harness: let them exit
 
 
 def host_log():
@@ -387,13 +406,36 @@ def main():
 
     @flow
     def subagent():
+        def subs():
+            spawns = host_state("spawns") or {}
+            return [sub for run in spawns.values() for sub in run.get("subs", [])]
+
+        def chat_tab(sub):
+            """The agent chat tab bound to the subagent's session in its workspace (app tree)."""
+            snap = rpc("snapshot.get") or {}
+            for ws in (snap.get("topology") or {}).get("workspaces", []):
+                if ws.get("key") != sub.get("workspace"):
+                    continue
+                for screen in ws.get("screens", []):
+                    for pane in screen.get("panes", []):
+                        for tab in pane.get("tabs", []):
+                            if tab.get("kind") == "conversation" and tab.get("agent_session") == sub.get("session_id"):
+                                return ws.get("name") or ws.get("id")
+            return None
+
+        before = {sub.get("id") for sub in subs()}
+
         def verify(reply, focus):
-            got = wait(lambda: next((m for m in tail() if m["author"] == "agent_mux" and "PONG" in m["text"]
-                                     and "e2e-kid" in m["text"]), None), opts.turn_timeout, step=3)
-            names = [ws_name(w) for w in workspaces()]
-            kid_ws = any("e2e-kid" in n for n in names)
-            return (bool(got), f"report with PONG={bool(got)}; e2e-kid workspace={kid_ws}; workspaces={names}")
-        check("start a subagent", "the agent runs, reports PONG; its workspace shows in the tagged tree",
+            got = wait(lambda: next((m for m in tail() if m["author"] == "agent_mux" and "PONG" in m["text"]), None),
+                       opts.turn_timeout, step=3)
+            new = [sub for sub in subs() if sub.get("id") not in before]
+            tabs = {sub.get("id"): wait(lambda: chat_tab(sub), 30) for sub in new}
+            # The asked-for subagent (its task names e2e-kid), not a stray one.
+            kid = [sub.get("id") for sub in new if "e2e-kid" in (sub.get("title") or "")]
+            ok = bool(got) and bool(kid) and all(tabs.get(k) for k in kid) and len(new) == len(kid)
+            return (ok, f"report with PONG={bool(got)}; new subagents={[s.get('id') for s in new]}; e2e-kid={kid}; "
+                        f"chat tab bound to its session in its workspace={tabs}")
+        check("start a subagent", "the agent reports PONG; its workspace holds the agent chat tab bound to its session",
               f"Start a subagent named e2e-kid in {SCRATCH} whose task is to reply with the single word PONG.", verify)
 
     @flow

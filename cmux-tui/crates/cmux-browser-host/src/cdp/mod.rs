@@ -6,11 +6,15 @@
 
 mod browser_pages;
 mod capture;
+mod choosers;
+pub mod clipboard;
 mod closed_roots;
 mod connection;
 mod cookies;
 mod cors;
+mod dispatch;
 mod downloads;
+mod drag;
 mod driver;
 mod evaluate;
 mod fetch;

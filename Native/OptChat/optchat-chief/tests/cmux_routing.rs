@@ -149,14 +149,3 @@ fn cmux_app_daemon_socket_wins_over_the_daemon_socket() {
         Some("/T/cmux-chief-owner.sock")
     );
 }
-
-#[test]
-fn a_childs_preset_is_per_home_and_harness() {
-    use optchat_chief::agents::child_preset_name;
-    assert_eq!(
-        child_preset_name("1a2b3c4d", "claude-sr").as_deref(),
-        Some("chief-child-1a2b3c4d-claude-sr")
-    );
-    assert_eq!(child_preset_name("1a2b3c4d", "a b"), None);
-    assert_eq!(child_preset_name("1a2b3c4d", ""), None);
-}

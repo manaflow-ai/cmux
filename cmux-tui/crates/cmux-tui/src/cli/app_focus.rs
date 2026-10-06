@@ -3,9 +3,10 @@
 //! focused workspace and tab are only the default for clients with no
 //! window. So after the daemon answers:
 //!
-//! - `workspace <id> focus` and `tab <id> focus` also run the app's own
-//!   focus action (`goToWorkspace`, `tab.focus`: the path the palette,
-//!   keyboard and menu use), so the window shows what was asked for;
+//! - `workspace|tab|pane|screen <id> focus` also run the app's own focus
+//!   action (`goToWorkspace`, `tab.focus`, `pane.focus`, `screen.focus`: the
+//!   path the palette, keyboard and menu use), so the window shows what was
+//!   asked for;
 //! - a reply that reports workspaces' `focused` takes it from the app: the
 //!   workspace its window shows, not the daemon default that every
 //!   `workspace create` moves.
@@ -31,6 +32,10 @@ pub(super) enum AppFocus {
     Workspace,
     /// `tab.focus` with `target`.
     Tab,
+    /// `pane.focus` with `target`.
+    Pane,
+    /// `screen.focus` with `target`.
+    Screen,
 }
 
 /// What the app adds to the daemon's answer to `operation`.
@@ -46,6 +51,8 @@ pub(super) fn follow_for(operation: ResourceOperation) -> Follow {
     match operation {
         ResourceOperation::WorkspaceFocus => Follow::Focus(AppFocus::Workspace),
         ResourceOperation::TabFocus => Follow::Focus(AppFocus::Tab),
+        ResourceOperation::PaneFocus => Follow::Focus(AppFocus::Pane),
+        ResourceOperation::ScreenFocus => Follow::Focus(AppFocus::Screen),
         ResourceOperation::WorkspaceList
         | ResourceOperation::WorkspaceGet
         | ResourceOperation::WorkspaceRename
@@ -68,8 +75,13 @@ pub(super) fn focus_params(focus: &AppFocus, id: &str) -> Value {
             params.insert("args".into(), json!({ "workspace": id }));
             params
         }
-        AppFocus::Tab => {
-            let mut params = action_run_params("tab.focus", ActionName::Any, "script");
+        AppFocus::Tab | AppFocus::Pane | AppFocus::Screen => {
+            let action = match focus {
+                AppFocus::Pane => "pane.focus",
+                AppFocus::Screen => "screen.focus",
+                _ => "tab.focus",
+            };
+            let mut params = action_run_params(action, ActionName::Any, "script");
             params.insert("target".into(), json!(id));
             params
         }

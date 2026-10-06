@@ -69,9 +69,8 @@ final class PickerDimView: NSView {
 /// palettes at the top, the six tapbacks, then recent emoji and the emoji
 /// picker.
 enum TapbackMenuRows {
-    /// The second row's emoji (the real app shows the user's recent ones; MessagesLab
-    /// 69f4256: the strip's two extras moved out of this row).
-    static let recentEmoji = ["\u{1F602}", "\u{2764}\u{FE0F}", "\u{1F60D}", "\u{1F612}", "\u{1F44C}"]
+    /// The second row's emoji: the user's five most recent (MessagesLab 02519e9, `RecentEmoji`).
+    static var recentEmoji: [String] { Array(RecentEmoji.list.prefix(5)) }
 
     static func items(current: Reaction.Kind?, react: @escaping (Reaction.Kind) -> Void, emojiPicker: @escaping () -> Void) -> [NSMenuItem] {
         func palette(_ entries: [(NSImage, String, Reaction.Kind?)]) -> NSMenuItem {
@@ -100,5 +99,20 @@ enum TapbackMenuRows {
             PartRenderer.drawEmoji(e, in: r.insetBy(dx: 7, dy: 7), ctx: ctx)
             return true
         }
+    }
+}
+
+/// The person's recently used emoji reactions, most recent first (MessagesLab
+/// 02519e9 Host.swift, not vendored): the context menu's second palette row
+/// shows the first five, the tapback picker strip the first two after its six
+/// tapbacks. Real Messages keeps one such list. An emoji reaction moves its
+/// emoji to the front. cmux: no `--recent-emoji` argument (a MessagesLab take's scene).
+enum RecentEmoji {
+    static let defaults = ["\u{1F602}", "\u{2764}\u{FE0F}", "\u{1F60D}", "\u{1F612}", "\u{1F44C}"]
+    private(set) static var list: [String] = defaults
+    static func use(_ e: String) {
+        list.removeAll { $0 == e }
+        list.insert(e, at: 0)
+        if list.count > 16 { list.removeLast(list.count - 16) }
     }
 }

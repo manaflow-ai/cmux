@@ -1,82 +1,73 @@
 //! The v2 request origin on a connection (plans/cmux-next/request-origin.md):
-//! every `cmux.protocol/2` line passes `check` before the resource handler
-//! parses it, and `origin.confirmation.issue` is answered here. The rules
-//! themselves live in `crate::request_origin`.
+//! every `cmux.protocol/2` line is parsed ONCE into a typed request
+//! (`resource_router::parse_resource_line`); the origin rules check that
+//! value and the dispatcher acts on the same value. A line that does not
+//! parse is refused, and a refused line is never dispatched.
+//! `origin.confirmation.issue` is answered here. The rules themselves live
+//! in `crate::request_origin`.
 
 use super::*;
 use crate::request_origin::{
-    CONFIRMATION_TTL_MS, HelloRole, OriginClaim, RequestOrigin, forbidden, mint_token, needs_user,
+    CONFIRMATION_TTL_MS, HelloRole, RequestOrigin, forbidden, mint_token, needs_user,
     valid_sha256_hex,
 };
+use crate::resource::RequestEnvelope;
 
-/// Applies the origin rules to one `cmux.protocol/2` line, then hands it to
-/// the resource connection handler. A refused line is never parsed further
-/// or dispatched.
+/// Applies the origin rules to one parsed `cmux.protocol/2` line, then
+/// validates and dispatches the same parse. The origin rules run before
+/// the envelope and catalog validation, so a refused origin learns nothing
+/// from validation.
 pub(super) fn handle_resource_line(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
+    envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
 ) -> bool {
-    match check(mux, client, message) {
-        None => handle_resource_connection_message(mux, client, message, writer),
-        Some(refusal) => writer.send_control(&refusal).is_ok(),
+    let envelope = match envelope {
+        Ok(envelope) => envelope,
+        Err(error) => {
+            let response = crate::resource_router::malformed_resource_response(message, error);
+            return writer.send_control(&response).is_ok();
+        }
+    };
+    let (id, operation) = (envelope.id.clone(), envelope.operation);
+    let admitted = check(mux, client, &envelope)
+        .and_then(|_| crate::resource_router::validate_resource_envelope(envelope));
+    match admitted {
+        Ok(request) => handle_resource_connection_message(mux, client, request, writer),
+        Err(error) => send_resource_response(writer, id, operation, Err(error)),
     }
 }
 
-/// `None` admits the line; `Some(response)` refuses it. A line whose
-/// envelope is not readable here is admitted: the resource parser then
-/// refuses it, so it can never be dispatched without passing these rules.
-fn check(mux: &Mux, client: u64, message: &str) -> Option<Value> {
-    // Fast path: a connection that is not a page relay, with no claim and
-    // no A2 operation, needs no parse. Each test is a superset of the
-    // condition it stands for.
-    if role(mux, client) != HelloRole::PageRelay
-        && !message.contains("\"origin")
-        && !message.contains("\"apps.")
-    {
-        return None;
-    }
-    let Ok(Value::Object(envelope)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    let id = envelope.get("id").and_then(Value::as_str)?;
-    let id = ResourceRequestId::parse(id).ok()?;
-    let operation = envelope.get("operation").and_then(Value::as_str)?;
-    let params = envelope.get("params").unwrap_or(&Value::Null);
-    let claim = match envelope
-        .get("origin")
-        .map(|raw| serde_json::from_value::<OriginClaim>(raw.clone()))
-    {
-        None => None,
-        Some(Ok(claim)) => Some(claim),
-        Some(Err(error)) => {
-            let error = ResourceError::validation_invalid(
-                Some("origin"),
-                format!("origin must be {{claim, confirmation?}}: {error}"),
-            );
-            return Some(refusal(id, operation, error));
-        }
-    };
+/// The origin of `envelope` on `client`, or why it is refused. A client
+/// with no registry record (a connection detached while its reader still
+/// held a line) has no known role, so it is refused (fail closed).
+fn check(
+    mux: &Mux,
+    client: u64,
+    envelope: &RequestEnvelope,
+) -> Result<RequestOrigin, ResourceError> {
     let now_ms = mux.control_clients.origin_clock.monotonic_ms();
     let mut state =
         mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let record = state.clients.get_mut(&client)?;
-    match record.origin.request_origin(operation, params, claim.as_ref(), now_ms) {
-        Ok(_) => None,
-        Err(error) => Some(refusal(id, operation, error)),
-    }
-}
-
-fn refusal(id: ResourceRequestId, operation: &str, error: ResourceError) -> Value {
-    // A catalog operation's refusal goes through its error contract; an
-    // operation this daemon does not have (apps.* before R62) is answered
-    // as is.
-    let error = match serde_json::from_value::<ResourceOperation>(json!(operation)) {
-        Ok(operation) => crate::resource_router::validate_operation_error(operation, error),
-        Err(_) => error,
+    let Some(record) = state.clients.get_mut(&client) else {
+        return Err(forbidden(
+            "the connection is not registered",
+            // No record, no role: name the least the connection could be
+            // without a hello (the catalog requires `derived`).
+            json!({
+                "derived": RequestOrigin::Agent.wire_name(),
+                "reason": "connection_not_registered",
+            }),
+        ));
     };
-    serde_json::to_value(ResourceResponseEnvelope::failure(id, error)).unwrap_or(Value::Null)
+    record.origin.request_origin(
+        envelope.operation,
+        &envelope.params,
+        envelope.origin.as_ref(),
+        now_ms,
+    )
 }
 
 #[cfg(unix)]
@@ -95,11 +86,6 @@ pub(super) fn require_user(mux: &Mux, client: u64) -> Result<(), crate::apps::Ap
     let mut error = crate::apps::ApiError::new(&refusal.code, refusal.message);
     error.details = Some(refusal.details);
     Err(error)
-}
-
-fn role(mux: &Mux, client: u64) -> HelloRole {
-    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
 }
 
 /// Fixes `client`'s hello role (step 1), and `verified_app` when prover A
@@ -160,7 +146,14 @@ fn issue(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
-    let operation = string_field(request, "operation").to_string();
+    let operation =
+        serde_json::from_value::<ResourceOperation>(json!(string_field(request, "operation")))
+            .map_err(|_| {
+                ResourceError::validation_invalid(
+                    Some("operation"),
+                    "operation must be a cmux.protocol/2 catalog operation",
+                )
+            })?;
     let params_sha256 = string_field(request, "params_sha256").to_string();
     if !valid_sha256_hex(&params_sha256) {
         return Err(ResourceError::validation_invalid(
@@ -266,7 +259,11 @@ mod test_hooks {
     }
 
     pub(in crate::server) fn role_for_test(mux: &Arc<Mux>, client: u64) -> String {
-        match role(mux, client) {
+        let role = {
+            let state = mux.control_clients.state.lock().unwrap();
+            state.clients.get(&client).map_or(HelloRole::Legacy, |record| record.origin.role)
+        };
+        match role {
             HelloRole::Legacy => "legacy",
             HelloRole::Main => "main",
             HelloRole::PageRelay => "page_relay",

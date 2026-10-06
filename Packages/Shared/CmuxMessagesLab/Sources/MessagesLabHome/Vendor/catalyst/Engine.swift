@@ -13,6 +13,8 @@ struct Draft: Equatable {
 struct ConversationUIState: Equatable {
     var draft = Draft()
     var typing: [ID] = []
+    /// cmux: the host's notice, MessagesLab's system row under the newest message (nil: none).
+    var notice: String?
     var openThread: PartRef?
     /// `offset`: points scrolled up from the bottom (0 when pinned).
     var scroll = Scroll()
@@ -68,6 +70,8 @@ enum Action {
     /// cmux: an attachment part's bytes arrived or its upload moved
     /// (HomeStore); replaces the part with the same attachment id, no motion.
     case cmuxSetAttachment(ID, Attachment)
+    /// cmux: the host's notice changed (nil clears it); the rows are derived again.
+    case cmuxNotice(String?)
 }
 
 enum Reducer {
@@ -172,6 +176,8 @@ enum Reducer {
                   let pi = s.conversation.messages[i].parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
             else { break }
             s.conversation.messages[i].parts[pi] = .attachment(a)
+        case let .cmuxNotice(text):  // cmux
+            s.ui.notice = text
         }
         return nil
     }
@@ -637,7 +643,6 @@ final class DefaultResponder: Responder {
         // Two or more questions in one turn: one answer each (the earlier ones
         // end up threaded, because a newer question follows them).
         if questions.count >= 2 {
-            // cmux: `self.` (Swift 6.2, Xcode 26.6, resolves `text` to the local below).
             return questions.prefix(3).map { q in answer(q, beats: questionBeats(self.text(of: q))) }
         }
         let all = meaningful.flatMap(\.parts)

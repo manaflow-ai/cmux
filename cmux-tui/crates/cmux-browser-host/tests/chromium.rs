@@ -25,6 +25,25 @@ const AGENT: &str = r#"(() => {
   }});
 })();"#;
 
+/// Long-poll gates of the fixture server: `/hold?<key>` answers only after
+/// the test calls `release(key)` (or after 30 s), so a page acts at a moment
+/// the test chooses instead of after a timer.
+static HOLDS: (Mutex<Vec<String>>, std::sync::Condvar) =
+    (Mutex::new(Vec::new()), std::sync::Condvar::new());
+
+fn release(key: &str) {
+    HOLDS.0.lock().unwrap().push(key.to_owned());
+    HOLDS.1.notify_all();
+}
+
+fn wait_released(key: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut released = HOLDS.0.lock().unwrap();
+    while !released.iter().any(|k| k == key) && Instant::now() < deadline {
+        released = HOLDS.1.wait_timeout(released, deadline - Instant::now()).unwrap().0;
+    }
+}
+
 fn serve() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture server");
     let port = listener.local_addr().unwrap().port();
@@ -69,6 +88,10 @@ fn serve() -> u16 {
                     return;
                 }
                 let body = match path.split('?').next().unwrap_or("") {
+                    "/hold" => {
+                        wait_released(path.split_once('?').map_or("", |(_, key)| key));
+                        "released".to_owned()
+                    }
                     "/echo" => format!(
                         "<!doctype html><title>Echo</title><pre id=h>{}|{}</pre>",
                         header("user-agent"),
@@ -109,6 +132,10 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
+                    "/files" => files_page(),
+                    "/clip" => clipboard::clip_page(),
+                    "/leak" => clipboard::leak_page(),
+                    "/clicks" => files::clicks_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
@@ -624,12 +651,17 @@ fn a_tab_less_fetch_runs_in_a_hidden_shell() {
         Arc::new(move |event| sink.lock().unwrap().push(event)),
     )
     .expect("attach to Chromium");
-    let before = driver.call("tabs.list", &json!({})).expect("tabs.list");
+    // Tab ids only: the start tab's title can change between the reads.
+    let ids = || -> Vec<Value> {
+        let tabs = driver.call("tabs.list", &json!({})).expect("tabs.list");
+        tabs.as_array().into_iter().flatten().map(|tab| tab["targetId"].clone()).collect()
+    };
+    let before = ids();
     let url = format!("http://127.0.0.1:{port}/second");
     let out = driver.call("net.fetch", &json!({"url": url})).expect("net.fetch");
     assert_eq!(out["status"], 200, "{out}");
     assert!(!out["bodyBase64"].as_str().unwrap_or("").is_empty(), "{out}");
-    assert_eq!(driver.call("tabs.list", &json!({})).expect("tabs.list"), before);
+    assert_eq!(ids(), before, "the shell tab is never listed");
     // Events arrive in order: a later tab's navigation is a barrier.
     let later = driver.call("tabs.open", &json!({"url": url})).expect("tabs.open")["targetId"]
         .as_str()
@@ -1096,3 +1128,16 @@ fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
 // test target with this file (the workflows run `--test chromium`).
 #[path = "chromium/sessions.rs"]
 mod sessions;
+
+// Uploads and file choosers on the shared headless browser (items 10/11).
+#[path = "chromium/files.rs"]
+mod files;
+use files::files_page;
+
+// The tab clipboard on the shared headless browser (item 19).
+#[path = "chromium/clipboard.rs"]
+mod clipboard;
+
+// HTML5 drag and drop (input.drag, parity 05).
+#[path = "chromium/drag.rs"]
+mod drag;

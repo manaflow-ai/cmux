@@ -187,7 +187,7 @@ impl Inner {
     }
 
     /// Remote object id of an agent handle, in the frame's agent world.
-    fn handle_object(
+    pub(super) fn handle_object(
         &self,
         agent: &Context,
         handle: &str,

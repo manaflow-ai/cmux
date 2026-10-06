@@ -355,8 +355,9 @@ final class RowCell: UICollectionViewCell {
     /// row whose tail changes, receipts, the reply). The budget applies only
     /// to rows that scroll into view.
     static var transitionDepth = 0
-    /// Inside a paging commit (older/newer page, jump): rows whose images are not decoded
-    /// wait for their off-main bitmap (no image decode on main; MediaCache.swift).
+    /// Inside a paging commit (older/newer page, jump): rows take the per-frame draw budget like
+    /// scrolled-in rows (a page load drew 4-10 rows in one frame: a dropped frame in every
+    /// 72k pt/s media fling), and rows with images wait for their off-main bitmap.
     static var inPaging = false
     /// Rows past the budget that waited for an off-main bitmap.
     static var overBudget = 0
@@ -461,7 +462,7 @@ final class RowCell: UICollectionViewCell {
             guard let spec else { return nil }
             switch spec.kind {
             case let .part(p): return p.text?.text ?? p.part.plainText
-            case let .separator(b, r): return b + " " + r
+            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
             default: return nil
@@ -532,10 +533,11 @@ final class RowCell: UICollectionViewCell {
         Reclaimer.release(receiptOld.contents)
         if let img = RowBitmaps.shared.image(for: spec) {
             Reclaimer.release(bitmap.contents)
+            MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
         } else if RowCell.synchronousBitmaps || (!(repaint && showingThisRow)
-                                                    && ((RowCell.transitionDepth > 0 && (!RowCell.inPaging || Images.ready(spec)))
+                                                    && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
             let t0 = CACurrentMediaTime()
@@ -544,6 +546,7 @@ final class RowCell: UICollectionViewCell {
             RowBitmaps.shared.insert([(spec, img)])
             RowCell.syncRenders += 1
             Reclaimer.release(bitmap.contents)
+            MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
         } else {
@@ -554,8 +557,11 @@ final class RowCell: UICollectionViewCell {
             if !(repaint && showingThisRow) {
                 RowCell.overBudget += 1
                 Reclaimer.release(bitmap.contents)
+                MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
+                // Media: the blurred thumbnail at the final size until the bitmap lands.
+                MediaPlaceholder.show(bitmap, spec)
             }
             dropWant()
             RowBitmaps.shared.want(want)
@@ -565,6 +571,7 @@ final class RowCell: UICollectionViewCell {
                 guard let self, self.spec == want else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
                 Reclaimer.release(self.bitmap.contents)
+                MediaPlaceholder.clear(self.bitmap)
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
                 CATransaction.commit()
@@ -587,6 +594,7 @@ final class RowCell: UICollectionViewCell {
         guard bitmap.contents == nil || (bitmap.contents as AnyObject) !== (img as AnyObject) else { return }
         let span = RowDraw.drawSpan(spec)
         Reclaimer.release(bitmap.contents)
+        MediaPlaceholder.clear(bitmap)
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
     }
@@ -721,15 +729,20 @@ final class RowCell: UICollectionViewCell {
         CATransaction.commit()
     }
 
-    /// Typing dots: a Gaussian brightness pulse per dot, 0.26 s apart, every
+    /// Typing dots: a Gaussian brightness pulse per dot, 0.247 s apart, every
     /// second, as one repeating keyframe animation each (render server).
+    /// Phase from two lossless macOS 27 takes (typing-unfocused-take1,
+    /// send-typed-media-take1): the first dot peaks 0.29-0.35 s after the dots
+    /// become visible (ours was 0.20), the next ones 0.246 and 0.248 s later,
+    /// period 1.0 s. The dots become visible about 0.15 s after `begin`, so the
+    /// first peak sits 0.45 s after it.
     func startTypingDots(begin: CFTimeInterval) {
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
             let n = 60
             var values: [NSNumber] = []
             for k in 0...n {
-                var x = Double(k) / Double(n) - 0.33 - Double(i) * 0.26
+                var x = Double(k) / Double(n) - 0.45 - Double(i) * 0.247
                 x -= x.rounded()
                 values.append(NSNumber(value: exp(-(x / 0.22) * (x / 0.22))))
             }

@@ -42,14 +42,18 @@ fn only_the_person_reads_the_hosts_unrouted_log() {
         .to_owned();
     agent.call("tab.keep", &json!({"targetId": target})).unwrap();
     // The tab is kept (no creator) and the call is over when the page asks:
-    // no session takes the dialog. (A user-origin session cannot act.)
+    // no session takes the dialog. (A user-origin session cannot act.) The
+    // page asks when the test releases its request, after the call ended.
+    let key = format!("unrouted-{}", std::process::id());
     agent
         .call(
             "frame.evaluate",
             &json!({"targetId": target, "world": "agent",
-                "source": "() => { setTimeout(() => confirm('late?'), 50); return 1; }"}),
+                "source": "(key) => { fetch('/hold?' + key).then(() => confirm('late?')); return 1; }",
+                "args": [key]}),
         )
         .unwrap();
+    release(&key);
     let deadline = Instant::now() + Duration::from_secs(10);
     let entries = loop {
         let info = person.call("tab.info", &json!({"targetId": target})).unwrap();
@@ -135,7 +139,7 @@ fn held_input_is_released_when_the_last_session_leaves() {
     assert_eq!(log, "keyup A true;keyup Shift true;mouseup 0 true;", "{log}");
 }
 
-fn headless_session(
+pub(crate) fn headless_session(
     source: &Arc<cmux_browser_host::headless_source::HeadlessSource>,
     browsers: &cmux_browser_host::headless_source::HeadlessBrowsers,
     name: &str,
@@ -441,4 +445,162 @@ fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
         )
         .unwrap();
     assert_eq!(cookie, "brepl_store=private", "the kept popup kept its store");
+}
+
+/// A dialog routed to a session is dismissed when that session ends
+/// (driver-protocol.md: its open dialogs are dismissed), so the page is
+/// not left blocked by a dialog no one can answer.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_sessions_end_dismisses_its_open_dialog() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let a = headless_session(&source, &browsers, "a");
+    let b_events: Arc<Mutex<Vec<DriverEvent>>> = Arc::default();
+    let b = {
+        let events = Arc::clone(&b_events);
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: "b".into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        cmux_browser_host::headless_source::HeadlessSession::new(
+            source,
+            &browsers,
+            Arc::from(AGENT),
+            Arc::new(move |event| events.lock().unwrap().push(event)),
+            lease,
+        )
+        .unwrap()
+    };
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/confirm")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    a.call("tab.keep", &json!({"targetId": target})).unwrap();
+    b.call("tab.handleEvents", &json!({"targetId": target, "events": ["dialog"]})).unwrap();
+    a.call(
+        "frame.evaluate",
+        &json!({"targetId": target, "world": "agent",
+            "source": "() => { setTimeout(() => { document.getElementById('r').textContent = String(confirm('stay?')); }, 50); return 1; }"}),
+    )
+    .unwrap();
+    wait_event(&b_events, "dialog.opened");
+    b.end_session();
+    drop(b);
+    let read = || {
+        a.call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "agent",
+                "source": "() => document.getElementById('r').textContent"}),
+        )
+        .map(|value| value.as_str().unwrap_or("").to_owned())
+        .unwrap_or_default()
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while read() != "false" {
+        assert!(Instant::now() < deadline, "b's end left its dialog open: {:?}", read());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Permissions option 2 (chief, 2026-10-06): a session that sets
+/// permissions opens its new tabs in a private browser context with the
+/// grants; no grant reaches a person's tab. The context starts with a
+/// one-way copy of the profile's cookies (never written back) and closes at
+/// the session's end unless a tab in it was kept. Clipboard grants are
+/// refused (the tab's clipboard is the only one, see the clipboard guard).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn permissions_open_new_tabs_in_a_private_granted_store() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let page = |session: &cmux_browser_host::headless_source::HeadlessSession,
+                target: &str,
+                source: &str| {
+        session
+            .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": source}))
+            .unwrap()
+    };
+    let open = |session: &cmux_browser_host::headless_source::HeadlessSession, query: &str| {
+        session
+            .call("tabs.open", &json!({"url": format!("{origin}/second?{query}")}))
+            .unwrap()["targetId"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    // The person's profile has a cookie (a tab of a session without options).
+    let person = headless_session(&source, &browsers, "person");
+    let plain = open(&person, "plain");
+    page(&person, &plain, "() => { document.cookie = 'profile=1; path=/'; }");
+    person.call("tab.keep", &json!({"targetId": plain})).unwrap();
+    let s = headless_session(&source, &browsers, "s");
+    let refused =
+        s.call("session.configure", &json!({"permissions": ["clipboard-read"]})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused:?}");
+    s.call("session.configure", &json!({"permissions": ["notifications"]})).unwrap();
+    let granted = open(&s, "granted");
+    assert_eq!(page(&s, &granted, "() => Notification.permission"), "granted");
+    assert_eq!(page(&s, &granted, "() => document.cookie"), "profile=1", "copied one way");
+    page(&s, &granted, "() => { document.cookie = 'private=1; path=/'; }");
+    // The person's tab: no grant, no cookie from the private store.
+    assert_ne!(page(&person, &plain, "() => Notification.permission"), "granted");
+    assert_eq!(page(&person, &plain, "() => document.cookie"), "profile=1", "never written back");
+    // A kept tab keeps its store after the session ends; the others close.
+    let kept = open(&s, "kept");
+    s.call("tab.keep", &json!({"targetId": kept})).unwrap();
+    s.end_session();
+    drop(s);
+    let t = headless_session(&source, &browsers, "t");
+    let urls: Vec<String> = t
+        .call("tabs.list", &json!({}))
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tab| tab["url"].as_str().unwrap_or("").to_owned())
+        .collect();
+    assert!(!urls.iter().any(|u| u.ends_with("?granted")), "{urls:?}");
+    assert!(urls.iter().any(|u| u.ends_with("?kept")), "{urls:?}");
+    assert_eq!(
+        page(&t, &kept, "() => document.cookie.split('; ').sort().join(';')"),
+        "private=1;profile=1",
+        "the kept tab is still in the private store"
+    );
+    // Every private store a session makes gets the one-way copy: a proxy
+    // set after permissions keeps the profile's sign-in and the grants.
+    let p = headless_session(&source, &browsers, "p");
+    p.call("session.configure", &json!({"permissions": ["notifications"]})).unwrap();
+    let answer =
+        p.call("session.configure", &json!({"proxy": {"server": origin.clone()}})).unwrap();
+    assert_eq!(answer["proxy"], true, "{answer}");
+    let proxied = open(&p, "proxied");
+    assert_eq!(
+        page(&p, &proxied, "() => document.cookie"),
+        "profile=1",
+        "copied into the proxy store"
+    );
+    assert_eq!(page(&p, &proxied, "() => Notification.permission"), "granted");
 }

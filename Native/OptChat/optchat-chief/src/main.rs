@@ -14,7 +14,6 @@ optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9'
 optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
 optchat-chief engine show | set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M]
 optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
-optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
@@ -67,32 +66,14 @@ fn main() -> std::process::ExitCode {
                 .map(PathBuf::from)
                 .unwrap_or_else(|| Paths::new(&home(&flags)).tools_socket);
             let args: Vec<&str> = flags.words.iter().skip(1).map(String::as_str).collect();
-            let call = match (tool, args.as_slice()) {
-                ("zoom", [id, n]) => optchat_chief::tools::Call::parse(
-                    "zoom",
-                    &serde_json::json!({"id": id, "n": n}),
-                ),
-                ("date", [id]) => {
-                    optchat_chief::tools::Call::parse("date", &serde_json::json!({"id": id}))
+            let call = match optchat_chief::tools::command(tool, &args) {
+                Ok(optchat_chief::tools::Command::Call(call)) => Ok(call),
+                Ok(optchat_chief::tools::Command::Help(usage)) => {
+                    println!("{usage}");
+                    return std::process::ExitCode::SUCCESS;
                 }
-                ("spawn", tasks) if !tasks.is_empty() => {
-                    optchat_chief::tools::Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
-                }
-                ("tell", [id, message @ ..]) if !message.is_empty() => {
-                    optchat_chief::tools::Call::parse(
-                        "tell",
-                        &serde_json::json!({"id": id, "message": message.join(" ")}),
-                    )
-                }
-                _ => Err(format!(
-                    "usage: optchat-chief {tool} {}",
-                    match tool {
-                        "zoom" => "ID N",
-                        "date" => "ID",
-                        "spawn" => "\"task\" [\"task\" ...]",
-                        _ => "ID \"message\"",
-                    }
-                )),
+                Ok(optchat_chief::tools::Command::Usage(usage)) => Err(usage),
+                Err(e) => Err(e),
             };
             // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
             let subagent =
@@ -128,6 +109,13 @@ fn main() -> std::process::ExitCode {
                 1
             }
         },
+        Some("agents") if optchat_chief::agents::retired(&flags.words).is_some() => {
+            eprintln!(
+                "{}",
+                optchat_chief::agents::retired(&flags.words).unwrap_or_default()
+            );
+            2
+        }
         Some("agents") => match optchat_chief::agents::run(&flags) {
             Ok(out) => {
                 println!("{out}");

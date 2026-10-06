@@ -19,6 +19,9 @@ final class HomeService {
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
     /// Set while older builds' Chiefs block the move into the Chief home.
     var migrationNotice: String?
+    /// While a Chief turn waits for the compactor (ChiefSettleWatch).
+    var settleNotice: String?
+    @ObservationIgnored var settleWatch: ChiefSettleWatch?
     /// The Chief home's conversation owner serves `local-conversations-v1`.
     var isAvailable: Bool { chief.supports(DaemonCapabilities.shared.localConversations) }
     /// The owner of every Home conversation: one per Chief home, never per build.
@@ -101,6 +104,9 @@ final class HomeService {
             if case .cloudConversations = event { self?.handle(event) }
         }
         installChiefMigration()
+        settleWatch = ChiefSettleWatch(home: chief.home) { [weak self] text in
+            if self?.settleNotice != text { self?.settleNotice = text }
+        }
         chief.start()
         let local = services.machines.local
         let auth = services.cloud.auth
@@ -126,6 +132,12 @@ final class HomeService {
                 reloadList(connection)
                 // Home opened before the owner answered: start the host now.
                 if homeWasOpened { homeDidOpen() }
+                // The Chief tab may wait on this owner (a local Chief with history
+                // takes it back from a placed chief): check it again now.
+                if let local = services.machines.local.connection,
+                   services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) {
+                    ensureHomeWorkspace(local)
+                }
                 for session in sessions.values {
                     session.load(from: connection) { [weak self, weak session] in
                         guard let self, let session else { return }

@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
-@@ -222,6 +222,8 @@
+@@ -254,6 +254,8 @@
      /// The outgoing gradient's colour at a window y (pt).
      static func blue(atWindowY y: CGFloat) -> UIColor {
          let px = y * 2

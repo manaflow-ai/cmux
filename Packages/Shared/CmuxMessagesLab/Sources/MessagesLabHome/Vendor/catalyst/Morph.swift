@@ -86,7 +86,7 @@ final class MorphBubble {
         // reach on screen (the scale pulse overshoots 1 slightly), so the
         // layer only ever scales them down (resolution brief: no upscaled
         // snapshot during an animation).
-        (text.contents, blurred.contents) = MorphBubble.textImages(tl, size)
+        (text.contents, blurred.contents) = MorphBubble.preparedImages(tl, size) ?? MorphBubble.textImages(tl, size)
         text.frame = CGRect(origin: .zero, size: size)
         body.addSublayer(text)
         // The blurred copy has room for its glow (no hard edge where the
@@ -148,6 +148,38 @@ final class MorphBubble {
     /// Margin around the blurred text: three box passes of radius 4.5 pt
     /// spread about 13.5 pt.
     static let blurPad: CGFloat = 14
+
+    /// The send frame's text and blur, prepared off main while the draft changes (the same
+    /// layout the send derives: trimmed text, TextParts, Sizing at the window width). The
+    /// send uses them only for an equal layout, size and scale; else it renders as before.
+    private static let prepQueue = DispatchQueue(label: "morph.prepare", qos: .userInitiated)
+    private static let prepLock = NSLock()
+    private static var prepared: (tl: TextLayout, size: CGSize, scale: CGFloat, images: (CGImage?, CGImage?))?
+    private static var prepSerial = 0
+    static var preparedHits = 0
+    static func prepare(draft: String, width: CGFloat) {
+        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !LongText.isLong(t) else { return }
+        prepLock.lock(); prepSerial += 1; let serial = prepSerial; prepLock.unlock()
+        let scale = Fixture.renderScale
+        prepQueue.async {
+            prepLock.lock(); let latest = serial == prepSerial; prepLock.unlock()
+            guard latest, let part = TextParts.parts(for: t).first(where: { $0.plainText != nil }) else { return }
+            let (size, tl) = Sizing.size(of: part, width: width)
+            guard let tl, scale == Fixture.renderScale else { return }
+            let images = textImages(tl, size)
+            prepLock.lock()
+            if serial == prepSerial { prepared = (tl, size, scale, images) }
+            prepLock.unlock()
+        }
+    }
+    private static func preparedImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?)? {
+        prepLock.lock(); defer { prepLock.unlock() }
+        guard let p = prepared, p.size == size, p.scale == Fixture.renderScale, p.tl == tl else { return nil }
+        preparedHits += 1
+        return p.images
+    }
+
     private static func textImages(_ tl: TextLayout, _ size: CGSize) -> (CGImage?, CGImage?) {
         let fmt = UIGraphicsImageRendererFormat()
         fmt.scale = Fixture.renderScale * MorphBubble.peakScale

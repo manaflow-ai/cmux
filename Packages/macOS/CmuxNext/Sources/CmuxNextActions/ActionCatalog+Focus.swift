@@ -8,7 +8,7 @@
 nonisolated extension ActionCatalog {
     static let focusActionIDs: Set<ActionID> = [
         // Tabs
-        "tab.focus", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
+        "tab.focus", "pane.focus", "screen.focus", "nextSurface", "prevSurface", "selectSurfaceByNumber", "tab.search",
         // Panes and focus targets
         "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
         "column.focusLeft", "column.focusRight", "canvasRevealFocusedPane", "focusBrowserAddressBar", "focusTextBoxInput", "focusRightSidebar",

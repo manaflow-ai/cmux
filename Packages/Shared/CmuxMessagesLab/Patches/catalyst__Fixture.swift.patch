@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
-@@ -61,17 +61,27 @@
+@@ -65,17 +65,27 @@
      static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
          UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
      }
@@ -35,7 +35,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -84,13 +94,40 @@
+@@ -88,13 +98,40 @@
          (1500, 68.8, 145.8), (1800, 65.2, 144.1), (2082, 62.8, 142)]
      /// A gradient colour (red, green from the stops) in Display P3.
      static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r, g, gradientBlue) }

@@ -159,7 +159,9 @@ final class QuitCoordinator {
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
             endLocalAgents: { [attempts = QuitAttempts()] in
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3).
-                await ChiefHostStop.stop(home: services.home.chief.home)
+                await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
+                                                     bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                await services.home.chief.shutdownForEndSessions()
                 return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { await services.cache.cef.shutdown() }

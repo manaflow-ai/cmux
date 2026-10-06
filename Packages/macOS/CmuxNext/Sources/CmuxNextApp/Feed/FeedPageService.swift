@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextFeed
+import CmuxNextIcons
 
 extension InternalPageID {
     /// The wide inbox view of the one feed model.
@@ -31,6 +32,7 @@ final class FeedPageService: InternalPageProvider {
     var page: InternalPageID { .inbox }
     var title: String { FeedHostView.paneTitle }
     var symbol: String { "tray" }
+    var icon: IconName? { .inbox }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let feed = services.feed else { return NSView() }
