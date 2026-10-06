@@ -28,6 +28,36 @@ test("pageAssets.bundle: an origin named by the inventory or reached by a redire
   assert.ok(own.length && own.every((r) => r.cookie.includes("asset_session=asset-session-secret")), "the tab's own origin keeps its cookie");
 });
 
+// The inventory and the tab's URL are two reads: a navigation that lands
+// between them must not make an asset the old document named look like an
+// asset of the new document's origin.
+test("pageAssets: a navigation between the inventory and the URL read never sends the new origin's cookies", async () => {
+  const asset = "https://assets.example/img/logo.png?race=1";
+  await s.run(`await page.goto("https://tools.example/");
+    await page.evaluate((u) => new Promise((r) => { const i = new Image(); i.onload = i.onerror = r; i.src = u; document.body.append(i); }), ${JSON.stringify(asset)});`);
+  let raced = false;
+  // The page's inventory comes back, then the tab lands on the asset's
+  // origin before list() reads the tab's URL.
+  s.intercept(async (method, params, call) => {
+    if (raced || method !== "frame.evaluate" || !String(params.source).includes("inlineSvgs")) return undefined;
+    raced = true;
+    const r = await call(method, params);
+    await call("tab.navigate", { targetId: params.targetId, url: "https://assets.example/xpage" });
+    return r;
+  });
+  const before = env.state.requests.length;
+  let r;
+  try {
+    r = await s.run(`var raceInv = await sites.pageAssets.list(); await sites.pageAssets.bundle(raceInv.id, { kinds: ["image"] });`);
+  } finally {
+    s.intercept(null);
+  }
+  assert.ok(raced, "the inventory evaluation was raced");
+  const sent = env.state.requests.slice(before).filter((x) => x.url === asset);
+  assert.deepEqual(sent.map((x) => x.cookie), sent.map(() => ""), "the old document's asset went out with assets.example's cookie");
+  assert.match(String(r.error), /stale|navigated|new document/, "list() did not fail the raced inventory");
+});
+
 test("webmcp.call: the draft binds the previewed tool's name, description and schema; a page that swaps the tool fails the confirmation", async () => {
   await s.run('await page.goto("https://tools.example/"); var wmD = await sites.webmcp.call("add_to_cart", { sku: "T-7" });');
   // The page registers another tool under the same name after the preview.
