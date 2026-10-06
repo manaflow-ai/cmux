@@ -74,7 +74,7 @@ echo "PASS: without --release the reload still builds Debug and leaves the cmux-
 
 # The product directory and source app name follow the configuration: Release's
 # product is cmux.app, which the tag step renames to the tagged app.
-products="$(awk '/^BUILD_PRODUCTS_DEBUG_DIR=.*Build\/Products/ { print; exit }' "$RELOAD")"
+products="$(awk '/^[[:space:]]*BUILD_PRODUCTS_DEBUG_DIR=.*Build\/Products/ { print; exit }' "$RELOAD")"
 [[ "$products" == *'$BUILD_CONFIGURATION'* || "$products" == *'${BUILD_CONFIGURATION}'* ]] \
   || fail "reload.sh still reads products from a fixed directory: $products"
 echo "PASS: products are read from the built configuration's directory"
