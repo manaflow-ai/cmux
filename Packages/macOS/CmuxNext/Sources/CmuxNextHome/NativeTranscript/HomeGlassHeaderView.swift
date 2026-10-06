@@ -25,6 +25,7 @@ final class HomeGlassHeaderView: NSView {
     /// The disc colours from the last `applyColors` (a kind change repaints).
     private var personDisc = NSColor.clear
     private var accentDisc = NSColor.clear
+    private var scale: CGFloat = 1
 
     static let height: CGFloat = 52
     static let avatarSize: CGFloat = 26
@@ -32,6 +33,7 @@ final class HomeGlassHeaderView: NSView {
     static let chiefSymbol = "sparkle"
     /// The fade's opacity at the top edge over a see-through page.
     static let fadeTopAlpha: CGFloat = 0.85
+    var scaledHeight: CGFloat { Self.height * scale }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -76,6 +78,17 @@ final class HomeGlassHeaderView: NSView {
         needsLayout = true
     }
 
+    /// Applies the live interface scale to the header's type, avatar and spacing.
+    func applyScale(_ scale: CGFloat) {
+        self.scale = scale
+        avatarDisc.layer?.cornerRadius = Self.avatarSize * scale / 2
+        avatar.font = .systemFont(ofSize: 11 * scale, weight: .semibold)
+        avatarGlyph.image = NSImage(systemSymbolName: Self.chiefSymbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 13 * scale, weight: .semibold))
+        name.font = .systemFont(ofSize: 13 * scale, weight: .semibold)
+        needsLayout = true
+    }
+
     /// Colours from the theme (caller runs inside `performWithTheme`): the
     /// page fill (a fade of it when the page is `seeThrough`), the name and
     /// initials in `text`, and the Chief's glyph in `accent` on a faint disc
@@ -104,17 +117,18 @@ final class HomeGlassHeaderView: NSView {
         CATransaction.setDisableActions(true)
         fade.frame = backdrop.bounds
         CATransaction.commit()
-        let s = Self.avatarSize
+        let s = Self.avatarSize * scale
+        let gap = Self.avatarGap * scale
         // Measured from the text: a truncating label reports no intrinsic width.
         let textWidth = ceil(name.attributedStringValue.size().width) + 4
-        let nameWidth = min(textWidth, max(0, bounds.width - 32 - s - Self.avatarGap))
-        let rowWidth = s + (nameWidth > 0 ? Self.avatarGap + nameWidth : 0)
+        let nameWidth = min(textWidth, max(0, bounds.width - 32 * scale - s - gap))
+        let rowWidth = s + (nameWidth > 0 ? gap + nameWidth : 0)
         let disc = CGRect(x: ((bounds.width - rowWidth) / 2).rounded(), y: ((bounds.height - s) / 2).rounded(), width: s, height: s)
         avatarDisc.frame = disc
         let initialsHeight = ceil(avatar.intrinsicContentSize.height)
         avatar.frame = CGRect(x: disc.minX, y: disc.midY - initialsHeight / 2, width: s, height: initialsHeight)
-        avatarGlyph.frame = disc.insetBy(dx: 5, dy: 5)
+        avatarGlyph.frame = disc.insetBy(dx: 5 * scale, dy: 5 * scale)
         let titleHeight = ceil(name.intrinsicContentSize.height)
-        name.frame = CGRect(x: disc.maxX + Self.avatarGap, y: (disc.midY - titleHeight / 2).rounded(), width: nameWidth, height: titleHeight)
+        name.frame = CGRect(x: disc.maxX + gap, y: (disc.midY - titleHeight / 2).rounded(), width: nameWidth, height: titleHeight)
     }
 }

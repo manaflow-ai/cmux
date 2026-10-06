@@ -74,7 +74,7 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         addSubview(field)
         addSubview(header)
-        controller.topInset = HomeGlassHeaderView.height
+        controller.topInset = header.scaledHeight
         controller.onSummaryChange = { [weak self] summary in
             guard let self else { return }
             self.header.show(summary, me: self.controller.me)
@@ -126,6 +126,10 @@ public final class HomeNativeTranscriptView: NSView {
     func applyTextScale(_ scale: CGFloat) {
         controller.textScale = scale
         field.scale = controller.textScale
+        firstRun.applyScale(scale)
+        header.applyScale(scale)
+        controller.topInset = header.scaledHeight
+        needsLayout = true
     }
 
     required init?(coder: NSCoder) { nil }
@@ -161,9 +165,9 @@ public final class HomeNativeTranscriptView: NSView {
         controller.rootLayer.frame = rowHost.bounds
         CATransaction.commit()
         controller.resize(to: bounds.size)
-        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: header.scaledHeight)
         layoutField(send: false)
-        let top = HomeGlassHeaderView.height
+        let top = header.scaledHeight
         firstRun.frame = CGRect(x: 0, y: top, width: bounds.width, height: max(0, fieldFrame.minY - top))
         updateFirstRun()
         scroll.apply(controller.scrollGeometry)

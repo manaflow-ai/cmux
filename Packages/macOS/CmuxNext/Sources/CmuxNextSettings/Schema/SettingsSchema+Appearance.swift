@@ -108,8 +108,6 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
-                help: SettingsText.keyed("settings.appearance.uiScale.help",
-                                        "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."),
                 kind: .number(SettingNumber(uiScale.range, step: uiScale.step, unit: .fraction, placeholder: uiScale.fallback)),
                 default: .number(uiScale.fallback),
                 keywords: ["scale", "zoom", "size", "chrome", "web", "bigger", "smaller"]
