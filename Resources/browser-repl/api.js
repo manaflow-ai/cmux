@@ -368,8 +368,12 @@
   // The longest page title an export's heading keeps.
   const EXPORT_TITLE_MAX = 500;
 
+  // `fetch(input, init, bound)` is fetchWithCookies: each export request is
+  // bound to the exported tab ({ page, origin: its page's origin }), so it
+  // sends and stores that tab's cookies, never the current tab's.
   function createExporter({ fetch, fs, path, host, Buffer }) {
     let n = 0;
+    const fetchFor = (page, pageURL, url) => fetch(url, {}, { page, origin: new core.URL(pageURL).origin });
     const target = (options, ext) => {
       if (options.path) return path.resolve(String(options.path));
       // The session's own temporary directory (private, mode 0700).
@@ -391,7 +395,7 @@
       },
       async google(page, pageURL, options) {
         const { url } = googleExportURL(pageURL, options.format);
-        const r = await fetch(url);
+        const r = await fetchFor(page, pageURL, url);
         if (!r.ok) throw new Error(`page.exportContent: Google returned HTTP ${r.status} for ${url}`);
         const file = target(options, "." + options.format);
         fs.writeFileSync(file, Buffer.from(await r.arrayBuffer()));
@@ -410,7 +414,7 @@
         if (!usable.length) throw new Error(`page.exportContent: video ${id} has no captions on YouTube's caption hosts (${YOUTUBE_CAPTION_HOSTS.join(", ")})`);
         const want = options.lang ? usable.find((t) => t.lang === options.lang) : usable.find((t) => t.kind !== "asr") || usable[0];
         if (!want) throw new Error(`page.exportContent: video ${id} has no ${options.lang} captions; available: ${usable.map((t) => t.lang).join(", ")}`);
-        const r = await fetch(want.url.href + "&fmt=json3");
+        const r = await fetchFor(page, pageURL, want.url.href + "&fmt=json3");
         if (!r.ok) throw new Error(`page.exportContent: captions request returned HTTP ${r.status}`);
         const file = target(options, ".txt");
         fs.writeFileSync(file, transcriptText(await r.json()));
