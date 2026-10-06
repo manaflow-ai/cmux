@@ -4,6 +4,9 @@
 //! length-prefixed (AVCC) form to Annex-B with SPS/PPS before every IDR.
 
 use crate::{H264Encoder, I420, Res};
+
+mod surface;
+pub use surface::{ColorTag, SurfaceEncoder, SurfaceFormat, SurfaceFrame, SurfaceRect};
 use std::ffi::c_void;
 use std::os::raw::{c_int, c_long};
 use std::ptr::{null, null_mut};
