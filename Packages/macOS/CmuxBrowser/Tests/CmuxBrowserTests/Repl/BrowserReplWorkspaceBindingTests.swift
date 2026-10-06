@@ -37,6 +37,19 @@ struct BrowserReplWorkspaceBindingTests {
         #expect(resolve(explicit: foreign, focused: focusedWorkspace) == .failure(.explicitWorkspaceNotFound(foreign)))
     }
 
+    /// An explicit selection the host cannot read as a workspace id (a
+    /// ref a relay passed on unresolved, a blank value) is still explicit:
+    /// it fails, never falls back to the caller's or the focused workspace.
+    @Test("An explicit workspace that is not a workspace id fails and never falls back")
+    func unreadableExplicitWorkspace() {
+        let binding = BrowserReplWorkspaceBinding(exists: { [known] in $0 == known }, focused: { [focusedWorkspace] in focusedWorkspace })
+        for handle in ["workspace:3", " ", ""] {
+            #expect(binding.resolve(explicitHandle: handle, caller: known) == .failure(.explicitWorkspaceInvalid(handle)))
+        }
+        #expect(binding.resolve(explicitHandle: known.uuidString, caller: nil) == .success(known))
+        #expect(binding.resolve(explicitHandle: nil, caller: known) == .success(known))
+    }
+
     @Test("Without a focused workspace the fallback fails")
     func noFocusedWorkspace() {
         #expect(resolve(caller: foreign, focused: nil) == .failure(.noFocusedWorkspace))
