@@ -1,7 +1,7 @@
 import Testing
 @testable import CmuxNextSettings
 
-/// `agentPane.editedFiles.*` (General > Agent Chats): the agent pane's edited-files card. Each key is a
+/// `agentPane.editedFiles.*` (General > Agent Chat): the agent pane's edited-files card. Each key is a
 /// schema row an agent may set (looks only); cmux.json values reach the snapshot, and a bad value is
 /// that key's default plus a diagnostic. The page reads the same names (turnChanges/settings.ts).
 @Suite struct AgentPaneEditedFilesSettingTests {

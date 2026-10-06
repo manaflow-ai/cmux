@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextPages
+public import CmuxNextSettings
 import Observation
 import os
 public import WebKit
@@ -39,6 +40,10 @@ public final class AgentPaneView: NSView {
     /// `labs.previewFeatures`: pushed like ``shortcuts``.
     public var previewFeatures = false {
         didSet { if previewFeatures != oldValue { applyPreviewFeatures() } }
+    }
+    /// `agentPane.editedFiles.*`: pushed like ``previewFeatures``.
+    public var editedFiles = AgentPaneEditedFilesSetting.fallback {
+        didSet { if editedFiles != oldValue { applyEditedFiles() } }
     }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
