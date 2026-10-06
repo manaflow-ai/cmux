@@ -453,6 +453,51 @@ extension TerminalController {
         }
     }
 
+    /// `remote.tmux.attach_progress` — where a host's attach over the shared connection stands.
+    ///
+    /// `cmux ssh-tmux` asks this while its attach request is waiting, so a long login shows as a
+    /// login that is still running instead of a command that looks hung. Read-only, and it
+    /// reports only the phase and how long the transport has been quiet for the host the caller
+    /// names: nothing the transport printed, and no session or window names.
+    /// Result: `attaching` false when the host has no attach in progress, else `phase`
+    /// (`logging_in` or `in_tmux`), `quiet_seconds` and `quiet_limit_seconds`.
+    nonisolated func v2RemoteTmuxAttachProgress(id: Any?, params: [String: Any]) -> String {
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return v2Error(id: id, code: "remote_connections_disabled", message: ManagedRemoteConnectionsPolicy.disabledMessage)
+        }
+        guard RemoteTmuxController.isEnabled else {
+            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+        }
+        guard let host = Self.remoteTmuxHost(from: params) else {
+            if let brokerFailure = Self.remoteTmuxBrokerFailureMessage(from: params) {
+                return v2Error(id: id, code: "invalid_params", message: brokerFailure)
+            }
+            return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
+        }
+        return v2VmCall(id: id, timeoutSeconds: 10) {
+            let report: (progress: RemoteTmuxAttachProgress, limits: RemoteTmuxAttachProgress.QuietLimits)? =
+                await MainActor.run {
+                    guard let view = AppDelegate.shared?.remoteTmuxController
+                        .multiplexedViewsByHost[host.connectionHash],
+                        view.workspaces.isEmpty,
+                        let progress = view.connection?.attachProgress()
+                    else { return nil }
+                    return (progress, view.attachQuietLimits)
+                }
+            guard let report else {
+                return ["host": host.destination, "attaching": false]
+            }
+            let limit = report.progress.phase == .loggingIn ? report.limits.loggingIn : report.limits.inTmux
+            return [
+                "host": host.destination,
+                "attaching": true,
+                "phase": report.progress.phase == .loggingIn ? "logging_in" : "in_tmux",
+                "quiet_seconds": Int(report.progress.quietFor.components.seconds),
+                "quiet_limit_seconds": Int(limit.components.seconds),
+            ]
+        }
+    }
+
     /// `remote.tmux.pane_surfaces` — the tmux pane id → cmux surface id map for
     /// EVERY mirrored window, single-pane windows included.
     ///

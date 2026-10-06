@@ -12269,13 +12269,23 @@ struct CMUXCLI {
         let method = newWindow ? "remote.tmux.window" : "remote.tmux.mirror"
         var didAuthenticate = false
         while true {
-            let result = try client.sendV2(
-                method: method,
-                params: params,
-                // Longer than the app's own limit for an attach (RemoteTmuxController
-                // .attachSocketTimeoutSeconds, 360 s), so the app's result or error always arrives first.
-                responseTimeout: 375
-            )
+            let progress = jsonOutput
+                ? nil : RemoteTmuxAttachProgressReporter(socketPath: client.socketPath, params: params)
+            progress?.start()
+            let result: [String: Any]
+            do {
+                result = try client.sendV2(
+                    method: method,
+                    params: params,
+                    // Longer than the app's own limit for an attach (RemoteTmuxController
+                    // .attachSocketTimeoutSeconds, 360 s), so the app's result or error always arrives first.
+                    responseTimeout: 375
+                )
+            } catch {
+                progress?.stop()
+                throw error
+            }
+            progress?.stop()
             if (result["mirrored"] as? Bool) == true {
                 if jsonOutput {
                     print(jsonString(result))
