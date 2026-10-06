@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326.
+// cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -595,6 +595,105 @@ pub struct ConversationAgentTokenRequest {
 pub struct ConversationAgentTokenResult {
     pub participant: String,
     pub token: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentReadRequest {
+    pub conversation: String,
+    pub hash: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub length: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub variant: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentReadResult {
+    pub byte_count: u64,
+    pub data: String,
+    pub eof: bool,
+    pub hash: String,
+    pub mime_type: String,
+    pub offset: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentUploadRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub byte_count: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub data: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub duration_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub height: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mime_type: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub offset: Optional<u64>,
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub piece: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sha256: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub width: Optional<u32>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentUploadResultStoredPoster {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentUploadResultStoredPreview {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAttachmentUploadResultStored {
+    pub byte_count: u64,
+    pub hash: String,
+    pub mime_type: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub poster: Optional<ConversationAttachmentUploadResultStoredPoster>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub preview: Optional<ConversationAttachmentUploadResultStoredPreview>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationAttachmentUploadResult {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub needs: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub received: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub stored: Optional<ConversationAttachmentUploadResultStored>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub upload: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2786,6 +2885,14 @@ pub struct SubscribeRequest {
 pub type SubscribeResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SubscribeActivityRequest {
+}
+
+#[rustfmt::skip]
+pub type SubscribeActivityResult = T::ActivitySubscribeResult;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SwapPaneRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3388,6 +3495,14 @@ impl CmuxClient {
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
         self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_attachment_read(&mut self, request: ConversationAttachmentReadRequest) -> Result<ConversationAttachmentReadResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_READ_METADATA, &request)
+    }
+
+    pub fn conversation_attachment_upload(&mut self, request: ConversationAttachmentUploadRequest) -> Result<ConversationAttachmentUploadResult> {
+        self.execute(&CONVERSATION_ATTACHMENT_UPLOAD_METADATA, &request)
     }
 
     pub fn conversation_bind(&mut self, request: ConversationBindRequest) -> Result<ConversationBindResult> {
@@ -4304,6 +4419,10 @@ impl CmuxClient {
             self.require_protocol_field("subscribe", 7)?;
         }
         self.execute_stream(&SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn subscribe_activity(&mut self, request: SubscribeActivityRequest) -> Result<CmuxStream> {
+        self.execute_stream(&SUBSCRIBE_ACTIVITY_METADATA, &request)
     }
 
     pub fn swap_pane(&mut self, request: SwapPaneRequest) -> Result<SwapPaneResult> {

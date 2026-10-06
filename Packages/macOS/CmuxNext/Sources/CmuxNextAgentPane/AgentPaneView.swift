@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextPages
+import Observation
 import os
 public import WebKit
 
@@ -55,6 +56,7 @@ public final class AgentPaneView: NSView {
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
     private var motionObservation: Task<Void, Never>?
+    private var uiScaleObservation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
     private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
@@ -171,6 +173,7 @@ public final class AgentPaneView: NSView {
         }
         Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
+        observeUIScale()
     }
 
     private static func sourceDescription(_ source: AgentPaneSource) -> String {
@@ -196,6 +199,21 @@ public final class AgentPaneView: NSView {
             forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.applyTheme() }
         }
+    }
+
+    private func observeUIScale() {
+        guard page == nil else { return }
+        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+        uiScaleObservation = Task { [weak self] in
+            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+                guard let self else { return }
+                self.webView.pageZoom = Double(DesignSettings.shared.uiScale)
+            }
+        }
+    }
+
+    deinit {
+        uiScaleObservation?.cancel()
     }
 
     @available(*, unavailable)
@@ -381,4 +399,3 @@ public final class AgentPaneView: NSView {
         }
     }
 }
-

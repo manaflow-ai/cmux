@@ -126,9 +126,10 @@ final class KeyRouter: BrowserKeyRouting {
     private func decide(_ event: NSEvent, focus: FocusState, context: KeyContext) -> Decision {
         if let candidate = candidate(for: event, context: context, focus: focus) {
             if case .ghostty = candidate.source {
-                // A terminal runs its own Ghostty keybinds; a Ghostty
-                // keybind never runs a content action from elsewhere.
-                if case .terminal = focus.resolved { return .deliver }
+                // A terminal runs its own Ghostty keybinds (in copy mode,
+                // which takes keys before Ghostty, the routed action runs);
+                // a Ghostty keybind never runs a content action from elsewhere.
+                if case .terminal = focus.resolved, !WhenClause.has(KeyContext.terminalCopyMode).evaluate(context) { return .deliver }
                 if candidate.tier == .content { return .deliver }
             }
             if Self.allows(candidate.tier, id: candidate.id, focus: focus) { return .run(candidate) }
@@ -233,16 +234,19 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
-        lastInterception = (candidate.id, window)
+        lastInterception = (candidate.id, window, true)
+        let ran: Bool
         switch candidate.source {
         case .registry(let argument):
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
-                                keyContext: context.bits)
+            ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
+                                                    keyContext: context.bits)
         case .ghostty(let arguments):
             var invocation = ActionInvocation(arguments: arguments)
             invocation.keyContext = context.bits
-            registry.perform(candidate.id, invocation: invocation)
+            ran = registry.perform(candidate.id, invocation: invocation)
         }
+        // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.
+        lastInterception = (candidate.id, window, ran)
     }
 
     /// A popup panel (or its Chromium page window) has the keyboard: a key
@@ -274,8 +278,9 @@ final class KeyRouter: BrowserKeyRouting {
     /// The toasts Cmd-Z may undo (`runsUndoToast`); tests replace it.
     var undoToasts: CmuxToastCenter = .shared
 
-    /// The last intercepted action and window (for `debug.key`).
-    private(set) var lastInterception: (action: ActionID, window: String)?
+    /// The last intercepted action, its window, and whether it ran (false:
+    /// refused, such as Cmd-W on a top page) (for `debug.key`).
+    private(set) var lastInterception: (action: ActionID, window: String, ran: Bool)?
 
     // MARK: Chords
 
@@ -330,8 +335,9 @@ final class KeyRouter: BrowserKeyRouting {
         case .armed, .dismissed:
             return true
         case .run(let id, let argument, let arguments):
-            lastInterception = (id, controller.state.id)
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            lastInterception = (id, controller.state.id, true)
+            let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            lastInterception = (id, controller.state.id, ran)
             return true
         case .mismatch:
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }

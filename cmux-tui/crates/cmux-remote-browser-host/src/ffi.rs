@@ -70,6 +70,11 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn rb_shim_quit();
     pub fn rb_shim_post(f: unsafe extern "C" fn(*mut c_void), ctx: *mut c_void);
+    pub fn rb_shim_post_delayed(
+        f: unsafe extern "C" fn(*mut c_void),
+        ctx: *mut c_void,
+        delay_ms: i64,
+    );
     pub fn rb_shim_set_screen(width_dip: c_int, height_dip: c_int, scale: f64) -> c_int;
     pub fn rb_shim_open_tab(request: c_int, url: *const c_char, w: c_int, h: c_int) -> c_int;
     pub fn rb_shim_close_tab(browser: c_int);

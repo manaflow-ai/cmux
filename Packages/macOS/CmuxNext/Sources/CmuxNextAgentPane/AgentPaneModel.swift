@@ -292,8 +292,15 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
-                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+            guard let onOpenFile else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            let url: URL
+            switch checkedFileOpen(path, target: target) {
+            case .success(let checked): url = checked
+            case .failure(let refusal): return Self.transportFailure(refusal)
+            }
+            guard await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()

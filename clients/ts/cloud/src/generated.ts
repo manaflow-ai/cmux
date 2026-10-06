@@ -65,6 +65,11 @@ export type Budget = {
   readonly tool_calls?: number
 }
 
+export type ChiefBrainPlace = {
+  readonly host: HostId
+  readonly install: InstallId
+}
+
 export type ChiefId = string
 
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
@@ -406,6 +411,7 @@ export type HomeChief = {
   readonly display_name: string
   readonly is_default: boolean
   readonly brain: "cloud"
+  readonly brain_place?: ChiefBrainPlace | null
   readonly main_conversation: ConversationId | null
   readonly harness: string | null
   readonly rev: number | "Infinity" | "-Infinity" | "NaN"
@@ -622,6 +628,7 @@ export type Install = {
   readonly bound_team?: TeamId
   readonly sso_team?: TeamId
   readonly bound_machine?: string
+  readonly capabilities?: ReadonlyArray<ServerCapability>
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -659,6 +666,7 @@ export type PairingInfo = {
   readonly os_version: string
   readonly arch: "x86_64" | "aarch64"
   readonly cmux_version: string
+  readonly capabilities?: ReadonlyArray<ServerCapability>
 }
 
 export type PairingPreview = {
@@ -749,6 +757,8 @@ export type RunError = {
 export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
+
+export type ServerCapability = string
 
 /** A Cloud machine snapshot. */
 export type SnapshotId = string
@@ -1253,11 +1263,12 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. */
+  /** Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain. */
   readonly "chief.create": {
     readonly params: {
       readonly display_name?: string
       readonly is_default?: boolean
+      readonly brain_place?: ChiefBrainPlace
     }
     readonly result: HomeChief
   }
@@ -1275,7 +1286,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false). */
+  /** Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
   readonly "chief.update": {
     readonly params: {
       readonly chief: ChiefId
@@ -1284,6 +1295,7 @@ export interface CloudOps {
       readonly is_default?: true
       readonly harness?: string | null
       readonly archived?: false
+      readonly brain_place?: ChiefBrainPlace | null
     }
     readonly result: HomeChief
   }

@@ -26,7 +26,8 @@ import Testing
     /// Location is a row of the titlebar Back / Forward list; Next / Previous
     /// Item move the selection of the focused list, which the palette
     /// replaces while it is open; the page menu's copy, save and Look Up
-    /// rows act on the right-clicked element).
+    /// rows act on the right-clicked element; Archive Chief and Open
+    /// Conversation act on a row of the Home page's list).
     @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
             let reason = descriptor.surfacePlan.palette.exemption
@@ -34,9 +35,9 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "list.next", "list.previous",
+                "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.openConversation", "list.next", "list.previous",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",
                "paletteKey.submitAlternate", "paletteKey.openActions", "paletteKey.closeActions", "paletteKey.toggleActions",
