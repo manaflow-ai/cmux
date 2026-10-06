@@ -80,10 +80,9 @@ import Testing
         #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
     }
 
-    @Test func firstRunChromeFollowsTheLiveInterfaceScale() {
-        let (window, view) = Self.view()
-        defer { window.close() }
-        view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
+    @Test func firstRunChromeFollowsTheLiveInterfaceScale() async {
+        let (window, view, store) = await Self.view()
+        defer { view.stop(); store.stop(); window.close() }
         view.layoutSubtreeIfNeeded()
         let panel = view.firstRun
         let baseHeight = panel.terminal.bounds.height
