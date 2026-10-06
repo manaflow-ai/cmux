@@ -30,6 +30,57 @@ private final class ClassicConfigWatcherSignal: @unchecked Sendable {
 struct ClassicConfigCatalogCoverageTests {
     @MainActor
     @Test
+    func legacyWorkspaceColorsLoadWithCanonicalSidebarPrecedence() throws {
+        try withConfig("""
+        {
+          "workspaceColors": {
+            "indicatorStyle": "rail",
+            "subtleSelection": true,
+            "selectionColor": "#112233"
+          },
+          "sidebar": { "selectionColor": "#445566" }
+        }
+        """) { defaults in
+            #expect(defaults.string(forKey: "sidebarActiveTabIndicatorStyle") == WorkspaceIndicatorStyle.leftRail.rawValue)
+            #expect(defaults.bool(forKey: "sidebarSubtleSelection"))
+            #expect(defaults.string(forKey: "sidebarSelectionColorHex") == "#445566")
+        }
+    }
+
+    @MainActor
+    @Test(arguments: ["theme", "defaultSearchEngine"])
+    func invalidBrowserFieldDoesNotDiscardValidBrowserPolicy(field: String) throws {
+        try withConfig("""
+        { "browser": { "disabled": true, "\(field)": "invalid" } }
+        """) { defaults in
+            #expect(defaults.bool(forKey: "browserDisabledOverride"))
+        }
+    }
+
+    @MainActor
+    private func withConfig(_ contents: String, check: (UserDefaults) -> Void) throws {
+        let suite = "cmux-classic-config-regression-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(suite, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        try write(contents, to: file)
+        let store = CmuxSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+        check(defaults)
+        withExtendedLifetime(store) {}
+    }
+
+    @MainActor
+    @Test
     func watcherReloadsNewCatalogSectionsAndScalars() async throws {
         let suiteName = "cmux-classic-config-coverage-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
