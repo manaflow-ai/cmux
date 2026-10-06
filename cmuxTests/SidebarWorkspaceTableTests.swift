@@ -13,6 +13,70 @@ import Testing
 @Suite(.serialized)
 struct SidebarWorkspaceTableTests {
     @Test
+    func staleRenderKeepsOptimisticSelectionUntilTargetIsAuthoritative() {
+        let target = UUID()
+
+        #expect(
+            !SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: UUID(),
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: true
+            )
+        )
+        #expect(
+            SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: target,
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: true
+            )
+        )
+        #expect(
+            SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+                authoritativeSelectedWorkspaceId: UUID(),
+                optimisticTargetWorkspaceId: target,
+                targetStillRendered: false
+            )
+        )
+    }
+
+    @Test
+    @MainActor
+    func optimisticSelectionPreviewBailsOutOnInjectedClockDeadline() async throws {
+        let clock = SidebarTestManualClock()
+        let controller = SidebarWorkspaceTableController(previewBailoutClock: clock)
+        let container = controller.makeContainerView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: .borderless,
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer { window.close() }
+
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row], actions: makeTableActions(), workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil, selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        container.tableView.layoutSubtreeIfNeeded()
+        let cell = try #require(
+            container.tableView.view(atColumn: 0, row: 0, makeIfNecessary: true)
+                as? SidebarWorkspaceRowTableCellView
+        )
+
+        controller.previewSelection(row: 0, modifiers: [], hitView: nil)
+        await clock.waitUntilSleeping(for: .milliseconds(400))
+        #expect(cell.hasOptimisticSelectionForTesting)
+
+        clock.advance(by: .milliseconds(400))
+        await clock.waitUntilIdle()
+        #expect(!cell.hasOptimisticSelectionForTesting)
+    }
+
+    @Test
     @MainActor
     func reorderDropDestinationIsOverlayNotTable() throws {
         let container = SidebarWorkspaceTableController().makeContainerView()
@@ -46,6 +110,37 @@ struct SidebarWorkspaceTableTests {
     }
 
 #if DEBUG
+    @Test
+    @MainActor
+    func staleApplyKeepsPreviewBailoutUntilItsTimeout() async {
+        let controller = SidebarWorkspaceTableController()
+        _ = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let actions = makeTableActions()
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        controller.installOptimisticSelectionPreviewForTesting(targetWorkspaceId: row.workspaceId)
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: UUID(),
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        #expect(controller.hasPendingOptimisticSelectionForTesting)
+        try? await Task.sleep(for: .milliseconds(450))
+        #expect(!controller.hasPendingOptimisticSelectionForTesting)
+    }
+
     @Test
     @MainActor
     func provisionalWorkspaceWriterKeepsSourceAttachedUntilNativeSessionDecision() async throws {
