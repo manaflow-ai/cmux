@@ -3,7 +3,8 @@ import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
-import { ProjectChooser, type Project } from "./ProjectChooser";
+import { ChevronIcon } from "./ComposerPickers";
+import type { Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 
@@ -44,8 +45,18 @@ export function ComposerContext({
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
   useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
   const folders = useMemo(
-    () => availableFolders(summary, sessions, selectedComputer),
-    [summary, sessions, selectedComputer],
+    () => {
+      const known = availableFolders(summary, sessions, selectedComputer);
+      if (selectedComputer !== "local" || !projectChoices) return known;
+      const projects = projectChoices.map((project) => ({
+        id: project.cwd.replace(/\/+$/, ""),
+        label: project.label,
+        detail: project.cwd,
+      }));
+      const seen = new Set(projects.map((project) => project.id));
+      return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
+    },
+    [summary, sessions, selectedComputer, projectChoices],
   );
   const currentFolder =
     summary?.cwd && computerId(summary) === selectedComputer
@@ -76,13 +87,15 @@ export function ComposerContext({
         ·
       </span>
       {!readOnly && selectedComputer === "local" && projectChoices ? (
-        <ProjectChooser
-          projects={projectChoices}
-          current={currentFolder}
-          currentLabel={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
-          icon={null}
-          onPick={(cwd) => onProject?.(cwd)}
+        <LocationPicker
+          label={t(CONTEXT_LABELS.folder)}
+          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          options={folders}
+          selected={currentFolder}
+          disabled={readOnly}
+          allowPath
           onBrowse={onBrowseProject}
+          onPick={(cwd) => onProject?.(cwd)}
         />
       ) : (
         <LocationPicker
@@ -159,6 +172,7 @@ function LocationPicker({
   selected,
   disabled,
   allowPath = false,
+  onBrowse,
   onPick,
 }: {
   label: string;
@@ -167,6 +181,7 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   allowPath?: boolean;
+  onBrowse?(): void;
   onPick(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -194,7 +209,7 @@ function LocationPicker({
   const button = (
     <>
       <span>{value}</span>
-      <span aria-hidden="true">⌄</span>
+      <ChevronIcon />
     </>
   );
   if (!allowPath)
@@ -266,6 +281,20 @@ function LocationPicker({
           }}
           inline
         />
+        {onBrowse && (
+          <button
+            type="button"
+            className="acpmux-location-browse"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setOpen(false);
+              setQuery("");
+              onBrowse();
+            }}
+          >
+            {t("project.browse")}
+          </button>
+        )}
       </Popover>
     </span>
   );
