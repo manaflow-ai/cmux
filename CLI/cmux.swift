@@ -19688,7 +19688,7 @@ struct CMUXCLI {
             return """
             Usage: cmux welcome
 
-            Show a welcome screen with the cmux logo and where to find shortcuts.
+            Show a welcome screen with the cmux logo and the default shortcuts.
             Auto-runs once on first launch.
             """
         case "shortcuts":
@@ -43166,17 +43166,49 @@ export default {
         \(c7)  ::\(reset)
         """
 
-        // Point at the live sources instead of listing bindings: users rebind
-        // shortcuts, and the palette and Settings always show the current ones.
-        let shortcuts = """
-          \(bold)Command Palette\(reset)\(subdued)     File > Command Palette… runs any action and shows its shortcut\(reset)
-          \(bold)All shortcuts\(reset)\(subdued)       Settings > Keyboard Shortcuts, or run \(reset)\(bold)cmux shortcuts\(reset)
-        """
+        // List factory defaults from the shared CmuxSettings table and display
+        // names, so a changed default updates this screen. Welcome describes a
+        // fresh install and never reads the user's settings; the last line
+        // points at where rebound shortcuts are shown.
+        let formatter = ShortcutDisplayFormatter()
+        func defaultKeys(_ action: ShortcutAction) -> String {
+            formatter.displayString(action.defaultShortcut ?? .unbound)
+        }
+        let welcomeActions: [ShortcutAction] = [
+            .newTab,
+            .newSurface,
+            .goToWorkspace,
+            .toggleSidebar,
+            .toggleRightSidebar,
+            .splitRight,
+            .splitDown,
+            .commandPalette,
+            .renameWorkspace,
+            .openBrowser,
+            .jumpToUnread,
+            .toggleUnread,
+        ]
+        let keyColumnWidth = 20
+        var shortcutLines = ["  \(bold)Default shortcuts\(reset)", ""]
+        for action in welcomeActions {
+            let keys = defaultKeys(action)
+            let padding = String(repeating: " ", count: max(1, keyColumnWidth - keys.count))
+            shortcutLines.append("  \(bold)\(keys)\(reset)\(padding)\(subdued)\(action.displayName)\(reset)")
+        }
+        shortcutLines.append("")
+        shortcutLines.append(
+            "  \(subdued)Rebound something? Run \(reset)\(bold)cmux shortcuts\(reset)\(subdued) to see or change your keys"
+                + " (Settings > Keyboard Shortcuts).\(reset)"
+        )
+        shortcutLines.append(
+            "  \(subdued)Press \(reset)\(bold)\(defaultKeys(.commandPalette))\(reset)\(subdued)"
+                + " or use File > Command Palette… for everything else.\(reset)"
+        )
 
         print()
         print(logo)
         print()
-        print(shortcuts)
+        print(shortcutLines.joined(separator: "\n"))
         print()
         print("  \(bold)Docs\(reset)\(subdued)                https://cmux.com/docs\(reset)")
         print("  \(bold)Discord\(reset)\(subdued)             https://discord.gg/xsgFEVrWCZ\(reset)")

@@ -61,7 +61,7 @@ Environment:
 
 | Command | Contract |
 | --- | --- |
-| `welcome` | Print the welcome screen. |
+| `welcome` | Print the welcome screen: the logo, the default keys for the main shortcuts (from the built-in shortcut table, never the user's bindings), and pointers to `cmux shortcuts` and the Command Palette. Works without the app or a socket. |
 | `sudo` | Run one command through the cmux privileged helper, prompting through the app rather than a terminal. Exits with the command's own exit code. |
 | `help` | Print top-level usage, or one task-focused group of commands with `help <topic>`. Works without a socket. |
 | `version` | Print the running CLI's version, build, and commit. Works without the app, a socket, or sign-in. |
@@ -1010,7 +1010,10 @@ the expected text without connecting to a cmux socket.
 - `cmux config path` -> `Config files:`
 - `cmux config docs` -> `Config files:`
 - `cmux welcome --help` -> `Usage: cmux welcome`
+- `cmux welcome --help` -> `the default shortcuts`
+- `cmux welcome` -> `Default shortcuts`
 - `cmux welcome` -> `Command Palette`
+- `cmux welcome` -> `cmux shortcuts`
 - `cmux welcome` -> `Settings > Keyboard Shortcuts`
 - `cmux shortcuts --help` -> `Usage: cmux shortcuts`
 - `cmux disable-browser --help` -> `Usage: cmux disable-browser [--json]`
