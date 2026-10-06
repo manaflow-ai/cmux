@@ -8,7 +8,7 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
     case cloud
     case status
 }
-/// The sidebar's content: the titlebar row (its buttons appear on hover),
+/// The sidebar's content: the titlebar row (its buttons remain mounted),
 /// the workspace list, and footer accessory slots. Workspace search lives in
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
@@ -197,7 +197,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.alphaValue = 0
+        newButton.alphaValue = 1
         addSubview(newButton)
 
         scrollView.drawsBackground = false
@@ -222,7 +222,7 @@ public final class SidebarView: NSView {
         addSubview(footer)
         footer.addSubview(profileBar)
         footer.addSubview(helpButton)
-        helpButton.isHidden = true
+        helpButton.isHidden = false
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -267,13 +267,15 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
-        profileBar.isHidden = !showsProfiles
+        // Footer chrome keeps its row and controls at a stable size while
+        // profile data arrives. Empty state changes enabled content only.
+        let showsProfiles = true
+        profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         let dotsInFooter = spacesPosition == .bottom && showsProfiles
         let showsHelp = !helpButton.isHidden
-        let footerHeight: CGFloat = visibleSlots.isEmpty && !dotsInFooter && !showsHelp ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards()
         // From the bottom up (R112/R114): the Settings band, the dots, the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)

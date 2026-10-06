@@ -135,7 +135,7 @@ final class TitlebarBandButton: NSButton {
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
-        guard menuProvider != nil, let window else { return super.mouseDown(with: event) }
+        guard isEnabled, menuProvider != nil, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }

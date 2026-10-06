@@ -14,7 +14,7 @@ extension SidebarView {
         let changed = revealed != isChromeRevealed
         isChromeRevealed = revealed
         cardStack.revealed = revealed
-        let alpha: CGFloat = revealed ? 1 : 0
+        let alpha: CGFloat = 1
         let mode = DesignSettings.shared.sidebarSections.minimalMode
         let above: CGFloat = revealed || !mode.hidesTop || holdsAccessory(aboveRegion) ? 1 : 0
         let below: CGFloat = revealed || !mode.hidesBottom || holdsAccessory(belowRegion) ? 1 : 0
@@ -22,7 +22,7 @@ extension SidebarView {
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
         Motion.animate(.hover, in: self) {
-            if changed { newButton.animator().alphaValue = alpha }
+            newButton.animator().alphaValue = alpha
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = below
         }

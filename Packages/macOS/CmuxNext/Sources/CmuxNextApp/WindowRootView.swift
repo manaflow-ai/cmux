@@ -53,8 +53,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row is
-    /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
+    /// Back and Forward stay visible at their final size; the glass patch is
+    /// a hover cue only.
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
     /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
     /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
@@ -64,7 +64,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidebarHidden = false {
         didSet { if oldValue != sidebarHidden { applyCornerReveal() } }
     }
-    /// The traffic lights and band are collapsed: strips under them keep no room.
+    /// Kept for layout/debug compatibility; stable chrome never collapses.
     var windowControlsCollapsed = false
     /// Called when `windowControlsCollapsed` changes (strips relay out, animated).
     var onWindowControlsChange: ((Bool) -> Void)?
