@@ -1269,15 +1269,44 @@
     }
   }
 
+  // The nodes assigned to `slot` (assignedNodes(), not flattened), one at
+  // a time, never listed whole: the page sets how many there are. In
+  // named assignment they are the host's children whose slot name (an
+  // element's slot attribute, "" for a text node) is the slot's, when it
+  // is the first slot of its shadow tree with that name. Manual
+  // assignment has no such rule, so its list comes from assignedNodes().
+  // `charge(assigned)` is called before each node is read (true for one
+  // that is yielded, which the caller reads and charges itself) and stops
+  // the walk when it returns false.
+  function* slotAssigned(slot, charge) {
+    const root = slot.getRootNode();
+    const host = root && root.host;
+    if (!host) return;
+    if (root.slotAssignment === "manual") {
+      const list = slot.assignedNodes();
+      for (let i = 0; i < list.length && charge(true); i++) yield list[i];
+      return;
+    }
+    const name = slot.getAttribute("name") || "";
+    const first = root.querySelector(name ? `slot[name="${global.CSS.escape(name)}"]` : 'slot:not([name]), slot[name=""]');
+    if (first !== slot) return;
+    for (let c = host.firstChild; c; c = c.nextSibling) {
+      const own = c.nodeType === 1 ? c.getAttribute("slot") || "" : c.nodeType === 3 ? "" : null;
+      if (!charge(own === name)) return;
+      if (own === name) yield c;
+    }
+  }
+
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
     if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
-    const assigned = tagOf(el) === "slot" ? el.assignedNodes() : [];
-    if (assigned.length) {
-      for (const child of assigned) {
-        if (ctx.truncated) break;
+    let assigned = false;
+    if (tagOf(el) === "slot") {
+      for (const child of slotAssigned(el, (yielded) => !ctx.truncated && (yielded || spend(ctx, 1)))) {
+        assigned = true;
         visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
-    } else {
+    }
+    if (!assigned) {
       for (let child = el.firstChild; child && !ctx.truncated; child = child.nextSibling) {
         if (!child.assignedSlot) visitNode(child, out, ctx, visible, ariaHidden, skipText);
       }
@@ -2193,6 +2222,7 @@
     elementAt,
     splitFrames,
     queryAll,
+    slotAssigned,
     describe,
     strictError,
     checkStates,

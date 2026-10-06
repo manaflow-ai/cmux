@@ -464,38 +464,19 @@
       return out;
     };
     // What a slot shows: assignedNodes({ flatten: true }), else its own
-    // children. The assigned nodes are found one at a time among the
-    // host's children, each charged, never listed whole: in named
-    // assignment a child (an element by its slot attribute, a text node
-    // by "") goes to the first slot of the shadow tree with that name.
-    // Manual assignment has no such rule, so its list comes from
-    // assignedNodes(). A slot assigned to a slot shows what that one
-    // shows (flattened), at most 64 levels.
+    // children. The assigned nodes come one at a time from the page
+    // agent's slotAssigned, each host child read charged, never listed
+    // whole; a slot assigned to a slot shows what that one shows
+    // (flattened), at most 64 levels.
     const slotted = (slot, out, depth) => {
       const place = (c) => {
         if (depth < 64 && c.nodeType === 1 && tag(c) === "SLOT" && c.getRootNode().host) slotted(c, out, depth + 1);
         else out.push(c);
       };
-      const root = slot.getRootNode();
-      const host = root && root.host;
       let found = false;
-      if (host && root.slotAssignment === "manual") {
-        for (const c of take(slot.assignedNodes())) {
-          found = true;
-          place(c);
-        }
-      } else if (host) {
-        const name = slot.getAttribute("name") || "";
-        const first = root.querySelector(name ? `slot[name="${CSS.escape(name)}"]` : 'slot:not([name]), slot[name=""]');
-        if (first === slot) {
-          const list = host.childNodes;
-          for (let i = 0, c = list[0]; c && B.spend(1); c = list[++i]) {
-            const own = c.nodeType === 1 ? c.getAttribute("slot") || "" : c.nodeType === 3 ? "" : null;
-            if (own !== name) continue;
-            found = true;
-            place(c);
-          }
-        }
+      for (const c of A.slotAssigned(slot, () => B.spend(1))) {
+        found = true;
+        place(c);
       }
       if (!found) for (const c of take(slot.childNodes)) place(c);
       return out;
