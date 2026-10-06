@@ -355,7 +355,7 @@ def seed_realistic(tag, scratch, timeout):
             # A chat made through the control socket opens unselected; select
             # it so it is the visible tab at quit and a restore shows it.
             app = app_client(tag)
-            chat = app_tab_id(app, "project-01", timeout, lambda tab: tab.get("kind") == "conversation")
+            chat = app_tab_id(app, "project-01", timeout, lambda tab: tab.get("kind") == "conversation" and not str(tab.get("id")).startswith("pending_"))
             reply = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": chat}}) if chat else {}
             app.close()
             if not reply.get("ok"):
