@@ -51,8 +51,10 @@ export const CLOUD_GATED_DAEMON_CAPABILITIES = ["fs-v1", "loopback-forward-v1"] 
 /** The agent's own capability; `activity` is added only when an activity sender feeds the socket. */
 export const AGENT_CAPABILITY = "vm-agent-v1";
 export const ACTIVITY_CAPABILITY = "activity";
-/** False until the daemon (or its hooks) sends activity lines to AGENT_SOCKET (cloud-automation.md 17). */
-export const ACTIVITY_SENDER_EXISTS = false;
+/**
+ * Bind always sends `activity: false`; the agent adds `activity` to its reports only while its
+ * `subscribe-activity` stream to the daemon is live (ActivityWatcher, cloud-automation.md 27).
+ */
 
 export type Env = "dev" | "stg" | "prod";
 /** The only API origin each environment may bind to (the driver writes api_origin; the image refuses anything else). */
@@ -431,7 +433,7 @@ export class StatusReporter {
   private readonly heartbeatMs: number;
   private readonly minIntervalMs: number;
 
-  constructor(private readonly o: ReporterOptions) {
+  constructor(private o: ReporterOptions) {
     this.heartbeatMs = o.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     this.minIntervalMs = o.minIntervalMs ?? 10_000;
     this.backoff = new Backoff(o.initialBackoffMs ?? 5_000, o.maxBackoffMs ?? 600_000, o.random ?? Math.random);
@@ -440,6 +442,12 @@ export class StatusReporter {
   update(change: Partial<Activity>): void {
     this.activity = { ...this.activity, ...change };
     this.trigger("change");
+  }
+
+  /** The daemon block changed (e.g. `activity` on while the activity subscription is live). */
+  setDaemon(daemon: DaemonInfo): void {
+    this.o.daemon = daemon;
+    this.trigger("daemon");
   }
 
   setState(state: "running" | "degraded" | "stopping"): void {
@@ -586,6 +594,100 @@ export class EventSender {
   }
 }
 
+// ---------------------------------------------------------------- activity (cloud-automation.md 27)
+
+/** The daemon capability that serves `subscribe-activity`. */
+export const DAEMON_ACTIVITY_CAPABILITY = "vm-activity-v1";
+
+type DaemonActivity = { attached_clients?: number; live_agents?: number; last_user_input_at_ms?: number | null; last_agent_action_at_ms?: number | null };
+
+/** Times and counts only: sessions = people's attached clients + agents that are working or blocked. */
+export function activityFromDaemon(a: DaemonActivity): Activity {
+  const count = (n: unknown) => (typeof n === "number" && Number.isInteger(n) && n > 0 ? n : 0);
+  const out: Activity = { active_sessions: count(a.attached_clients) + count(a.live_agents) };
+  if (typeof a.last_user_input_at_ms === "number" && a.last_user_input_at_ms > 0) out.last_user_input_at = a.last_user_input_at_ms;
+  if (typeof a.last_agent_action_at_ms === "number" && a.last_agent_action_at_ms > 0) out.last_agent_action_at = a.last_agent_action_at_ms;
+  return out;
+}
+
+type WatcherOptions = { socketPath: string; clock: Clock; onActivity: (a: Activity) => void; onConnected: (connected: boolean) => void; random?: () => number };
+
+/**
+ * One `subscribe-activity` stream on the daemon socket. The daemon pushes; the watcher never
+ * asks again. After a drop (e.g. the daemon restarts on a re-key) it reconnects with backoff.
+ */
+export class ActivityWatcher {
+  private socket: Socket | null = null;
+  private stopped = false;
+  private connected = false;
+  private cancelRetry: (() => void) | null = null;
+  private readonly backoff: Backoff;
+
+  constructor(private readonly o: WatcherOptions) {
+    this.backoff = new Backoff(1_000, 60_000, o.random ?? Math.random);
+  }
+
+  start(): void {
+    this.stopped = false;
+    this.open();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    this.cancelRetry?.();
+    this.socket?.destroy();
+  }
+
+  private open(): void {
+    const socket = connect(this.o.socketPath);
+    this.socket = socket;
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.write(`${JSON.stringify({ id: 1, cmd: "subscribe-activity" })}\n`));
+    socket.on("data", (chunk: string) => {
+      buffer += chunk;
+      let nl = buffer.indexOf("\n");
+      while (nl >= 0) {
+        this.line(buffer.slice(0, nl));
+        buffer = buffer.slice(nl + 1);
+        nl = buffer.indexOf("\n");
+      }
+    });
+    socket.on("error", () => undefined);
+    socket.on("close", () => this.dropped());
+  }
+
+  private line(text: string): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      log("activity: unreadable daemon line ignored");
+      return;
+    }
+    const msg = parsed as { ok?: boolean; data?: { activity?: DaemonActivity }; event?: string; activity?: DaemonActivity };
+    const activity = msg.event === "activity-changed" ? msg.activity : msg.ok === true ? msg.data?.activity : undefined;
+    if (msg.ok === true && !this.connected) {
+      this.connected = true;
+      this.backoff.reset();
+      this.o.onConnected(true);
+    }
+    if (activity) this.o.onActivity(activityFromDaemon(activity));
+  }
+
+  private dropped(): void {
+    if (this.connected) {
+      this.connected = false;
+      this.o.onConnected(false);
+    }
+    if (this.stopped || this.cancelRetry) return;
+    this.cancelRetry = this.o.clock.setTimer(this.backoff.next(), () => {
+      this.cancelRetry = null;
+      if (!this.stopped) this.open();
+    });
+  }
+}
+
 // ---------------------------------------------------------------- guest wiring
 
 /** One MMDS read (IMDSv2 style, 2 s timeouts); never in a loop. */
@@ -646,6 +748,25 @@ function serveSocket(current: () => Running | null): void {
   });
 }
 
+/** When the daemon serves `subscribe-activity`, stream activity into reports and advertise `activity` while connected. */
+function startActivity(store: Store, clock: Clock, reporter: StatusReporter, base: DaemonInfo): void {
+  const socketPath = store.read(DAEMON_SOCKET_FILE)?.trim();
+  if (!socketPath) return;
+  void queryDaemonIdentify(socketPath)
+    .then((identify) => {
+      const caps = Array.isArray(identify.capabilities) ? identify.capabilities : [];
+      if (!caps.includes(DAEMON_ACTIVITY_CAPABILITY)) return;
+      const withActivity = { ...base, capabilities: [...base.capabilities.filter((c) => c !== ACTIVITY_CAPABILITY), ACTIVITY_CAPABILITY] };
+      new ActivityWatcher({
+        socketPath,
+        clock,
+        onActivity: (a) => reporter.update(a),
+        onConnected: (connected) => reporter.setDaemon(connected ? withActivity : base),
+      }).start();
+    })
+    .catch(() => log("activity: daemon identify failed; no activity sender"));
+}
+
 async function main(): Promise<void> {
   const store = new FileStore();
   if (process.argv.includes("--notify-resume")) {
@@ -665,7 +786,7 @@ async function main(): Promise<void> {
 
   const start = async (bound: Bound, key: InstallKey) => {
     const client = new CloudClient({ fetch, bound, key, clock });
-    const daemon = await resolveDaemonInfo(store, { activitySender: ACTIVITY_SENDER_EXISTS });
+    const daemon = await resolveDaemonInfo(store, { activitySender: false });
     const heartbeatMs = heartbeatMsFor(bound.env, process.env.CMUX_VM_AGENT_HEARTBEAT_MS);
     if (heartbeatMs !== DEFAULT_HEARTBEAT_MS) log(`heartbeat test override: ${heartbeatMs} ms (dev only)`);
     const onResult = (r: ReportResult) => {
@@ -676,7 +797,9 @@ async function main(): Promise<void> {
         // the state file is diagnostic only
       }
     };
-    running = { reporter: new StatusReporter({ client, clock, machine: bound.machine, daemon, heartbeatMs, onResult }), events: new EventSender({ client, clock, machine: bound.machine }) };
+    const reporter = new StatusReporter({ client, clock, machine: bound.machine, daemon, heartbeatMs, onResult });
+    running = { reporter, events: new EventSender({ client, clock, machine: bound.machine }) };
+    startActivity(store, clock, reporter, daemon);
     running.reporter.trigger("start");
   };
 
@@ -692,7 +815,7 @@ async function main(): Promise<void> {
         log("machine-id regenerated for this clone");
       }
       const key = await ensureInstallKey(store, instanceId);
-      const result = await bindMachine({ fetch, store, key, wg: async () => ensureWgKey(store, instanceId), daemon: () => resolveDaemonInfo(store, { activitySender: ACTIVITY_SENDER_EXISTS }) });
+      const result = await bindMachine({ fetch, store, key, wg: async () => ensureWgKey(store, instanceId), daemon: () => resolveDaemonInfo(store, { activitySender: false }) });
       log(`bind: ${result.kind}${"code" in result ? ` ${result.code}` : ""}${"message" in result ? ` ${result.message}` : ""}`);
       if (result.kind === "bound") {
         bindBackoff.reset();
