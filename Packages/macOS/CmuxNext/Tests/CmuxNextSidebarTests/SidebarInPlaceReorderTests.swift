@@ -32,7 +32,8 @@ import Testing
         let b = try #require(list.displayed.row(for: .workspace(id("b"))))
         let pressed = NSPoint(x: list.frame(for: c).minX + 40, y: list.frame(for: c).minY + 7)
         list.beginDrag(SidebarListView.Press(key: .workspace(id("c")), point: pressed))
-        list.updateDrag(windowPoint: list.convert(NSPoint(x: pressed.x, y: list.frame(for: b).minY + 2), to: nil))
+        // The card's centre passes the top 30% of b (spec 1780d02), so b makes way.
+        list.updateDrag(windowPoint: list.convert(NSPoint(x: pressed.x, y: list.frame(for: b).minY - 4), to: nil))
 
         // The dragged row holds its new slot in the displayed order now.
         #expect(order() == ["a", "c", "b"])
@@ -44,9 +45,10 @@ import Testing
         #expect(try #require(list.displayed.row(for: .workspace(id("c")))).y == slot, "settles in the slot, no second jump")
     }
 
-    /// nxdog30: the slot goes under the card, never below it. With drag to
-    /// group the pointer decides: in the top quarter of the row above, that
-    /// row moves down out of the way (its middle would group instead).
+    /// nxdog30, with spec amendment 1780d02 (centre band): the row is held
+    /// with its card mostly over the loose row above, its centre past that
+    /// row's top 30% (a square drop groups instead). The slot goes under the
+    /// card, never below it: the row above moves down out of the way.
     @Test func theSlotFollowsTheCardWhenItCoversMostOfTheRowAbove() throws {
         let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("a"))
         let sidebar = SidebarView(model: model)
@@ -71,11 +73,11 @@ import Testing
         let press = NSPoint(x: list.frame(for: y).minX + 40, y: list.frame(for: y).midY)
         list.beginDrag(SidebarListView.Press(key: .workspace(id("y")), point: press))
         for step in 1...12 {
-            let target = list.frame(for: x).minY + list.frame(for: x).height * 0.15
+            let target = list.frame(for: x).minY + list.frame(for: x).height * 0.2
             let py = press.y + (target - press.y) * CGFloat(step) / 12
             list.updateDrag(windowPoint: list.convert(NSPoint(x: press.x, y: py), to: nil))
         }
-        #expect(order() == ["y", "x"], "the pointer is in x's top quarter, so x moves down")
+        #expect(order() == ["y", "x"], "the card covers most of x, so x moves down")
         let card = try #require(list.drag?.lift.frame)
         let slot = list.frame(for: try #require(list.displayed.row(for: .workspace(id("y")))))
         #expect(card.intersection(slot).height > card.height / 2, "the slot is under the card")

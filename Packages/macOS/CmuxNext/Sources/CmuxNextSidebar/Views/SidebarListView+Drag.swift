@@ -48,7 +48,6 @@ extension SidebarListView {
         )
         drag.grabOffsetX = press.point.x - rowFrame.minX
         drag.lastY = press.point.y
-        if case let .position(position)? = origin { drag.origin = position }
         self.drag = drag
         suppressed.formUnion(hidden)
         setHovered(nil)
@@ -63,19 +62,14 @@ extension SidebarListView {
         // The lifted row follows the pointer vertically; x stays locked.
         SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         autoscroll.update(windowPoint: windowPoint)
-        // A workspace drag goes by the pointer's place in the row under it (drag to group).
-        if case let .workspaces(ids) = drag.payload { return SidebarGroupDrop.update(self, drag, ids: ids, pointerY: point.y) }
-        // A group drag goes by the card's leading edge (nxdog30): a row makes way once the card covers half of it.
         let card = drag.lift.frame
         if point.y != drag.lastY {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
-        let probe = drag.movingUp ? card.minY : card.maxY
-        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
-                                          ungroupedFirst: model.ungroupedFirst)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections, ungroupedFirst: model.ungroupedFirst)
+        guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
@@ -91,16 +85,12 @@ extension SidebarListView {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
         case let (.workspaces(ids), .intoGroup(group)):
-            model.send(.move(ids, toGroup: group))
-            SidebarGroupDrop.registerUndo(self, ids, origin: drag.origin, anchor: nil)
+            SidebarGroupDrop.join(self, ids, group, origin: drag.origin)
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            let group = GroupID.make()
-            model.send(.createGroup(group, name: Strings.newGroupName, color: SidebarGroupDwell.newGroupColor(in: model.sections), workspaces: [anchor] + ids))
-            SidebarGroupDrop.registerUndo(self, ids, origin: drag.origin, anchor: anchor)
-            created = group
+            created = SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
@@ -121,7 +111,6 @@ extension SidebarListView {
     }
     /// Flies the lifted view to its row's current frame, then swaps it out.
     func land(_ drag: Drag) {
-        drag.dwellTimer.cancel()
         let destination = displayed.row(for: drag.grabbedKey).map(frame(for:)) ?? drag.lift.frame
         SidebarReorderLift.land(drag.lift, at: destination) { [weak self] in
             guard let self else { return }

@@ -27,6 +27,7 @@ mod call;
 mod keybinding;
 mod run;
 mod settings;
+mod skew;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] = &[
@@ -397,7 +398,7 @@ fn read_text<'a>(
     let messages = &crate::localization::catalog().app_control;
     match args.split_first() {
         Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
-        _ => Err(UsageError::new(messages.scope_usage.replace("{scope}", scope))),
+        _ => Err(UsageError::new(messages.search_text_usage.replace("{scope}", scope))),
     }
 }
 
@@ -698,6 +699,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             Ran::NoSuchCliAction { scope, name }
         }
         Err(mut error) => {
+            if error_code(&error) == Some("method_not_found") {
+                skew::annotate(stream, method, &mut error);
+            }
             settings::explain_refusal(method, &params, &mut error);
             report.annotate(&mut error, global.output);
             let code = super::wire::print_local_error(&error, global.output, 1);

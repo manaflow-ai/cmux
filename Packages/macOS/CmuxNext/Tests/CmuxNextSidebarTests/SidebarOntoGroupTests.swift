@@ -25,7 +25,6 @@ import Testing
             window.contentView?.addSubview(sidebar)
             sidebar.layoutSubtreeIfNeeded()
             sidebar.list.reload(animated: false)
-            sidebar.list.dragClock = { [unowned self] in self.now }
         }
 
         func frame(_ key: SidebarRowKey) throws -> NSRect { list.frame(for: try #require(list.displayed.row(for: key))) }
@@ -35,6 +34,7 @@ import Testing
             let from = try frame(key), to = try frame(over)
             let press = NSPoint(x: from.minX + 40, y: from.midY)
             list.beginDrag(SidebarListView.Press(key: key, point: press))
+            list.drag?.clock = { [unowned self] in self.now }
             let goal = to.minY + to.height * fraction
             for step in 1...12 {
                 move(to: press.y + (goal - press.y) * CGFloat(step) / 12)
@@ -72,7 +72,7 @@ import Testing
         let groups = h.groups(cloudSection)
         try #require(groups.count == 1, "one new group: \(shape(h.model.sections, cloudSection))")
         #expect(groups[0].workspaces.map(\.id) == [id("x"), id("y")])
-        #expect(groups[0].name == Strings.newGroupName)
+        #expect(groups[0].name == SidebarGroup.named(""))
         #expect(groups[0].color != .grey)
         #expect(h.list.inlineRename.session?.key == .group(groups[0].id), "the new group renames in place")
 

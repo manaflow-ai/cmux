@@ -35,7 +35,7 @@
       "files": [
         "sqlcipher/LICENSE"
       ],
-      "reason": "SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui enables `bundled` (plain SQLite, public domain)."
+      "reason": "SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui and optchat-host enable only `bundled` (plain SQLite, public domain)."
     },
     "rquickjs-sys": {
       "files": [

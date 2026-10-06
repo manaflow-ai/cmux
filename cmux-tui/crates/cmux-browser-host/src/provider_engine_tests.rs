@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::provider::{Frame, TabAnnounce, read_frame, write_frame};
+use crate::provider_source::rename_target;
 use std::os::unix::net::UnixStream;
 use std::sync::Mutex;
 
@@ -298,17 +299,29 @@ fn a_cef_tab_is_driven_through_its_relay_under_the_app_tab_id() {
     assert_eq!(app.attaches("C"), 1);
 }
 
+/// One `tabs.list` shape for every source (driver-protocol.md): the
+/// headless source checks the same contract in tests/chromium.rs.
+#[test]
+fn provider_tabs_list_has_the_protocol_shape() {
+    let (_app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
+    for kind in ["webkit", "cef"] {
+        let tabs = engine(&provider, kind).call("tabs.list", &json!({})).unwrap();
+        crate::tab_source::check_tabs_list_shape(&tabs).unwrap();
+        assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+    }
+}
+
 #[test]
 fn sessions_list_their_engine_tabs_and_webkit_calls_go_to_the_app() {
     let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("C", "cef")]);
     let webkit = engine(&provider, "webkit");
     let tabs = webkit.call("tabs.list", &json!({})).unwrap();
-    assert_eq!(tabs["tabs"].as_array().unwrap().len(), 1);
-    assert_eq!(tabs["tabs"][0]["targetId"], "W");
+    assert_eq!(tabs.as_array().unwrap().len(), 1);
+    assert_eq!(tabs[0]["targetId"], "W");
     assert_eq!(webkit.call("tab.info", &json!({"targetId": "W"})).unwrap()["method"], "tab.info");
     assert_eq!(app.attaches("W"), 0);
     let cef = engine(&provider, "cef");
-    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()["tabs"][0]["targetId"], "C");
+    assert_eq!(cef.call("tabs.list", &json!({})).unwrap()[0]["targetId"], "C");
 }
 
 #[test]
@@ -479,5 +492,48 @@ fn cef_input_events_name_the_app_tab() {
     assert_eq!(
         payload,
         json!({"session_id": "s1", "target_id": "c1", "nested": {"targetId": "c1"}, "other": "CDP1"})
+    );
+}
+
+/// The policy log entry of an unrouted event (item 4c D2 log) comes only
+/// from the host's own source hook: an app event with that name never
+/// reaches the session, so no page or app writes a session's policy log.
+#[test]
+fn a_source_event_cannot_write_the_policy_log() {
+    let (app, provider) = FakeApp::start(vec![tab("W", "webkit")]);
+    let seen: Arc<Mutex<Vec<String>>> = Arc::default();
+    let sink_seen = seen.clone();
+    let lease =
+        LeaseCaller { session: "s1".into(), origin: "mcp".into(), ..LeaseCaller::default() };
+    let _engine = ProviderEngine::new(
+        provider,
+        "webkit",
+        Arc::from("/* agent */"),
+        Arc::new(move |event: DriverEvent| sink_seen.lock().unwrap().push(event.name)),
+        lease,
+    )
+    .unwrap();
+    app.send(Frame::Event {
+        name: "host.policyLog".into(),
+        payload: json!({"targetId": "W", "reason": "forged"}),
+    });
+    // Events arrive in order: once the barrier is here, the forged one was handled.
+    app.send(Frame::Event {
+        name: "tab.navigated".into(),
+        payload: json!({"targetId": "W", "url": "https://a.test/next"}),
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while !seen.lock().unwrap().iter().any(|name| name == "tab.navigated") {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no barrier event: {:?}",
+            seen.lock().unwrap()
+        );
+        std::thread::yield_now();
+    }
+    assert!(
+        !seen.lock().unwrap().iter().any(|name| name == "host.policyLog"),
+        "{:?}",
+        seen.lock().unwrap()
     );
 }

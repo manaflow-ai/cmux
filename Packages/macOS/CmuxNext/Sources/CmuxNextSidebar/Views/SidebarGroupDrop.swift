@@ -1,44 +1,56 @@
 import AppKit
 import CmuxNextWakeups
 
-/// Drag to group (`SidebarGroupDwell`) in a list: a workspace drag reorders
-/// from the outer quarters of the row under the pointer and groups from its
-/// middle after a dwell. Cmd-Z puts grouped rows back where the drag took them from.
+/// Drag to group (`SidebarGroupDwell`) in a list: a workspace drag groups
+/// only once the card's centre has rested in a row's onto band; until then,
+/// and outside the band, the drop resolves as a reorder (spec 1780d02).
+/// Cmd-Z puts grouped rows back where the drag took them from.
 @MainActor enum SidebarGroupDrop {
-    static func update(_ list: SidebarListView, _ drag: SidebarListDrag, ids: [WorkspaceID], pointerY: CGFloat) {
-        drag.pointerY = pointerY
-        let model = list.model, displayed = list.displayed
-        let hit = SidebarGroupDwell.hit(y: pointerY, rows: displayed.rows, hidden: drag.hiddenKeys, dragged: ids, sections: model.sections)
-        let target: DropTarget?
-        switch drag.dwell.update(hit, now: list.dragClock()) {
+    /// Gates a workspace drag's `resolved` drop (nil keeps the last) through the dwell.
+    static func gate(_ list: SidebarListView, _ drag: SidebarListDrag, card: CGRect, resolved: DropTarget??) -> DropTarget?? {
+        guard case let .workspaces(ids) = drag.payload else { return resolved }
+        let hit = SidebarGroupDwell.hit(y: card.midY, rows: list.displayed.rows, hidden: drag.hiddenKeys, dragged: ids,
+                                        sections: list.model.sections)
+        switch drag.dwell.update(hit, now: drag.clock()) {
         case let .armed(group):
             drag.dwellTimer.cancel()
-            target = group
+            return .some(group)
         case .pending:
-            // The rows hold still while the pointer waits over a middle.
+            // The rows hold still while the card waits over a middle.
             if !drag.dwellTimer.isScheduled {
                 drag.dwellTimer.schedule(after: .milliseconds(Int(SidebarGroupDwell.dwell * 1000))) { @MainActor [weak list] in
                     if let list { dwellElapsed(list) }
                 }
             }
-            target = drag.lastPosition.map(DropTarget.position) ?? drag.target
+            return .some(drag.lastPosition.map(DropTarget.position) ?? drag.target)
         case .none:
             drag.dwellTimer.cancel()
-            guard let baseY = DropResolver.baseY(forDisplayY: pointerY, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
-            let base = SidebarLayout.make(sections: model.sections, metrics: list.metrics, options: list.options(includeGap: false))
-            target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
-                                          ungroupedFirst: model.ungroupedFirst, groupsOnto: false)
+            switch resolved {
+            case .some(.ontoWorkspace?), .some(.intoGroup?): return .some(drag.lastPosition.map(DropTarget.position))
+            default: return resolved
+            }
         }
-        guard target != drag.target else { return }
-        drag.target = target
-        drag.lift.setRefused(target == nil)
-        list.reload(animated: true)
     }
 
-    /// The dwell deadline: the pointer has rested over a row's middle.
+    /// The dwell deadline: the card has rested over a row's middle.
     static func dwellElapsed(_ list: SidebarListView) {
-        guard let drag = list.drag, case let .workspaces(ids) = drag.payload else { return }
-        update(list, drag, ids: ids, pointerY: drag.pointerY)
+        guard let drag = list.drag else { return }
+        list.updateDrag(windowPoint: drag.lastWindowPoint)
+    }
+
+    /// Joins `ids` to `group`, with Cmd-Z.
+    static func join(_ list: SidebarListView, _ ids: [WorkspaceID], _ group: GroupID, origin: DropPosition?) {
+        list.model.send(.move(ids, toGroup: group))
+        registerUndo(list, ids, origin: origin, anchor: nil)
+    }
+
+    /// Groups `ids` with `anchor`, at the anchor's row, as a named and colored group, with Cmd-Z.
+    static func group(_ list: SidebarListView, _ ids: [WorkspaceID], onto anchor: WorkspaceID, origin: DropPosition?) -> GroupID {
+        let group = GroupID.make(), sections = list.model.sections
+        list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: SidebarGroupDwell.newGroupColor(in: sections),
+                                     workspaces: [anchor] + ids, anchor: anchor))
+        registerUndo(list, ids, origin: origin, anchor: anchor)
+        return group
     }
 
     /// Registers Cmd-Z for a drop that grouped `ids`.
@@ -47,7 +59,7 @@ import CmuxNextWakeups
         let record = SidebarGroupUndo(list: list, ids: ids, origin: origin, anchor: anchor)
         // The record is the target and the retained object, so it lives as long as the undo entry.
         undoManager.registerUndo(withTarget: record, selector: #selector(SidebarGroupUndo.undo(_:)), object: record)
-        undoManager.setActionName(anchor == nil ? Strings.moveToGroup : Strings.newGroupName)
+        undoManager.setActionName(anchor == nil ? Strings.moveToGroup : SidebarGroup.named(""))
     }
 }
 

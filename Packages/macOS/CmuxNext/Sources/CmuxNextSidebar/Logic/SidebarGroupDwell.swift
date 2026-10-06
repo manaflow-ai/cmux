@@ -2,11 +2,10 @@ import CmuxNextDesign
 import CoreGraphics
 import Foundation
 
-/// Drag to group (Leo, 2026-10-06): the pointer's place in the row under
-/// it decides. The outer quarters reorder; over the middle half the drop
-/// groups, but only once the pointer has rested there for `dwell`, and it
-/// holds until the pointer leaves the wider `holdZone`, so reorder and
-/// group never flicker between each other.
+/// Drag to group (Leo, 2026-10-06): a drop groups only once the card's
+/// centre has rested in a row's onto band (`DropResolver.ontoBand`, spec
+/// 1780d02) for `dwell`, and stays armed until the centre leaves the wider
+/// hold band, so reorder and group never flicker between each other.
 nonisolated struct SidebarGroupDwell: Sendable {
     enum Phase: Hashable, Sendable {
         case none
@@ -16,8 +15,8 @@ nonisolated struct SidebarGroupDwell: Sendable {
         case armed(DropTarget)
     }
 
-    /// The row under the pointer that a drop could group with, and the
-    /// pointer's place in it (0 top, 1 bottom).
+    /// The row under the card's centre that a drop could group with, and the
+    /// centre's place in it (0 top, 1 bottom).
     struct Hit: Hashable, Sendable {
         var target: DropTarget
         var fraction: CGFloat
@@ -28,8 +27,9 @@ nonisolated struct SidebarGroupDwell: Sendable {
         }
     }
 
-    static let zone: ClosedRange<CGFloat> = 0.25...0.75
-    static let holdZone: ClosedRange<CGFloat> = 0.15...0.85
+    /// The onto band; empty when grouping on drop is off.
+    static var zone: ClosedRange<CGFloat> { DropResolver.ontoBand.start...max(DropResolver.ontoBand.start, DropResolver.ontoBand.end) }
+    static var holdZone: ClosedRange<CGFloat> { (zone.lowerBound - 0.15)...(zone.upperBound + 0.15) }
     static let dwell: TimeInterval = 0.275
 
     private(set) var phase = Phase.none
@@ -43,7 +43,7 @@ nonisolated struct SidebarGroupDwell: Sendable {
         case .none: nil
         case let .pending(target), let .armed(target): target
         }
-        guard let hit else {
+        guard let hit, Self.zone.lowerBound < Self.zone.upperBound else {
             phase = .none
             return phase
         }

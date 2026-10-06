@@ -8,6 +8,18 @@ the render core and its AppKit host; the Home lead owns the data (daemon
 conversation tabs, the home workspace, the chief conversation, the ops) and
 wires the view to it through this protocol.
 
+Update 2026-10-04 (Lawrence: "using the code behind MessagesLabAppKitNative
+is very important, since the animation is significantly better"): on the
+Mac the view is MessagesLabAppKitNative's own code, vendored at MessagesLab
+3a53206 in `Packages/Shared/CmuxMessagesLab` (vendor.tsv;
+`scripts/cmux-next/check-messageslab-vendor.sh` lists the blocker edits).
+`HomeProjection` replaces `HomeStoreBinding` on the Mac: HomeStore
+snapshots become MessagesLab actions on a projection store, sends and
+tapbacks become the intents in section 2. The data protocol below is
+unchanged; `HomeController` names apply to iOS, which keeps
+CmuxHomeRender until the Mac passes the harness
+(`scripts/cmux-next/home-messageslab-harness.sh`).
+
 Rules: OWNERSHIP-PRINCIPLES.md (single writer per entity, typed ops with
 idempotency keys, clients are mirror + intent log, client view state stays
 client). The view adds no model type: it reads CmuxHomeCore types only.
@@ -123,3 +135,34 @@ Accepted for merge; not fixed on feat-cmux-next-home-cloud-source.
   no hold and returns, so the echo is never awaited. Fix direction: close
   ends only a hold with `inFlight == 0`, and an in-flight hold keeps the
   target until its edits finish.
+
+## 7. The Home page's conversation list (2026-10-05, feat-cmux-next-home-sidebar-dms)
+
+Lawrence: "left sidebar UI for DMing each other too and creating multiple
+chiefs, optionally". Coordinator ruling: the list lives inside the Home top
+page as its left column (`TopHomePageView`: `HomeConversationListView` on
+the left, `HomeHostView` on the right), never in the window sidebar.
+
+- Rows are `HomeStore.rows` (the merged local and cloud inbox), in sections:
+  Chiefs, Pinned, Direct Messages and Groups (newest first), Invited (DMs
+  whose only peer has not joined). Empty sections are left out, so a user
+  without Chiefs sees only messages. Rows carry unread and mention badges
+  (`ConversationSummary.mentionCount` from the inbox entry's `mentions`).
+- New Message: team members (`team.members.list`) plus the active people of
+  the user's DMs, or a typed email address. One person is `dm.open` with
+  their participant id (`HomeOp.openDirect`), several are
+  `conversation.create`, addresses are DM invites. `not_reachable` offers
+  Invite by Email; `home.rate_limited` says to wait.
+- Invite to cmux-next: `HomeOp.invite` (cloud: `dm.open` with the address).
+  A verified-domain team invite is not in the backend yet (no `org.invite`).
+- New Chief and Archive Chief: UserDO `chief.create` / `chief.archive`
+  through `FeedService.call` (the API Worker as the signed-in user, origin
+  `FeedService.apiBaseURL`; `CMUX_NEXT_FEED_API_URL` overrides it), because
+  the daemon's cloud proxy forwards only conversation ops. An archived
+  Chief's conversation leaves the list.
+- Actions (HomeActionCatalog): `home.newMessage`, `home.invite`
+  (`cmux home invite`), `home.newChief` (`cmux home new-chief`),
+  `home.archiveChief` (`cmux home archive-chief`), `home.openConversation`.
+- Not built: pin and mute from the list (the daemon proxy refuses
+  `inbox.pin`/`inbox.mute`), a delivery state for an invite the staging
+  allow list refused after commit, the row menu through `ActionMenuContext`.
