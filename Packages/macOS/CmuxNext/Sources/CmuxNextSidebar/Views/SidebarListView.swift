@@ -259,7 +259,7 @@ final class SidebarListView: NSView {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
-            view.isDropTarget = external?.proposal == .intoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)

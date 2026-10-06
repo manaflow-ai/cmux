@@ -162,6 +162,15 @@ public final class LayoutRootView: NSView {
         }
     }
 
+    /// Mirrors the model now instead of on the observation's next turn.
+    /// The App calls it after applying a daemon tree, so the frame that
+    /// shows a workspace (or a split, close or new tab in it) already has
+    /// its panes and tab strips; the observation then finds nothing new.
+    public func syncWithModel() {
+        let current = snapshot()
+        if current != lastSnapshot { sync(current) }
+    }
+
     var canAnimate: Bool { window != nil && driver.isAttached && !context.reduceMotion }
 
     private func sync(_ snapshot: Snapshot) {

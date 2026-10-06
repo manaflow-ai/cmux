@@ -165,6 +165,13 @@ fn spawn_off_startup(job: impl FnOnce() + Send + 'static) -> std::io::Result<Joi
     std::thread::Builder::new().name("cmux-apps-start".into()).spawn(job)
 }
 
+/// Whether origin `user` is allowed on `client` now: both checks of this
+/// door (Gate A2, the verified app; and no agent binding). `client-hello`
+/// reports it as `user_origin_allowed`, so the app claims `user` only then.
+pub(super) fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
+    crate::apps::admit_origin(crate::apps::Origin::User, &claim_for(mux, client)).is_ok()
+}
+
 /// What the daemon knows about `client` for the hosting-app check.
 fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
     // Proved, never declared: the install-key hello or the app's code
@@ -435,6 +442,21 @@ mod tests {
         for request in [install("user"), grant("user")] {
             assert_eq!(error_code(&mux, agent_app, &agent_app_out, request).as_deref(), FORBIDDEN);
         }
+    }
+
+    /// `user_origin_allowed` (the `client-hello` field) matches the door:
+    /// only the verified app that is not bound to an agent.
+    #[test]
+    fn user_origin_allowed_matches_the_apps_door() {
+        let mux = Mux::new_for_test("apps-user-origin-allowed", SurfaceOptions::default());
+        let (cli, _cli_out) = connection(&mux, Some("app"), false);
+        assert!(!user_origin_allowed(&mux, cli));
+        let (app, _app_out) = connection(&mux, Some("app"), false);
+        verify(&mux, app);
+        assert!(user_origin_allowed(&mux, app));
+        let (agent_app, _agent_app_out) = connection(&mux, Some("app"), true);
+        verify(&mux, agent_app);
+        assert!(!user_origin_allowed(&mux, agent_app));
     }
 
     /// P8 3b-2: kind `app` is a self-declared label. Provider registration

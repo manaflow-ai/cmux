@@ -223,6 +223,12 @@ jobs:
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
+      # A transient DNS or mirror failure while build.rs fetches the Ghostty
+      # packages failed a macOS build (run 37401272899); fetch them first, retried.
+      - name: Fetch the ghostty-next Zig packages (retried)
+        shell: bash
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -528,6 +534,12 @@ jobs:
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: ${{ steps.ghostty-zig-version.outputs.version }}
+
+      # A transient DNS or mirror failure while build.rs fetches the Ghostty
+      # packages failed a macOS build (run 37401272899); fetch them first, retried.
+      - name: Fetch the ghostty-next Zig packages (retried)
+        shell: bash
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

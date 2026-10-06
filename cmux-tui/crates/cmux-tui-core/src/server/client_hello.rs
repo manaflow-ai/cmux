@@ -1,6 +1,6 @@
 //! `client-hello` step 1 (plans/cmux-next/request-origin.md, "Hello and
 //! capability"): `{cmd: "client-hello", role: "main"|"page_relay",
-//! install_id?}` -> `{connection_id}`.
+//! install_id?}` -> `{connection_id, user_origin_allowed, nonce?}`.
 //!
 //! The hello is accepted only as a connection's first line, or as its second
 //! line right after exactly one `identify`; any other line first (a second
@@ -15,8 +15,8 @@
 //! against the app's code signature (prover A). A role-main hello with an
 //! install id always gets a nonce, and the very next line must be step 2,
 //! `{cmd: "client-hello", install_id, proof}` -> `{verified, install_id,
-//! connection_id}`; any other line closes the window, and a refused proof
-//! is `client_hello.refused` (no retry). Either prover sets the
+//! connection_id, user_origin_allowed}`; any other line closes the window,
+//! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
 //! A page relay connection carries only `cmux.protocol/2` requests (pages
@@ -183,7 +183,10 @@ impl HelloGate {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
-        let mut data = json!({"connection_id": client.to_string()});
+        let mut data = json!({
+            "connection_id": client.to_string(),
+            "user_origin_allowed": user_origin_allowed(mux, client),
+        });
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
         let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
@@ -229,7 +232,28 @@ fn prove(
     {
         return Err(REFUSED);
     }
-    Ok(json!({"verified": true, "install_id": install_id, "connection_id": client.to_string()}))
+    Ok(json!({
+        "verified": true,
+        "install_id": install_id,
+        "connection_id": client.to_string(),
+        "user_origin_allowed": user_origin_allowed(mux, client),
+    }))
+}
+
+/// `user_origin_allowed` in both hello replies: whether an origin `user`
+/// request on this connection passes the apps door now (the verified app,
+/// not bound to an agent). The app sends `user` only when it is true and
+/// never resends a refused `user` as `script`.
+fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
+    #[cfg(unix)]
+    {
+        apps::user_origin_allowed(mux, client)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (mux, client);
+        false
+    }
 }
 
 #[cfg(all(test, unix))]

@@ -180,7 +180,16 @@ fn a_missing_or_malformed_stamp_closes_the_connection() {
     {
         let (mut stream, mut reader) = connect_as_link(&entry);
         send(&mut stream, first);
-        send(&mut stream, r#"{"id":2,"cmd":"ping"}"#);
+        // The entry closes as soon as it reads the bad first line, so this
+        // write races the close: a broken pipe or a reset is that close
+        // (FLAKE-REMOTE-ENTRY-STAMP). The read below is the assertion.
+        if let Err(error) = stream.write_all(b"{\"id\":2,\"cmd\":\"ping\"}\n") {
+            let closed = matches!(
+                error.kind(),
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+            );
+            assert!(closed, "{first}: {error}");
+        }
         let mut line = String::new();
         assert_eq!(reader.read_line(&mut line).unwrap_or(0), 0, "{first}: {line:?}");
     }

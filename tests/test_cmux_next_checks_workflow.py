@@ -416,7 +416,47 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "same-tree-cmux-tui", "swift-test"])
+
+
+
+class SupersededCommitIsNotRed(unittest.TestCase):
+    """A superseded commit's cmux-next run skips the jobs that need its tree.
+
+    Queued cmux-tui artifacts runs of an older branch head are superseded by
+    design, so that commit's same-tree cmux-tui is never published. The gate
+    job runs `pin-cmux-tui.sh wait` on a Linux runner (no macOS runner waits
+    for a tree) and reports superseded=true; every job that fetches the tree
+    then ends skipped, not failed. A real publish failure fails the gate.
+    """
+
+    GATE = "same-tree-cmux-tui"
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_the_gate_waits_for_the_tree_and_reports_superseded(self):
+        gate = self.jobs().get(self.GATE)
+        self.assertIsNotNone(gate, f"no {self.GATE} job")
+        self.assertEqual(gate.get("outputs", {}).get("superseded"), "${{ steps.wait.outputs.superseded }}")
+        runs = [step for step in gate["steps"] if "pin-cmux-tui.sh wait" in step.get("run", "")]
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0].get("id"), "wait")
+        self.assertIn("ubuntu", gate["runs-on"])
+        self.assertNotIn("macos", gate["runs-on"])
+
+    def test_every_tree_fetching_job_skips_a_superseded_commit(self):
+        fetching = {
+            name: job for name, job in self.jobs().items()
+            if any("pin-cmux-tui.sh fetch" in step.get("run", "") for step in job.get("steps", []))
+        }
+        self.assertTrue(fetching)
+        for name, job in fetching.items():
+            with self.subTest(job=name):
+                self.assertIn(self.GATE, job["needs"])
+                condition = " ".join(job["if"].split())
+                self.assertIn(f"needs.{self.GATE}.result == 'success'", condition)
+                self.assertIn(f"needs.{self.GATE}.outputs.superseded != 'true'", condition)
 
 
 if __name__ == "__main__":

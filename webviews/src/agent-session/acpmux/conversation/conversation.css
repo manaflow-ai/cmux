@@ -416,24 +416,29 @@
   color: var(--cv-text);
 }
 
-/* Math (Math.tsx): identifiers italic, operators spaced, in the STIX face. */
-.cv-math,
-.cv-math-display {
-  font-family: "STIXGeneral", serif;
-  letter-spacing: 0;
-}
-.cv-math {
-  font-size: 17.6px;
-  line-height: 1;
-}
-/* Display equations: 12px below a paragraph, 12.5px between stacked equations, 13.5px
-   above the next paragraph. */
-.cv-math-display {
-  margin: 0 0 13.5px;
-  text-align: center;
-  font-size: 18px;
-  line-height: 24px;
+/* Math (Math.tsx): KaTeX at its own size (1.21em of the text), as ChatGPT sets it. The
+   katex stylesheet ships beside these rules (build-agent-pane-web.sh). */
+.cv-math .katex {
   white-space: nowrap;
+}
+/* Display equations: 12px below a paragraph, 13.5px above the next one. One wider than the
+   column scrolls sideways instead of widening the row; the padding keeps tall glyphs (sums,
+   integrals, matrices) from being cut by the scroll box. */
+.cv-math-display,
+.cv-math--display {
+  display: block;
+  margin: 0 0 13.5px;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+}
+.cv-math--display {
+  margin: 6px 0;
+}
+.cv-math-display .katex-display,
+.cv-math--display .katex-display {
+  margin: 0;
 }
 .cv-p + .cv-math-display {
   margin-top: calc(12px - var(--cv-para-after, 14px));
@@ -441,12 +446,14 @@
 .cv-math-display + .cv-math-display {
   margin-top: -1px;
 }
-.cv-mi {
-  font-style: italic;
-  margin-right: 0.08em;
+/* TeX KaTeX cannot parse draws as written. */
+.cv-math-source {
+  font-family: var(--cv-mono);
+  font-size: 0.9em;
+  white-space: pre-wrap;
 }
-.cv-mo {
-  margin: 0 0.24em;
+pre.cv-math-source {
+  text-align: left;
 }
 
 /* ---------- Column ---------- */
