@@ -56,7 +56,8 @@ public final class OnboardingModel {
         // A start the App can't show opens the first run instead.
         let group: [Step]? = start.flatMap { start in
             guard available(start) else { return nil }
-            return [Self.firstRun, Self.bringWork].first { $0.contains(start) } ?? [start]
+            // The work screens open from New Tab with their own group, not the first run.
+            return [Self.bringWork, Self.firstRun].first { $0.contains(start) } ?? [start]
         }
         let steps = group?.filter(available) ?? firstRun
         planned = steps
