@@ -37,6 +37,25 @@ import Testing
         #expect(settings != nil && settings?.isHiddenOrHasHiddenAncestor == false && settings?.isAccessibilityElement() == true)
     }
 
+    /// Lawrence (2026-10-05): "settings section border should fade if im not hovered". The
+    /// hairline over the bottom band (and under the top band) fades with its band; a band that
+    /// stays (minimal mode off, or an item control on it) keeps its line.
+    @Test func theBandLinesFadeWithTheirBands() {
+        let (view, restore) = sidebar(.bottom)
+        defer { restore() }
+        view.setChromeRevealed(true)
+        view.setChromeRevealed(false)
+        #expect(view.belowLine.opacity == 0, "the Settings band's border fades out at rest")
+        #expect(view.aboveLine.opacity == 1, "the top band stays, so does its line")
+        view.setChromeRevealed(true)
+        #expect(view.belowLine.opacity == 1, "hover shows the border again")
+        var info = SidebarItemInfo(title: "Settings", symbol: "gearshape")
+        info.accessory = .update(title: "Restart to Update")
+        view.model.itemInfo[LayoutItemID("itm_settings")] = info
+        view.setChromeRevealed(false)
+        #expect(view.belowLine.opacity == 1, "an update control keeps the band and its border")
+    }
+
     @Test func bothBandsHideInBothAndNoneWhenOff() {
         let (both, restoreBoth) = sidebar(.both)
         both.setChromeRevealed(false)
