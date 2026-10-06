@@ -73,7 +73,9 @@ extension BrowserReplBoundary {
 
     /// The egress gate: `data` as the session's JavaScript or output may
     /// see it. The one place the native side masks what leaves it; the
-    /// scan runs once, on the original data.
+    /// scan runs once, on the original data. A byte scan (file contents, a
+    /// fetch body) stops when ``BrowserReplBoundary/isCancelled`` says so,
+    /// and the answer is then `ECANCELED` (`cancelled` for a fetch).
     func egress(_ data: BrowserReplEgressData) -> BrowserReplEgress {
         let redaction = redaction()
         switch data {
@@ -82,7 +84,7 @@ extension BrowserReplBoundary {
         case .driverResult(let method, let result):
             return BrowserReplEgress(Self.masking(result, method: method, with: redaction))
         case .fetch(let result):
-            return BrowserReplEgress(Self.maskingFetch(result, with: redaction))
+            return BrowserReplEgress(Self.maskingFetch(result, with: redaction, isCancelled: isCancelled))
         case .event(let name, let payloadJSON, let maxBytes):
             let size = payloadJSON.utf8.count
             let reason: String
@@ -97,7 +99,7 @@ extension BrowserReplBoundary {
         case .withheldEvent(let payloadJSON, let reason):
             return BrowserReplEgress(.success(Self.withheld(payloadJSON, reason: reason, with: redaction)))
         case .fs(let op, let result):
-            return BrowserReplEgress(.success(Self.maskingFS(op: op, result, with: redaction)))
+            return BrowserReplEgress(.success(Self.maskingFS(op: op, result, with: redaction, isCancelled: isCancelled)))
         case .host(let result):
             return BrowserReplEgress(.success(Self.maskingHost(result, with: redaction)))
         }
@@ -107,12 +109,16 @@ extension BrowserReplBoundary {
     /// in place of its bytes while any value is masked: the bytes masked by
     /// the gate's scan, so a file read back later never holds a value the
     /// gate would mask. `nil` when nothing is masked, so the bytes are
-    /// written as they are.
+    /// written as they are. The scan stops with `ECANCELED` when
+    /// ``isCancelled`` says so.
     func fileStoreRedaction(syscall: String) -> ((Data) throws -> Data)? {
         guard let redaction = redaction() else { return nil }
+        let isCancelled = isCancelled
         return { data in
             do {
-                return try redaction.redact(data)
+                return try redaction.redact(data, isCancelled: isCancelled)
+            } catch is CancellationError {
+                throw BrowserReplFileSystem.cancelledError(syscall: syscall, display: "")
             } catch {
                 throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: \(syscall): \(BrowserReplSecretStore.limitMessage(data.count))")
             }
@@ -154,7 +160,8 @@ extension BrowserReplBoundary {
     /// masked as bytes).
     private static func maskingFetch(
         _ result: Result<String, BrowserReplDriverError>,
-        with redaction: BrowserReplSecretStore.Redaction?
+        with redaction: BrowserReplSecretStore.Redaction?,
+        isCancelled: () -> Bool
     ) -> Result<String, BrowserReplDriverError> {
         guard let redaction else { return result }
         guard case .success(let json) = result else { return masking(result, method: "fetch", with: redaction) }
@@ -166,10 +173,12 @@ extension BrowserReplBoundary {
                 guard let data = Data(base64Encoded: body) else {
                     return .failure(BrowserReplDriverError(code: "invalid", message: "fetch: the response body could not be checked for secrets"))
                 }
-                let maskedBody = try redaction.redact(data)
+                let maskedBody = try redaction.redact(data, isCancelled: isCancelled)
                 masked["bodyBase64"] = maskedBody == data ? body : maskedBody.base64EncodedString()
             }
             return .success(JSONSerialization.browserReplString(masked) ?? "null")
+        } catch is CancellationError {
+            return .failure(BrowserReplDriverError(code: "cancelled", message: "fetch: cancelled while its body was checked for secrets, because the cell timed out or the session ended"))
         } catch let error as BrowserReplDriverError {
             return .failure(BrowserReplDriverError(code: error.code, message: "fetch: \(error.message)"))
         } catch {
@@ -194,7 +203,8 @@ extension BrowserReplBoundary {
     private static func maskingFS(
         op: String,
         _ result: Result<Any, BrowserReplFileSystemError>,
-        with redaction: BrowserReplSecretStore.Redaction?
+        with redaction: BrowserReplSecretStore.Redaction?,
+        isCancelled: () -> Bool
     ) -> String {
         guard let redaction else {
             switch result {
@@ -206,8 +216,11 @@ extension BrowserReplBoundary {
         case .success(let value):
             if op == "readFile", let base64 = value as? String, let data = Data(base64Encoded: base64) {
                 do {
-                    let masked = try redaction.redact(data)
+                    let masked = try redaction.redact(data, isCancelled: isCancelled)
                     return hostJSON(.success(masked == data ? base64 : masked.base64EncodedString()))
+                } catch is CancellationError {
+                    let error = BrowserReplFileSystem.cancelledError(syscall: "read", display: "")
+                    return hostJSON(.failure(code: error.code, message: error.message))
                 } catch {
                     return hostJSON(.failure(code: "EINVAL", message: "readFile: \(BrowserReplSecretStore.limitMessage(data.count))"))
                 }

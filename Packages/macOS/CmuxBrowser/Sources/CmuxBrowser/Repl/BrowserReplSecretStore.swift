@@ -582,20 +582,26 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             case .unchanged: return text
             case .redacted(let bytes): return String(decoding: bytes, as: UTF8.self)
             case .overLimit: throw BrowserReplSecretStore.limitError(text.utf8.count)
+            // Text passes never ask to stop.
+            case .cancelled: throw CancellationError()
             }
         }
 
-        /// `data` masked, text or binary alike.
+        /// `data` masked, text or binary alike. `isCancelled` stops a long
+        /// pass: the session's timeout cannot stop native work on its
+        /// JavaScript thread any other way.
         /// - Throws: `invalid` when masking would grow it by more than
-        ///   ``BrowserReplSecretStore/maximumGrowth``.
-        func redact(_ data: Data) throws -> Data {
+        ///   ``BrowserReplSecretStore/maximumGrowth``; `CancellationError`
+        ///   when `isCancelled` said so first.
+        func redact(_ data: Data, isCancelled: () -> Bool = { false }) throws -> Data {
             guard !data.isEmpty else { return data }
             var budget = BrowserReplSecretStore.maximumGrowth
-            let outcome = data.withUnsafeBytes { scanner.redact($0.bindMemory(to: UInt8.self), budget: &budget) }
+            let outcome = data.withUnsafeBytes { scanner.redact($0.bindMemory(to: UInt8.self), budget: &budget, isCancelled: isCancelled) }
             switch outcome {
             case .unchanged: return data
             case .redacted(let bytes): return Data(bytes)
             case .overLimit: throw BrowserReplSecretStore.limitError(data.count)
+            case .cancelled: throw CancellationError()
             }
         }
 

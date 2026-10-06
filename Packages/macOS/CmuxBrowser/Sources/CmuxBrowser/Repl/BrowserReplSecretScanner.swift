@@ -17,6 +17,11 @@ import Foundation
 /// bytes per input byte (and a fixed allowance) stops and reports
 /// ``Outcome/overLimit``, as for growth.
 ///
+/// The pass runs on a session's JavaScript thread, inside a synchronous
+/// host call, where the cell's timeout cannot stop it; it asks the caller's
+/// `isCancelled` once per ``cancellationStride`` input bytes (and as often
+/// inside a long Base64 run) and stops with ``Outcome/cancelled``.
+///
 /// A mask is longer than a short value, so masking can grow the input
 /// (a one-character value with a 64-character name grows 73 times). The
 /// growth is bounded by a budget the caller passes: a pass that would
@@ -51,6 +56,8 @@ struct BrowserReplSecretScanner {
         case unchanged
         case redacted([UInt8])
         case overLimit
+        /// `isCancelled` said so before the pass finished.
+        case cancelled
     }
 
     private let values: [Value]
@@ -70,6 +77,9 @@ struct BrowserReplSecretScanner {
     static let workPerByte = 64
     /// Matching work any pass may do, so short inputs never hit the limit.
     static let workAllowance = 1 << 20
+    /// How many input (or decoded) bytes a pass handles between checks of
+    /// `isCancelled`.
+    static let cancellationStride = 1 << 16
 
     /// - Parameters:
     ///   - values: The values to mask, longest first.
@@ -94,14 +104,15 @@ struct BrowserReplSecretScanner {
     var isEmpty: Bool { values.isEmpty && !digitRunMasks.contains { $0 != nil } }
 
     /// Masks `input`. `budget` is how many bytes the output may grow past
-    /// the input; it is reduced by the growth of this pass.
+    /// the input; it is reduced by the growth of this pass. `isCancelled`
+    /// stops a long pass (``Outcome/cancelled``).
     ///
     /// Every position is tried against the original input, also one inside
     /// a match: agent code can register a value that overlaps a protected
     /// one (the characters just before it), and a match of that value must
     /// not hide the protected value's start. Intersecting matches are masked
     /// as their union, each distinct mask once in the order they start.
-    func redact(_ input: UnsafeBufferPointer<UInt8>, budget: inout Int) -> Outcome {
+    func redact(_ input: UnsafeBufferPointer<UInt8>, budget: inout Int, isCancelled: () -> Bool = { false }) -> Outcome {
         guard !isEmpty, !input.isEmpty else { return .unchanged }
         var pass = Pass(input: input, budget: budget)
         var span = Span()
@@ -110,13 +121,19 @@ struct BrowserReplSecretScanner {
         var index = 0
         var tokenCheckedUntil = 0
         var decoded: [UInt8] = []
+        var cancelled = false
         while index < input.count {
+            if index > 0, index % Self.cancellationStride == 0, isCancelled() { return .cancelled }
             let byte = input[index]
             let startsRun = index == 0 || !Self.isBase64[Int(input[index - 1])]
             if Self.isBase64[Int(byte)], startsRun, index >= tokenCheckedUntil {
                 var end = index
                 while end < input.count, Self.isBase64[Int(input[end])] { end += 1 }
-                let mask = base64Mask(input, from: index, to: end, buffer: &decoded, work: &work, workLimit: workLimit)
+                let mask = base64Mask(
+                    input, from: index, to: end, buffer: &decoded, work: &work, workLimit: workLimit,
+                    isCancelled: isCancelled, cancelled: &cancelled
+                )
+                if cancelled { return .cancelled }
                 guard work <= workLimit else { return .overLimit }
                 if let mask {
                     var padded = end
@@ -527,24 +544,36 @@ struct BrowserReplSecretScanner {
     /// encoding can start at any character of a run (`"x" + btoa(value)`),
     /// and only a start in step with it decodes to the value's bytes.
     /// Adds the bytes it decoded and compared to `work`, and stops (nil)
-    /// once that passes `workLimit`.
+    /// once that passes `workLimit`, or when `isCancelled` says so (and sets
+    /// `cancelled`).
     private func base64Mask(
         _ input: UnsafeBufferPointer<UInt8>,
         from start: Int,
         to end: Int,
         buffer: inout [UInt8],
         work: inout Int,
-        workLimit: Int
+        workLimit: Int,
+        isCancelled: () -> Bool,
+        cancelled: inout Bool
     ) -> [UInt8]? {
         let length = end - start
         guard length >= 2 else { return nil }
+        let long = length > Self.cancellationStride
         for offset in 0..<min(4, length - 1) {
+            if long, isCancelled() {
+                cancelled = true
+                return nil
+            }
             Self.decodeBase64(input, from: start + offset, to: end, into: &buffer)
             work += length
             guard !buffer.isEmpty else { continue }
             let hit: Value? = buffer.withUnsafeBufferPointer { decoded in
                 // Each decoded position tries only the values that start with its byte.
                 for position in decoded.indices {
+                    if position > 0, position % Self.cancellationStride == 0, isCancelled() {
+                        cancelled = true
+                        return nil
+                    }
                     for valueIndex in valuesByFirstByte[Int(decoded[position])] {
                         let value = values[valueIndex]
                         guard Self.looksFor(value, inRunOf: length, at: offset) else { continue }
@@ -557,7 +586,7 @@ struct BrowserReplSecretScanner {
                 return nil
             }
             if let hit { return hit.mask }
-            if work > workLimit { return nil }
+            if cancelled || work > workLimit { return nil }
         }
         return nil
     }
