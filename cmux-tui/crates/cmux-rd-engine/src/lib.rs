@@ -71,6 +71,8 @@ impl Default for EngineConfig {
 /// Capture and encode this frame now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodeRequest {
+    /// The display stream (0 the main surface; popups and tiles have their own).
+    pub stream: u16,
     pub frame: u32,
     /// The region that changed (the source may encode more).
     pub damage: Rect,
@@ -104,6 +106,15 @@ pub struct Output {
     pub encode: Option<EncodeRequest>,
     /// The last frame was too large to send: halve the encoder's bitrate.
     pub halve_bitrate: bool,
+}
+
+/// Why a stream cannot be added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamError {
+    /// The stream id is in use.
+    Exists(u16),
+    /// The session already has the most streams a viewer accepts.
+    TooMany,
 }
 
 /// Counters for the stats control message.
@@ -164,6 +175,7 @@ impl MediaEngine {
     fn request(&self, action: FlowAction) -> Option<EncodeRequest> {
         match action {
             FlowAction::Encode { damage, frame } => Some(EncodeRequest {
+                stream: self.cfg.stream,
                 frame,
                 damage,
                 force_idr: self.force_idr,
@@ -179,8 +191,16 @@ impl MediaEngine {
         self.request(action)
     }
 
-    /// New damage from the source.
-    pub fn damage(&mut self, rect: Rect, now_us: u64) -> Option<EncodeRequest> {
+    /// Adds a display stream (red-commit stub: not implemented yet).
+    pub fn add_stream(&mut self, _stream: u16, _width: u32, _height: u32) -> Result<(), StreamError> {
+        Ok(())
+    }
+
+    /// Removes a display stream (red-commit stub).
+    pub fn remove_stream(&mut self, _stream: u16) {}
+
+    /// New damage from the source on `stream`.
+    pub fn damage(&mut self, _stream: u16, rect: Rect, now_us: u64) -> Option<EncodeRequest> {
         let action = self.gate.damage(rect, now_us);
         self.request(action)
     }
