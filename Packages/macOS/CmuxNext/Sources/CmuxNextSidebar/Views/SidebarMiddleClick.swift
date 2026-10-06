@@ -40,6 +40,9 @@ final class SidebarMiddleClick {
 
     /// A middle press came up at `point` (list coordinates).
     func pressUp(at point: NSPoint, in list: SidebarListView) {
-        pressKey = nil  // red: closes nothing yet
+        defer { pressKey = nil }
+        guard case let .workspace(id)? = list.displayed.row(at: point.y)?.key, pressKey == .workspace(id),
+              !list.model.isPlaceholder(id) else { return }
+        list.model.send(.close([id]))
     }
 }
