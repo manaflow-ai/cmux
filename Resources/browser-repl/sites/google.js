@@ -7,12 +7,17 @@
   const { URL, URLSearchParams } = root.CmuxBrowserRepl.core;
 
   // Formats Google's export endpoint serves per file kind.
-  const FORMATS = {
-    document: ["md", "pdf", "docx", "txt", "html", "odt", "rtf", "epub"],
-    spreadsheets: ["xlsx", "csv", "tsv", "pdf", "ods", "html"],
-    presentation: ["pptx", "pdf", "txt", "odp"],
-  };
-  const KIND_NAMES = { document: "Google Docs document", spreadsheets: "Google Sheets spreadsheet", presentation: "Google Slides presentation", file: "Drive file" };
+  // Export formats by editor kind. A kind names a path segment of a
+  // signed-in editor URL, so both tables have no prototype: only their own
+  // entries are kinds, never an inherited name such as "constructor".
+  const table = (entries) => Object.freeze(Object.assign(Object.create(null), entries));
+  const FORMATS = table({
+    document: Object.freeze(["md", "pdf", "docx", "txt", "html", "odt", "rtf", "epub"]),
+    spreadsheets: Object.freeze(["xlsx", "csv", "tsv", "pdf", "ods", "html"]),
+    presentation: Object.freeze(["pptx", "pdf", "txt", "odp"]),
+  });
+  const KIND_NAMES = table({ document: "Google Docs document", spreadsheets: "Google Sheets spreadsheet", presentation: "Google Slides presentation", file: "Drive file" });
+  const isKind = (kind) => typeof kind === "string" && Object.prototype.hasOwnProperty.call(KIND_NAMES, kind);
 
   // A Docs/Sheets/Slides/Drive URL or { id, kind, uid } -> { kind, id, uid, gid, tab }.
   function parse(input, name, want) {
@@ -41,8 +46,10 @@
       }
     }
     if (!ref.id || !/^[\w-]+$/.test(ref.id)) throw new S.SiteError("invalid", `${name}: no file id in ${JSON.stringify(input)}`);
+    if (want && !isKind(want)) throw new S.SiteError("invalid", `${name}: kind: expected document, spreadsheets, presentation or file, got ${JSON.stringify(want)}`);
     if (want && ref.kind && ref.kind !== want && ref.kind !== "file") throw new S.SiteError("invalid", `${name}: expected a ${KIND_NAMES[want]}, got a ${KIND_NAMES[ref.kind]}`);
     if (want && !ref.kind) ref.kind = want;
+    if (ref.kind !== null && ref.kind !== undefined && !isKind(ref.kind)) throw new S.SiteError("invalid", `${name}: kind: expected document, spreadsheets, presentation or file, got ${JSON.stringify(ref.kind)}`);
     if (ref.uid !== undefined && !(Number.isInteger(ref.uid) && ref.uid >= 0)) throw new S.SiteError("invalid", `${name}: uid: expected a non-negative integer, got ${JSON.stringify(ref.uid)}`);
     return ref;
   }
