@@ -33,6 +33,7 @@ import { NewTabScreen } from "./newtab/NewTabScreen";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { useNewTabAdoption } from "./newtab/adoption";
 import { projectLabel } from "./sessionList";
+import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -830,6 +831,14 @@ export function VirtualTranscript({
   };
   return (
     <div ref={ref} className="acpmux-scroll" role="feed" aria-label={t("transcript.label")} onScroll={onScroll}>
+      <ThreadMinimap
+        rows={rows}
+        layout={layout}
+        scroller={ref}
+        scrollTop={scroll.top}
+        viewportHeight={height}
+        width={width}
+      />
       <div className="acpmux-spacer" style={{ height: layout.totalHeight }}>
         <div ref={thread} className="acpmux-thread">
           {rows.slice(range.first, range.last).map((row, index) => {

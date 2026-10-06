@@ -1,14 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import {
-  currentTurn,
-  minimapTurns,
-  popoverOffset,
-  replyPreview,
-  tickLayout,
-  tickWidth,
-  turnScrollTop,
-} from "./model";
+import { currentTurn, minimapTurns, popoverOffset, replyPreview, tickLayout, tickWidth, turnScrollTop } from "./model";
 import { createBookmarkStore } from "./bookmarks";
 
 const row = (id: string, kind: string, text: string, at = 1): AcpmuxRow => ({ id, version: 1, at, kind, text });
@@ -33,12 +25,15 @@ describe("thread minimap turns", () => {
       { text: " reply", bold: false },
     ]);
     expect(turns[1].reply).toEqual([]);
-    // A key survives a session switch that reuses `user-<seq>` ids.
-    expect(turns[0].key).not.toBe(minimapTurns([row("user-1", "user", "x", 2)])[0].key);
+    // Another session's `user-1` is another turn; a later snapshot of this one is the same turn.
+    expect(turns[0].key).not.toBe(minimapTurns([row("user-1", "user", "x")])[0].key);
+    expect(turns[0].key).toBe(minimapTurns([row("user-1", "user", "  first\n prompt ", 9)])[0].key);
   });
 
   test("reply preview keeps bold, drops code and link targets, marks list items", () => {
-    const blocks = replyPreview("# Title\n\nSee [the docs](https://x) and `code`.\n\n```ts\nhidden\n```\n\n- one\n- __two__");
+    const blocks = replyPreview(
+      "# Title\n\nSee [the docs](https://x) and `code`.\n\n```ts\nhidden\n```\n\n- one\n- __two__",
+    );
     expect(blocks.map((block) => block.kind)).toEqual(["paragraph", "paragraph", "item", "item"]);
     expect(blocks[1].spans.map((span) => span.text).join("")).toBe("See the docs and code.");
     expect(blocks[3].spans).toEqual([{ text: "two", bold: true }]);
@@ -83,15 +78,23 @@ describe("thread minimap geometry", () => {
 describe("thread minimap bookmarks", () => {
   test("toggle, notify and persist", () => {
     const saved = new Map<string, string>();
-    const storage = { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) };
+    const storage = {
+      getItem: (k: string) => saved.get(k) ?? null,
+      setItem: (k: string, v: string) => void saved.set(k, v),
+    };
     const store = createBookmarkStore(storage);
     let calls = 0;
     store.subscribe(() => (calls += 1));
-    store.toggle("user-1@1");
-    expect(store.has("user-1@1")).toBe(true);
+    store.toggle("user-1#a");
+    expect(store.has("user-1#a")).toBe(true);
     expect(calls).toBe(1);
-    expect(createBookmarkStore(storage).has("user-1@1")).toBe(true);
-    store.toggle("user-1@1");
-    expect(store.has("user-1@1")).toBe(false);
+    // A new snapshot per toggle, so memoized renders see the change.
+    const first = store.snapshot();
+    store.toggle("user-2#b");
+    expect(store.snapshot()).not.toBe(first);
+    store.toggle("user-2#b");
+    expect(createBookmarkStore(storage).has("user-1#a")).toBe(true);
+    store.toggle("user-1#a");
+    expect(store.has("user-1#a")).toBe(false);
   });
 });
