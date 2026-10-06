@@ -46,6 +46,14 @@ General app preferences from Settings > App.
 | `app.hideTabCloseButton` | boolean | `false` | Hide tab close buttons in the pane tab bar. |
 | `app.tabBarVisibility` | `"always"` or `"multiple-tabs"` | `"always"` | Control when each pane's surface tab bar is shown. `"always"` shows it even when the pane has a single tab; `"multiple-tabs"` hides the bar until the pane has two or more tabs. Minimal mode (app.minimalMode) always shows it, because there the top tab bar is the titlebar row. |
 
+## surfaceTabBar
+
+Surface tab bar typography from Settings > Terminal.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `surfaceTabBar.fontSize` | number | `11.0` | Default surface tab bar font size in points. The legacy Ghostty key `surface-tab-bar-font-size` remains a fallback alias. |
+
 ## terminal
 
 Terminal presentation settings from Settings > Terminal.
@@ -114,6 +122,7 @@ Sidebar content and metadata visibility from Settings > Sidebar.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `sidebar.fontSize` | number | `12.5` | Sidebar font size in points. The legacy Ghostty key `sidebar-font-size` remains a fallback alias. |
 | `sidebar.hideAllDetails` | boolean | `false` | Hide all per-workspace detail rows. |
 | `sidebar.showWorkspaceDescription` | boolean | `true` | Show custom workspace descriptions in the sidebar. |
 | `sidebar.workspaceDescriptionColor` | colorHexOrNull | `null` | Override the workspace description text color in the sidebar. |

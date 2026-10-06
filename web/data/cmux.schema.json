@@ -845,6 +845,22 @@
         }
       }
     },
+    "surfaceTabBar": {
+      "x-cmux-scopes": ["global"],
+      "title": "surfaceTabBar",
+      "description": "Surface tab bar typography settings from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 8.0,
+          "maximum": 14.0,
+          "default": 11.0,
+          "description": "Default surface tab bar font size in points. The legacy Ghostty key surface-tab-bar-font-size remains a fallback alias."
+        }
+      }
+    },
     "terminal": {
       "x-cmux-scopes": ["global"],
       "title": "terminal",
@@ -1483,6 +1499,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "fontSize": {
+          "type": "number",
+          "minimum": 10.0,
+          "maximum": 20.0,
+          "default": 12.5,
+          "description": "Sidebar font size in points. The legacy Ghostty key sidebar-font-size remains a fallback alias."
+        },
         "hideAllDetails": {
           "type": "boolean",
           "default": false,
