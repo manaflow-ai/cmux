@@ -237,6 +237,22 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
 
+    def test_batch_dispatch_runs_every_dispatch_gated_job(self):
+        # scripts/ci/next_batch.py validates a stack of pull requests by
+        # dispatching this workflow on a next-batch/* branch. Every job that
+        # dispatch gates to feat-cmux-next must also run there, or the batch
+        # would pass with its macOS tiers skipped.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gated = {name: job for name, job in jobs.items()
+                 if "refs/heads/feat-cmux-next" in str(job.get("if", ""))
+                 and "workflow_dispatch" in str(job.get("if", ""))}
+        self.assertGreaterEqual(len(gated), 6)
+        for name, job in gated.items():
+            with self.subTest(job=name):
+                self.assertIn("startsWith(github.ref, 'refs/heads/next-batch/')", job["if"])
+        # Nightly promotion and the dogfood artifact stay feat-cmux-next pushes only.
+        self.assertNotIn("next-batch", jobs["request-nightly-next"]["if"])
+
     def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
         for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
                                  ("cmux-tui-artifacts.yml", "tree-preflight")):
