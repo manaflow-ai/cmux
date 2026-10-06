@@ -413,6 +413,13 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      # SCROLLBARS-FOLLOW-MACOS: no forced scroller style, hidden indicators or
+      # custom web scrollbars; scrollers follow the macOS "Show scroll bars" setting.
+      - name: Scrollbars follow macOS
+        id: scrollbars
+        continue-on-error: true
+        run: scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE"
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -437,6 +444,7 @@ jobs:
           bash scripts/cmux-next/tests/check-fleet-only.test.sh
           bash scripts/cmux-next/tests/dev-account-guard.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
+          bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
           bash scripts/cmux-next/tests/swift-test-summary.test.sh
@@ -497,6 +505,7 @@ jobs:
             ${{ steps.crash-safety.outcome }}|Crash safety
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
+            ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle

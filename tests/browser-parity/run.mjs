@@ -223,7 +223,7 @@ function parseEmits(outputs, cells) {
 // that intentionally differs from classic, the golden's `lease` section
 // overrides a value (`{"$absent": true}`: the key is not emitted) and names
 // the lease rule in `lease.reasons` (README, "Intentional cmux-next
-// differences").
+// differences"). The `backends` section does the same for one backend.
 export function expectedValues(backend, golden) {
   if (backend === "oracle") return { ...golden.oracle };
   const expected = { ...golden.oracle, ...golden.cmux };
@@ -232,6 +232,12 @@ export function expectedValues(backend, golden) {
       if (value && typeof value === "object" && value.$absent === true) delete expected[key];
       else expected[key] = value;
     }
+  }
+  // One engine's deliberate difference (README, same section): only that
+  // backend gets it.
+  for (const [key, value] of Object.entries(golden.backends?.[backend]?.values || {})) {
+    if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+    else expected[key] = value;
   }
   return expected;
 }

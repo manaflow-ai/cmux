@@ -129,6 +129,7 @@ final class SidebarListView: NSView {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         applyKeepingViewport(displayLayout(), animated: animated)
+        inlineRename.follow()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
