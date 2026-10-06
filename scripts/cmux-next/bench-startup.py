@@ -277,6 +277,22 @@ def app_client(tag, timeout=30):
     raise SystemExit(f"tag {tag}: control socket did not answer")
 
 
+def app_tab_id(app, workspace_name, timeout):
+    """The app's id for the first tab of a workspace; the daemon's listing names tabs differently."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        topology = (app.call("snapshot.get").get("result") or {}).get("topology") or {}
+        for workspace in topology.get("workspaces", []):
+            if workspace.get("name") != workspace_name:
+                continue
+            for screen in workspace.get("screens", []):
+                for pane in screen.get("panes", []):
+                    if pane.get("tabs"):
+                        return str(pane["tabs"][0].get("id") or "")
+        time.sleep(0.2)
+    return ""
+
+
 def seed_realistic(tag, scratch, timeout):
     """Fills the tag's state with a day's work (see --profile realistic) and
     leaves the daemon running."""
@@ -291,7 +307,6 @@ def seed_realistic(tag, scratch, timeout):
         def workspaces():
             return {w["id"]: w for w in daemon.call("list-workspaces", cmd_key="cmd")["data"]["workspaces"]}
 
-        focus_tab = None
         for index in range(REALISTIC_WORKSPACES):
             before = workspaces()
             created = daemon.call("new-workspace", {"name": f"project-{index + 1:02d}"}, cmd_key="cmd")
@@ -302,13 +317,12 @@ def seed_realistic(tag, scratch, timeout):
             for _ in range(2):
                 daemon.call("new-tab", {"pane": pane["id"]}, cmd_key="cmd")
             daemon.call("split", {"pane": pane["id"], "dir": "right"}, cmd_key="cmd")
-            first_tab = (pane.get("tabs") or [{}])[0]
-            focus_tab = focus_tab if index else str(first_tab.get("id") or "")
         daemon.close()
         # The agent chat goes beside a terminal of the first seeded workspace.
         app = app_client(tag)
+        focus_tab = app_tab_id(app, "project-01", timeout)
         if not focus_tab:
-            print(f"  {tag}: the first seeded workspace listed no tab id", file=sys.stderr)
+            print(f"  {tag}: the app never listed a tab in project-01", file=sys.stderr)
         steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None), ("palette.newAgentChat", None)]
         agent = True
         for action, target in steps:
