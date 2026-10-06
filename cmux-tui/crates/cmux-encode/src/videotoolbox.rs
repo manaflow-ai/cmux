@@ -3,9 +3,7 @@
 //! no frame reordering, infinite GOP with IDR on request; output converted from the
 //! length-prefixed (AVCC) form to Annex-B with SPS/PPS before every IDR.
 
-use crate::convert::I420;
-use crate::encoder::H264Encoder;
-use crate::Res;
+use crate::{H264Encoder, I420, Res};
 use std::ffi::c_void;
 use std::os::raw::{c_int, c_long};
 use std::ptr::{null, null_mut};
@@ -442,11 +440,7 @@ impl H264Encoder for VideoToolbox {
             if !props.is_null() {
                 CFRelease(props);
             }
-            if s == 0 {
-                VTCompressionSessionCompleteFrames(self.session, INVALID_TIME)
-            } else {
-                s
-            }
+            if s == 0 { VTCompressionSessionCompleteFrames(self.session, INVALID_TIME) } else { s }
         };
         if status != 0 {
             return Err(format!("VideoToolbox encode failed: {status}").into());

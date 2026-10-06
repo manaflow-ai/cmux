@@ -14,7 +14,7 @@ Status: plan for the C7 cmux-tui window (coordinator queue slot 9), lane 17, 202
 
 Rules: the `Control` type has one definition (cmux-rd-proto); cmux-rd-host's `wire.rs` and the Swift copy `RemoteRdControl` follow it (Swift keeps a copy pinned by golden JSON tests, because the app does not parse JSON in Rust). cmux-remote-browser depends on proto, core, engine and encode, never on cmux-rd-host. Cargo.toml and Cargo.lock change (two new workspace members, `serde` and `serde_json` as optional proto deps already in the lock): this is why C7 needs a window.
 
-Order inside the window: (1) proto `serde` feature + golden vectors, host switches to it (red: a host test that parses the proto vectors); (2) cmux-rd-engine with the media logic moved from `stream.rs` (landed sans-I/O: the host's `MediaSession` keeps its I/O loop and delegates to `MediaEngine`); (3) cmux-encode with the VideoToolbox encoder moved from `vt.rs` and the OpenH264 backend; (4) the CI and license jobs below. Each step lands red-first with its own gate.
+Order inside the window: (1) proto `serde` feature + golden vectors, host switches to it (red: a host test that parses the proto vectors); (2) cmux-rd-engine with the media logic moved from `stream.rs` (landed sans-I/O: the host's `MediaSession` keeps its I/O loop and delegates to `MediaEngine`); (3) cmux-encode with the VideoToolbox encoder moved from `vt.rs` and the OpenH264 backend (3a source/runtime, 3b VideoToolbox gated on a fleet Mac through cmux-ci, coordinator rule 2026-10-05); (4) the CI and license jobs below. Each step lands red-first with its own gate.
 
 ## 2. CI job for the remote desktop crates and Swift tests
 

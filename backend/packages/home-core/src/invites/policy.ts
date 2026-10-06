@@ -8,6 +8,9 @@ import { isAddress, normalizeEmail, normalizePhone, type Address } from "./norma
  *   runtime from secret storage (`HOME_INVITE_ALLOWLIST_EMAILS`,
  *   `HOME_INVITE_ALLOWLIST_PHONES`), never from the
  *   repository; any other recipient is refused with no provider call;
+ * - outside production, an invite from an inviter on the team inviter list
+ *   (`HOME_INVITE_ALLOWED_INVITERS`, decision 2026-10-05) reaches any recipient
+ *   that is not suppressed; the rate limits and suppression still apply;
  * - `HOME_INVITES_SEND=off` refuses everything everywhere.
  */
 export type Environment = "production" | "staging" | "development" | "preview" | "local"
@@ -68,6 +71,8 @@ export interface SendPolicyInput {
   /** `HOME_INVITES_SEND`; anything but `off` means on. */
   readonly sendSwitch?: string | undefined
   readonly allowlist: Allowlist
+  /** The invite's inviter is on the team inviter list (non-production only; production sends to anyone). */
+  readonly trustedInviter?: boolean
 }
 
 export type Suppression = "opted_out" | "bounced" | "complained" | "reported" | "admin"
@@ -81,8 +86,39 @@ export const decideSend = (policy: SendPolicyInput, address: Address, suppressio
   if (suppression) return { send: false, state: "suppressed", reason: suppression }
   const index = allowlistIndex(policy.allowlist, address)
   if (policy.environment === "production") return { send: true, allowlist_index: index }
+  if (index === 0 && policy.trustedInviter === true) return { send: true, allowlist_index: 0 }
   if (index === 0) return { send: false, state: "refused_env", reason: `${policy.environment} sends only to the allow list` }
   return { send: true, allowlist_index: index }
+}
+
+/** The team inviter list: user ids (`user_...`) and email addresses. */
+export interface InviterList {
+  readonly users: ReadonlySet<string>
+  readonly emails: ReadonlySet<string>
+}
+
+/**
+ * `HOME_INVITE_ALLOWED_INVITERS`: comma, semicolon, space or newline separated user ids and
+ * emails. Invalid entries throw with their position only.
+ */
+export const allowedInvitersFromEnv = (text: string | undefined): InviterList => {
+  const users = new Set<string>()
+  const emails = new Set<string>()
+  ;(text ?? "").split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean).forEach((value, index) => {
+    if (/^user_[A-Za-z0-9_-]{1,64}$/.test(value)) return void users.add(value)
+    const parsed = normalizeEmail(value)
+    if (!isAddress(parsed)) throw new Error(`HOME_INVITE_ALLOWED_INVITERS entry ${index + 1} is not a user id or an email address`)
+    emails.add(parsed.value)
+  })
+  return { users, emails }
+}
+
+/** `email` must be the inviter's verified email; pass none when it is not verified. */
+export const isAllowedInviter = (list: InviterList, inviter: { readonly user?: string | null; readonly email?: string | null }): boolean => {
+  if (inviter.user && list.users.has(inviter.user)) return true
+  if (!inviter.email) return false
+  const parsed = normalizeEmail(inviter.email)
+  return isAddress(parsed) && list.emails.has(parsed.value)
 }
 
 export const parseEnvironment = (value: string | undefined): Environment => {

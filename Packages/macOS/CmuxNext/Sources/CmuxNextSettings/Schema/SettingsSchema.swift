@@ -115,6 +115,7 @@ public nonisolated enum SettingsSchema {
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + [
             TabSettingsSchema.newTerminalOpensWorkspace(group: tabs),
+        ] + TabSettingsSchema.closeWarnings(group: tabs) + [
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),

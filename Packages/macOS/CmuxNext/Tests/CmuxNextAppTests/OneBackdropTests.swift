@@ -119,7 +119,7 @@ struct OneBackdropTests {
         let onboardingServices = MockOnboardingServices()
         onboardingServices.accountsView = NSView()
         onboardingServices.firstTaskView = NSView()
-        let onboarding = OnboardingWindowController(model: OnboardingModel(services: onboardingServices, start: .role))
+        let onboarding = OnboardingWindowController(model: OnboardingModel(services: onboardingServices, start: .accounts))
         windows.append((.onboarding, try #require(onboarding.window)))
         for kind in WindowKind.allCases where kind != .main && !windows.contains(where: { $0.0 == kind }) {
             let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 480, height: 320),

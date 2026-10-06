@@ -148,6 +148,9 @@ extension SettingsSchema {
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
         "app.quitBehavior": .destructive,
+        // Off, a close ends running programs and agents without asking.
+        "app.warnBeforeClosingTab": .destructive,
+        "app.warnBeforeClosingAgentSession": .destructive,
         // Update checks and downloads reach the network; install on quit
         // replaces the app.
         "updates.checkAutomatically": .network,

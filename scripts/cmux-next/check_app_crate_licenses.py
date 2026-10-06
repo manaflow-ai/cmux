@@ -5,8 +5,9 @@ For each root crate the macOS app links (cmux-app-ffi) or that a shipped
 first-party binary links without the GPL host (cmux-remote-browser), walk
 the normal-dependency closure from `cargo metadata` and fail when:
   - a banned crate is in it: anything x264, cmux-rd-host (the GPL desktop
-    host), or OpenH264 built from source (Mac uses VideoToolbox; shipped
-    OpenH264 is Cisco's prebuilt binary loaded at first use);
+    host), or OpenH264 built from source (the `source` feature of openh264
+    or openh264-sys2; Mac uses VideoToolbox; shipped OpenH264 is Cisco's
+    prebuilt binary downloaded and loaded at first use);
   - a crate's license is not on the allowlist (MIT, Apache-2.0, BSD,
     ISC, Unicode, Zlib) and the crate is not one of the seven named
     first-party GPL crates.
@@ -38,11 +39,10 @@ ALLOWED = {
     "CC0-1.0",
 }
 
-# First-party crates that still declare GPL-3.0-or-later. Named exactly, by
-# coordinator decisions 2026-10-05 (and LICENSE-RB for cmux-remote-browser):
-# no relicense now; Lawrence's open license question (are the app-linked and
-# remote browser first-party crates MIT?) decides, and the license lane
-# removes these entries in its push.
+# First-party crates in the app closure. They declare GPL-3.0-or-later, like
+# all first-party code (Lawrence, 2026-10-06: "keep everything GPL, we do not
+# want any MIT in cmux"; scripts/cmux-next/notices/check_first_party_licenses.py).
+# Named exactly, so a third-party GPL crate still fails this gate.
 FIRST_PARTY_GPL = {
     "cmux-rd-ffi",
     "cmux-app-ffi",
@@ -56,8 +56,11 @@ FIRST_PARTY_GPL = {
 BANNED = [
     (re.compile(r"x264"), "x264 is GPL and stays in the cmux-rd host binary"),
     (re.compile(r"^cmux-rd-host$"), "the GPL desktop host never links into the app"),
-    (re.compile(r"^openh264(-sys2)?$"), "OpenH264 from source is for tests and the bench only"),
 ]
+
+# OpenH264 compiled from source is for tests and the bench only; Cisco's
+# library loaded at runtime (openh264-sys2 feature `libloading`) is allowed.
+SOURCE_BUILT = re.compile(r"^openh264(-sys2)?$")
 
 DEFAULT_ROOTS = [
     ("cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-app-ffi"),
@@ -87,7 +90,8 @@ def license_allowed(expression):
 
 
 def closure(metadata, root_name):
-    """Names of the root and every crate it links (normal dependencies)."""
+    """The root and every crate it links (normal dependencies), each with its
+    resolved features under `_features`."""
     by_id = {p["id"]: p for p in metadata["packages"]}
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
     root = next(pid for pid, p in by_id.items() if p["name"] == root_name)
@@ -101,7 +105,7 @@ def closure(metadata, root_name):
             kinds = [k.get("kind") for k in dep.get("dep_kinds", [{"kind": None}])]
             if any(k is None for k in kinds):
                 stack.append(dep["pkg"])
-    return [by_id[pid] for pid in sorted(seen)]
+    return [dict(by_id[pid], _features=nodes.get(pid, {}).get("features", [])) for pid in sorted(seen)]
 
 
 def check(metadata, root_name):
@@ -111,6 +115,11 @@ def check(metadata, root_name):
         for pattern, why in BANNED:
             if pattern.search(name):
                 problems.append(f"{root_name}: {name} is banned ({why})")
+        if SOURCE_BUILT.search(name) and "source" in pkg["_features"]:
+            problems.append(
+                f"{root_name}: {name} builds OpenH264 from source (tests and the bench only; "
+                "ship Cisco's library loaded at runtime)"
+            )
         if name in FIRST_PARTY_GPL:
             continue
         if not license_allowed(pkg.get("license")):

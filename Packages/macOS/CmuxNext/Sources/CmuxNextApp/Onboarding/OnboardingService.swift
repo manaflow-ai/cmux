@@ -17,9 +17,6 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
-    /// The role step's saved answer, read off the main thread at launch;
-    /// "Onboarding…" opens the step with it.
-    private(set) var profile: OnboardingProfile?
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
@@ -37,13 +34,6 @@ final class OnboardingService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
-        let state = state
-        // task-owner: one-shot launch read of the onboarding state file
-        Task { [weak self] in
-            let saved = await Task.detached { state.profile() }.value
-            guard let self, profile == nil else { return }
-            profile = saved
-        }
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
         projectScanTask = Task { [weak self] in
@@ -71,15 +61,7 @@ final class OnboardingService {
         }
     }
 
-    /// Keeps the role step's answer (a small file write, off the main thread).
-    func saveProfile(_ answer: OnboardingProfile) {
-        profile = answer
-        let state = state
-        write("onboarding profile") { try state.saveProfile(answer) }
-    }
-
-    /// The last state file write; each write waits for it, so a profile
-    /// save can't land after `markDone` and undo it.
+    /// The last state file write; each write waits for the one before.
     private var lastWrite: Task<Void, Never>?
 
     /// Runs one small state file write off the main thread, after the one before.
@@ -174,8 +156,7 @@ final class OnboardingService {
 
     func markDone(completed: Bool) {
         let state = state
-        let profile = profile
-        write("onboarding state") { try state.markDone(completed: completed, profile: profile) }
+        write("onboarding state") { try state.markDone(completed: completed) }
     }
 
     /// Imported history and bookmarks go into each browser profile's

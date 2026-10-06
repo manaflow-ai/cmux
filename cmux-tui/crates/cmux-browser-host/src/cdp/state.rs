@@ -167,6 +167,8 @@ pub struct State {
     /// Fetch shells by target id (also when the attach came after the
     /// create reply).
     pub shell_targets: HashSet<String>,
+    /// Downloads by guid (headless Chromium, `save_downloads_in`).
+    pub downloads: super::downloads::Downloads,
 }
 
 impl State {
@@ -242,6 +244,9 @@ impl State {
                         tab.url = url.to_owned();
                     }
                 }
+            }
+            "Browser.downloadWillBegin" | "Browser.downloadProgress" => {
+                self.download_event(&cdp.method, params, &mut applied);
             }
             "Target.targetCrashed" => {
                 if let Some(target_id) = params.get("targetId").and_then(Value::as_str) {
