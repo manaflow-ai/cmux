@@ -498,8 +498,11 @@ fn a_headful_tab_gets_its_first_click() {
             .unwrap();
         }
         let log = a
-            .call("frame.evaluate", &json!({"targetId": target, "world": "page",
-                "source": "() => document.getElementById('log').textContent"}))
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "page",
+                "source": "() => document.getElementById('log').textContent"}),
+            )
             .unwrap();
         logs.push(log.as_str().unwrap_or("").to_owned());
         a.call("tabs.close", &json!({"targetId": target})).unwrap();
