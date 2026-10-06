@@ -86,7 +86,10 @@ public final class ImportStepModel {
     /// Browsers whose data macOS blocks until the user grants Full Disk Access.
     public var needsFullDiskAccess: Bool { sources.contains(where: \.needsFullDiskAccess) }
 
-    /// Detects once; again after `redetect()` (for example after granting Full Disk Access).
+    /// Finds the browsers once, when a person asks (Find Browsers). Never when
+    /// the step only shows: detection reads other apps' data (Safari's files,
+    /// each Chromium `Local State`), which macOS guards with a privacy prompt
+    /// (LAUNCH-NO-TCC-PROMPTS). `redetect()` is Check again.
     public func detect() {
         guard phase == .idle else { return }
         redetect()
