@@ -66,7 +66,7 @@ describe("chief brain place", { timeout: 60_000 }, () => {
     const macInstall = (await op(owner, "install.register", { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }, kind: "mac", name: "mac", device_name: "mac", platform: "macos" })).json.value.id as string
     const bad = async (brain_place: unknown) => (await op(owner, "chief.update", { chief: plain.id, expected_rev: 3, brain_place })).json
     expect((await bad({ host: server.host, install: macInstall })).error.code).toBe("validation.invalid")
-    expect((await bad({ host: server.host, install: "inst_00000000000000000000000000" })).error.code).toBe("validation.invalid")
+    expect((await bad({ host: server.host, install: "inst_00000000000000000000" })).error.code).toBe("validation.invalid")
     expect((await bad({ host: "nothost", install: server.install })).error.code).toBe("validation.invalid")
 
     // An install token (even the server's own) may not place a chief.
