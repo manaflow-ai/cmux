@@ -71,16 +71,17 @@ import Testing
         #expect(Fixture.placeholder == light.active.placeholder)
         let p = light.active.palette
         #expect(Fixture.placeholder == NSColor(srgbRed: p.placeholder.red, green: p.placeholder.green, blue: p.placeholder.blue, alpha: p.placeholder.alpha))
-        #expect(Fixture.typingDot != NSColor(white: 82 / 255, alpha: 1))
+        #expect(Fixture.typingDot != Fixture.p3(91, 91, 94))
         let (window, _, c) = host(width: 628, height: 700, items: Fixture2.history(3))
         defer { window.close() }
         c.host.fieldChrome.applyTheme(light: true, symbol: Fixture.incomingText)
         #expect(c.host.fieldChrome.appearance?.name == .aqua, "light glass")
         Fixture.theme = theme(black, white)
         #expect(!Fixture.isLight)
-        #expect(Fixture.placeholder == NSColor(white: 0.43, alpha: 1), "MessagesLab's measured dark placeholder")
-        #expect(Fixture.typingDot == NSColor(white: 82 / 255, alpha: 1))
-        #expect(Fixture.typingDotHighlight == NSColor(white: 123 / 255, alpha: 1))
+        // MessagesLab's measured dark values (Display P3 dots, MessagesLab 4173e9f).
+        #expect(Fixture.placeholder == NSColor(white: 123 / 255, alpha: 1), "MessagesLab's measured dark placeholder")
+        #expect(Fixture.typingDot == Fixture.p3(91, 91, 94))
+        #expect(Fixture.typingDotHighlight == Fixture.p3(133, 133, 135))
         c.host.fieldChrome.applyTheme(light: false, symbol: Fixture.incomingText)
         #expect(c.host.fieldChrome.appearance?.name == .darkAqua)
         #expect(c.host.fieldChrome.plus.contentTintColor == .white)
