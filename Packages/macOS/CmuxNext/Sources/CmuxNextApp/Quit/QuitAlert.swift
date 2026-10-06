@@ -97,9 +97,9 @@ final class QuitAlert {
     func press(_ id: String) -> Bool {
         guard let dialogID else { return false }
         let ids = buttons.map(\.id)
+        if id == "end" { return ids.contains(QuitAlertContent.Button.endEverything.rawValue) }
         let resolved = switch id {
         case "quit" where !ids.contains("quit"): "keep"
-        case "end": return ids.contains(QuitAlertContent.Button.endEverything.rawValue)
         case "end-keep-layout", "quit-everything": "confirm-quit-everything"
         default: id
         }

@@ -21,7 +21,7 @@ public nonisolated enum CloseWarningSetting {
     }
 }
 
-extension CmuxConfigSnapshot {
+nonisolated extension CmuxConfigSnapshot {
     /// `app.warnBeforeClosingTab`; on when unset or invalid.
     public var warnBeforeClosingTab: Bool { CloseWarningSetting.value(root, CloseWarningSetting.tabPath) }
     /// `app.warnBeforeClosingAgentSession`; on when unset or invalid.
