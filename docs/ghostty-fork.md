@@ -143,22 +143,25 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ### CJK fallback ideograph sizing
 
-- Branch: `issue-4978-cjk-spacing`
-- Commits: `7dd7a420a` (regression test), `0068ece73` (fix)
+- Branch: `issue-17490-cjk-fallback-sizing`
+  ([manaflow-ai/ghostty#259](https://github.com/manaflow-ai/ghostty/pull/259))
+- Commits: `4eabe98fc` (regression test), `b657a8188` (fix), `324f86c88`
+  (keep the existing CI test filter), `5f0ae5e41` (exclude halfwidth Hangul)
 - Summary: keep the existing measured ideograph width for fallback faces, but
-  size a primary face without an ideograph metric against its full two-cell
-  terminal span. This prevents Hangul glyphs selected through CoreText fallback
-  from leaving a gap before the next terminal cell.
+  choose the target width by script. Hangul fallback faces use the primary
+  font's full two-cell terminal span to avoid inter-character gaps. Chinese,
+  Japanese, and other non-Hangul fallback faces retain the primary font's
+  height-capped estimate, so their glyphs stay balanced with Latin text.
 - Coverage: the Ghostty `Collection` regression test
-  `ideograph fallback sizing fills two primary cells` asserts that an
-  8-pixel fallback ideograph fills two 7-pixel primary cells. Hosted
-  [run 36178061916](https://github.com/manaflow-ai/cmux/actions/runs/36178061916)
-  passed 74 tests with this filter at `0068ece73` and rebuilt GhosttyKit.
-  The test-only commit has not been executed in the hosted lane, and tagged
-  cmux rendering verification remains pending.
-- Conflict note: preserve the distinction between `icWidth()` for a face's
-  measured or conservative fallback metric and `fallbackIcWidth()` for the
-  primary terminal grid's missing-ideograph target.
+  `ideograph fallback sizing fills two primary cells` plus
+  `ideograph fallback sizing keeps the primary ASCII height by default`.
+  The test-only commit fails with `expected 1.25, found 1.75`; the fixed head
+  passes 75 tests locally. Hosted GhosttyKit and tagged cmux rendering
+  verification are pending.
+- Conflict note: preserve the distinction between `icWidth()` for the
+  height-capped Chinese/Japanese target and `fallbackIcWidth()` for the
+  Hangul fallback target. Fallback entries retain their adjustment so a face
+  shared by both scripts is loaded with the appropriate scale for each.
 
 ### Cloud restore replay trailing rows
 
