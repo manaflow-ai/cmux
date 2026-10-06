@@ -26,8 +26,9 @@ use crate::session_dir::{self, SessionSetup};
 use crate::state::StateFile;
 
 /// Env passed through to the turn's tools, as mux/host passes it.
-const PASSTHROUGH: [&str; 5] = [
+const PASSTHROUGH: [&str; 6] = [
     "CMUX_SOCKET_PATH",
+    crate::cmux_env::APP_DAEMON_KEY,
     "ACPMUX_SOCKET",
     "ACPMUX_HOME",
     "ACPMUX_BIN",
@@ -126,7 +127,6 @@ pub fn session_env(
     exe: &std::path::Path,
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> BTreeMap<String, String> {
-    let _ = exe;
     let mut session_env = BTreeMap::new();
     session_env.insert("MUX_HOME".to_owned(), home.display().to_string());
     session_env.insert("CMUX_DAEMON_SOCKET".to_owned(), daemon_socket.to_owned());
@@ -143,6 +143,10 @@ pub fn session_env(
         "PATH".to_owned(),
         inherited("PATH").unwrap_or_else(|| "/usr/bin:/bin".into()),
     );
+    // Every `cmux` call reaches this app's daemon (see cmux_env).
+    let socket = crate::cmux_env::app_daemon_socket(daemon_socket, inherited);
+    let bundled = crate::cmux_env::bundled_bin(exe);
+    crate::cmux_env::pin(&mut session_env, &socket, bundled.as_deref());
     session_env
 }
 
@@ -212,6 +216,9 @@ fn start(
         .map_err(|e| format!("finding this executable: {e}"))?;
     let acpmux_socket = crate::acpmux_daemon::socket_path();
     let session_env = session_env(home, daemon_socket, &acpmux_socket, &exe, &env);
+    let pinned = crate::cmux_env::pinned_subset(&session_env);
+    // The acpmux daemon this host starts runs the children: pinned too.
+    crate::acpmux_daemon::set_child_env(pinned.clone());
     let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
     let (harness, compactor_harness) = harness_choice(
@@ -269,7 +276,12 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let preset = turn_preset(paths, home, &harness, family, isolate, &system_text);
+    let mut preset = turn_preset(paths, home, &harness, family, isolate, &system_text);
+    // A harness without the project settings' env (codex) reads its tools'
+    // env from the acpmux daemon and the preset: the preset pins cmux.
+    if let Some(preset) = preset.as_mut() {
+        preset.env.extend(pinned);
+    }
     let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would

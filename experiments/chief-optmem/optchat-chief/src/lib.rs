@@ -12,6 +12,7 @@ pub mod agents;
 pub mod brain;
 pub mod browse;
 pub mod cli;
+pub mod cmux_env;
 pub mod compactor;
 pub mod daemon;
 pub mod fold;

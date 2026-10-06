@@ -444,6 +444,16 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   engine at the next turn. The brain-host contract has no user cancel, so
   neither engine can cancel a turn or the compactor wait on request; a turn
   past its limit is stopped.
+- **Memory line (MASTER).** The spec says "You keep no memory between
+  turns"; here MASTER says the chat is the memory, kept across turns, and
+  that zoom and date reach any past message, so the Chief zooms instead of
+  telling the user an earlier turn is gone.
+- **cmux routing.** Every turn, the native bash tool, the acpmux daemon the
+  host starts and each child's preset carry `CMUX_TUI_SOCKET` and
+  `CMUX_MUX_SOCKET` set to the app's daemon (`CMUX_APP_DAEMON_SOCKET`, else
+  `--daemon-socket`) and the bundled `cmux` first on PATH (src/cmux_env.rs).
+  Without them the CLI guessed the untagged app from `CMUX_SOCKET_PATH` and
+  a tagged build's Chief created workspaces in the user's release app.
 - **Native engine: the bash tool.** Each command is its own `bash -c` (so a
   timeout kills all it started); the working directory carries over between
   commands, shell variables and exports do not. Tools are approve-all, like
