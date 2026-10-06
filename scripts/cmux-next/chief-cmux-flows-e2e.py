@@ -26,6 +26,8 @@ parser.add_argument("--out", default="/tmp")
 parser.add_argument("--turn-timeout", type=float, default=420)
 parser.add_argument("--only", default="")
 parser.add_argument("--keep", action="store_true", help="leave the app running (debugging)")
+parser.add_argument("--attach", action="store_true", help="use the tagged app this script left running (--keep)")
+parser.add_argument("--start-timeout", type=float, default=600, help="seconds for the app's control socket")
 opts = parser.parse_args()
 
 TAG = opts.tag
@@ -219,7 +221,14 @@ def check(flow, expected, prompt, verify):
     except Exception as error:  # report, keep going
         ok, observed = False, f"verify raised {error!r}"
     clean, note = defaults_unchanged()
-    if flow != "focus a workspace":
+    # The CLI's `focused` must name what the app window shows (app_focus).
+    cli_focused = [w.get("id") for w in workspaces() if w.get("focused")]
+    agrees = cli_focused == [focused()]
+    note += f"; CLI focused agrees with the window={agrees}"
+    clean = clean and agrees
+    # Closing the workspace the window shows moves it to a neighbour.
+    closed_shown = flow == "close a workspace" and focus_before not in {w.get("id") for w in workspaces()}
+    if flow != "focus a workspace" and not closed_shown:
         kept = focused() == focus_before
         note += f"; focus kept={kept}"
         clean = clean and kept
@@ -267,7 +276,7 @@ def host_log():
 
 def main():
     global app
-    if os.path.exists(SOCKET):
+    if os.path.exists(SOCKET) and not opts.attach:
         sys.exit(f"{SOCKET} exists: another {TAG} app runs; pick a fresh tag")
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
@@ -277,10 +286,11 @@ def main():
     log = open(os.path.join(opts.out, f"app-{TAG}.log"), "a")
     DEFAULTS.update(defaults_snapshot())
     print("default sessions before:", {k: len(v) for k, v in DEFAULTS.items()}, flush=True)
-    connected = host_log().count("daemon connected")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print(f"launched pid {app.pid}", flush=True)
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 180):
+    connected = 0 if opts.attach else host_log().count("daemon connected")
+    if not opts.attach:
+        app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+        print(f"launched pid {app.pid}", flush=True)
+    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), opts.start_timeout):
         sys.exit("the tagged app did not come up")
     show_home()
     conv = wait(chief_conversation, 120)

@@ -26,20 +26,13 @@ extension AppActions {
                 services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
-        // Next / previous item in the current sidebar section; in the workspaces list, the workspaces (R119).
-        registry.bind("nextSidebarTab") { stepSidebar(services, offset: 1) }
-        registry.bind("prevSidebarTab") { stepSidebar(services, offset: -1) }
+        // Next / previous sidebar item and Cmd-1…9: one walk over every
+        // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
+        registry.bind("nextSidebarTab") { SidebarNavigation.step(by: 1, services) }
+        registry.bind("prevSidebarTab") { SidebarNavigation.step(by: -1, services) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
-            guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // The first top item (Home by default) is 1, then the visible rows
-            // top to bottom across every machine section (R119).
-            guard let sidebar = services.windows.active?.sidebar else { return }
-            let first = sidebar.model.layout.firstTopItem(room: sidebar.model.activeProfileID?.rawValue)?.id
-            switch SidebarNumbering(firstTopItem: first, workspaces: sidebar.model.visibleWorkspaceIDs).pick(number) {
-            case .topItem(let item)?: sidebar.activateLayoutItem(item)
-            case .workspace(let id)?: services.windows.show(workspaceID: id, in: state)
-            case nil: break
-            }
+            guard let number = invocation["index"]?.intValue else { return }
+            SidebarNavigation.select(number: number, services)
         })
         // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
         // window shows it, from any origin (a focus action). With no window,
@@ -124,22 +117,6 @@ extension AppActions {
         guard let window = controller.window else { return }
         WindowActivation.show(window, .focus)
         windows.didActivate(controller)
-    }
-
-    private static func stepSidebar(_ services: AppServices, offset: Int) {
-        let window = services.windows.active
-        let shownPage = window?.focus.state.resolved.tab.flatMap(services.pages.page(ofTab:))
-        if let sidebar = window?.sidebar,
-           SidebarItemStepper.step(sidebar, by: offset, shownWorkspace: { window?.state.workspaceID }, shownPage: shownPage) { return }
-        selectWorkspace(services, offset: offset)
-    }
-
-    private static func selectWorkspace(_ services: AppServices, offset: Int) {
-        guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
-        guard !ids.isEmpty else { return }
-        let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
-        services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {
