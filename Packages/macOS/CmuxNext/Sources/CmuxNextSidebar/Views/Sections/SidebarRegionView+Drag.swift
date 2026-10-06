@@ -75,7 +75,9 @@ extension SidebarRegionView {
         }
         // Nothing outside the region takes the drop: the card dims and the
         // region shows its order again, so a release there changes nothing.
-        let outside = !visibleRect.contains(point)
+        // The shown part of the region: the band clips it, and bounds bound it when nothing does.
+        let shown = visibleRect.isEmpty ? bounds : bounds.intersection(visibleRect)
+        let outside = !shown.contains(point)
         drag.lift.setRefused(outside)
         if outside {
             if reorderSections != content?.sections {
