@@ -146,6 +146,22 @@ struct InternalPageTabTests {
         #expect(services.pages.keys(of: .settings) == [key])
     }
 
+    /// Leo (2026-10-06): the footer gear on Home opened Settings as a tab
+    /// behind the Home page, so nothing seemed to happen. A user run leaves
+    /// the page and shows the Settings tab.
+    @Test func openSettingsFromATopPageShowsTheTab() async throws {
+        let (services, window, pane) = try await world()
+        let route = try #require([TopPageRoute.home, .page(.history), .page(.bookmarks)].first {
+            TopPages.show($0, services: services, in: window.state) != nil && window.shownTopPage == $0
+        })
+        #expect(window.shownTopPage == route)
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation()))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+        #expect(window.shownTopPage == nil, "the Settings tab is not left behind the page")
+        #expect(pane.stripModel.selectedID?.rawValue == key)
+    }
+
     @Test func automationOpensTheTabWithoutTakingTheSelection() async throws {
         let (services, _, pane) = try await world()
         let selected = pane.stripModel.selectedID
