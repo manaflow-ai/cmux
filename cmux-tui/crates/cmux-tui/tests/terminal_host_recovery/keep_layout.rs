@@ -266,3 +266,77 @@ fn shutdown_daemon_keep_layout_keeps_the_dead_tab_name_and_title_across_restart(
     assert_eq!(named["name"], "kept name", "the restored dead tab lost its name: {named}");
     assert_eq!(titled["title"], "kept title", "the restored dead tab lost its title: {titled}");
 }
+
+/// A rename of a kept tab needs no live process: after the handoff the tab
+/// has no surface, and `rename-surface` sets the tab resource's name, which
+/// the next `list-workspaces` reports at once (a clear restores null).
+#[test]
+fn shutdown_daemon_keep_layout_renames_the_dead_tab_after_restart() {
+    let mut harness = RecoveryHarness::start("shutdown-keep-layout-rename");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "renamed",
+        }),
+    );
+    let tab = |harness: &RecoveryHarness, id: u64| {
+        let tree = request(&harness.socket, serde_json::json!({"id": id, "cmd": "list-workspaces"}));
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == "renamed")
+            .and_then(first_tab)
+            .cloned()
+            .unwrap_or_else(|| panic!("the renamed workspace has no tab: {tree}"))
+    };
+    let surface = tab(&harness, 2)["surface"].as_u64().unwrap();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 3, "cmd": "rename-surface", "surface": surface, "name": "old name"}),
+    );
+    assert_eq!(tab(&harness, 4)["name"], "old name");
+
+    let identify = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "identify"}));
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 6,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+            "keep_layout": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    harness.restart();
+    let kept = tab(&harness, 7);
+    assert_eq!(kept["dead"], true, "the kept tab came back live: {kept}");
+    assert_eq!(kept["name"], "old name", "{kept}");
+    let surface = kept["surface"].as_u64().unwrap();
+    let renamed = request_response(
+        &harness.socket,
+        serde_json::json!({"id": 8, "cmd": "rename-surface", "surface": surface, "name": "new name"}),
+    );
+    assert_eq!(renamed["ok"], true, "the rename of the dead kept tab failed: {renamed}");
+    let after = tab(&harness, 9);
+    assert_eq!(after["name"], "new name", "list-workspaces shows a stale name: {after}");
+    assert_eq!(after["dead"], true, "a rename revived the kept tab: {after}");
+    assert!(after["relaunch"]["cwd"].is_string(), "a rename dropped the relaunch: {after}");
+
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 10, "cmd": "rename-surface", "surface": surface, "name": ""}),
+    );
+    let cleared = tab(&harness, 11);
+    assert!(cleared["name"].is_null(), "an empty rename did not clear the name: {cleared}");
+}
