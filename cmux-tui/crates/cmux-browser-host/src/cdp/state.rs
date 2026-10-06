@@ -79,6 +79,9 @@ pub struct TabState {
     /// The creating session's `session.configure` user agent and headers
     /// (None: the browser's own). A popup starts with its opener's.
     pub overrides: Option<std::sync::Arc<TabOverrides>>,
+    /// The tab's browser context (its cookie jar): the default one, or a
+    /// proxy store (`session.configure {proxy}`).
+    pub context: Option<String>,
     pub mouse: (f64, f64),
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
@@ -139,6 +142,7 @@ impl TabState {
             buttons: 0,
             held_keys: Vec::new(),
             overrides: None,
+            context: None,
             mouse: (0.0, 0.0),
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
@@ -362,6 +366,7 @@ impl State {
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
         let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
+        tab.context = info.get("browserContextId").and_then(Value::as_str).map(str::to_owned);
         tab.overrides = opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
         tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
         let hidden = tab.hidden;
