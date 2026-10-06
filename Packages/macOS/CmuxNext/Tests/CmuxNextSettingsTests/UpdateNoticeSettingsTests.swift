@@ -29,4 +29,19 @@ import Testing
         #expect(old.updates.notify.rawValue == "badge")
         #expect(old.retiredKeys == ["updates.quietHours"])
     }
+    /// An MDM profile written before the card went away still sets
+    /// `updates.notify = "card"`, forced or recommended: the device loads
+    /// it as `badge` with no diagnostic.
+    @Test(arguments: [true, false]) func anOldManagedProfileWithTheCardLoadsAsBadge(forced: Bool) throws {
+        let url = FileManager.default.temporaryDirectory.appending(path: "cmux-managed-card-\(UUID().uuidString).plist")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let plist: [String: Any] = forced ? ["updates.notify": "card"] : ["Recommended": ["updates.notify": "card"]]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: url)
+        let managed = PlistManagedPreferenceReader(url: url).read()
+        let effective = EffectiveSettings.merge(file: .object([:]), managed: managed, team: .none)
+        let snapshot = CmuxConfigSnapshot.parse(effective.root, validDensities: [], validMetrics: [])
+        #expect(snapshot.updates.notify == .badge)
+        #expect(snapshot.diagnostics.isEmpty)
+        #expect(effective.diagnostics.isEmpty)
+    }
 }
