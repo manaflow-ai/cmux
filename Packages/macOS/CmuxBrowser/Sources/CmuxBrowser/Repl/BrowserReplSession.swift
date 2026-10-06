@@ -1714,14 +1714,26 @@ public final class BrowserReplSession: @unchecked Sendable {
                     let refusal = error as? BrowserReplFileSystemError
                     return failure(refusal?.code ?? "EFBIG", refusal?.message ?? "\(error)")
                 }
-                if let mask = self.boundary.fileStoreRedaction(syscall: "write"), let data = Data(base64Encoded: base64) {
+                if let mask = self.boundary.fileStoreRedaction(syscall: "write") {
+                    let isCancelled = self.boundary.isCancelled
+                    let cancelled = BrowserReplFileSystem.cancelledError(syscall: "write", display: "")
+                    let decoded: Data?
                     do {
-                        let masked = try mask(data)
-                        if masked != data { args["base64"] = masked.base64EncodedString() }
-                    } catch let error as BrowserReplFileSystemError where error.code == "ECANCELED" {
-                        return failure(error.code, error.message)
+                        decoded = try Data(browserReplBase64: base64, isCancelled: isCancelled)
                     } catch {
-                        return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(data.count))")
+                        return failure(cancelled.code, cancelled.message)
+                    }
+                    if let data = decoded {
+                        do {
+                            let masked = try mask(data)
+                            if masked != data { args["base64"] = try masked.browserReplBase64EncodedString(isCancelled: isCancelled) }
+                        } catch let error as BrowserReplFileSystemError where error.code == "ECANCELED" {
+                            return failure(error.code, error.message)
+                        } catch is CancellationError {
+                            return failure(cancelled.code, cancelled.message)
+                        } catch {
+                            return failure("EINVAL", "writeFile: \(BrowserReplSecretStore.limitMessage(data.count))")
+                        }
                     }
                 }
             }
@@ -1740,8 +1752,24 @@ public final class BrowserReplSession: @unchecked Sendable {
                 case .failure(let error):
                     return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: error.code, message: "secrets.load: \(error.message)"))))
                 case .success(let base64):
-                    guard let data = Data(base64Encoded: base64 as? String ?? ""),
-                          let object = try? JSONSerialization.jsonObject(with: data) else {
+                    // Parsing cannot stop midway on this thread, so a file
+                    // past the limit is refused before it is decoded, and
+                    // the deadline is checked around the parse.
+                    let isCancelled = self.boundary.isCancelled
+                    let text = base64 as? String ?? ""
+                    let size = text.utf8.count / 4 * 3
+                    guard size <= BrowserReplSecretStore.maximumLoadFileBytes + 2 else {
+                        let limit = BrowserReplSecretStore.maximumLoadFileBytes >> 20
+                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is about \(size) bytes, past the \(limit) MiB a secrets file may hold"))))
+                    }
+                    let data: Data?
+                    do {
+                        data = try Data(browserReplBase64: text, isCancelled: isCancelled)
+                    } catch {
+                        return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load"))))
+                    }
+                    guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
+                        if isCancelled() { return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load")))) }
                         return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON"))))
                     }
                     args["object"] = object

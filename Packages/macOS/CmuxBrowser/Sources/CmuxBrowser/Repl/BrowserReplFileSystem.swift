@@ -164,10 +164,19 @@ public struct BrowserReplFileSystem: Sendable {
             let display = try raw("path")
             let (file, size) = try openFile(try locate(.read), display: display)
             guard size <= Self.maxReadFileBytes else { throw Self.fileTooLarge(size) }
-            return try readAll(file, display: display).base64EncodedString()
+            do {
+                return try readAll(file, display: display).browserReplBase64EncodedString(isCancelled: isCancelled)
+            } catch is CancellationError {
+                throw Self.cancelledError(syscall: "read", display: display)
+            }
         case "writeFile":
             let display = try raw("path")
-            let data = Data(base64Encoded: arguments["base64"] as? String ?? "") ?? Data()
+            let data: Data
+            do {
+                data = try Data(browserReplBase64: arguments["base64"] as? String ?? "", isCancelled: isCancelled) ?? Data()
+            } catch {
+                throw Self.cancelledError(syscall: "write", display: display)
+            }
             let location = try locate(.write)
             guard let name = location.name else { throw Self.isDirectoryError }
             let append = arguments["append"] as? Bool == true

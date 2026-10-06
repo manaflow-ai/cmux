@@ -75,7 +75,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 try secrets.set(name: name, value: value, domains: domains, totp: args["totp"] as? Bool ?? false, title: "secrets.set")
                 return .success(secrets.describe([name]).first ?? [:])
             case "load":
-                let names = try secrets.load(args["object"] ?? NSNull())
+                let names = try secrets.load(args["object"] ?? NSNull(), isCancelled: isCancelled)
                 return .success(secrets.describe(names))
             case "list":
                 return .success(secrets.describe())
@@ -91,9 +91,17 @@ final class BrowserReplBoundary: @unchecked Sendable {
             }
         } catch let error as BrowserReplDriverError {
             return .failure(error)
+        } catch is CancellationError {
+            return .failure(Self.cancelled("secrets.\(op)"))
         } catch {
             return .failure(BrowserReplDriverError(code: "invalid", message: error.localizedDescription))
         }
+    }
+
+    /// The refusal of a host call whose native work stopped at the cell's
+    /// deadline or the session's end.
+    static func cancelled(_ title: String) -> BrowserReplDriverError {
+        BrowserReplDriverError(code: "cancelled", message: "\(title): cancelled because the cell timed out or the session ended")
     }
 
     // MARK: Policy host (`__cmuxNative.policy`)

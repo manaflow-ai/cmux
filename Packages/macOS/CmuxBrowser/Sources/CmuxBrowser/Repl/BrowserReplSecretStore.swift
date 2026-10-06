@@ -251,12 +251,23 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// `{ "<domain pattern>": { name: value | { value, totp } } }`.
     /// A name repeated with the same value under several patterns gets every pattern.
     /// - Returns: The names loaded, in order.
-    public func load(_ object: Any) throws -> [String] {
+    /// - Throws: `CancellationError` when `isCancelled` says so between
+    ///   groups (it runs on the session's JavaScript thread, inside a
+    ///   synchronous host call).
+    public func load(_ object: Any, isCancelled: () -> Bool = { false }) throws -> [String] {
+        if isCancelled() { throw CancellationError() }
         guard let groups = object as? [String: Any] else {
             throw invalid("secrets.load: expected { \"<domain pattern>\": { name: value } }")
         }
+        // Each pattern adds a domain to a secret, so more patterns than the
+        // store can hold domains is refused before they are sorted.
+        let maximumPatterns = Self.maximumSecrets * Self.maximumDomains
+        guard groups.count <= maximumPatterns else {
+            throw invalid("secrets.load: \(groups.count) domain patterns, past the \(maximumPatterns) the store can hold")
+        }
         var names: [String] = []
         for (pattern, rawEntries) in groups.sorted(by: { $0.key < $1.key }) {
+            if isCancelled() { throw CancellationError() }
             guard let group = rawEntries as? [String: Any] else {
                 throw invalid("secrets.load: \(Self.quote(pattern)): a secret needs domains; expected { \"<domain pattern>\": { name: value } }")
             }
@@ -394,6 +405,12 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// value. A mask is longer than a short value, so a body full of a
     /// one-character secret would otherwise grow up to 73 times.
     public static let maximumGrowth = 8 << 20
+
+    /// The largest file `secrets.load(path)` reads: far more than a full
+    /// store's values and patterns, and small enough that parsing it,
+    /// which nothing can stop midway on the session's JavaScript thread,
+    /// stays short.
+    public static let maximumLoadFileBytes = 8 << 20
 
     /// Keeps `entry`'s value masked after its name lets go of it, on its
     /// domains and on those of every earlier retirement of the same value
@@ -570,19 +587,31 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         /// ``BrowserReplSecretStore/maximumGrowth`` is replaced by a note
         /// saying it was withheld.
         func redact(_ text: String) -> String {
-            var budget = BrowserReplSecretStore.maximumGrowth
-            return (try? redact(text, budget: &budget)) ?? "<\(BrowserReplSecretStore.limitMessage(text.utf8.count))>"
+            redact(text, isCancelled: { false }) ?? text
         }
 
-        private func redact(_ text: String, budget: inout Int) throws -> String {
+        /// `text` masked as ``redact(_:)`` does, or `nil` when `isCancelled`
+        /// said so before the pass finished (the session's timeout cannot
+        /// stop native work on its JavaScript thread any other way).
+        func redact(_ text: String, isCancelled: () -> Bool) -> String? {
+            var budget = BrowserReplSecretStore.maximumGrowth
+            do {
+                return try redact(text, budget: &budget, isCancelled: isCancelled)
+            } catch is CancellationError {
+                return nil
+            } catch {
+                return "<\(BrowserReplSecretStore.limitMessage(text.utf8.count))>"
+            }
+        }
+
+        private func redact(_ text: String, budget: inout Int, isCancelled: () -> Bool) throws -> String {
             guard !text.isEmpty else { return text }
             var text = text
-            let outcome = text.withUTF8 { scanner.redact($0, budget: &budget) }
+            let outcome = text.withUTF8 { scanner.redact($0, budget: &budget, isCancelled: isCancelled) }
             switch outcome {
             case .unchanged: return text
             case .redacted(let bytes): return String(decoding: bytes, as: UTF8.self)
             case .overLimit: throw BrowserReplSecretStore.limitError(text.utf8.count)
-            // Text passes never ask to stop.
             case .cancelled: throw CancellationError()
             }
         }
@@ -606,31 +635,72 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         }
 
         /// A JSON document with every string (keys too) masked; text that
-        /// is not JSON is masked as text.
+        /// is not JSON is masked as text. Parsing cannot stop midway, so
+        /// `isCancelled` is asked before and after it, and between strings
+        /// and chunks of a long string while masking.
         /// - Throws: `invalid` when masking would grow it by more than
-        ///   ``BrowserReplSecretStore/maximumGrowth`` in all.
-        func redactJSON(_ json: String) throws -> String {
-            guard let value = JSONSerialization.browserReplValue(json) else { return redact(json) }
-            return JSONSerialization.browserReplString(try redactedValue(value)) ?? redact(json)
+        ///   ``BrowserReplSecretStore/maximumGrowth`` in all;
+        ///   `CancellationError` when `isCancelled` said so first.
+        func redactJSON(_ json: String, isCancelled: () -> Bool = { false }) throws -> String {
+            if isCancelled() { throw CancellationError() }
+            guard let value = JSONSerialization.browserReplValue(json) else { return try redactText(json, isCancelled: isCancelled) }
+            if isCancelled() { throw CancellationError() }
+            let masked = try redactedValue(value, isCancelled: isCancelled)
+            if isCancelled() { throw CancellationError() }
+            return try JSONSerialization.browserReplString(masked) ?? redactText(json, isCancelled: isCancelled)
+        }
+
+        private func redactText(_ text: String, isCancelled: () -> Bool) throws -> String {
+            guard let masked = redact(text, isCancelled: isCancelled) else { throw CancellationError() }
+            return masked
         }
 
         /// `value` (decoded JSON) with every string masked.
         /// - Throws: `invalid` when masking would grow it by more than
-        ///   ``BrowserReplSecretStore/maximumGrowth`` in all.
-        func redactedValue(_ value: Any) throws -> Any {
-            var budget = BrowserReplSecretStore.maximumGrowth
-            return try redactValue(value, budget: &budget)
+        ///   ``BrowserReplSecretStore/maximumGrowth`` in all;
+        ///   `CancellationError` when `isCancelled` said so first (asked
+        ///   once per ``BrowserReplSecretScanner/cancellationStride`` bytes
+        ///   of strings and values, however short each string is).
+        func redactedValue(_ value: Any, isCancelled: () -> Bool = { false }) throws -> Any {
+            try withoutActuallyEscaping(isCancelled) { isCancelled in
+                var walk = Walk(budget: BrowserReplSecretStore.maximumGrowth, isCancelled: isCancelled)
+                return try redactValue(value, walk: &walk)
+            }
         }
 
-        private func redactValue(_ value: Any, budget: inout Int) throws -> Any {
+        /// A walk over decoded JSON: the growth it may still add, and the
+        /// bytes handled since `isCancelled` was last asked.
+        private struct Walk {
+            var budget: Int
+            var sinceCheck = 0
+            let isCancelled: () -> Bool
+
+            /// Counts `bytes` handled (and one for the node), asking
+            /// `isCancelled` once a stride's worth has passed.
+            mutating func advance(_ bytes: Int) throws {
+                sinceCheck += bytes + 1
+                guard sinceCheck >= BrowserReplSecretScanner.cancellationStride else { return }
+                sinceCheck = 0
+                if isCancelled() { throw CancellationError() }
+            }
+        }
+
+        private func redact(_ text: String, walk: inout Walk) throws -> String {
+            try walk.advance(text.utf8.count)
+            return try redact(text, budget: &walk.budget, isCancelled: walk.isCancelled)
+        }
+
+        private func redactValue(_ value: Any, walk: inout Walk) throws -> Any {
             switch value {
             case let text as String:
-                return try redact(text, budget: &budget)
+                return try redact(text, walk: &walk)
             case let list as [Any]:
-                return try list.map { try redactValue($0, budget: &budget) }
+                try walk.advance(0)
+                return try list.map { try redactValue($0, walk: &walk) }
             case let object as [String: Any]:
+                try walk.advance(0)
                 var out: [String: Any] = [:]
-                for (key, item) in object { out[try redact(key, budget: &budget)] = try redactValue(item, budget: &budget) }
+                for (key, item) in object { out[try redact(key, walk: &walk)] = try redactValue(item, walk: &walk) }
                 return out
             case let number as NSNumber where CFGetTypeID(number) != CFBooleanGetTypeID():
                 // A page can read a value as a number (`Number(field.value)`),
@@ -638,16 +708,18 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 // is masked whatever its length.
                 let double = number.doubleValue
                 if double.isFinite, let mask = numericMasks[BrowserReplSecretStore.numericKey(double)] {
-                    budget -= max(0, mask.utf8.count - number.stringValue.utf8.count)
-                    guard budget >= 0 else { throw BrowserReplSecretStore.limitError(number.stringValue.utf8.count) }
+                    try walk.advance(0)
+                    walk.budget -= max(0, mask.utf8.count - number.stringValue.utf8.count)
+                    guard walk.budget >= 0 else { throw BrowserReplSecretStore.limitError(number.stringValue.utf8.count) }
                     return mask
                 }
                 // As text: a whole number of a length masked by its shape
                 // (a TOTP code, a PIN) is masked whatever its digits.
                 let form = number.stringValue
-                let masked = try redact(form, budget: &budget)
+                let masked = try redact(form, walk: &walk)
                 return masked != form ? masked : value
             default:
+                try walk.advance(0)
                 return value
             }
         }
