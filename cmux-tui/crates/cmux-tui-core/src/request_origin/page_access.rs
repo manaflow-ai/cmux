@@ -238,6 +238,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspacePlace
         | Op::WorkspacePlacementList
         | Op::WorkspaceUpdate
+        | Op::WorkspaceAgentFolderSet
         | Op::WorkspaceGroupCreate
         | Op::WorkspaceGroupDelete
         | Op::WorkspaceGroupList

@@ -74,6 +74,10 @@ fn workspace_extra(
     if let Some(kind) = super::home_store::workspace_kind(connection, workspace_id)? {
         fields.insert("kind".into(), json!(kind));
     }
+    // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: absent until the user chose one.
+    if let Some(path) = super::agent_folder::agent_folder(connection, workspace_id)? {
+        fields.insert("agent_folder".into(), json!(path));
+    }
     Ok(fields)
 }
 

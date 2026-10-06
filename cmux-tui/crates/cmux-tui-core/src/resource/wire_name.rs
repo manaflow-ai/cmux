@@ -185,6 +185,7 @@ impl ResourceOperation {
             Self::WorkspacePlace => "workspace.place",
             Self::WorkspacePlacementList => "workspace.placement.list",
             Self::WorkspaceUpdate => "workspace.update",
+            Self::WorkspaceAgentFolderSet => "workspace.agent_folder.set",
             Self::WorkspaceGroupCreate => "workspace_group.create",
             Self::WorkspaceGroupDelete => "workspace_group.delete",
             Self::WorkspaceGroupList => "workspace_group.list",

@@ -170,6 +170,7 @@
     "window_record.delete",
     "window_record.list",
     "window_record.put",
+    "workspace.agent_folder.set",
     "workspace.close",
     "workspace.create",
     "workspace.ensure_home",

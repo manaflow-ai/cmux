@@ -47,11 +47,9 @@ fn agent_folder_round_trips_through_result_snapshot_events_replay_and_restart() 
         assert_eq!(set["id"], workspace);
         assert_eq!(set["extra"]["agent_folder"], path);
         assert_eq!(listed(&mux, &workspace)["extra"]["agent_folder"], path);
-        assert!(changes_after(&mux, before).iter().any(|change| change["resource"]
-            == "workspace"
+        assert!(changes_after(&mux, before).iter().any(|change| change["resource"] == "workspace"
             && change["value"]["extra"]["agent_folder"] == path));
-        let replay =
-            send(&mux, "workspace.agent_folder.set", params, Some("folder-1")).unwrap();
+        let replay = send(&mux, "workspace.agent_folder.set", params, Some("folder-1")).unwrap();
         assert_eq!(replay["replayed"], true);
         // A rename restates the workspace with its folder.
         let renamed = mutate(

@@ -14,8 +14,8 @@
 //! the only claims are `{claim: "page"}` and `{claim: "user", confirmation}`,
 //! where the confirmation is a single-use token the verified app minted for
 //! exactly this operation, these params and this relay connection
-//! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`
-//! and `apps.enable` need origin `user`.
+//! (`origin.confirmation.issue`). Gate A2: `apps.install`, `apps.uninstall`,
+//! `apps.enable` and `workspace.agent_folder.set` need origin `user`.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -35,9 +35,11 @@ pub(crate) const ORIGIN_CLAIM_CAPABILITY: &str = "origin-claim-v1";
 pub(crate) const ISSUE_OPERATION: &str = "origin.confirmation.issue";
 /// How long an issued confirmation token is valid.
 pub(crate) const CONFIRMATION_TTL_MS: u64 = 60_000;
-/// Gate A2: operations that need origin `user`.
-pub(crate) const USER_ONLY_OPERATIONS: [&str; 3] =
-    ["apps.install", "apps.uninstall", "apps.enable"];
+/// Gate A2: operations that need origin `user`. The workspace's agent
+/// folder decides where agents run, so only the user sets it
+/// (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+pub(crate) const USER_ONLY_OPERATIONS: [&str; 4] =
+    ["apps.install", "apps.uninstall", "apps.enable", crate::state::agent_folder::OPERATION];
 /// Unconsumed tokens one relay connection may hold; the oldest goes first.
 const MAX_CONFIRMATIONS_PER_RELAY: usize = 16;
 pub(crate) const ORIGIN_FORBIDDEN: &str = "origin.forbidden";

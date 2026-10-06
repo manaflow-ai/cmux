@@ -1,6 +1,6 @@
 //! The workspace-store side of the daemon (plans/cmux-next/OWNERSHIP-PRINCIPLES.md):
 //! the v2 state operations and their storage. Workspace identity, ephemeral
-//! workspaces, the home workspace (`workspace-kind-v1`), workspace status, progress and log, tab pins, tab state and
+//! workspaces, the home workspace (`workspace-kind-v1`), the agent folder, workspace status, progress and log, tab pins, tab state and
 //! tab groups, saved tab groups, personal workspace groups, placements and
 //! rooms, screen metadata and screen groups, closed history, and window
 //! records.
@@ -10,6 +10,7 @@
 //! [`commit`], which writes the rows, the replay record and the
 //! `session.events` batch in one transaction.
 
+pub(crate) mod agent_folder;
 #[cfg(test)]
 mod agent_folder_tests;
 pub(crate) mod closed_history;

@@ -36,6 +36,7 @@ fn check(mux: &Mux, client: u64, message: &str) -> Option<Value> {
         && !message.contains("\\u")
         && !message.contains("\"origin")
         && !message.contains("\"apps.")
+        && !message.contains("agent_folder")
     {
         return None;
     }
