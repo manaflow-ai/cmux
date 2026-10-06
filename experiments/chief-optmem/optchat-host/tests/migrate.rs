@@ -278,3 +278,100 @@ fn a_crash_during_the_migration_leaves_nothing_half_done() {
         assert!(!reports.iter().any(|r| matches!(r, Report::Migrated { .. })));
     }
 }
+
+/// Sets the migration record's date `days` back.
+fn age_migration(chat: &OptChat, days: i64) {
+    let mut record: serde_json::Value =
+        serde_json::from_str(&chat.state(MIGRATION_KEY).unwrap().unwrap()).unwrap();
+    let at = chrono::Local::now() - chrono::Duration::days(days);
+    record["at"] = serde_json::json!(at.to_rfc3339());
+    chat.put_state(&[(MIGRATION_KEY.to_owned(), Some(record.to_string()))])
+        .unwrap();
+}
+
+/// Waits for a report the retiring thread sends.
+fn wait_report(reports: &std::sync::Mutex<Vec<Report>>, want: fn(&Report) -> bool) -> Report {
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        if let Some(r) = reports.lock().unwrap().iter().find(|r| want(r)) {
+            return r.clone();
+        }
+        assert!(std::time::Instant::now() < until, "no such report");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+fn open_collecting(chat_dir: &Path, db: &Path) -> (OptChat, Arc<std::sync::Mutex<Vec<Report>>>) {
+    let (cfg, reports) = config(3_000);
+    let cfg = Config {
+        db: Some(db.to_owned()),
+        ..cfg
+    };
+    let chat = OptChat::open_with(chat_dir, cfg, instant(180), Arc::new(SystemClock)).unwrap();
+    (chat, reports)
+}
+
+#[test]
+fn the_old_files_copy_is_checked_again_and_deleted_after_a_week() {
+    let home = tempfile::tempdir().unwrap();
+    let chat_dir = home.path().join("chat");
+    let db = home.path().join(DB_FILE);
+    old_home(&chat_dir);
+    let (chat, _) = open_reporting(&chat_dir, &db);
+    // Six days: kept.
+    age_migration(&chat, 6);
+    drop(chat);
+    let (chat, reports) = open_collecting(&chat_dir, &db);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    assert!(!reports
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|r| matches!(r, Report::BackupRetired { .. })));
+    assert_eq!(backups(home.path()).len(), 1);
+    age_migration(&chat, 8);
+    drop(chat);
+    // Eight days: imported again, same counts and hash, deleted, recorded.
+    let (chat, reports) = open_collecting(&chat_dir, &db);
+    let r = wait_report(&reports, |r| matches!(r, Report::BackupRetired { .. }));
+    assert!(
+        matches!(
+            r,
+            Report::BackupRetired {
+                messages: 40,
+                nodes: 78,
+                ..
+            }
+        ),
+        "{r:?}"
+    );
+    assert!(backups(home.path()).is_empty());
+    let record: serde_json::Value =
+        serde_json::from_str(&chat.state(MIGRATION_KEY).unwrap().unwrap()).unwrap();
+    assert_eq!(record["backup_deleted"]["verified_messages"], 40);
+    // The memory itself is untouched.
+    assert_eq!(chat.status().messages, 40);
+}
+
+#[test]
+fn a_copy_that_does_not_match_the_migration_is_kept() {
+    let home = tempfile::tempdir().unwrap();
+    let chat_dir = home.path().join("chat");
+    let db = home.path().join(DB_FILE);
+    old_home(&chat_dir);
+    let (chat, _) = open_reporting(&chat_dir, &db);
+    age_migration(&chat, 8);
+    drop(chat);
+    let backup = backups(home.path()).pop().unwrap();
+    let day = backup.join("main/2026-10-05.jsonl");
+    let mut text = fs::read_to_string(&day).unwrap();
+    text.push_str("{\"i\":40,\"kind\":\"user\",\"text\":\"x\",\"size\":7,\"date\":\"2026-10-05T00:00:00Z\"}\n");
+    fs::write(&day, text).unwrap();
+    let (_chat, reports) = open_collecting(&chat_dir, &db);
+    let r = wait_report(&reports, |r| matches!(r, Report::BackupKept { .. }));
+    assert!(
+        matches!(&r, Report::BackupKept { why, .. } if why.contains("41 messages")),
+        "{r:?}"
+    );
+    assert!(backup.is_dir());
+}

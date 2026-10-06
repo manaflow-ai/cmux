@@ -185,3 +185,71 @@ fn walk_bytes(dir: &Path) -> u64 {
         })
         .unwrap_or(0)
 }
+
+/// Whether the one writer connection behind the chat's mutex makes readers
+/// wait: four threads append (each a commit) while a reader renders the
+/// view and zooms, as the turn and the memory tools do.
+#[test]
+#[ignore]
+fn contention() {
+    let dir = tempfile::tempdir().unwrap();
+    let chat = std::sync::Arc::new(open(dir.path()));
+    for n in 0..2_000 {
+        chat.append(Kind::User, &format!("seed {n}")).unwrap();
+    }
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let writers: Vec<_> = (0..4)
+        .map(|w| {
+            let chat = chat.clone();
+            std::thread::spawn(move || {
+                let mut lat = Vec::new();
+                for k in 0..250 {
+                    let t = Instant::now();
+                    chat.append(Kind::Talk, &format!("w{w} {k}")).unwrap();
+                    lat.push(t.elapsed().as_secs_f64() * 1000.0);
+                }
+                lat
+            })
+        })
+        .collect();
+    let reader = {
+        let (chat, stop) = (chat.clone(), stop.clone());
+        std::thread::spawn(move || {
+            let mut lat = Vec::new();
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+                let t = Instant::now();
+                let _ = chat.render_view();
+                let _ = chat.zoom(0, 1);
+                lat.push(t.elapsed().as_secs_f64() * 1000.0);
+            }
+            lat
+        })
+    };
+    let mut writes: Vec<f64> = writers
+        .into_iter()
+        .flat_map(|w| w.join().unwrap())
+        .collect();
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut reads = reader.join().unwrap();
+    // The same reads with no writer, for the baseline.
+    let mut idle = Vec::new();
+    for _ in 0..reads.len().min(2_000) {
+        let t = Instant::now();
+        let _ = chat.render_view();
+        let _ = chat.zoom(0, 1);
+        idle.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    let q = |v: &mut Vec<f64>, p: usize| {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[(v.len() * p / 100).min(v.len() - 1)]
+    };
+    println!(
+        "CONTENTION {}",
+        serde_json::json!({
+            "append_p50_ms": q(&mut writes, 50), "append_p99_ms": q(&mut writes, 99),
+            "read_busy_p50_ms": q(&mut reads, 50), "read_busy_p99_ms": q(&mut reads, 99),
+            "read_idle_p50_ms": q(&mut idle, 50), "read_idle_p99_ms": q(&mut idle, 99),
+            "reads": reads.len(),
+        })
+    );
+}
