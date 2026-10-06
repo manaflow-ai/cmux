@@ -150,6 +150,7 @@ extension CmuxSettingsFileStore {
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",
         "workspaceColors.subtleSelection",
+        "workspaceColors.brightenInDarkMode",
         "workspaceColors.notificationBadgeColor",
         "workspaceColors.colors",
         "workspaceColors.paletteOverrides",
