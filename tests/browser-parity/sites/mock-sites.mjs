@@ -396,6 +396,7 @@ function calendar(req, url, body, state) {
           if (tamper && tamper.recurrence) document.getElementById("recur").textContent = tamper.recurrence;
           if (tamper && tamper.title) field("Title", tamper.title);
           if (tamper && tamper.startTime) field("Start time", tamper.startTime);
+          if (tamper && tamper.startDate) field("Start date", tamper.startDate);
           if (tamper && tamper.guest) document.getElementById("guests").insertAdjacentHTML("beforeend", '<div role="listitem" data-email="' + tamper.guest + '">' + tamper.guest + '</div>');
         }
         const done = async () => { await fetch("__mock/event", { method: "POST", body: JSON.stringify(p) }); location.href = location.pathname.replace(/eventedit$/, "week"); };

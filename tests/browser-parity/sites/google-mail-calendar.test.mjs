@@ -253,6 +253,33 @@ test("googleCalendar.create: a form whose description, location or recurrence di
   assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(weekly.id)}, { confirm: true })`)).status, "saved");
 });
 
+// A numeric date whose month and day could be either way round names two
+// dates; the form is accepted only when its date reads one way, as drafted.
+test("googleCalendar.create: a numeric form date with month and day swapped, or either way round, saves nothing", async () => {
+  const created = env.state.calendarCreated.length;
+  const draft = '{ title: "Jan sync", start: "2026-01-10T17:00:00Z", end: "2026-01-10T18:00:00Z" }';
+  for (const startDate of ["10/1/2026", "1/10/2026"]) {
+    env.state.calendarTamper = { startDate };
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.match(await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`), /_mismatch|differs from the draft/, startDate);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+  assert.equal(env.state.calendarCreated.length, created, "nothing was saved");
+  // Year first and a named month read one way only.
+  for (const startDate of ["2026-01-10", "Jan 10, 2026"]) {
+    env.state.calendarTamper = { startDate };
+    try {
+      const d = await s.value(`sites.googleCalendar.create(${draft})`);
+      assert.equal((await s.value(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`)).status, "saved", startDate);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  }
+});
+
 test("signed out: Gmail's sign-in redirect is reported, not parsed", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
