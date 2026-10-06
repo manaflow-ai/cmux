@@ -3,8 +3,7 @@ import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
-import { ChevronIcon } from "./ComposerPickers";
-import type { Project } from "./ProjectChooser";
+import { ProjectChooser, type Project } from "./ProjectChooser";
 import { projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 
@@ -84,15 +83,13 @@ export function ComposerContext({
         ·
       </span>
       {!readOnly && selectedComputer === "local" && projectChoices ? (
-        <LocationPicker
-          label={t(CONTEXT_LABELS.folder)}
-          value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
-          options={folders}
-          selected={currentFolder}
-          disabled={readOnly}
-          allowPath
-          onBrowse={onBrowseProject}
+        <ProjectChooser
+          projects={folders.map((folder) => ({ cwd: folder.id, label: folder.label }))}
+          current={currentFolder}
+          currentLabel={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
+          icon={null}
           onPick={(cwd) => onProject?.(cwd)}
+          onBrowse={onBrowseProject}
         />
       ) : (
         <LocationPicker
@@ -169,7 +166,6 @@ function LocationPicker({
   selected,
   disabled,
   allowPath = false,
-  onBrowse,
   onPick,
 }: {
   label: string;
@@ -178,7 +174,6 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   allowPath?: boolean;
-  onBrowse?(): void;
   onPick(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
@@ -206,7 +201,7 @@ function LocationPicker({
   const button = (
     <>
       <span>{value}</span>
-      <ChevronIcon />
+      <span aria-hidden="true">⌄</span>
     </>
   );
   if (!allowPath)
@@ -278,20 +273,6 @@ function LocationPicker({
           }}
           inline
         />
-        {onBrowse && (
-          <button
-            type="button"
-            className="acpmux-location-browse"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              setOpen(false);
-              setQuery("");
-              onBrowse();
-            }}
-          >
-            {t("project.browse")}
-          </button>
-        )}
       </Popover>
     </span>
   );
