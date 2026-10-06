@@ -1,5 +1,5 @@
-/// What Cmd-T and the strip's + button open. An agent chat by default;
-/// the new tab page remains an explicit choice and the Cmd-L screen.
+/// What Cmd-T and the strip's + button open. The New Tab page by default,
+/// where the kind (agent, terminal, browser) is picked; a fixed kind skips it.
 public nonisolated enum NewTabDefaultKind: String, Sendable, Hashable, CaseIterable {
     /// The focused tab's kind: terminal, browser (on its engine) or agent.
     case sameKind = "same-kind"
@@ -13,11 +13,11 @@ public nonisolated enum NewTabDefaultKind: String, Sendable, Hashable, CaseItera
     case auto
 }
 
-/// `tabs.newTabKind` in cmux.json: "agent" (default, a direct chat), "same-kind", "terminal",
-/// "browser", "page" or "auto".
+/// `tabs.newTabKind` in cmux.json: "page" (default, the New Tab page), "same-kind", "terminal",
+/// "browser", "agent" (a direct chat) or "auto".
 nonisolated extension NewTabDefaultKind {
     public static let configPath = ["tabs", "newTabKind"]
-    public static let fallback: NewTabDefaultKind = .agent
+    public static let fallback: NewTabDefaultKind = .page
 
     /// A missing key is the default with no diagnostic; a bad value is the
     /// default plus a diagnostic.

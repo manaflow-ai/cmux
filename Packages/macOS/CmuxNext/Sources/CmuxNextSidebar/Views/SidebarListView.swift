@@ -133,6 +133,7 @@ final class SidebarListView: NSView {
         var o = SidebarLayoutOptions()
         o.filterMatches = model.filterMatches
         o.showWorkspaceTabs = model.showWorkspaceTabs
+        o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight

@@ -88,6 +88,13 @@ final class ImportProfileRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    convenience init(profile: BrowserSourceProfile, appURL: URL?, needsFullDiskAccess: Bool = false,
+                     onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
+        self.init(toggle: toggle)
+        configure(profile: profile, appURL: appURL, needsFullDiskAccess: needsFullDiskAccess,
+                  onAccess: onAccess, toggle: toggle)
+    }
+
     private static func slot(width: CGFloat, containing view: NSView) -> NSView {
         let slot = NSView()
         slot.translatesAutoresizingMaskIntoConstraints = false
@@ -184,7 +191,7 @@ final class ImportProfileRow: NSView {
     override func mouseUp(with event: NSEvent) {
         guard hover.state.pressed else { return }
         hover.state.pressed = false
-        if editable, bounds.contains(convert(event.locationInWindow, from: nil)) { toggle() }
+        if editable, bounds.contains(convert(event.locationInWindow, from: nil)) { toggle?() }
     }
 
     override func viewDidChangeEffectiveAppearance() {

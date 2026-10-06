@@ -7,7 +7,7 @@
   "description": "Your open pull requests as a sidebar section: review state, drafts, and one click to open.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": "assets/icon.svg",
   "categories": ["sidebar", "git"],
   "engines": { "cmux": "^1.0" },

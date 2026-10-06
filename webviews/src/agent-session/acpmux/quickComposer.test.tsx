@@ -46,7 +46,18 @@ Object.assign(globals, {
 Object.assign(dom.window, {
   matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
 });
-afterAll(() => Object.assign(globals, saved));
+// The composer's folder menu is a shared Base UI menu (src/ui), which reaches for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -343,12 +354,11 @@ test("a direct blank chat chooses a recent project inline without treating it as
   host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
     calls.push(["chat.new", params]);
   };
-  await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
-  const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
   expect(project).not.toBeNull();
-  await act(async () =>
-    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
-  );
+  await act(async () => project.click());
   expect(calls).toContainEqual(["chat.new", { cwd: "/src/app" }]);
 });
 
@@ -360,13 +370,15 @@ test("an unstarted chat runs a command in its chosen project without launching a
     calls.push(["chat.new", params]);
     throw new Error("no agent installed");
   };
+  host.cmuxAcpmuxActions!["tab.open"] = async (params) => {
+    calls.push(["tab.open", params]);
+  };
   shellHost("/src/app\n");
-  await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
-  const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
-  await act(async () =>
-    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
-  );
-  expect(container().querySelector(".acpmux-project-button")?.textContent).toContain("app");
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
+  expect(container().querySelector('[aria-label="Folder"]')?.textContent).toContain("app");
   await key("Enter");
   expect(methods()).not.toContain("chat.send");
   expect(methods()).not.toContain("chat.new");
@@ -388,11 +400,10 @@ test("the first prompt starts the chat in the inline project's folder", async ()
   host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
     calls.push(["chat.new", params]);
   };
-  await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
-  const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
-  await act(async () =>
-    project.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
-  );
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
   await key("Enter");
   expect(calls).toEqual([]);
   await type("hello");

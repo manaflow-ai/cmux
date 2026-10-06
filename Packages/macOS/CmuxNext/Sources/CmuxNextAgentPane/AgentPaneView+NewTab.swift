@@ -9,6 +9,17 @@ extension AgentPaneView {
     /// handshake instead.
     public func adoptNewTab(_ page: AgentPaneNewTab) {
         model.adoptNewTab(page)
+        show(page)
+    }
+
+    /// A chat without a session that is a new tab page after all
+    /// (``AgentPaneModel/becomeNewTab(_:)``): the page shows it at once.
+    public func becomeNewTab(_ page: AgentPaneNewTab) {
+        model.becomeNewTab(page)
+        show(page)
+    }
+
+    private func show(_ page: AgentPaneNewTab) {
         guard model.newTab == page, let data = try? JSONEncoder().encode(page),
               let json = String(data: data, encoding: .utf8) else { return }
         evaluateScript("window.dispatchEvent(new CustomEvent('acpmux-newtab-adopt', {detail: \(json)}))")
