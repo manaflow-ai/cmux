@@ -330,7 +330,8 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
     let mut options = HeadlessOptions::new(chrome().into());
     options.headless = headless;
     if let Some(display) = &display {
-        options.extra_args = vec![format!("--display={}", display.1), "--ozone-platform=x11".into()];
+        options.extra_args =
+            vec![format!("--display={}", display.1), "--ozone-platform=x11".into()];
     }
     let source = HeadlessSource::launch(&options, Arc::from(AGENT), "agent").expect("launch");
     let browsers: HeadlessBrowsers = Arc::default();
@@ -372,7 +373,10 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
         .to_owned();
     let deadline = Instant::now() + Duration::from_secs(10);
     while a
-        .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}))
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}),
+        )
         .ok()
         != Some(json!(true))
     {
@@ -383,7 +387,8 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
     click(&a, &target, 50);
     let deadline = Instant::now() + Duration::from_secs(5);
     let chooser = loop {
-        let found = a_events.lock().unwrap().iter().find(|e| e.name == "filechooser.opened").cloned();
+        let found =
+            a_events.lock().unwrap().iter().find(|e| e.name == "filechooser.opened").cloned();
         if found.is_some() || Instant::now() > deadline {
             break found;
         }
@@ -398,9 +403,12 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
     }
     // A chooser 1.5 s after a click, when the session that kept the tab
     // has left: no session drives the tab then.
-    a.call("frame.evaluate", &json!({"targetId": target, "world": "page",
-        "source": "() => { document.getElementById('files').textContent = 'none'; }"}))
-        .unwrap();
+    a.call(
+        "frame.evaluate",
+        &json!({"targetId": target, "world": "page",
+        "source": "() => { document.getElementById('files').textContent = 'none'; }"}),
+    )
+    .unwrap();
     a.call("tab.keep", &json!({"targetId": target})).unwrap();
     click(&a, &target, 400);
     a.end_session();
@@ -408,8 +416,11 @@ fn choosers_in_mode(headless: bool) -> (bool, String, usize) {
     std::thread::sleep(Duration::from_millis(3500));
     let b = open("b", "cli", Arc::default());
     let text = b
-        .call("frame.evaluate", &json!({"targetId": target, "world": "page",
-            "source": "() => document.getElementById('files').textContent"}))
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page",
+            "source": "() => document.getElementById('files').textContent"}),
+        )
         .unwrap()
         .as_str()
         .unwrap_or("")

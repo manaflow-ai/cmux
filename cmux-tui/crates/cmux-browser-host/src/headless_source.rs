@@ -79,6 +79,8 @@ impl HeadlessSource {
             }),
         )?;
         driver.save_downloads_in(browser.downloads_dir())?;
+        // Headless: no person can see an Open panel, every tab intercepts.
+        driver.intercept_all_choosers(options.headless);
         // Chromium opens a start tab; it is no session's tab, so sessions
         // start with none (headless Chromium keeps running without tabs).
         if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
@@ -155,12 +157,17 @@ impl HeadlessSource {
     }
 
     fn drive(self: &Arc<Self>, session: u64, target: &str) {
-        self.driven
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(target.to_owned())
-            .or_default()
-            .insert(session);
+        let first = {
+            let mut driven = self.driven.lock().unwrap_or_else(PoisonError::into_inner);
+            let sessions = driven.entry(target.to_owned()).or_default();
+            let first = sessions.is_empty();
+            sessions.insert(session);
+            first
+        };
+        // Headful: a tab a session drives intercepts its file choosers.
+        if first {
+            self.driver.set_tab_choosers(target, true);
+        }
         let changed = self
             .filters
             .lock()
@@ -530,6 +537,8 @@ impl TabSource for SharedHeadless {
         };
         for target in left {
             let _ = self.0.driver.release_held_input(&target);
+            // Headful: the person's Open panel again.
+            self.0.driver.set_tab_choosers(&target, false);
         }
         let removed = self
             .0
