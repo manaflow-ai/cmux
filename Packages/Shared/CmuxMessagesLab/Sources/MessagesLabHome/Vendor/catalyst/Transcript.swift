@@ -729,15 +729,20 @@ final class RowCell: UICollectionViewCell {
         CATransaction.commit()
     }
 
-    /// Typing dots: a Gaussian brightness pulse per dot, 0.26 s apart, every
+    /// Typing dots: a Gaussian brightness pulse per dot, 0.247 s apart, every
     /// second, as one repeating keyframe animation each (render server).
+    /// Phase from two lossless macOS 27 takes (typing-unfocused-take1,
+    /// send-typed-media-take1): the first dot peaks 0.29-0.35 s after the dots
+    /// become visible (ours was 0.20), the next ones 0.246 and 0.248 s later,
+    /// period 1.0 s. The dots become visible about 0.15 s after `begin`, so the
+    /// first peak sits 0.45 s after it.
     func startTypingDots(begin: CFTimeInterval) {
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
             let n = 60
             var values: [NSNumber] = []
             for k in 0...n {
-                var x = Double(k) / Double(n) - 0.33 - Double(i) * 0.26
+                var x = Double(k) / Double(n) - 0.45 - Double(i) * 0.247
                 x -= x.rounded()
                 values.append(NSNumber(value: exp(-(x / 0.22) * (x / 0.22))))
             }

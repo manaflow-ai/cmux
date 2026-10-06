@@ -8,11 +8,11 @@
 +    // cmux: the app's policy (HomeFlightRecorder: DEV on, NIGHTLY opt-in, Release off), read live.
 +    static var enabled: Bool { HomeFlightRecorder.isEnabled() && !ProcessInfo.processInfo.arguments.contains("--no-flight-recorder") }
  
-     struct Row { var key: String; var rect: CGRect; var opacity: Float; var hasBitmap: Bool; var bitmapID: Int; var age: Int }
-     struct Sample {
-@@ -48,16 +49,21 @@
-     private(set) var dumps: [String] = []
+     /// Raw per-frame storage, preallocated (no strings, dictionaries or allocation per
+     /// frame; formatting happens only in `dump`). Rows are interned key ids.
+@@ -62,16 +63,21 @@
      private static var bursts: [DispatchSourceTimer] = []
+     private static let dumpQueue = DispatchQueue(label: "flight.dump", qos: .utility)
  
 +    // cmux: the pane's window comes and goes and the policy can switch on later: attach (from
 +    // ChatController.windowChanged) always, replacing the previous window's observers.
@@ -35,22 +35,16 @@
          }
      }
  
-@@ -132,10 +138,11 @@
-             let b = m.bubble.presentation() ?? m.bubble
-             return (k, b.convert(b.bounds, to: root))
-         }
--        let screen = c.window.screen
--        return Sample(t: now, rows: rows, morphs: morphs, offset: v.collection.contentOffset.y, key: c.window.isKeyWindow,
-+        let screen = c.window?.screen  // cmux: the pane's window is optional
-+        return Sample(t: now, rows: rows, morphs: morphs, offset: v.collection.contentOffset.y, key: c.window?.isKeyWindow ?? false,
-                       screen: screen?.localizedName ?? "?", hz: screen?.maximumFramesPerSecond ?? 0,
--                      gaps: FlashCheck.coverageGaps(v, presented: true), unfilled: FlashCheck.unfilledOutgoing(v, presented: true))
-+                      // cmux: FlashCheck is not vendored; its two presented-frame checks (HomeFlightRecorder).
-+                      gaps: HomeFlightRecorder.coverageGaps(v), unfilled: HomeFlightRecorder.unfilledOutgoing(v))
-     }
- 
-     private var previous: Sample?
-@@ -185,7 +192,8 @@
+@@ -185,7 +191,7 @@
+         let listOrigin = list.superlayer == nil ? CGPoint.zero : list.convert(CGPoint.zero, to: v.layer)
+         // Container motion: the transcript's sublayer transform moves every row (WindowView.animateRows).
+         let originY = Float(listOrigin.y + list.bounds.minY - lp.bounds.minY + lp.sublayerTransform.m42)
+-        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window.isKeyWindow)
++        var s = RawSample(t: now, offset: Float(v.collection.contentOffset.y), key: c.window?.isKeyWindow ?? false)  // cmux: optional window
+         let base = slot * FlightRecorder.maxRows
+         var n = 0
+         // Coverage gaps from the same rows (FlashCheck.coverageGaps rules), unfilled outgoing bubbles.
+@@ -351,10 +357,11 @@
          guard let c else { return }
          let f = DateFormatter()
          f.dateFormat = "yyyyMMdd-HHmmss.SSS"
@@ -58,12 +52,17 @@
 +        // cmux: ~/Library/Logs/<app>/ (HomeFlightRecorder.logFolder), not MessagesLab's folder.
 +        let dir = (NSHomeDirectory() as NSString).appendingPathComponent("Library/Logs/\(HomeFlightRecorder.logFolder)/blink-\(f.string(from: Date()))")
          try? FileManager.default.createDirectory(atPath: dir + "/frames", withIntermediateDirectories: true)
-         let samples = (0..<ring.count).map { ring[(ringStart + $0) % ring.count] }
-         let t0 = samples.first?.t ?? CACurrentMediaTime()
-@@ -201,20 +209,23 @@
-             if let d = try? JSONSerialization.data(withJSONObject: obj), let l = String(data: d, encoding: .utf8) { lines.append(l) }
+-        screenName = c.window.screen?.localizedName ?? "?"
+-        screenHz = c.window.screen?.maximumFramesPerSecond ?? 0
++        screenName = c.window?.screen?.localizedName ?? "?"  // cmux: the pane's window is optional
++        screenHz = c.window?.screen?.maximumFramesPerSecond ?? 0
+         let order = (0..<filled).map { (head - filled + $0 + FlightRecorder.capacity) % FlightRecorder.capacity }
+         let t0 = order.first.map { samples[$0].t } ?? CACurrentMediaTime()
+         // Formatting and writing run off main on copies of the raw arrays (a dump cost 8-9 ms on main).
+@@ -381,20 +388,23 @@
          }
          try? lines.joined(separator: "\n").write(toFile: dir + "/frames.ndjson", atomically: true, encoding: .utf8)
+         }
 -        LiveProbes.write(["reason": reason, "findings": all, "events": events.map { ["t": $0.0 - t0, "event": $0.1] },
 -                          "window": ["key": c.window.isKeyWindow, "screen": c.window.screen?.localizedName ?? "?",
 -                                     "hz": c.window.screen?.maximumFramesPerSecond ?? 0, "scale": c.window.backingScaleFactor,
@@ -91,7 +90,7 @@
          let q = DispatchQueue(label: "flight.burst", qos: .utility)
          let start = CACurrentMediaTime()
          var i = 0
-@@ -222,7 +233,8 @@
+@@ -402,7 +412,8 @@
          timer.schedule(deadline: .now(), repeating: 1.0 / 60)
          timer.setEventHandler {
              let t = CACurrentMediaTime() - start

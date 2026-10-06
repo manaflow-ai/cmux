@@ -116,8 +116,10 @@ final class RowRecycler: UIScrollView, TranscriptList {
             next[k] = cell
             newIndex[ObjectIdentifier(cell)] = i
         }
-        // Rows that left the rect: back to the pool (hidden, not removed).
-        for (_, c) in visible {
+        // Rows that left the rect: back to the pool (hidden, not removed), in row order: the
+        // dictionary's order follows the per-process hash seed, so which cell a later row got
+        // (and its leftover layers) differed between runs of the same script.
+        for c in visible.values.sorted(by: { (index[ObjectIdentifier($0)] ?? 0) < (index[ObjectIdentifier($1)] ?? 0) }) {
             c.isHidden = true
             c.prepareForReuse()
             pool.append(c)
