@@ -105,6 +105,7 @@ extension TabDragSession {
             case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
+            case .merge: break
             }
             services.windows.bringToFront(controller)
         }
