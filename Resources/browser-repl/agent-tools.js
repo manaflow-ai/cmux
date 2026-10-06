@@ -1092,7 +1092,30 @@
     // refuses reads and input on a tab whose page it blocks. These wrappers
     // give early errors and keep the log of blocked navigations.
     const policyHost = (op, args) => host.policy(op, args || {});
+    // The newest MAX_BLOCKED_LOG blocks, a repeat of the newest counted on
+    // it (`count`, `lastAt`) and URLs and reasons cut at
+    // MAX_BLOCKED_TEXT characters: a page can block without end.
+    // blockedNavigations() leads with { blocked: "dropped", count } once
+    // older ones were dropped.
+    const MAX_BLOCKED_LOG = 1000;
+    const MAX_BLOCKED_TEXT = 2048;
     const policyLog = [];
+    let policyLogDropped = 0;
+    const clipBlocked = (text) => (text.length > MAX_BLOCKED_TEXT ? `${text.slice(0, MAX_BLOCKED_TEXT)}… (${text.length} characters)` : text);
+    function logBlocked(url, reason, blocked) {
+      const entry = { url: clipBlocked(String(url)), reason: clipBlocked(String(reason)), at: new Date(session.now()).toISOString(), blocked };
+      const last = policyLog[policyLog.length - 1];
+      if (last && last.url === entry.url && last.reason === entry.reason && last.blocked === blocked) {
+        last.count = (last.count || 1) + 1;
+        last.lastAt = entry.at;
+        return;
+      }
+      policyLog.push(entry);
+      if (policyLog.length > MAX_BLOCKED_LOG) {
+        policyLog.shift();
+        policyLogDropped++;
+      }
+    }
     const blockedTabs = new Map(); // targetId -> { url, reason } reported by the driver
     const policyActive = () => {
       const p = policyHost("get");
@@ -1102,7 +1125,7 @@
     function checkURL(title, url) {
       const reason = urlReason(url);
       if (reason) {
-        policyLog.push({ url: String(url), reason, at: new Date(session.now()).toISOString(), blocked: "before" });
+        logBlocked(url, reason, "before");
         throw new Error(`${title}: ${url} is blocked: ${reason}`);
       }
     }
@@ -1248,7 +1271,7 @@
           // The driver refused a navigation the policy blocks. Other
           // refusals (a frame or input the policy blocks) pass unchanged.
           if (e && e.code === "blocked" && (NAVIGATIONS.has(method) || method === "tabs.open")) {
-            policyLog.push({ url: String(params.url || ""), reason: String(e.message).replace(/^.* is blocked: /, ""), at: new Date(session.now()).toISOString(), blocked: "before" });
+            logBlocked(params.url || "", String(e.message).replace(/^.* is blocked: /, ""), "before");
             throw new Error(`${TITLES[method] || method}: ${e.message}`);
           }
           throw e;
@@ -1272,7 +1295,7 @@
         } else if (event === "navigation.blocked") {
           // The driver cancelled a navigation of a tab the session opened (a
           // link, redirect or script): the tab stays where it was.
-          policyLog.push({ url: p.url, reason: p.reason, at: new Date(session.now()).toISOString(), blocked: "cancelled" });
+          logBlocked(p.url, p.reason, "cancelled");
           blockedTabs.set(p.targetId, { url: p.url, reason: p.reason });
           print("warn", `# ${blockedMessage(p)}; the tab stayed on its page`);
         } else if (event === "tab.created" && p.url && p.openerTargetId) {
@@ -1281,10 +1304,10 @@
             // A window a user's page opened while it handled the session's
             // input: the tab is the user's, and the policy only keeps the
             // session's reads and input out of it; it is never closed.
-            policyLog.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
+            logBlocked(p.url, reason, "popup");
             print("warn", `# a new tab for ${p.url} is the user's and stays open, but the session may not use it: ${reason}`);
           } else if (reason) {
-            policyLog.push({ url: p.url, reason, at: new Date(session.now()).toISOString(), blocked: "popup" });
+            logBlocked(p.url, reason, "popup");
             print("warn", `# a new tab for ${p.url} was closed: ${reason}`);
             session.call("tabs.close", { targetId: p.targetId }).catch(() => {});
           }
@@ -1469,7 +1492,10 @@
         if (on === undefined) return policyHost("get").blockIPs;
         return policyHost("set", { blockIPs: !!on, title: "session.blockIPAddresses" }).blockIPs;
       },
-      blockedNavigations: () => policyLog.map((e) => ({ ...e })),
+      blockedNavigations: () => [
+        ...(policyLogDropped ? [{ blocked: "dropped", count: policyLogDropped, url: "", reason: `older blocks past the newest ${MAX_BLOCKED_LOG} were dropped` }] : []),
+        ...policyLog.map((e) => ({ ...e })),
+      ],
       // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,

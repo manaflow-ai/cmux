@@ -102,5 +102,9 @@ test("blocked navigations: the log keeps the newest entries, counts the dropped 
     assert.equal(last.url, "https://same.test/");
     assert.equal(last.count, 500);
     assert.equal(r[r.length - 2].url, "https://blocked.test/2999");
+    // A page-made URL is kept cut, not whole.
+    emit("navigation.blocked", { targetId: "t1", url: `https://long.test/${"a".repeat(100000)}`, reason: "not allowed" });
+    const long = (await read(`out(session.blockedNavigations().at(-1));`)).url;
+    assert.ok(long.length < 3000, `a blocked URL of ${long.length} characters was kept`);
   });
 });

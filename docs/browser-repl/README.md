@@ -705,7 +705,10 @@ download records for `session.downloads()` (past that the oldest finished
 or failed one goes, the oldest running one when none ended) and tracks at
 most 1,000 running downloads a tab (past that the oldest one's
 `failure()` and `path()` read that it is gone); a dropped download's id
-never names another.
+never names another. `session.blockedNavigations()` keeps the newest
+1,000 blocks, each URL and reason cut at 2,048 characters; a block that
+repeats the newest one adds to its `count` (and `lastAt`), and once older
+blocks were dropped the list starts with `{ blocked: "dropped", count }`.
 
 ## Hibernated and crashed tabs
 
