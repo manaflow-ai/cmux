@@ -12,6 +12,12 @@ public struct BrowserReplFrame {
     /// the old document.
     public let info: WKFrameInfo?
     public let url: String
+    /// ``url`` as a refusal or another message names the frame: as any
+    /// reader but the tab's creator reads a page URL
+    /// (``BrowserReplPageURL/credentialFree``). A message names a frame the
+    /// session may not read, or one whose document changed under it, so
+    /// not even the tab's creator gets the URL as written there.
+    public var shownURL: String { BrowserReplPageURL(url, creator: nil).credentialFree }
     public let name: String
     public let crossOrigin: Bool
     /// Whether the tree read may lack some of this frame's child frames:

@@ -91,7 +91,12 @@ extension String {
     /// like, so `access_token`, `id_token` and `X-Amz-Signature`) and the
     /// short names URLs use for one (`code`, `sig`, `key`, `otp` and the
     /// like). Other parameters, and the rest of the URL, stay as written.
+    ///
+    /// A URL that holds its document rather than naming where it is
+    /// (``browserReplOpaqueURLForm``: `data:`, `blob:`, `javascript:`,
+    /// `about:`) keeps only what names no content.
     public func redactingBrowserReplURLCredentials() -> String {
+        if let opaque = browserReplOpaqueURLForm { return opaque }
         var rest = Substring(self)
         var result = ""
         // The scheme and authority: drop a userinfo.
@@ -136,6 +141,22 @@ extension String {
             return parameter
         }
         return rawName + "=redacted"
+    }
+
+    /// This URL as a reader that may not read its document gets it, when
+    /// the URL is the document itself, or a key to it, rather than an
+    /// address: a `data:` URL is the document's source, a `blob:` URL the
+    /// unguessable name of its bytes and a `javascript:` URL its script,
+    /// so each becomes its scheme and an ellipsis (`data:…`); an `about:`
+    /// URL keeps its name (`about:blank`, `about:srcdoc`) without a query
+    /// or fragment. Nil for any other URL.
+    public var browserReplOpaqueURLForm: String? {
+        guard let colon = firstIndex(of: ":") else { return nil }
+        let scheme = self[..<colon].lowercased()
+        if ["data", "blob", "javascript"].contains(scheme) { return scheme + ":\u{2026}" }
+        guard scheme == "about" else { return nil }
+        let name = self[index(after: colon)...].prefix { $0 != "?" && $0 != "#" }
+        return "about:" + name
     }
 
     /// Short query names that carry a credential without saying so in the

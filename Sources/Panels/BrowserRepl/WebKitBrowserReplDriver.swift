@@ -649,7 +649,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // the record and the document the frame shows now must be ones
             // the domain policy allows.
             if let reason = frameGate.recordedBlockReason(of: frame, in: panel.webView) {
-                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
+                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.shownURL), which the domain policy blocks: \(reason)")
             }
             try await frameGate.authorize(frame, in: panel.webView)
             // What the user types goes into the page like a typed secret,
@@ -673,7 +673,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let fieldsDocument = frame.info.map(BrowserReplFrameDocument.init(info:)) ?? BrowserReplFrameDocument(url: panel.webView.url)
             guard BrowserReplCredentialRequest.frameOrigin(frame.info, panel.webView) != nil,
                   fieldsDocument.isOn(secretDomains: domains) else {
-                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), outside the credential's domains (\(domains.map(\.raw).joined(separator: ", ")))")
+                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.shownURL), outside the credential's domains (\(domains.map(\.raw).joined(separator: ", ")))")
             }
             let tabAttachment = attachment(panel)
             let webView = panel.webView

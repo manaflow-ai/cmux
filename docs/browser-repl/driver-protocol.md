@@ -340,8 +340,15 @@ each reader where results and events leave the driver: only that creator
 reads it as written; every other session gets its userinfo and
 credential-named query and fragment parameters reading `redacted` (the
 rule network events use), also where another field of the same payload (a
-refusal's reason) repeats it. An event `url` the driver did not type that
-way reaches every session in that form.
+refusal's reason) repeats it. A URL that holds its document rather than
+naming where it is reaches every other session as its scheme alone: a
+`data:`, `blob:` or `javascript:` URL as `data:…` (and so on), an `about:`
+URL as its name without a query or fragment (`about:srcdoc`). An event
+`url` the driver did not type that way reaches every session in that form.
+A frame the session's domain policy blocks lists in that form even for the
+tab's creator, and an error that names a frame (a `blocked` refusal, a
+`stale` frame that did not answer) names it in that form for every
+session.
 
 | Event | Payload |
 | --- | --- |

@@ -85,7 +85,7 @@ extension BrowserReplFrameGate {
         for _ in 0..<tree.count {
             let answer = try await probe.call(
                 Self.focusedChildSource, arguments: [:], in: webView, frame: current.info, contentWorld: world,
-                what: "frame \(current.url) did not report its focus"
+                what: "frame \(current.shownURL) did not report its focus"
             ) as? [String: Any] ?? [:]
             guard answer["inner"] as? Bool == true else { return current }
             let index = (answer["index"] as? NSNumber)?.intValue ?? -1
@@ -94,7 +94,7 @@ extension BrowserReplFrameGate {
                 if positions[child.frameID] == nil {
                     let reported = try? await probe.call(
                         Self.ownPositionSource, arguments: [:], in: webView, frame: child.info, contentWorld: world,
-                        what: "frame \(child.url) did not report its position"
+                        what: "frame \(child.shownURL) did not report its position"
                     )
                     positions[child.frameID] = (reported as? NSNumber)?.intValue ?? -1
                 }
@@ -104,7 +104,7 @@ extension BrowserReplFrameGate {
                 }
             }
             guard let next else {
-                throw BrowserReplDriverError(code: "stale", message: "Could not tell which frame inside \(current.url) holds the focus (a frame in a shadow tree, or the frames changed); the clipboard shortcut did nothing")
+                throw BrowserReplDriverError(code: "stale", message: "Could not tell which frame inside \(current.shownURL) holds the focus (a frame in a shadow tree, or the frames changed); the clipboard shortcut did nothing")
             }
             current = next
         }

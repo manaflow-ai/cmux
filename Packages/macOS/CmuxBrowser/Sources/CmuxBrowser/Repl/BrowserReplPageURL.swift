@@ -40,7 +40,8 @@ public struct BrowserReplPageURL: Sendable, Equatable {
         return BrowserReplPageURL(address, creator: liveCreator)
     }
 
-    /// The URL with its credential values replaced
+    /// The URL with its credential values replaced, and a URL that holds
+    /// its document (`data:`, `blob:`, `javascript:`) as its scheme alone
     /// (``Swift/String/redactingBrowserReplURLCredentials()``).
     public var credentialFree: String { raw.redactingBrowserReplURLCredentials() }
 

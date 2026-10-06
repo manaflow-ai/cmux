@@ -445,7 +445,7 @@ public final class BrowserReplFrameGate {
                 return "\(kind) of an opaque origin whose maker cmux cannot tell, which may be a local file the session may not read; navigate the frame to another page"
             case .page(let page):
                 if let reason = localBlockReason(page, roots: roots) {
-                    return "\(kind) made by \(page.local ?? page.place): \(reason)"
+                    return "\(kind) made by \(page.local.map { BrowserReplPageURL($0, creator: nil).credentialFree } ?? page.place): \(reason)"
                 }
             }
         }
@@ -662,10 +662,10 @@ public final class BrowserReplFrameGate {
         let found = try await boxes(of: tops, in: webView, frames: frames, effects: false)
         for (entry, box) in zip(tops, found.boxes) {
             guard let box else {
-                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.blocked.url) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so pointer input to this tab is refused")
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.blocked.shownURL) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so pointer input to this tab is refused")
             }
             for point in points where point.x >= box.minX && point.x <= box.maxX && point.y >= box.minY && point.y <= box.maxY {
-                throw BrowserReplDriverError(code: "blocked", message: "The point (\(Self.format(point.x)), \(Self.format(point.y))) is over frame \(entry.blocked.url), which the domain policy blocks: \(entry.reason)")
+                throw BrowserReplDriverError(code: "blocked", message: "The point (\(Self.format(point.x)), \(Self.format(point.y))) is over frame \(entry.blocked.shownURL), which the domain policy blocks: \(entry.reason)")
             }
         }
     }
@@ -681,13 +681,13 @@ public final class BrowserReplFrameGate {
         guard !blockedFrames.isEmpty else { return }
         let byID = Dictionary(frames.map { ($0.frameID, $0) }, uniquingKeysWith: { first, _ in first })
         for entry in blockedFrames {
-            let refusal = BrowserReplDriverError(code: "blocked", message: "The keyboard focus is in frame \(entry.frame.url), which the domain policy blocks: \(entry.reason)")
+            let refusal = BrowserReplDriverError(code: "blocked", message: "The keyboard focus is in frame \(entry.frame.shownURL), which the domain policy blocks: \(entry.reason)")
             guard let info = entry.frame.info else { throw refusal }
             let focus: [String: Any]
             do {
                 focus = try await probe(
                     Self.focusSource, arguments: [:], in: webView, frame: info,
-                    what: "frame \(entry.frame.url) did not report its focus"
+                    what: "frame \(entry.frame.shownURL) did not report its focus"
                 ) as? [String: Any] ?? [:]
             } catch let error as BrowserReplDriverError where error.code == "stale" {
                 throw error
@@ -709,7 +709,7 @@ public final class BrowserReplFrameGate {
             do {
                 ownsFocus = try await probe(
                     Self.ownerFocusSource, arguments: ["index": position, "length": length], in: webView, frame: parent.info,
-                    what: "frame \(parent.url) did not report its focus"
+                    what: "frame \(parent.shownURL) did not report its focus"
                 ) as? Bool
             } catch let error as BrowserReplDriverError where error.code == "stale" {
                 throw error
@@ -815,20 +815,20 @@ public final class BrowserReplFrameGate {
         var parentOrder: [String] = []
         for entry in tops {
             guard let parentID = entry.frame.parentFrameID, byID[parentID] != nil, let info = entry.frame.info else {
-                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its place is unknown, so input to this tab is refused")
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.shownURL) shows a page the domain policy blocks (\(entry.reason)) and its place is unknown, so input to this tab is refused")
             }
             let answer: [String: Any]
             do {
                 answer = try await probe(
                     Self.positionSource, arguments: [:], in: webView, frame: info,
-                    what: "frame \(entry.frame.url) did not report its position"
+                    what: "frame \(entry.frame.shownURL) did not report its position"
                 ) as? [String: Any] ?? [:]
             } catch let error as BrowserReplDriverError {
                 throw error
             } catch {
                 // A frame that has gone takes no input.
                 if Self.isGoneFrame(error) { continue }
-                throw BrowserReplDriverError(code: "stale", message: "Frame \(entry.frame.url) did not report its position: \(error.localizedDescription)")
+                throw BrowserReplDriverError(code: "stale", message: "Frame \(entry.frame.shownURL) did not report its position: \(error.localizedDescription)")
             }
             let position = (answer["position"] as? NSNumber)?.intValue ?? -1
             let length = (answer["length"] as? NSNumber)?.intValue ?? -1
@@ -853,16 +853,16 @@ public final class BrowserReplFrameGate {
                     ],
                     in: webView,
                     frame: parent.info,
-                    what: "frame \(parent.url) did not guard its blocked frames"
+                    what: "frame \(parent.shownURL) did not guard its blocked frames"
                 ) as? [String: Any] ?? [:]
                 switch value["result"] as? String {
                 case "ok":
                     installed.append(InputGuard(parent: parent, token: token, guarded: entries.map(\.frame), positions: entries.map(\.position)))
                 case "changed":
-                    throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(parent.url) was prepared; try again")
+                    throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(parent.shownURL) was prepared; try again")
                 default:
                     let entry = entries[0]
-                    throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its frame element cannot be held out of the input's reach, so input to this tab is refused")
+                    throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.shownURL) shows a page the domain policy blocks (\(entry.reason)) and its frame element cannot be held out of the input's reach, so input to this tab is refused")
                 }
             }
             try await verifyInputGuards(installed, in: webView)
@@ -892,28 +892,28 @@ public final class BrowserReplFrameGate {
                 do {
                     answer = try await probe(
                         Self.positionSource, arguments: [:], in: webView, frame: info,
-                        what: "frame \(frame.url) did not report its position"
+                        what: "frame \(frame.shownURL) did not report its position"
                     ) as? [String: Any] ?? [:]
                 } catch let error as BrowserReplDriverError {
                     throw error
                 } catch {
                     // A frame that has gone takes no input.
                     if Self.isGoneFrame(error) { continue }
-                    throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.url) did not report its position: \(error.localizedDescription)")
+                    throw BrowserReplDriverError(code: "stale", message: "Frame \(frame.shownURL) did not report its position: \(error.localizedDescription)")
                 }
                 let now = (answer["position"] as? NSNumber)?.intValue ?? -1
                 if now != position {
-                    throw BrowserReplDriverError(code: "stale", message: "The page moved frame \(frame.url), which the domain policy blocks, while input to the tab was prepared; try again")
+                    throw BrowserReplDriverError(code: "stale", message: "The page moved frame \(frame.shownURL), which the domain policy blocks, while input to the tab was prepared; try again")
                 }
             }
         }
         for entry in guards {
             let value = try await probe(
                 Self.inputVerifySource, arguments: ["token": entry.token], in: webView, frame: entry.parent.info,
-                what: "frame \(entry.parent.url) did not confirm its guard"
+                what: "frame \(entry.parent.shownURL) did not confirm its guard"
             ) as? [String: Any]
             if value?["result"] as? String != "ok" {
-                throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(entry.parent.url) was prepared; try again")
+                throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while input to frame \(entry.parent.shownURL) was prepared; try again")
             }
         }
     }
@@ -929,14 +929,14 @@ public final class BrowserReplFrameGate {
             do {
                 let value = try await probe(
                     Self.inputReleaseSource, arguments: ["token": entry.token], in: webView, frame: entry.parent.info,
-                    what: "frame \(entry.parent.url) did not release its blocked frames"
+                    what: "frame \(entry.parent.shownURL) did not release its blocked frames"
                 ) as? [String: Any]
                 tampered = value?["tampered"] as? Bool ?? true
             } catch {
                 tampered = !Self.isGoneFrame(error)
             }
             if tampered, failure == nil {
-                let urls = entry.guarded.map(\.url).joined(separator: ", ")
+                let urls = entry.guarded.map(\.shownURL).joined(separator: ", ")
                 failure = BrowserReplDriverError(code: "blocked", message: "The page took the guard off frame \(urls), which the domain policy blocks, while the input was in flight (or the guard could not be confirmed), so the input may have reached it")
             }
         }
@@ -950,7 +950,7 @@ public final class BrowserReplFrameGate {
             throw Self.incompleteTree(unread, documentCount: nil, treeCount: nil)
         }
         guard let entry = blocked(frames, in: webView).first else { return }
-        throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a capture would show it")
+        throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.frame.shownURL), which the domain policy blocks: \(entry.reason); a capture would show it")
     }
 
     /// Runs `capture`, which returns an image of `region` (CSS pixels of the
@@ -1043,11 +1043,11 @@ public final class BrowserReplFrameGate {
         ) as? [String: Any] ?? [:]
         switch value["result"] as? String {
         case "ok":
-            return HiddenFrames(token: token, frames: tops.map(\.blocked.url))
+            return HiddenFrames(token: token, frames: tops.map(\.blocked.shownURL))
         case "changed":
             throw BrowserReplDriverError(code: "stale", message: "The page changed its frames while the capture was prepared; try again")
         default:
-            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.url), which the domain policy blocks (\(tops[0].reason)), and its frame element cannot be hidden, so a capture could show it")
+            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.shownURL), which the domain policy blocks (\(tops[0].reason)), and its frame element cannot be hidden, so a capture could show it")
         }
     }
 
@@ -1085,14 +1085,14 @@ public final class BrowserReplFrameGate {
         guard !tops.isEmpty else { return [] }
         let found = try await boxes(of: tops, in: webView, frames: frames, effects: true)
         if found.backdrop {
-            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.url), which the domain policy blocks (\(tops[0].reason)), and an element of the page blurs or filters what lies under it (backdrop-filter), so a capture could show the frame")
+            throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(tops[0].blocked.shownURL), which the domain policy blocks (\(tops[0].reason)), and an element of the page blurs or filters what lies under it (backdrop-filter), so a capture could show the frame")
         }
         return try zip(tops, found.boxes).map { entry, box in
             guard let box else {
-                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.url), which the domain policy blocks (\(entry.reason)); its position is unknown, so a capture could show it")
+                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.shownURL), which the domain policy blocks (\(entry.reason)); its position is unknown, so a capture could show it")
             }
             if found.escapes.contains(entry.top.frameID) {
-                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.url), which the domain policy blocks (\(entry.reason)), and the page draws it outside its box (-webkit-box-reflect or filter), so a capture could show it")
+                throw BrowserReplDriverError(code: "blocked", message: "The tab shows frame \(entry.blocked.shownURL), which the domain policy blocks (\(entry.reason)), and the page draws it outside its box (-webkit-box-reflect or filter), so a capture could show it")
             }
             return box
         }
@@ -1485,7 +1485,7 @@ public final class BrowserReplFrameGate {
             do {
                 let value = try await probe(
                     "return window.frames.length;", arguments: [:], in: webView, frame: frame.info,
-                    what: "frame \(frame.url) did not report its child frames"
+                    what: "frame \(frame.shownURL) did not report its child frames"
                 )
                 guard let count = (value as? NSNumber)?.intValue else { throw Self.incompleteTree(frame, documentCount: nil, treeCount: treeCount) }
                 documentCount = count
@@ -1506,7 +1506,7 @@ public final class BrowserReplFrameGate {
         let counts = documentCount.map { " (its document has \($0) child frames, the tree \(treeCount ?? 0))" } ?? ""
         return BrowserReplDriverError(
             code: "stale",
-            message: "WebKit's frame tree of this tab came back without some child frames of frame \(frame.url)\(counts), so input, captures and scripts that could reach other frames are refused while the domain policy is on; try again"
+            message: "WebKit's frame tree of this tab came back without some child frames of frame \(frame.shownURL)\(counts), so input, captures and scripts that could reach other frames are refused while the domain policy is on; try again"
         )
     }
 
@@ -1545,7 +1545,7 @@ public final class BrowserReplFrameGate {
                 top = parent
             }
             guard top.parentFrameID == main.frameID else {
-                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.url) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so input and captures of this tab are refused")
+                throw BrowserReplDriverError(code: "blocked", message: "Frame \(entry.frame.shownURL) shows a page the domain policy blocks (\(entry.reason)) and its position is unknown, so input and captures of this tab are refused")
             }
             if !tops.contains(where: { $0.top.frameID == top.frameID }) {
                 tops.append(BlockedTop(top: top, blocked: entry.frame, reason: entry.reason))
@@ -1620,7 +1620,7 @@ public final class BrowserReplFrameGate {
     }
 
     private func blocked(_ frame: BrowserReplFrame, document: BrowserReplFrameDocument?, reason: String) -> BrowserReplDriverError {
-        let shown = document.map { $0.origin.flatMap { $0 == "null" ? nil : $0 } ?? $0.place } ?? frame.url
+        let shown = document.map { $0.origin.flatMap { $0 == "null" ? nil : $0 } ?? $0.place } ?? frame.shownURL
         if frame.info == nil || frame.parentFrameID == nil {
             return BrowserReplDriverError(code: "blocked", message: "The tab shows \(shown), which the domain policy blocks: \(reason)")
         }

@@ -517,7 +517,7 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         let lower = urlString.lowercased()
         if lower.hasPrefix("blob:") {
             guard let inner = Self.blobOrigin(urlString) else {
-                return "\(urlString) belongs to an opaque origin, which the domain policy cannot judge"
+                return "\(urlString.redactingBrowserReplURLCredentials()) belongs to an opaque origin, which the domain policy cannot judge"
             }
             return blockReason(inner)
         }
