@@ -70,6 +70,7 @@ extension AIProvider {
 struct AccountsButtonStyle: ButtonStyle {
     let palette: AccountsPalette
     var destructive = false
+    var prominent = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -77,7 +78,7 @@ struct AccountsButtonStyle: ButtonStyle {
             .foregroundStyle(destructive ? palette.danger : palette.text)
             .padding(.horizontal, Metrics.space4)
             .padding(.vertical, Metrics.space1 + 1)
-            .background(configuration.isPressed ? palette.selection : palette.hover,
+            .background(configuration.isPressed ? palette.selection : (prominent ? palette.selection : palette.hover),
                         in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
             .contentShape(Rectangle())
     }
