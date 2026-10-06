@@ -698,6 +698,15 @@ describe("acpmux composer pickers", () => {
     // A second click closes it; so does Escape.
     await act(async () => ring.click());
     expect(pop()).toBeNull();
+    // A mouse press on the open ring is also the popover's outside press. In WebKit the
+    // popover's dismissal settles before the ring's click handler runs, so the click finds it
+    // closed: that click must not open it again.
+    await act(async () => ring.click());
+    await act(async () => ring.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true })));
+    await key(ring, "Escape");
+    await act(async () => ring.click());
+    expect(pop()).toBeNull();
+    expect(ring.getAttribute("aria-expanded")).toBe("false");
     await act(async () => ring.click());
     await key(ring, "Escape");
     expect(pop()).toBeNull();
