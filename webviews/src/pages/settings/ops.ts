@@ -105,11 +105,9 @@ export type AccountsRow = {
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
-  intro: string;
   refresh: string;
   refreshing: boolean;
   signIn: { text: string; confirm: string } | null;
-  problem: string | null;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };

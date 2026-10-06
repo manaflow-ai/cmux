@@ -32,7 +32,6 @@ function AccountsBody() {
     <>
       <section className="group">
         <div className="accounts-header">
-          <span className="row-help accounts-intro">{accounts.intro}</span>
           <button
             type="button"
             className="button"
@@ -50,7 +49,6 @@ function AccountsBody() {
             </button>
           </div>
         )}
-        {accounts.problem && <div className="row-error">{accounts.problem}</div>}
       </section>
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>

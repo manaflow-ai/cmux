@@ -35,9 +35,6 @@ enum OnboardingStrings {
 
     // Import
     static var importTitle: String { String(localized: "onboarding.import.title2", defaultValue: "Import from Browsers", bundle: .module) }
-    static var importSubtitle: String {
-        String(localized: "onboarding.import.subtitle3", defaultValue: "Each profile becomes a cmux profile. Nothing leaves this Mac.", bundle: .module)
-    }
     static var detecting: String { String(localized: "onboarding.import.detecting", defaultValue: "Looking for browsers…", bundle: .module) }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
     static func importing(_ profile: String) -> String {
@@ -130,7 +127,4 @@ enum OnboardingStrings {
 
     // Accounts
     static var accountsTitle: String { String(localized: "onboarding.accounts.title2", defaultValue: "Accounts", bundle: .module) }
-    static var accountsSubtitle: String {
-        String(localized: "onboarding.accounts.subtitle2", defaultValue: "Sign-ins cmux found on this Mac. Nothing is uploaded unless you choose Connect.", bundle: .module)
-    }
 }

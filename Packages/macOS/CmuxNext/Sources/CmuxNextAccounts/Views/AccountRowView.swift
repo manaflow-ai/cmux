@@ -83,10 +83,13 @@ struct AccountRowView: View {
                 }
             }
             if row.isLinkable {
-                Button(AccountsStrings.connect) { model.connect(row.provider) }
-                    .disabled(row.isBusy || !row.canConnect)
-                    .help(model.isSignedInToCmux ? "" : AccountsStrings.cmuxSignedOut)
-                    .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
+                // Hidden while CodeRouter cannot be reached; no line says why.
+                if row.codeRouterProblem == nil {
+                    Button(AccountsStrings.connect) { model.connect(row.provider) }
+                        .disabled(row.isBusy || !row.canConnect)
+                        .help(model.isSignedInToCmux ? "" : AccountsStrings.cmuxSignedOut)
+                        .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
+                }
             } else if !row.provider.isLocalServer {
                 Text(AccountsStrings.unsupported).font(palette.caption).foregroundStyle(palette.tertiary)
             }

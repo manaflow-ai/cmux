@@ -65,12 +65,10 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let rows: [Row]
     }
 
-    public let intro: String
     public let refresh: String
     public let refreshing: Bool
     /// The sign-in banner when cmux is signed out: its text and button.
     public let signIn: Confirm?
-    public let problem: String?
     public let removeTitle: String
     public let groups: [Group]
 }
@@ -116,9 +114,8 @@ extension AccountsModel {
     /// The screen as the Settings page draws it.
     public var pageState: AccountsPageState {
         AccountsPageState(
-            intro: AccountsStrings.intro, refresh: AccountsStrings.refresh, refreshing: isRefreshing,
+            refresh: AccountsStrings.refresh, refreshing: isRefreshing,
             signIn: isSignedInToCmux ? nil : .init(text: AccountsStrings.cmuxSignedOut, confirm: AccountsStrings.signInToCmux, cancel: ""),
-            problem: isSignedInToCmux ? codeRouterProblem.map(AccountsStrings.codeRouterUnavailable) : nil,
             removeTitle: AccountsStrings.remove,
             groups: AIProvider.Group.allCases.compactMap { group in
                 let rows = rows(in: group)
@@ -165,7 +162,7 @@ extension AccountsModel {
                 buttons.append(.init(id: "deleteKey", title: AccountsStrings.deleteSavedKey, disabled: false, help: nil, destructive: false))
             }
         }
-        if row.isLinkable {
+        if row.isLinkable, row.codeRouterProblem == nil {
             buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy || !row.canConnect,
                                  help: isSignedInToCmux ? nil : AccountsStrings.cmuxSignedOut, destructive: false))
         }

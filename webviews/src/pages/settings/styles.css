@@ -756,13 +756,8 @@ mark {
 }
 
 .accounts-header {
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 8px;
-}
-
-.accounts-intro {
-  flex: 1;
-  white-space: normal;
 }
 
 .accounts-banner,

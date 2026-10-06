@@ -192,11 +192,9 @@ export class MockSettingsProvider {
 
   /** The Accounts part as the app serves it (texts already localized). */
   accounts: AccountsState = {
-    intro: "cmux checks this Mac for sign-ins and keys.",
     refresh: "Refresh",
     refreshing: false,
     signIn: null,
-    problem: null,
     removeTitle: "Remove from CodeRouter",
     groups: [
       {
