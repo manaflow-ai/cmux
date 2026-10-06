@@ -503,3 +503,142 @@ fn another_process_cannot_use_an_install_proved_confirmation() {
     assert_forbidden(&send(&mux, &foreign_relay, &install(Some(user_claim(&token)))));
     assert_not_forbidden(&send(&mux, &app_relay, &install(Some(user_claim(&token)))));
 }
+
+// Parse once (decisions: the origin gate): the gate and the dispatcher act on
+// ONE typed parse of the line, so no spelling of a line can be read one way
+// by the gate and another way by the handler, and a line the gate cannot
+// read is refused, never admitted.
+
+fn send_raw(mux: &Arc<Mux>, conn: &Conn, line: &str) -> Value {
+    assert!(handle_connection_message(mux, conn.client, line, &conn.writer, &conn.scheduler));
+    let message = conn.outbound.try_pop().expect("a synchronous reply");
+    serde_json::from_str(&message).unwrap()
+}
+
+/// `request` as a line whose member `key` is spelled with a JSON escape of
+/// its first character (`"origin"` -> `"\u006frigin"`): the same JSON value.
+fn with_escaped_key(request: &Value, key: &str) -> String {
+    let literal = format!("\"{key}\":");
+    let first = key.chars().next().expect("a key");
+    let escaped = format!("\"\\u{:04x}{}\":", u32::from(first), &key[first.len_utf8()..]);
+    let line = request.to_string();
+    assert!(line.contains(&literal), "{line}");
+    let line = line.replacen(&literal, &escaped, 1);
+    assert_eq!(serde_json::from_str::<Value>(&line).unwrap(), *request);
+    line
+}
+
+#[test]
+fn an_escaped_origin_key_is_the_same_claim_as_a_literal_one() {
+    let mux = mux("escaped-origin");
+    let conn = connect(&mux);
+    // A narrowing claim (page: every catalog operation refused) and a
+    // widening claim (user: refused) must not be skipped by any spelling.
+    for claim in [json!({"claim": "page"}), json!({"claim": "user"}), json!({"claim": "app"})] {
+        let request = ping(Some(claim));
+        let literal = send(&mux, &conn, &request);
+        assert_forbidden(&literal);
+        let escaped = send_raw(&mux, &conn, &with_escaped_key(&request, "origin"));
+        assert_eq!(escaped, literal, "an escaped origin key changed the answer");
+    }
+}
+
+#[test]
+fn a_line_whose_connection_record_is_gone_is_refused() {
+    let mux = mux("record-gone");
+    // A page relay that another connection detached while its reader still
+    // holds a line: the record (and its role) is gone. The line must be
+    // refused, never run as an agent. The connection loop treats a client
+    // without a record as remote (remote_denied) before the gate.
+    let relay = relay(&mux, "token:10.1");
+    assert!(mux.control_clients.remove(relay.client).is_some());
+    assert!(handle_connection_frame(
+        &mux,
+        relay.client,
+        ClientTransport::Unix,
+        &ping(None).to_string(),
+        &relay.writer,
+        &relay.scheduler,
+    ));
+    let reply: Value = serde_json::from_str(&relay.outbound.try_pop().expect("a reply")).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+}
+
+#[test]
+fn an_operation_gets_one_answer_whatever_its_spelling() {
+    let mux = mux("operation-spelling");
+    let conn = connect(&mux);
+    let relay = relay(&mux, "token:10.1");
+    // apps.* is not a catalog operation: every spelling gets the envelope
+    // validation error (coordinator decision), never a gate-only answer.
+    for operation in ["apps.install", "apps.uninstall", "apps.enable"] {
+        let request = v2(operation, install_params(), Some("k1"), None);
+        for on in [&conn, &relay] {
+            let literal = send(&mux, on, &request);
+            assert_eq!(literal["ok"], false, "{literal}");
+            assert_eq!(literal["error"]["code"], "validation.invalid", "{literal}");
+            let escaped = send_raw(&mux, on, &with_escaped_key(&request, "operation"));
+            assert_eq!(escaped, literal, "an escaped operation key changed the answer");
+        }
+    }
+    // A catalog operation spelled with an escape is the same operation.
+    let input = v2(
+        "terminal.input.write",
+        json!({"machine": "current", "session": "current", "terminal": "t1", "text": "x"}),
+        Some("k1"),
+        None,
+    );
+    let literal = send(&mux, &relay, &input);
+    assert_page_access_refusal(&literal);
+    let line = input.to_string().replacen("terminal.input", "terminal\\u002einput", 1);
+    assert_eq!(send_raw(&mux, &relay, &line), literal);
+}
+
+#[test]
+fn unreadable_lines_are_refused_and_never_dispatched() {
+    let mux = mux("unreadable");
+    let conn = connect(&mux);
+    let relay = relay(&mux, "token:10.1");
+    let list =
+        v2("workspace.list", json!({"machine": "current", "session": "current"}), None, None);
+    let workspaces = |mux: &Arc<Mux>| send(mux, &conn, &list)["result"].clone();
+    let before = workspaces(&mux);
+    assert!(before.is_array(), "{before}");
+    let create = v2(
+        "workspace.create",
+        json!({"machine": "current", "session": "current", "initial_content": "empty"}),
+        Some("k1"),
+        None,
+    );
+    let mut numeric_id = create.clone();
+    numeric_id["id"] = json!(7);
+    let mut no_operation = create.clone();
+    no_operation.as_object_mut().unwrap().remove("operation");
+    let mut unknown = create.clone();
+    unknown["operation"] = json!("Workspace.Create");
+    let duplicate_operation = create.to_string().replacen(
+        "\"operation\":",
+        "\"operation\":\"session.ping\",\"operation\":",
+        1,
+    );
+    let duplicate_origin = ping(Some(json!({"claim": "page"}))).to_string().replacen(
+        "\"origin\":",
+        "\"origin\":{\"claim\":\"user\"},\"origin\":",
+        1,
+    );
+    for line in [
+        numeric_id.to_string(),
+        no_operation.to_string(),
+        unknown.to_string(),
+        duplicate_operation,
+        duplicate_origin,
+    ] {
+        for on in [&conn, &relay] {
+            // The envelope parse refuses it, not a rule that read one copy.
+            let reply = send_raw(&mux, on, &line);
+            assert_eq!(reply["ok"], false, "{line} -> {reply}");
+            assert_eq!(reply["error"]["code"], "validation.invalid", "{line} -> {reply}");
+        }
+    }
+    assert_eq!(workspaces(&mux), before, "a refused line was dispatched");
+}
