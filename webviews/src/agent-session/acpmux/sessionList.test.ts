@@ -311,3 +311,22 @@ describe("rail helpers", () => {
     expect(shortAge(undefined, now)).toBe("");
   });
 });
+
+describe("archived chats", () => {
+  test("read acpmux's tag object as well as a tag list", () => {
+    expect(sessionEntry({ sessionId: "s", tags: { pinned: "1" } }).pinned).toBe(true);
+    expect(sessionEntry({ sessionId: "s", tags: { archived: "1700000000000" } }).archived).toBe(true);
+    expect(sessionEntry({ sessionId: "s", tags: ["archived"] }).archived).toBe(true);
+    expect(sessionEntry({ sessionId: "s", tags: { work: "1" } })).toMatchObject({ pinned: false, archived: false });
+  });
+
+  test("leave the sidebar, pinned or not", () => {
+    const { pinned, groups } = sidebarSections([
+      entry("kept", "/p", 3),
+      entry("gone", "/p", 2, { archived: true }),
+      entry("gone-pinned", "/p", 1, { archived: true, pinned: true }),
+    ]);
+    expect(pinned).toEqual([]);
+    expect(groups.flatMap((group) => group.sessions.map((session) => session.sessionId))).toEqual(["kept"]);
+  });
+});

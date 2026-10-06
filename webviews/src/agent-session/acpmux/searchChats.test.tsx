@@ -52,6 +52,26 @@ test("lists open chats newest first, at most nine, filtered by title", () => {
   expect(searchChats(sessions, "closed")).toEqual([]);
 });
 
+test("an archived chat is found only by its title, and says it is archived", async () => {
+  const archived: AcpmuxSessionEntry = { sessionId: "z", displayTitle: "Old spike", updatedAt: 99, archived: true };
+  expect(searchChats([...sessions, archived], "").map((s) => s.sessionId)).not.toContain("z");
+  expect(searchChats([...sessions, archived], "spike").map((s) => s.sessionId)).toEqual(["z"]);
+  const root = createRoot(document.getElementById("root")!);
+  await act(async () =>
+    root.render(createElement(SearchChats, { sessions: [archived], onSelect() {}, onClose() {} })),
+  );
+  const input = document.querySelector<HTMLInputElement>(".acpmux-search-input")!;
+  await act(async () => {
+    input.value = "spike";
+    const props = (input as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+      Object.keys(input).find((key) => key.startsWith("__reactProps$"))!
+    ]!;
+    props.onChange({ target: input });
+  });
+  expect(document.querySelector(".acpmux-search-row .acpmux-search-meta")?.textContent).toBe("Archived");
+  await act(async () => root.unmount());
+});
+
 test("typing filters, arrows move, Enter opens, Escape closes", async () => {
   const picked: string[] = [];
   let closed = 0;
