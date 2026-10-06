@@ -16,6 +16,6 @@ import Testing
     @Test func unflippedViewsOpenOnTheSameVisualSide() {
         let view = NSView(frame: NSRect(x: 12, y: 24, width: 80, height: 30))
         #expect(CmuxPopoverAnchor.menuPoint(in: view) == NSPoint(x: 0, y: -6))
-        #expect(CmuxPopoverAnchor.menuPoint(in: view, gap: 4, edge: .minY) == NSPoint(x: 0, y: 30))
+        #expect(CmuxPopoverAnchor.menuPoint(in: view, gap: 4, edge: .minY) == NSPoint(x: 0, y: 34))
     }
 }

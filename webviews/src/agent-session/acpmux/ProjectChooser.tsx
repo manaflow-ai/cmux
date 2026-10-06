@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "./i18n";
+import { useUiAnchor } from "../../ui/anchor";
 
 export type Project = { cwd: string; label: string };
 
@@ -29,8 +30,10 @@ export function ProjectChooser({
   const [active, setActive] = useState<string | undefined>(undefined);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const menuId = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
 
   const shown = useMemo(() => {
     const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -124,7 +127,7 @@ export function ProjectChooser({
         <span>{currentLabel ?? t("project.choose")}</span>
       </button>
       {open && (
-        <div className="acpmux-menu acpmux-menu-start acpmux-project-menu">
+        <div ref={menu} className="acpmux-menu acpmux-menu-start acpmux-project-menu" style={menuStyle}>
           <div className="acpmux-project-search">
             <SearchIcon />
             <input
