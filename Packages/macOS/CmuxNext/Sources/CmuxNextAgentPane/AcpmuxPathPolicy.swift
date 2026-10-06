@@ -42,13 +42,17 @@ nonisolated enum AcpmuxPathPolicy {
         /// project scan and open folders); a frame under one must use a gesture.
         public var gestureRoots: [String] = []
         /// The cwd a `session/new` (or adopt) without one gets (the pane's workspace root); nil
-        /// refuses such a frame with `transport.path_invalid`.
+        /// gives it ``agentHome``, and without that refuses it with `transport.path_invalid`.
         public var fillCwd: String? = nil
+        /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
+        /// exists, and made here as the cwd of a new chat that has no other.
+        public var agentHome: AgentHomeFill? = nil
 
-        public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil) {
+        public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil) {
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
+            self.agentHome = agentHome
         }
     }
 
@@ -77,13 +81,24 @@ nonisolated enum AcpmuxPathPolicy {
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
         var context = Context(roots: scope.roots.compactMap(canonical).filter { $0 != "/" },
                               gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
+        // The agent-home folder is a root once it exists (a running chat may still name it).
+        if let home = scope.agentHome, let path = home.home.path(for: home.workspace), canonical(path) == path {
+            context.roots.append(path)
+        }
         var params = object["params"]
-        // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root.
+        // Product rule 1: session/new (adopt too) without a cwd gets the pane's workspace root;
+        // without one, the workspace's agent-home folder, made now. Never the home folder.
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
             if fields["cwd"] == nil {
-                guard let fill = scope.fillCwd else { return .failure(Refusal(error: .pathInvalid, requestID: id, method: method)) }
-                fields["cwd"] = fill
+                if let fill = scope.fillCwd {
+                    fields["cwd"] = fill
+                } else if let home = scope.agentHome, let path = home.home.ensure(home.workspace) {
+                    fields["cwd"] = path
+                    if !context.roots.contains(path) { context.roots.append(path) }
+                } else {
+                    return .failure(Refusal(error: .pathInvalid, requestID: id, method: method))
+                }
                 context.changed = true
             }
             params = fields

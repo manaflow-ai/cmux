@@ -95,6 +95,7 @@ import { Thinking } from "./conversation/Thinking";
 import { WorkingFor } from "./conversation/WorkingFor";
 import { HostError } from "./HostError";
 import { SwitchNotice } from "./SwitchNotice";
+import { FolderChoice } from "./FolderChoice";
 import { ContinueMenu } from "./handoff/ContinueMenu";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
@@ -901,6 +902,8 @@ function AcpmuxPane() {
   const [newSession, setNewSession] = useState(false);
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
+  /// The host offers Choose Folder… (a new chat in a workspace without a folder).
+  const [chooseFolder, setChooseFolder] = useState(false);
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -1413,10 +1416,12 @@ function AcpmuxPane() {
           linkScheme?: unknown;
           sessionMustExist?: boolean;
           revealTurn?: unknown;
+          chooseFolder?: boolean;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
+        setChooseFolder(host.chooseFolder === true);
         if (
           (host.newSession && !host.sessionId) ||
           (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
@@ -1821,6 +1826,19 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+        <FolderChoice
+          onChoose={() =>
+            void callNative<{ cwd?: string }>("workspace.chooseFolder")
+              .then((result) => {
+                if (!result?.cwd) return;
+                setChooseFolder(false);
+                chooseProject(result.cwd);
+              })
+              .catch(() => undefined)
+          }
+        />
+      )}
       <Composer
         snapshot={composerSnapshot}
         chips={ComposerChips}

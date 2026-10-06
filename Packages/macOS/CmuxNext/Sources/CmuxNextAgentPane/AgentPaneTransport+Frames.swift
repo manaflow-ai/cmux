@@ -172,7 +172,8 @@ extension AgentPaneTransport {
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
         var rootRequested = false
         if facts.needsPathCheck {
-            let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot())
+            let scope = AcpmuxPathPolicy.Scope(roots: roots() + addedRoots, gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
+                                               agentHome: agentHome())
             let result = await Self.checkPaths(box, scope: scope)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
             switch result {

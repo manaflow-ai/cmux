@@ -109,6 +109,14 @@ extension StateResourceClient {
         try await stateMutation("workspace.update", params)
     }
 
+    /// The folder new agent chats of the workspace start in (`workspace.agent_folder.set`); nil
+    /// clears it. The daemon takes it only from the verified app (origin `user`) and only as an
+    /// absolute, existing, canonical folder.
+    public func setAgentFolder(_ workspace: ResourceID, path: String?) async throws {
+        let params: [String: JSONValue] = ["workspace": .string(workspace.rawValue), "path": path.map(JSONValue.string) ?? .null]
+        try await stateMutation("workspace.agent_folder.set", params)
+    }
+
     /// Workspace identity through `workspace.update` when `resource` (the
     /// workspace's public id on a daemon with state resources) is given,
     /// else the raw `set-workspace-metadata`.

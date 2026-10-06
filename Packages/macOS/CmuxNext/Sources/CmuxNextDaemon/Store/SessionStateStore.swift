@@ -63,6 +63,7 @@ public final class SessionStateStore {
                 groups = Self.screenGroups(state, workspace: id, screens: workspace.screens)
             }
             workspace.applyState(ephemeral: id.map { state?.ephemeralWorkspaces.contains($0) ?? false } ?? false,
+                                 agentFolder: id.flatMap { state?.agentFolders[$0] },
                                  status: id.flatMap { state?.workspaceStatus[$0] }, screenGroups: groups)
             for screen in workspace.screens {
                 for pane in screen.panes {

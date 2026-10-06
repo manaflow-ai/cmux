@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn
+             linkScheme, sessionMustExist, revealTurn, chooseFolder
     }
 
     public var protocolVersion: Int
@@ -69,6 +69,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// scrolls to it once its row renders, and gives up quietly after a few
     /// seconds. Handed out once.
     public var revealTurn: String?
+    /// True for a new chat in a workspace without a folder: it starts in the workspace's
+    /// agent-home folder, and the page offers "Choose Folder…" (`workspace.chooseFolder`,
+    /// AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). Pages that predate it ignore it.
+    public var chooseFolder: Bool?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion
