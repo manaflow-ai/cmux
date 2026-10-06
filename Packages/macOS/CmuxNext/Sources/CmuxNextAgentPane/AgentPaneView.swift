@@ -306,14 +306,6 @@ public final class AgentPaneView: NSView {
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }
 
-    #if DEBUG
-    /// DEBUG automation only (`debug.key`, `debug.agent_pane click`), for a window that is not
-    /// key: AppKit sends a key to the key window and holds back a first click, so the app
-    /// delivers that event itself, and first runs the handler that the local monitor runs for a
-    /// real event. The gesture rule is the same; Release builds have no such entry.
-    public func debugRunGestureMonitor(_ event: NSEvent) { monitored(event) }
-    #endif
-
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.
