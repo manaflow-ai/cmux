@@ -116,6 +116,9 @@ pub struct Settings {
     /// `MUX_POLICY` (default approve-all).
     pub policy: String,
     pub model: Option<String>,
+    /// acpmux `effort` of each turn session (`effort::turn_effort`); None:
+    /// the harness's default.
+    pub effort: Option<String>,
     /// The value of the `mux.parent` tag on the Chief's children.
     pub parent: String,
     /// Turn session names are `<turn_prefix>-<first id>`; `optchat-<home id>`,

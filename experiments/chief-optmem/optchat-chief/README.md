@@ -84,13 +84,33 @@ optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server: z
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] "task"
 optchat-chief agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
-optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?}, default note (host stopped)
+optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+                                                           Claude Code transcripts as messages (host stopped)
 ```
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
 `$MUX_HOME/optchat/bin`, first on the turn's PATH). A child's final reply of
 each turn comes back as one message `[<name>] <report>`, which starts a new
 turn when the Chief is idle.
+
+### Importing Claude Code sessions
+
+`import-claude-code` reads Claude Code transcripts (`--projects`, default
+`$CLAUDE_CONFIG_DIR/projects` or `~/.claude/projects`) and turns each session
+into a `note` (session id and working directory), then per turn the user's
+message (`user`), one `tool` line with the turn's tool names, counts and the
+files they named, and the final reply (`talk`), each with its transcript
+date (section 10: "the user's messages and the agent's final replies,
+without repeated pastes and tool noise"). Thinking, intermediate replies,
+tool inputs and outputs (which can hold secrets), meta lines, slash
+commands, interruptions and subagent lines are dropped, as are lines a
+resumed session copied (same uuid) and a user message of 500 or more
+characters seen before. `dry-run` prints the counts and the date range and
+writes nothing; `write` appends the items through the chat (`OptChat`'s
+append, the store seam), so it needs the host stopped, and the items get
+their ids from the end of the log. Sessions go in order of their first line,
+so import into an empty memory to keep the history in time order.
 
 ## Environment
 
@@ -101,7 +121,7 @@ turn when the Chief is idle.
 | `MUX_AGENT_TOKEN_FILE` | required (exit 2 without) | the app's agent_mux token |
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
-| `OPTCHAT_CHIEF_EFFORT` | `high` | native: `output_config.effort` |
+| `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
 | `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-sr` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
 | `MUX_HARNESS` | `claude-sr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
@@ -115,7 +135,7 @@ turn when the Chief is idle.
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
-| `OPTCHAT_COMPACTOR_EFFORT` | the harness's default | acpmux route: acpmux `effort` of the compactor sessions |
+| `OPTCHAT_COMPACTOR_EFFORT` | `medium` on a Claude or codex harness, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (section 4.2 runs the compactor at medium) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
@@ -427,6 +447,57 @@ that keeps `CLAUDE_CONFIG_DIR`.
 The native engine still needs an endpoint that takes API calls; through the
 subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 
+## Remote-origin messages
+
+Taelin gives his Chief tasks from his phone. In cmux a paired device (the
+iPhone, another Mac) reaches the Chief conversation through the session
+daemon's remote relay as participant `remote_<install>`, and the owner stamps
+each message it sends with `origin: {kind: "remote", install}`. The shared
+wake rule (`cmux_chief::rules::wakes`, also used by the P1 Rust Chief) still
+refuses every such message. The Chief uses `wake::chief_wakes`: the shared
+rule for local messages, plus a remote-origin gate, default deny, that
+passes a device message only when all of these hold:
+
+1. `origin` is `Remote { install }` and the author is exactly
+   `remote_<install>` (the owner stamps the origin from the op's actor, never
+   from the request; a local author with a remote origin, a device author
+   without one, or a mismatched install is refused);
+2. the author is a human participant of this conversation with `person:
+   "user_local"`: the daemon's system-only pairing path is the only way to
+   create that participant, and it does so only for an install the server
+   owner paired with their own account. A device of another person or of no
+   person, or a non-human participant, is refused;
+3. the message is not retracted and the Chief participates;
+4. the shared rule's conversation test with humans counted as persons: one
+   person and the Chief, a DM, a mention of the Chief or a reply to one of
+   its messages. A device message in a group without a mention is not logged.
+
+Policy analysis (the relay rules of this repository's CLAUDE.md):
+
+- Local command or content execution. The gate adds no relay command, no
+  allowlist entry and no parameter: the device still uses only the relay's
+  existing conversation commands (`message.send` with text parts), whose
+  gate refuses command-bearing params and non-text parts. The Chief reads
+  only the message's text and passes it to a turn as the user's words, the
+  same bytes and the same authority as a message typed on the Mac. That is
+  the intended effect (the user directing their own agent from their phone),
+  and it is why the gate admits only the owner's own person: a second account
+  can never reach a turn. A stolen or compromised paired device has the
+  user's authority until it is revoked; revocation removes it from the relay
+  (new streams refused after 24 hours offline, all closed after 72 hours or
+  at once on `host.revoke`).
+- Access to unowned objects. The gate opens nothing: the relay already
+  scopes every id to conversations that list the install, and the Chief only
+  answers in the conversation the message came from.
+- Local-state exposure. The Chief's replies go to that conversation, which
+  the device already reads; the gate sends nothing else to the device. What
+  a turn says can include local state (file contents, command output) as it
+  does for a local message; this is the same exposure the device already has
+  as a participant of the conversation.
+
+Tests: `tests/remote_wake.rs` (every refusal above, the mention rule, and a
+device message logged and answered end to end).
+
 ## Deviations from the spec
 
 - **acpmux engine: cache breakpoints in the view (section 8).** On a Claude
@@ -463,8 +534,10 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   carry no breakpoints, and each node pays for its whole view at the cache
   write price. Measured live, see Cost and Compactor cache above. Each node
   also pays a harness start.
-  No effort is sent (the harness default) until acpmux's `effort` option is
-  checked live; the `api` route still sends `medium`. Size-loop retries
+  Effort is `medium` on both routes, as section 4.2 says: acpmux passes it
+  to Claude Code as `--effort medium` and to codex as `reasoning_effort`;
+  another harness family keeps its default (`OPTCHAT_COMPACTOR_EFFORT`
+  overrides; not yet measured live). Size-loop retries
   stay in the same session, so the earlier reply (thinking included) stays
   in the harness's context, as section 8 wants, though the host never sees
   the blocks.
@@ -496,6 +569,31 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   queued new turn, not a delivery between tool calls; only the Chief
   conversation is read. With the native engine, children's reports are
   delivered between the Chief's tool calls like human messages.
+- **Free nodes and JOBS (section 4.1).** The spec's pump returns as soon as
+  JOBS calls run, before it looks at any node. Ours still builds free nodes
+  (a short message verbatim, two children that fit together) when JOBS
+  model calls run: JOBS caps compactor calls, and a free node makes none.
+  The tree and the view are the same; only free nodes are not delayed.
+- **Compactor reply (section 4.3).** The spec only trims the reply. On the
+  acpmux route a lead-in line before the summary ("Here is the line:", a
+  line that ends with a colon and has no other `: `) is dropped too
+  (`strip_preamble`): Claude Code and the model sometimes write one, and it
+  would become part of a permanent line.
+- **System prompt (section 7.2).** Between VIEW_DOC and the user's own
+  AGENTS.md there is a short cmux section (how to drive cmux, the subagent
+  commands, the memory tools by name or path). It names no user and holds
+  nothing per turn. The spec has the user's instructions file there; the
+  section is what any cmux user would otherwise have to write into it.
+- **Tool results inside an acpmux turn (section 7, CAP).** Every logged
+  `echo` is capped at CAP. Inside an acpmux turn the harness resends its
+  own tool result to the model, at its own size limits (Claude Code cuts
+  long outputs itself), which the host cannot change; the native engine caps
+  before it resends, as the spec says.
+- **Who is logged (section 2: "every message").** Only human messages that
+  wake the Chief are logged (`wake::chief_wakes`): in a group conversation a
+  message without a mention is not. A message from the user's own paired
+  device wakes and is logged (see Remote-origin messages); any other device
+  message is refused. Non-text parts are not logged on this branch.
 - **What the user sees (section 7, "show it").** Home gets each turn's last
   reply only; earlier replies and tool steps are in the memory (and in
   `browse`), not posted.

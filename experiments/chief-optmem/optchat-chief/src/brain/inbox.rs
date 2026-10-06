@@ -7,7 +7,9 @@
 //! is one chat with one user (section 1), so this Chief reads only its own
 //! conversation; mentions in other conversations are not answered.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text, wakes};
+use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+
+use crate::wake::chief_wakes;
 use cmux_conversation::{Change, Message, Op};
 
 use super::{Brain, Source};
@@ -165,7 +167,8 @@ impl Brain {
             return;
         };
         let text = message_text(&message);
-        if !text.trim().is_empty() && wakes(summary, &message, |id| self.mux_messages.contains(id))
+        if !text.trim().is_empty()
+            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
             self.queue(text, Source::Message { seq: message.seq });
             return;

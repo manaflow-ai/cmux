@@ -55,6 +55,9 @@ pub struct NewMessage<'a> {
     /// The conversation message it came from (`<conversation>#<seq>`): a
     /// message whose key is already logged is not logged again.
     pub key: Option<String>,
+    /// Its ISO (RFC 3339) time when it was first written (an imported
+    /// message keeps its own); None: now. The caller checks the format.
+    pub date: Option<&'a str>,
 }
 
 impl<'a> NewMessage<'a> {
@@ -63,6 +66,7 @@ impl<'a> NewMessage<'a> {
             kind,
             text,
             key: None,
+            date: None,
         }
     }
 }
@@ -293,7 +297,7 @@ impl Db {
                         continue;
                     }
                 }
-                let date = lines::now_iso();
+                let date = m.date.map_or_else(lines::now_iso, str::to_owned);
                 let day = lines::day_of(&date);
                 insert
                     .execute(params![t as i64, m.kind.as_str(), date, day, m.text, m.key])

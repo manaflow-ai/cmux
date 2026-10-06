@@ -198,6 +198,25 @@ impl OptChat {
         Ok(done.ids[0])
     }
 
+    /// Logs an imported message with the ISO (RFC 3339) time it was first
+    /// written (section 10: old chats imported as messages), so `date(id)`
+    /// tells when it was said, not when it was imported. Any other date is
+    /// refused and nothing is logged.
+    pub fn append_dated(&self, kind: Kind, text: &str, date: &str) -> Result<u64, Error> {
+        if !lines::is_iso(date) {
+            return Err(Error::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not an RFC 3339 date: {date:?}"),
+            )));
+        }
+        let message = NewMessage {
+            date: Some(date),
+            ..NewMessage::new(kind, text)
+        };
+        let done = self.append_with(&[message], |_| Vec::new())?;
+        Ok(done.ids[0])
+    }
+
     /// Logs `messages` and writes the state `state` returns in ONE
     /// transaction (section 7's bookkeeping moves with the log: a crash
     /// leaves both or neither). `state` runs under the chat's lock with the
@@ -225,6 +244,7 @@ impl OptChat {
                 kind: m.kind,
                 text: text.as_ref(),
                 key: m.key.clone(),
+                date: m.date,
             })
             .collect();
         let mut st = self.shared.lock();

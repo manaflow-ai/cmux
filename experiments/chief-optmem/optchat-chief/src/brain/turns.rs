@@ -241,7 +241,7 @@ impl Brain {
                 harness: self.settings.harness.clone(),
                 policy: self.settings.policy.clone(),
                 model: self.settings.model.clone(),
-                effort: None,
+                effort: self.settings.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
@@ -266,12 +266,11 @@ impl Brain {
         let entries: Vec<NewMessage<'_>> = items
             .iter()
             .map(|q| NewMessage {
-                kind: Kind::User,
-                text: &q.text,
                 key: match q.source {
                     Source::Message { seq } => Some(format!("{conversation}#{seq}")),
                     _ => None,
                 },
+                ..NewMessage::new(Kind::User, &q.text)
             })
             .collect();
         let mut next = self.state.clone();

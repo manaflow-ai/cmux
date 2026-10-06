@@ -505,6 +505,7 @@ pub fn settings(dir: &Path) -> Settings {
         harness: "claude-sr".into(),
         policy: "approve-all".into(),
         model: None,
+        effort: Some("medium".into()),
         parent: PARENT.into(),
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
