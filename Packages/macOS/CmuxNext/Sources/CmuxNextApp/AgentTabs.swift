@@ -93,6 +93,8 @@ final class AgentTabStore {
     var sessions: [String: String] = [:]
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// The New Tab page a new workspace's first tab shows, starting in the given folder.
+    var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
 
     /// Tabs opened as the chooser page, and the actions for their selected kind.
     var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
@@ -273,7 +275,10 @@ final class AgentTabStore {
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+            guard let self else { return }
+            // On this tab's pane: the New Tab page opens beside the tab that asked.
+            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
         }
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }

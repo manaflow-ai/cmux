@@ -23,12 +23,12 @@ import Testing
         #expect(NewTabKind.resolve(selectedKind: nil, engine: nil, isLocalBrowser: false, isAgent: true) == .agent)
     }
 
-    /// `tabs.newTabKind` (user decision 2026-10-01): the same kind unless
-    /// set; a fixed kind ignores the pane; Auto takes what was last opened
-    /// and falls back to the same kind.
+    /// `tabs.newTabKind`: the New Tab page unless set (user decision
+    /// 2026-10-05: a generic New picks the kind there); a fixed kind ignores
+    /// the pane; Auto takes what was last opened and falls back to the same kind.
     @Test func theSettingChoosesOverTheSameKind() {
         let same = NewTabKind.browser(engine: "cef")
-        #expect(NewTabDefaultKind.fallback == .agent)
+        #expect(NewTabDefaultKind.fallback == .page)
         #expect(NewTabKind.resolve(.sameKind, sameKind: same, recent: .agent) == same)
         #expect(NewTabKind.resolve(.terminal, sameKind: same, recent: nil) == .terminal)
         #expect(NewTabKind.resolve(.browser, sameKind: .terminal, recent: nil) == .browser(engine: nil))

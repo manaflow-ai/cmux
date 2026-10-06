@@ -244,7 +244,10 @@ public final class AgentPaneModel {
             onRememberNewTab(agent)
             return AgentPaneReply.success()
         case .runAction(let id):
-            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            // The page runs Import and Sync; any agent tab may open the New Tab page (a blank chat's New).
+            guard id == "newTab.page" || (id == "palette.welcomeChecklist" && newTab != nil), let onRunAction else {
+                return Self.unsupported("action.run")
+            }
             onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):

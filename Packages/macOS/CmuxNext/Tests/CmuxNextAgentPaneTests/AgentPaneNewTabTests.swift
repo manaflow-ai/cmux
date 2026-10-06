@@ -187,6 +187,17 @@ import Testing
         #expect(actions == ["palette.welcomeChecklist"])
     }
 
+    /// A blank chat's generic New opens the New Tab page; a chat runs no other app action.
+    @Test func aChatCanOpenTheNewTabPageAndNothingElse() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        var actions: [String] = []
+        model.onRunAction = { actions.append($0) }
+        #expect(await model.respond(to: .runAction("newTab.page"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == false)
+        #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
+        #expect(actions == ["newTab.page"])
+    }
+
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a
     /// pick reaches the App only while the tab is still the page.
     @Test func theDefaultToggleReachesTheAppWhileThePageIsShown() async throws {
