@@ -92,7 +92,8 @@ extension SidebarListView {
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids))
+            // The group forms at the target row (`anchor`).
+            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids, anchor: anchor))
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }

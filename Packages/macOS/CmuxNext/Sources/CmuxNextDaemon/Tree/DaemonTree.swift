@@ -134,5 +134,6 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
         collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
+        topIndex = try c.decodeIfPresent(Int.self, forKey: .topIndex)
     }
 }
