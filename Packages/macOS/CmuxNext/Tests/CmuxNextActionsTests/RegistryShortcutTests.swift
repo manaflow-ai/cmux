@@ -60,7 +60,7 @@ import Testing
         #expect(registry.shortcutDisplay(for: "selectWorkspaceByNumber") == "⌘1…9")
     }
 
-    @Test func paneResizeUsesControlCommandArrowsAndVimKeys() {
+    @Test func paneResizeUsesControlCommandShiftVimKeysAndArrowAliases() {
         let registry = ActionRegistry.standard()
         for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
             registry.bind(id) {}
@@ -73,17 +73,19 @@ import Testing
             (Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]), "resizePaneRight"),
             (Shortcut(Shortcut.upArrowKey, modifiers: [.control, .command]), "resizePaneUp"),
             (Shortcut(Shortcut.downArrowKey, modifiers: [.control, .command]), "resizePaneDown"),
-            (Shortcut("h", modifiers: [.control, .command]), "resizePaneLeft"),
-            (Shortcut("l", modifiers: [.control, .command]), "resizePaneRight"),
-            (Shortcut("k", modifiers: [.control, .command]), "resizePaneUp"),
-            (Shortcut("j", modifiers: [.control, .command]), "resizePaneDown"),
+            (Shortcut("h", modifiers: [.control, .command, .shift]), "resizePaneLeft"),
+            (Shortcut("l", modifiers: [.control, .command, .shift]), "resizePaneRight"),
+            (Shortcut("k", modifiers: [.control, .command, .shift]), "resizePaneUp"),
+            (Shortcut("j", modifiers: [.control, .command, .shift]), "resizePaneDown"),
         ]
         for (shortcut, action) in expected {
             #expect(registry.keyWinner(shortcut)?.command == action, "Expected \(shortcut.displayString) to resolve to \(action)")
         }
 
-        for key in ["h", "j", "k", "l"] {
+        for (key, action) in [("h", "focusLeft"), ("l", "focusRight"), ("k", "focusUp"), ("j", "focusDown")] {
+            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .command]))?.command == action)
             #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .shift])) == nil)
+            #expect(registry.keyWinner(Shortcut(key, modifiers: [.option, .command])) == nil)
         }
 
         #expect(registry.keyWinner(Shortcut("-", modifiers: [.control]))?.command == "focusHistoryBack")
@@ -94,7 +96,7 @@ import Testing
         let registry = ActionRegistry.standard()
         registry.bind("resizePaneLeft") {}
         let arrow = Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command])
-        let vim = Shortcut("h", modifiers: [.control, .command])
+        let vim = Shortcut("h", modifiers: [.control, .command, .shift])
         let custom = Shortcut("h", modifiers: [.control, .option])
         #expect(registry.keyWinner(arrow)?.command == "resizePaneLeft")
 
@@ -133,7 +135,7 @@ import Testing
     @Test func displayStrings() {
         let registry = ActionRegistry.standard()
         #expect(registry.shortcutDisplay(for: "commandPalette") == "⇧⌘P")
-        #expect(registry.shortcutDisplay(for: "focusLeft") == "⌥⌘←")
+        #expect(registry.shortcutDisplay(for: "focusLeft") == "⌃⌘H")
         #expect(registry.shortcutDisplay(for: "toggleSplitZoom") == "⇧⌘↩")
         #expect(registry.shortcutDisplay(for: "closeWindow") == "⌃⌘W")
         #expect(registry.shortcutDisplay(for: "diffViewerGoToTop") == "g g")

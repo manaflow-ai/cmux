@@ -11,6 +11,47 @@ extension GhosttyRuntime {
         return Self.loadedFiles(of: config)
     }
 
+    /// The files that can change which Ghostty config is loaded. The finalized
+    /// config supplies every file that exists, while these candidates keep a
+    /// watch armed for a config created after launch or for a file that wins
+    /// precedence when it appears.
+    public var liveReloadConfigFiles: [String] {
+        var paths = loadedConfigFiles
+        if let override = ProcessInfo.processInfo.environment[Self.configOverrideKey], !override.isEmpty {
+            paths.append(override)
+        }
+        paths.append(contentsOf: Self.defaultConfigCandidatePaths())
+        var seen = Set<String>()
+        return paths.compactMap { raw in
+            let path = URL(fileURLWithPath: raw).standardizedFileURL.path
+            return seen.insert(path).inserted ? path : nil
+        }
+    }
+
+    /// Ghostty's macOS search locations, including both spellings accepted by
+    /// older and newer releases. This deliberately includes missing files so
+    /// a first save is observed without restarting cmux.
+    nonisolated static func defaultConfigCandidatePaths(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        applicationSupportDirectory: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String] {
+        let configHome = environment["XDG_CONFIG_HOME"].flatMap { value in
+            let url = URL(fileURLWithPath: value).standardizedFileURL
+            return value.isEmpty ? nil : url
+        } ?? homeDirectory.appending(path: ".config")
+        let ghosttyDirectory = configHome.appending(path: "ghostty", isDirectory: true)
+        var paths = [
+            ghosttyDirectory.appending(path: "config").path,
+            ghosttyDirectory.appending(path: "config.ghostty").path,
+        ]
+        if let applicationSupportDirectory {
+            let native = applicationSupportDirectory.appending(path: "com.mitchellh.ghostty", isDirectory: true)
+            paths += [native.appending(path: "config").path, native.appending(path: "config.ghostty").path]
+        }
+        return paths
+    }
+
     nonisolated static func loadedFiles(of config: ghostty_config_t) -> [String] {
         (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
             ghostty_config_loaded_file(config, index).map { String(cString: $0) }

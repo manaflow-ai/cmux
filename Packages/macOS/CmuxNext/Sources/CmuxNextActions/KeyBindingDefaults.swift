@@ -50,7 +50,7 @@ public nonisolated struct KeyBindingDefaults {
     ]
 
     /// The arrow aliases for pane resize. These are defaults in addition to
-    /// each action's catalog Ctrl-Cmd H/J/K/L key, and disappear when a user
+    /// each action's catalog Ctrl-Cmd-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.
     public static let paneResizeAliases: [KeyBinding] = [
         KeyBinding(keys: [Shortcut(left, modifiers: [.control, .command])], command: "resizePaneLeft"),

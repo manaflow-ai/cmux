@@ -19,7 +19,7 @@ struct BrowserChordTableTests {
         let binds = [
             GhosttyHostKeybind(key: .unicode(UInt32(("[" as Unicode.Scalar).value)), modifiers: [.command], action: .gotoSplit(.previous)),
             GhosttyHostKeybind(key: .unicode(UInt32(("]" as Unicode.Scalar).value)), modifiers: [.command], action: .gotoSplit(.next)),
-            // A chord no cmux default binds (Ctrl-Cmd-H/J/K/L resize panes since #17281).
+            // A chord no cmux default binds (Ctrl-Cmd-Shift-H/J/K/L resize panes).
             GhosttyHostKeybind(key: .unicode(UInt32(("b" as Unicode.Scalar).value)), modifiers: [.command, .control], action: .gotoSplit(.left)),
             GhosttyHostKeybind(key: .unicode(UInt32(("y" as Unicode.Scalar).value)), modifiers: [.command], action: .toggleSplitZoom),
         ]

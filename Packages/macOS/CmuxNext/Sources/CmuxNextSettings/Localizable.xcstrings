@@ -21616,6 +21616,32 @@
         }
       }
     },
+    "settings.source.ghostty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ghostty" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ghostty" } }
+      }
+    },
     "settings.default.ghosttyConfig": {
       "extractionState": "manual",
       "localizations": {
