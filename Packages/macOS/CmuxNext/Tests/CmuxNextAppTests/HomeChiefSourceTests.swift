@@ -13,12 +13,12 @@ import Testing
         return value
     }
 
-    @Test func aPlacedChiefWinsOverTheLocalConversation() {
+    @Test func aPlacedChiefWinsOverALocalChiefWithoutHistory() {
         let placed = CloudChief.parse(Self.chief("agent_A", isDefault: true, main: "conv_A", placed: true))
-        #expect(HomeChiefSource.choose(local: "local-1", placed: placed) == "conv_A")
-        #expect(HomeChiefSource.choose(local: "local-1", placed: nil) == "local-1")
-        #expect(HomeChiefSource.choose(local: nil, placed: placed) == "conv_A")
-        #expect(HomeChiefSource.choose(local: nil, placed: nil) == nil)
+        #expect(HomeChiefSource.choose(local: "local-1", localHasHistory: false, placed: placed) == "conv_A")
+        #expect(HomeChiefSource.choose(local: "local-1", localHasHistory: true, placed: nil) == "local-1")
+        #expect(HomeChiefSource.choose(local: nil, localHasHistory: false, placed: placed) == "conv_A")
+        #expect(HomeChiefSource.choose(local: nil, localHasHistory: false, placed: nil) == nil)
     }
 
     /// One history (home-state-ownership.md): a placed chief whose cloud

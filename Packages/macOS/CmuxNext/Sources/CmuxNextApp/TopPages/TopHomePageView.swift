@@ -19,10 +19,11 @@ final class TopHomePageView: NSView {
         setAccessibilityIdentifier("cmux.topPage.home")
         let home = services.home
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
-        // on a paired server (G6) replaces the local chief when it becomes known.
+        // on a paired server (G6) replaces a local chief without history when it becomes known.
         chiefObservation = Task { [weak self] in
-            for await chief in Observations({
-                HomeChiefSource.choose(local: HomeChiefName.select(from: home.conversations)?.id, placed: home.cloudChief)
+            for await chief in Observations({ () -> String? in
+                let local = HomeChiefName.select(from: home.conversations)
+                return HomeChiefSource.choose(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, placed: home.cloudChief)
             }) {
                 guard let self, let chief, chief != mounted else { continue }
                 mount(chief)

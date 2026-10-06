@@ -91,10 +91,12 @@ extension HomeService {
             homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs or local conversations"
             return
         }
-        // The local Chief is looked up (never created) once a chief is placed, to retire its tab.
-        let localChief = placed == nil ? try await chiefConversation(connection)
-            : (try? await ConversationClient(connection).list()).flatMap { HomeChiefName.select(from: $0)?.id }
-        guard let chief = HomeChiefSource.choose(local: localChief, placed: placed) else { return }
+        // The local Chief is looked up (never created) once a chief is placed.
+        let listed = placed == nil ? nil : (try? await ConversationClient(connection).list()).flatMap { HomeChiefName.select(from: $0) }
+        let localChief = placed == nil ? try await chiefConversation(connection) : listed?.id
+        // A local Chief with history stays the Chief (one history).
+        let localHasHistory = placed == nil || (listed?.lastSeq ?? 0) > 0
+        guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, placed: placed) else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
@@ -123,6 +125,10 @@ extension HomeService {
             _ = try await connection.request(request)
         }
         for surface in move.close { try await connection.closeTab(surface) }
+        // A placed chief's tab that a relaunch put in a local Chief's place goes.
+        for surface in HomeChiefSource.staleChiefTabs(placed: placed?.mainConversation, chief: chief, in: local.store.workspaces) {
+            try await connection.closeTab(surface)
+        }
         homeWorkspaceStep = created ? (move.close.isEmpty ? "chief tab requested" : "chief tab moved to its server") : "chief tab present"
     }
 
