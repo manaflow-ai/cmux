@@ -56,7 +56,7 @@ public nonisolated enum ActionSurfaceExport {
     /// resize, list navigation, the palette keys): each entry's keys and its `when` clause
     /// (text, or null), in table order, each key sequence once.
     public static func defaultAliases(for id: ActionID) -> [[String: Any]] {
-        let entries = KeyBindingDefaults.tabSwitching + KeyBindingDefaults.paneResizeAliases + KeyBindingDefaults.listNavigation
+        let entries = KeyBindingDefaults.tabSwitching + KeyBindingDefaults.paneResizeAliases + KeyBindingDefaults.focusAliases + KeyBindingDefaults.listNavigation
             + KeyBindingDefaults.paletteKeys
         var seen: [[Shortcut]] = []
         var aliases: [[String: Any]] = []

@@ -59,6 +59,15 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut(down, modifiers: [.control, .command])], command: "resizePaneDown"),
     ]
 
+    /// The original Cmd-Opt arrow focus bindings remain available as aliases
+    /// while Ctrl-Cmd H/J/K/L is the primary focus map.
+    public static let focusAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut(left, modifiers: [.command, .option])], command: "focusLeft"),
+        KeyBinding(keys: [Shortcut(right, modifiers: [.command, .option])], command: "focusRight"),
+        KeyBinding(keys: [Shortcut(up, modifiers: [.command, .option])], command: "focusUp"),
+        KeyBinding(keys: [Shortcut(down, modifiers: [.command, .option])], command: "focusDown"),
+    ]
+
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
     /// keyboard (`codeEditorFocused`) their default binding steps aside and
@@ -130,6 +139,11 @@ public nonisolated struct KeyBindingDefaults {
     @MainActor static func entries(registry: ActionRegistry) -> [KeyBinding] {
         var entries = tabSwitching.filter { registry.effectiveShortcut(for: $0.command) != nil }
         entries += paneResizeAliases.filter { binding in
+            registry.effectiveShortcut(for: binding.command) != nil
+                && !registry.shortcutOverrides.keys.contains(binding.command)
+                && registry.chordOverrides[binding.command] == nil
+        }
+        entries += focusAliases.filter { binding in
             registry.effectiveShortcut(for: binding.command) != nil
                 && !registry.shortcutOverrides.keys.contains(binding.command)
                 && registry.chordOverrides[binding.command] == nil

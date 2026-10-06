@@ -65,6 +65,9 @@ import Testing
         for id: ActionID in ["resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown"] {
             registry.bind(id) {}
         }
+        for id: ActionID in ["focusLeft", "focusRight", "focusUp", "focusDown"] {
+            registry.bind(id) {}
+        }
         registry.bind("focusHistoryBack") {}
         registry.bind("focusHistoryForward") {}
 
