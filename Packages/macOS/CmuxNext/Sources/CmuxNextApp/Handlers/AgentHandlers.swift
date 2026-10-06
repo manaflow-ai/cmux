@@ -27,6 +27,9 @@ enum AgentHandlers {
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
         AgentSessionWorkspace.bind(into: registry, context: context)
+        registry.bind("home.toggleChiefSettings", run: { _ in
+            NotificationCenter.default.post(name: HomeHostView.toggleSettings, object: nil)
+        })
         // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
         // The panel takes the keyboard from the frontmost app, so automation
         // cannot open it unless it asks for focus.

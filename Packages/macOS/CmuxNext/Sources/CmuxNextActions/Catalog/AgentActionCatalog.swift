@@ -167,6 +167,14 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 ],
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
             ),
+            // The Home Chief's settings sidebar (the header's name pill does the same).
+            ActionDescriptor(
+                id: "home.toggleChiefSettings",
+                title: String(localized: "action.home.toggleChiefSettings", defaultValue: "Toggle Chief Settings", bundle: .module),
+                keywords: ["chief", "home", "engine", "model", "harness", "settings"], category: .agents,
+                symbol: "sidebar.right", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "agentActivity.open",
                 title: String(localized: "action.agentActivity.open", defaultValue: "Agent Activity", bundle: .module),

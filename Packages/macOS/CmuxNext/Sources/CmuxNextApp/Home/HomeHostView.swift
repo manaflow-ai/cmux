@@ -12,34 +12,42 @@ final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
-    /// The Chief's engine (harness, model, effort, last turn), over the
-    /// Chief conversation only.
-    private let engineBar: HomeEngineBar
+    /// The Chief's settings, a right sidebar the header's name pill toggles
+    /// (Chief conversation only); the transcript narrows while it shows.
+    private let sidebar: HomeChiefSidebar
+    private var sidebarOpen = false
+    private var isChief = false
     private var engineWatch: Task<Void, Never>?
-    private static let engineBarHeight: CGFloat = 28
+    private var toggleObserver: (any NSObjectProtocol)?
+    /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
+    static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
 
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
-        engineBar = HomeEngineBar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
+        sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         super.init(frame: .zero)
-        engineBar.isHidden = true
-        addSubview(engineBar)
+        sidebar.isHidden = true
+        addSubview(sidebar)
+        transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
+        transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
+        toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.toggleSidebar() }
+        }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
-        // shown for the Chief conversation, refreshed on each new message.
+        // whether this is the Chief conversation, and a refresh of the
+        // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
             for await (isChief, _) in Observations({ () -> (Bool, Int) in
                 let chief = store.rows.first { $0.summary.id == id }?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 return (chief, store.transcriptVersion[id] ?? 0)
             }) {
                 guard let self else { return }
-                if engineBar.isHidden == isChief {
-                    engineBar.isHidden = !isChief
-                    needsLayout = true
-                }
-                if isChief { engineBar.refresh() }
+                self.isChief = isChief
+                if !isChief, sidebarOpen { toggleSidebar() }
+                if sidebarOpen { sidebar.refresh() }
             }
         }
         // Settings > Home: whether attached photos and videos keep their location.
@@ -68,6 +76,7 @@ final class HomeHostView: NSView {
     isolated deinit {
         availability?.cancel()
         engineWatch?.cancel()
+        if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
         transcript.stop()
     }
 
@@ -83,11 +92,35 @@ final class HomeHostView: NSView {
 
     override func layout() {
         super.layout()
-        let bar = engineBar.isHidden ? 0 : Self.engineBarHeight
-        engineBar.frame = NSRect(x: 0, y: bounds.height - bar, width: bounds.width, height: bar)
-        transcript.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - bar)
+        let side = sidebarOpen ? HomeChiefSidebar.width : 0
+        transcript.frame = NSRect(x: 0, y: 0, width: bounds.width - side, height: bounds.height)
+        sidebar.frame = NSRect(x: bounds.width - side, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
         let size = message.intrinsicContentSize
         message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
+    }
+
+    /// The name pill's click: the sidebar slides in from the right (the
+    /// transcript narrows with it) or out again. Only over the Chief.
+    func toggleSidebar() {
+        guard isChief || sidebarOpen else { return }
+        sidebarOpen.toggle()
+        if sidebarOpen {
+            sidebar.refresh()
+            sidebar.frame = NSRect(x: bounds.width, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
+            sidebar.isHidden = false
+        }
+        let side = sidebarOpen ? HomeChiefSidebar.width : 0
+        let open = sidebarOpen
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.22
+            context.allowsImplicitAnimation = true
+            transcript.animator().frame = NSRect(x: 0, y: 0, width: bounds.width - side, height: bounds.height)
+            sidebar.animator().frame = NSRect(x: bounds.width - side, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                if !open { self?.sidebar.isHidden = true }
+            }
+        })
     }
 
     /// The view that takes the keyboard when the tab's pane is focused.

@@ -1,20 +1,23 @@
 import AppKit
 import Foundation
 
-/// The Chief's engine over the Home transcript (Lawrence, 2026-10-05: see
-/// and swap the model and harness between turns). It shows the harness,
-/// model and effort the next turn uses and the last turn's stats from the
-/// host's trace (which engine answered, latency, tool calls, cache hit
-/// rate, cost), and its pickers write `<mux home>/optchat/engine.json`,
-/// which optchat-chief reads at each turn start (engine.rs), so a change
-/// applies from the next turn. The compactor fields of the file are kept.
+/// The Chief's settings, a right sidebar inside the Home page that the
+/// header's "Chief >" name pill toggles (Lawrence, 2026-10-05: per-Chief
+/// configuration opens only from the pill). One per Chief: its settings
+/// live in that Chief's mux home. The pickers write
+/// `<mux home>/optchat/engine.json`, which optchat-chief reads at each turn
+/// start (engine.rs), so a change applies from the next turn; the compactor
+/// fields of the file are kept. It also shows the last turn's engine and
+/// stats from the host's trace, where the brain runs, its tools, and opens
+/// the trace folder.
 @MainActor
-final class HomeEngineBar: NSView {
+final class HomeChiefSidebar: NSView {
+    static let width: CGFloat = 280
     private let muxHome: URL
     private let harness = NSPopUpButton(frame: .zero, pullsDown: false)
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let stats = NSTextField(labelWithString: "")
+    private let stats = NSTextField(wrappingLabelWithString: "")
     private let stack = NSStackView()
 
     static let harnesses = ["claude-sr", "codex"]
@@ -24,21 +27,45 @@ final class HomeEngineBar: NSView {
     init(muxHome: URL) {
         self.muxHome = muxHome
         super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.6).cgColor
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(HomeEngineStrings.title)
+        let title = NSTextField(labelWithString: HomeEngineStrings.title)
+        title.font = .systemFont(ofSize: 15, weight: .semibold)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        stack.addArrangedSubview(title)
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
-            button.controlSize = .small
-            button.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            button.toolTip = label
             button.target = self
             button.action = #selector(picked(_:))
+            button.setAccessibilityLabel(label)
+            let caption = NSTextField(labelWithString: label)
+            caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            caption.textColor = .secondaryLabelColor
+            stack.addArrangedSubview(caption)
+            stack.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
+        let note = NSTextField(wrappingLabelWithString: HomeEngineStrings.nextTurn)
+        note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        note.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(note)
         stats.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         stats.textColor = .secondaryLabelColor
-        stats.lineBreakMode = .byTruncatingTail
-        stats.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        stack.orientation = .horizontal
-        stack.spacing = 6
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-        for view in [harness, model, effort, stats] { stack.addArrangedSubview(view) }
+        stack.addArrangedSubview(stats)
+        let brain = NSTextField(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
+        brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        brain.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(brain)
+        let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
+        traces.bezelStyle = .push
+        stack.addArrangedSubview(traces)
+        for view in [note, stats, brain] {
+            view.preferredMaxLayoutWidth = Self.width - 32
+        }
         addSubview(stack)
         refresh()
     }
@@ -46,9 +73,15 @@ final class HomeEngineBar: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
+    override var isFlipped: Bool { true }
+
     override func layout() {
         super.layout()
-        stack.frame = bounds
+        stack.frame = CGRect(x: 0, y: 0, width: Self.width, height: bounds.height)
+    }
+
+    @objc private func openTraces() {
+        NSWorkspace.shared.activateFileViewerSelecting([traceDirectory])
     }
 
     private var engineFile: URL { muxHome.appendingPathComponent("optchat/engine.json") }
@@ -161,6 +194,13 @@ struct HomeEngineTurn: Equatable {
 }
 
 nonisolated enum HomeEngineStrings {
+    static var title: String { String(localized: "home.engine.title", defaultValue: "Chief Settings", table: "Home", bundle: .module) }
+    static var pillHelp: String { String(localized: "home.engine.pillHelp", defaultValue: "Shows or hides this Chief's settings", table: "Home", bundle: .module) }
+    static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .module) }
+    static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .module) }
+    static var brainFormat: String {
+        String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
+    }
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }

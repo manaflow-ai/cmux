@@ -95,6 +95,19 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// A click (or Space/Return with the keyboard) on the header's name
+    /// pill: cmux shows the Chief's settings sidebar there.
+    public var onNamePill: () -> Void {
+        get { controller.host.paneHeader.onContact }
+        set { controller.host.paneHeader.onContact = newValue }
+    }
+
+    /// The name pill's VoiceOver help (what a click on it does).
+    public func setNamePillHelp(_ help: String) {
+        controller.host.paneHeader.pill.setAccessibilityHelp(help)
+        controller.host.paneHeader.pill.refusesFirstResponder = false
+    }
+
     /// The field's text view (the pane's primary input).
     public var primaryInput: NSView { controller.demo?.compose.textView.view ?? self }
 

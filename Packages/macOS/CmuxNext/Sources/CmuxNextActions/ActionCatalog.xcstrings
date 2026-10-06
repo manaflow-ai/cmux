@@ -20716,6 +20716,23 @@
         }
       }
     },
+    "action.home.toggleChiefSettings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle Chief Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の設定を切り替え"
+          }
+        }
+      }
+    },
     "action.importFromBrowser2": {
       "extractionState": "manual",
       "localizations": {

@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.engine.brain": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で動作します（%@）。ツール: zoom、date、spawn、tell とハーネス自身のツール。"
+          }
+        }
+      }
+    },
     "home.engine.default": {
       "extractionState": "manual",
       "localizations": {
@@ -86,6 +103,23 @@
         }
       }
     },
+    "home.engine.nextTurn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes apply from the next turn."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更は次のターンから適用されます。"
+          }
+        }
+      }
+    },
     "home.engine.noTurn": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +133,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだターンはありません"
+          }
+        }
+      }
+    },
+    "home.engine.openTraces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Traces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トレースを表示"
+          }
+        }
+      }
+    },
+    "home.engine.pillHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shows or hides this Chief's settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Chief の設定を表示または非表示にします"
+          }
+        }
+      }
+    },
+    "home.engine.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief Settings"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の設定"
           }
         }
       }
