@@ -515,6 +515,10 @@ pub fn settings(dir: &Path) -> Settings {
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
+        engine_file: None,
+        effort: None,
+        families: Default::default(),
+        codex_preset: None,
     }
 }
 
