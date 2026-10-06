@@ -176,4 +176,3 @@ fn browser_no_args(
     selectors.insert("browser", "browser", selector)?;
     request(operation, selectors, flags, Map::new())
 }
-
