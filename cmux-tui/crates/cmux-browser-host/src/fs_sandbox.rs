@@ -9,7 +9,14 @@ use std::path::{Component, Path, PathBuf};
 pub struct FsSandbox {
     root: PathBuf,
     tmp: PathBuf,
+    /// Files the driver reported through `download.finished`: readable
+    /// (readFile, stat, exists), never writable. The newest
+    /// [`READABLE_KEPT`] are kept.
+    readable: std::sync::Mutex<std::collections::VecDeque<PathBuf>>,
 }
+
+/// Reported downloads a session can still read.
+const READABLE_KEPT: usize = 64;
 
 fn err(code: &str, message: impl Into<String>) -> Value {
     json!({"error": {"code": code, "message": message.into()}})
@@ -63,7 +70,7 @@ impl FsSandbox {
         let _ = std::fs::create_dir_all(&tmp);
         // Canonical forms, so `/var` and `/private/var` (macOS) compare equal.
         let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| normalize(p));
-        FsSandbox { root: canonical(&root), tmp: canonical(&tmp) }
+        FsSandbox { root: canonical(&root), tmp: canonical(&tmp), readable: Default::default() }
     }
 
     /// The session's temporary directory (`__cmuxNative.tmpdir`).
@@ -104,6 +111,35 @@ impl FsSandbox {
         }
     }
 
+    /// Makes a file the driver reported through `download.finished`
+    /// readable (an absolute path; its canonical form is kept).
+    pub fn allow_read(&self, path: &str) {
+        let Ok(real) = Path::new(path).canonicalize() else {
+            return;
+        };
+        let mut readable = self.readable.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        readable.retain(|kept| *kept != real);
+        readable.push_back(real);
+        while readable.len() > READABLE_KEPT {
+            readable.pop_front();
+        }
+    }
+
+    /// `resolve`, or a reported download (read operations only).
+    fn resolve_read(&self, path: &str) -> Result<PathBuf, Value> {
+        self.resolve(path).or_else(|error| {
+            let real = Path::new(path)
+                .is_absolute()
+                .then(|| Path::new(path).canonicalize().ok())
+                .flatten();
+            let readable = self.readable.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match real {
+                Some(real) if readable.contains(&real) => Ok(real),
+                _ => Err(error),
+            }
+        })
+    }
+
     pub fn call(&self, op: &str, args: &Value) -> Value {
         match self.run(op, args) {
             Ok(value) => json!({"ok": value}),
@@ -116,12 +152,13 @@ impl FsSandbox {
             args.get(name).and_then(Value::as_str).unwrap_or("").to_owned()
         };
         let resolved = |name: &str| self.resolve(&path_arg(name));
+        let readable = |name: &str| self.resolve_read(&path_arg(name));
         let flag = |name: &str| args.get(name).and_then(Value::as_bool).unwrap_or(false);
         let shown = path_arg("path");
         let shown = shown.as_str();
         match op {
             "readFile" => {
-                let path = resolved("path")?;
+                let path = readable("path")?;
                 let bytes = std::fs::read(&path).map_err(|e| io_err(&e, shown))?;
                 Ok(json!(base64_encode(&bytes)))
             }
@@ -166,7 +203,7 @@ impl FsSandbox {
                 Ok(Value::Array(entries))
             }
             "stat" => {
-                let path = resolved("path")?;
+                let path = readable("path")?;
                 let meta = std::fs::symlink_metadata(&path).map_err(|e| io_err(&e, shown))?;
                 let ms = |t: std::io::Result<std::time::SystemTime>| {
                     t.ok()
@@ -215,7 +252,7 @@ impl FsSandbox {
                 result.map_err(|e| io_err(&e, &path_arg("from")))?;
                 Ok(Value::Null)
             }
-            "exists" => Ok(json!(resolved("path").map(|p| p.exists()).unwrap_or(false))),
+            "exists" => Ok(json!(readable("path").map(|p| p.exists()).unwrap_or(false))),
             "resolve" => Ok(json!(resolved("path")?.display().to_string())),
             other => Err(err("EINVAL", format!("unknown fs operation {other}"))),
         }

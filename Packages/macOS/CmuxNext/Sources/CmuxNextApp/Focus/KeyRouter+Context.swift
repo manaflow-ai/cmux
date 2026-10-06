@@ -161,6 +161,13 @@ extension KeyRouter {
 
     /// The React page the focused pane's selected tab shows, if any.
     func focusedPage(in controller: WindowController) -> PageWebView? {
+        // A top page (TopPages: Settings, App Store, ...) fills the content area with no pane:
+        // its page has the keyboard when the window's first responder is inside it.
+        if let route = controller.shownTopPage, case .page = route,
+           let view = controller.topPages.views[route] as? InternalPageView,
+           let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+            return view.content as? PageWebView
+        }
         guard case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
         return view.content as? PageWebView
