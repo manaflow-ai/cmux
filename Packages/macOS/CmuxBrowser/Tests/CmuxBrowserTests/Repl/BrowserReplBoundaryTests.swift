@@ -355,9 +355,9 @@ struct BrowserReplBoundaryTests {
         #expect(refusedOutput.contains("none: ") && !refusedOutput.contains("none: typed"), "\(refusedOutput)")
         #expect(refusedOutput.contains("wider: ") && !refusedOutput.contains("wider: typed"), "\(refusedOutput)")
         let allowed = await run(session, """
-        session.allowedDomains(["example.com"]);
+        session.allowedDomains(["https://example.com"]);
         console.log("within:", await page.locator("#f").fill(secret("k"), { timeout: 2000 }).then(() => "typed", (e) => e.message));
-        for (const list of [["example.com", "evil.test"], null]) {
+        for (const list of [["https://example.com", "evil.test"], null]) {
           try { session.allowedDomains(list); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
         }
         """)
@@ -430,10 +430,10 @@ struct BrowserReplBoundaryTests {
         console.log("none:", await ask("https://login.example.com"));
         session.allowedDomains(["example.com", "other.test"]);
         console.log("wider:", await ask("https://login.example.com"));
-        session.allowedDomains(["login.example.com"]);
+        session.allowedDomains(["https://login.example.com"]);
         console.log("elsewhere:", await ask("https://evil.test"));
         console.log("within:", await ask("https://login.example.com"));
-        try { session.allowedDomains(["login.example.com", "evil.test"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        try { session.allowedDomains(["https://login.example.com", "evil.test"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
         """)
         let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
         for refused in ["none: refused", "wider: refused", "elsewhere: refused", "within: asked", "kept: "] {
@@ -454,7 +454,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
-        session.allowedDomains(["example.com"]);
+        session.allowedDomains(["https://example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)
@@ -471,7 +471,7 @@ struct BrowserReplBoundaryTests {
         defer { session.close() }
         _ = await run(session, """
         secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
-        session.allowedDomains(["example.com"]);
+        session.allowedDomains(["https://example.com"]);
         await page.goto("https://example.com/login");
         await page.locator("#f").fill(secret("k"), { timeout: 2000 }).catch((e) => console.log(e.message));
         """)

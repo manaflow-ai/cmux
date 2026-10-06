@@ -109,8 +109,10 @@ the value can send it on, so a secret is typed only into a tab the session
 opened, whose requests its domain policy's content rules hold, and only
 while `session.allowedDomains` allows nothing outside the secret's domains;
 once one was typed, the policy may only keep to its domains for the rest of
-the session (call it before typing:
-`session.allowedDomains(["example.com"])`). Redaction is native too,
+the session. A secret domain without a scheme is typed on https only (http
+only on a loopback host), so the policy must name https too, since a
+pattern without a scheme also allows http (call it before typing:
+`session.allowedDomains(["https://example.com"])`). Redaction is native too,
 so replacing runtime objects does not unmask anything. What it cannot stop:
 a filled field belongs to the page, so page scripts, and code the agent
 runs in the page, can read its value and transform it past the masks
