@@ -656,14 +656,17 @@ extension BrowserReplDomainPolicy {
     /// browser's URL allowlist and this policy allow, `about:blank` (also a
     /// window with no URL) when the policy allows `opener`, the document of
     /// the frame that opened it, whose origin it takes, and `blob:` URLs
-    /// whose origin is such a page.
+    /// whose origin is such a page. Whatever the URL, a window opens only
+    /// when the policy allows `opener`: a blocked frame chose the URL and
+    /// can carry its page's data in it.
     public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy, opener: BrowserReplFrameDocument? = nil) -> String? {
         guard let url else { return openerBlockReason(opener) }
         let raw = url.absoluteString
         switch url.scheme?.lowercased() {
         case "http", "https":
             guard allowlist.allows(url) else { return "the browser's URL allowlist does not allow \(raw)" }
-            return blockReason(raw)
+            if let reason = blockReason(raw) { return reason }
+            return opener.flatMap(initiatorBlockReason)
         case "about":
             let rest = raw.dropFirst("about:".count).lowercased()
             guard rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?") else {
@@ -675,7 +678,7 @@ extension BrowserReplDomainPolicy {
                   ["http", "https"].contains(origin.scheme?.lowercased() ?? "") else {
                 return "\(raw) does not belong to a web page"
             }
-            return popupBlockReason(origin, allowlist: allowlist)
+            return popupBlockReason(origin, allowlist: allowlist, opener: opener)
         case let scheme:
             return "a page may open only http, https, about:blank and blob: windows from a tab a REPL session drives, not \(scheme.map { $0 + ":" } ?? raw)"
         }
