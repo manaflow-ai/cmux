@@ -13,6 +13,10 @@ export type ComposerAttachment = {
   data?: string;
   /** A text file's contents. */
   text?: string;
+  /** A shell mode command's chip (shell/shellRuns.ts): its text is the run's output, filled when the prompt goes. */
+  shellRun?: string;
+  /** A location row move's chip (shell/chatMoves.ts); a newer move replaces it. */
+  move?: boolean;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };

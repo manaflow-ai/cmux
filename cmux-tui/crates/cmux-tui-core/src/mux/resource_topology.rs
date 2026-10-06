@@ -1917,8 +1917,7 @@ impl Mux {
                     LayoutOpKind::MoveTabToNewWorkspace {
                         tab: surface,
                         // The in-group index places the workspace among its
-                        // group's members; the model does not compare the
-                        // workspace order.
+                        // group's members; the model does not compare the workspace order.
                         index: None,
                         new_workspace: target_ws_slot,
                         new_screen: target_screen,
@@ -3016,6 +3015,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
+                mutation.origin != terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
             )?;
             (target, plan)
         } else {
@@ -3311,8 +3311,14 @@ impl Mux {
                 "topology close target changed workspaces before commit"
             );
         }
-        let mut plan =
-            self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
+        let mut plan = self.resource_close_plan_locked(
+            operation,
+            slots,
+            &registry,
+            &state,
+            &notifications,
+            true,
+        )?;
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         // Full projection derives terminal tombstones from detached tabs, but
@@ -3399,6 +3405,7 @@ impl Mux {
         registry: &WorkspaceRegistry,
         state: &State,
         notifications: &TreeDecorations,
+        close_emptied_workspaces: bool,
     ) -> anyhow::Result<ResourceClosePlan> {
         let selection_before = active_tree_selection(state);
         let mut projected = state.clone();
@@ -3578,11 +3585,12 @@ impl Mux {
             workspace_close =
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
             split_index_changed = true;
-        } else if let Some(emptied) = self.close_emptied_workspaces_locked(
+        } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
             registry,
             state,
             &mut projected,
-            Some(notifications),
+            notifications,
+            close_emptied_workspaces,
         )? {
             (delta, changed_screens, workspace_was_active) =
                 (emptied.delta, emptied.changed_screens, emptied.was_active);

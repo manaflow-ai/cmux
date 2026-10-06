@@ -24,7 +24,8 @@ type Session = AcpmuxSnapshot["sessions"][number];
 type Location = { id: string; label: string; detail?: string };
 
 /// The small location row above the composer. New chats can choose a local or Cloud
-/// computer and one of its known folders; once the first turn starts both are labels.
+/// computer and one of its known folders. Once the first turn starts the computer is a label and
+/// the folder moves the chat (`onMove`), except while a turn runs.
 export function ComposerContext({
   summary,
   sessions = [],
@@ -33,6 +34,10 @@ export function ComposerContext({
   onProject,
   projectChoices,
   onBrowseProject,
+  localName,
+  movedTo,
+  onMove,
+  busy = false,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -41,8 +46,18 @@ export function ComposerContext({
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// This Mac's name (the handshake's `machineName`).
+  localName?: string;
+  /// The folder a started chat moved to.
+  movedTo?: string;
+  onMove?(cwd: string): void;
+  /// A turn runs: the folder holds still.
+  busy?: boolean;
 }) {
-  const computers = useMemo(() => availableComputers(summary, sessions, peers), [summary, sessions, peers]);
+  const computers = useMemo(
+    () => availableComputers(summary, sessions, peers, localName),
+    [summary, sessions, peers, localName],
+  );
   const initialComputer = computerId(summary);
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
   useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
@@ -58,14 +73,17 @@ export function ComposerContext({
     return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
   }, [summary, sessions, selectedComputer, projectChoices]);
   const currentFolder =
-    summary?.cwd && computerId(summary) === selectedComputer
-      ? normalizeCwd(summary.cwd)
-      : projectChoices
-        ? undefined
-        : folders[0]?.id;
+    started && movedTo
+      ? movedTo
+      : summary?.cwd && computerId(summary) === selectedComputer
+        ? normalizeCwd(summary.cwd)
+        : projectChoices
+          ? undefined
+          : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
+  const moves = started && onMove !== undefined && !busy;
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <LocationPicker
@@ -102,11 +120,13 @@ export function ComposerContext({
           value={currentFolder ? projectLabel(currentFolder) : t(CONTEXT_LABELS.chooseFolder)}
           options={folders}
           selected={currentFolder}
-          disabled={readOnly}
+          disabled={readOnly && !moves}
           icon={<FolderIcon />}
           allowPath
           onPick={(cwd) => {
-            if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
+            if (moves) {
+              if (cwd !== currentFolder) onMove?.(cwd);
+            } else if (!readOnly) onProject?.(cwd, selectedComputer === "local" ? undefined : selectedComputer);
           }}
         />
       )}
@@ -118,8 +138,14 @@ function computerId(summary?: Summary): string {
   return summary?.hostKind === "cloud" && (summary.peer || summary.host) ? (summary.peer ?? summary.host)! : "local";
 }
 
-function availableComputers(summary: Summary | undefined, sessions: Session[], peers: string[]): Location[] {
-  const localLabel = summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local);
+function availableComputers(
+  summary: Summary | undefined,
+  sessions: Session[],
+  peers: string[],
+  localName?: string,
+): Location[] {
+  const localLabel =
+    localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Location[] = [{ id: "local", label: localLabel }];
   const seen = new Set<string>();
   for (const peer of peers) {

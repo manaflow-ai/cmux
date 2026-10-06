@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { dragHasFiles, filesFrom, readAttachments, type AttachmentError, type ComposerAttachment } from "./attachments";
-import { terminalConversion } from "./newtab/screenModel";
+import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
+import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import {
@@ -89,9 +90,18 @@ type Props = {
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
-  /// A direct blank pane chat can become a terminal before its first prompt.
-  onTerminal?(command: string): void;
-  onTerminalTypeAhead?(command: string): void;
+  /// This Mac's name for the location row.
+  localName?: string;
+  /// The folder a started chat moved to (shell/chatMoves.ts).
+  movedTo?: string;
+  /// Moves a started chat to another folder; the next prompt carries the move as a `cd` chip.
+  onMove?(cwd: string): ChatMove;
+  /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
+  /// transcript; returns the run, which the next prompt carries as a removable chip. Unset, `!` is
+  /// plain text.
+  onShell?(command: string): ShellRun | undefined;
+  /// Ctrl-C: stops the chat's newest running command; false when none runs.
+  onShellInterrupt?(): boolean;
   /// Changes the approval mode from the + menu while keeping the keyboard shortcut path intact.
   onMode?(modeId: string): void;
   /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
@@ -120,8 +130,11 @@ export function Composer({
   onProject,
   projectChoices,
   onBrowseProject,
-  onTerminal,
-  onTerminalTypeAhead,
+  localName,
+  movedTo,
+  onMove,
+  onShell,
+  onShellInterrupt,
   onMode,
   onOpenInWindow,
   handle,
@@ -133,8 +146,13 @@ export function Composer({
   // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
   // main column), not inside the composer the slash menu anchors to.
   const form = useRef<HTMLFormElement>(null);
-  const converting = useRef<string | undefined>(undefined);
   const [text, setText] = useState("");
+  /// Shell mode: the prompt is a plain monospace field whose Enter runs a command. The markdown
+  /// prompt stays mounted under it, keeping its own draft.
+  const [shell, setShell] = useState(false);
+  const [shellText, setShellText] = useState("");
+  const shellField = useRef<HTMLTextAreaElement>(null);
+  const shellCaret = useRef<number | undefined>(undefined);
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
@@ -185,7 +203,9 @@ export function Composer({
       void attach.current(filesFrom(event.dataTransfer));
     };
     const paste = (event: ClipboardEvent) => {
-      if (!field.current?.element()?.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      // A file pasted in shell mode is kept for the next prompt; the mode stays.
+      if (!field.current?.element()?.contains(target) && !shellField.current?.contains(target)) return;
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
@@ -279,6 +299,17 @@ export function Composer({
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
+    const node = shellField.current;
+    if (!node) return;
+    // One line grows with what is typed, as the prompt does (no scrollbar under 40vh).
+    node.style.height = "0px";
+    node.style.height = `${node.scrollHeight}px`;
+    if (shellCaret.current === undefined) return;
+    node.focus();
+    node.setSelectionRange(shellCaret.current, shellCaret.current);
+    shellCaret.current = undefined;
+  });
+  useLayoutEffect(() => {
     if (pendingCaret.current === undefined || !field.current) return;
     field.current.setCaret(pendingCaret.current);
     pendingCaret.current = undefined;
@@ -354,12 +385,63 @@ export function Composer({
     edit(next, 1);
     field.current?.focus();
   };
+  const enterShell = (typed: string) => {
+    setShell(true);
+    setShellText(typed);
+    shellCaret.current = typed.length;
+  };
+  /// Leaves shell mode; what was typed moves to the prompt, never lost.
+  const exitShell = () => {
+    const typed = shellText;
+    setShell(false);
+    setShellText("");
+    field.current?.focus();
+    if (typed) field.current?.writeText(typed, typed.length, typed.length);
+  };
+  const runShell = () => {
+    const command = shellText.trim();
+    if (!command || !onShell) return;
+    const run = onShell(command);
+    if (!run) return;
+    setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));
+    setShell(false);
+    setShellText("");
+    field.current?.focus();
+  };
+  const interrupt = (event: KeyboardEvent | React.KeyboardEvent) => {
+    if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
+    if (!onShellInterrupt?.()) return false;
+    event.preventDefault();
+    return true;
+  };
+  const shellKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    if (interrupt(event)) return;
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if (event.key === "Enter" && plain) {
+      event.preventDefault();
+      runShell();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      exitShell();
+    } else if (
+      event.key === "Backspace" &&
+      shellText === "" &&
+      event.currentTarget.selectionStart === 0 &&
+      event.currentTarget.selectionEnd === 0
+    ) {
+      event.preventDefault();
+      exitShell();
+    }
+  };
   const stopTurn = () => {
     if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
   };
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
+    if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
     if (
@@ -410,7 +492,7 @@ export function Composer({
     }
   };
 
-  const stop = snapshot.isWorking && !text.trim();
+  const stop = !shell && snapshot.isWorking && !text.trim();
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -420,7 +502,17 @@ export function Composer({
     else if (open) setDismissed(text);
   };
   return (
-    <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+    <form
+      ref={form}
+      className="acpmux-composer"
+      data-shell={shell ? "" : undefined}
+      onSubmit={(event) => {
+        if (!shell) return submit(event);
+        event.preventDefault();
+        runShell();
+      }}
+      onBlur={blur}
+    >
       {snapshot.queue.length > 0 && (
         <ol className="acpmux-composer-queue" aria-label={t(COMPOSER_LABELS.queue)}>
           {snapshot.queue.map((entry) => (
@@ -449,6 +541,17 @@ export function Composer({
           onProject &&
           ((cwd, peer) => {
             onProject(cwd, peer);
+            field.current?.focus();
+          })
+        }
+        localName={localName}
+        movedTo={movedTo}
+        busy={snapshot.isWorking}
+        onMove={
+          onMove &&
+          ((cwd) => {
+            const move = onMove(cwd);
+            setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
             field.current?.focus();
           })
         }
@@ -503,7 +606,7 @@ export function Composer({
         {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <MarkdownField
           ref={fieldRef}
-          className="acpmux-composer-prompt"
+          className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
           value={text}
           placeholder={t(COMPOSER_LABELS.placeholder)}
           attributes={{
@@ -516,16 +619,9 @@ export function Composer({
             "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
           }}
           onBeforeInput={(data, state) => {
-            if (!onTerminal || state.composing) return false;
-            if (converting.current !== undefined) {
-              converting.current += data;
-              onTerminalTypeAhead?.(converting.current);
-              return true;
-            }
-            const conversion = state.empty ? terminalConversion("", data, false) : undefined;
-            if (!conversion) return false;
-            converting.current = conversion.command;
-            onTerminal(conversion.command);
+            // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
+            if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+            enterShell(data.slice(1));
             return true;
           }}
           onChange={(markdown, at) => edit(markdown, at)}
@@ -535,6 +631,27 @@ export function Composer({
             composing.current = value;
           }}
         />
+        {shell && (
+          <div className="acpmux-shell-prompt">
+            <span className="acpmux-shell-glyph" aria-hidden="true">
+              !
+            </span>
+            <textarea
+              ref={shellField}
+              className="acpmux-shell-field"
+              rows={1}
+              value={shellText}
+              aria-label={t("composer.shell")}
+              placeholder={t("composer.shellPlaceholder")}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              onChange={(event) => setShellText(event.target.value)}
+              // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
+              onKeyDown={shellKeyDown}
+            />
+          </div>
+        )}
         <div className="acpmux-composer-bar">
           {leading !== undefined ? (
             leading
@@ -611,9 +728,9 @@ export function Composer({
                 key="send"
                 ref={sendButton}
                 type="submit"
-                className={`acpmux-send${text.trim() || attachments.length ? " acpmux-send-ready" : ""}`}
-                aria-label={t(COMPOSER_LABELS.send)}
-                title={t("composer.sendTooltip")}
+                className={`acpmux-send${(shell ? shellText.trim() : text.trim() || attachments.length) ? " acpmux-send-ready" : ""}`}
+                aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
+                title={shell ? t("composer.shellRun") : t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
