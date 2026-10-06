@@ -32,7 +32,15 @@ function AccountsBody() {
     <>
       <section className="group">
         <div className="accounts-header">
-          <span className="row-help accounts-intro">{accounts.intro}</span>
+          {accounts.signIn && (
+            <button
+              type="button"
+              className="button accounts-sign-in"
+              onClick={() => void store.runAccounts({ action: "signIn" })}
+            >
+              {accounts.signIn}
+            </button>
+          )}
           <button
             type="button"
             className="button"
@@ -42,15 +50,6 @@ function AccountsBody() {
             {accounts.refresh}
           </button>
         </div>
-        {accounts.signIn && (
-          <div className="accounts-banner">
-            <span>{accounts.signIn.text}</span>
-            <button type="button" className="button" onClick={() => void store.runAccounts({ action: "signIn" })}>
-              {accounts.signIn.confirm}
-            </button>
-          </div>
-        )}
-        {accounts.problem && <div className="row-error">{accounts.problem}</div>}
       </section>
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>
@@ -101,10 +100,9 @@ function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: strin
         </span>
       </div>
       <div className="accounts-body">
-        {(row.buttons.length > 0 || row.unsupported) && (
+        {row.buttons.length > 0 && (
           <div className="accounts-buttons">
             <Buttons buttons={row.buttons} onRun={(id) => void run(id)} />
-            {row.unsupported && <span className="row-help">{row.unsupported}</span>}
           </div>
         )}
         {row.linked.map((account) => (
