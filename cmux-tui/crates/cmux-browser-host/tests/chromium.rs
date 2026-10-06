@@ -958,3 +958,122 @@ fn shared_browser_events_reach_one_session() {
     assert!(a_click.contains("a-result:true held:false"), "b's handler answered, not a: {a_click}");
     assert!(a_late.contains("late-result:false held:false"), "dismissed, not held: {a_late}");
 }
+
+/// D2 log (ff, 2026-10-06): an event no session took is logged in the
+/// policy log of the session that created the tab while it is alive
+/// (`session.blockedNavigations()`, `blocked: "unrouted"`), never in
+/// another session's.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn an_unrouted_dialog_goes_to_the_creators_policy_log() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-unrouted-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |session: &str, code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--session", session, "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let other = eval("other", "console.log('other-ready');");
+    assert!(other.contains("other-ready"), "{other}");
+    let a = eval(
+        "a",
+        &format!(
+            "await page.goto('{origin}/confirm'); await page.keep(); \
+             await page.evaluate(() => {{ document.getElementById('r').textContent = 'wait'; \
+               setTimeout(() => {{ document.getElementById('r').textContent = String(confirm('late?')); }}, 50); }}); \
+             await page.waitForFunction(() => document.getElementById('r').textContent !== 'wait', null, {{ timeout: 5000 }}); \
+             const log = session.blockedNavigations().filter((b) => b.blocked === 'unrouted'); \
+             console.log('a-log:' + JSON.stringify(log.map((b) => [b.event, b.action, b.url.endsWith('/confirm'), typeof b.reason])));"
+        ),
+    );
+    let other_log = eval(
+        "other",
+        "console.log('other-log:' + JSON.stringify(session.blockedNavigations().filter((b) => b.blocked === 'unrouted').length));",
+    );
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(a.contains("a-log:[[\"dialog.opened\",\"dismissed\",true,\"string\"]]"), "{a}");
+    assert!(other_log.contains("other-log:0"), "{other_log}");
+}
+
+/// D2 log: the host keeps the newest unrouted events (64); only the
+/// person (user origin) reads them, through `tab.info` of a tab they may
+/// use (`unroutedEvents`, that tab's entries).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn only_the_person_reads_the_hosts_unrouted_log() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open = |name: &str, origin: &str| {
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: name.into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: origin.into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        HeadlessSession::new(source.clone(), &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease)
+            .unwrap()
+    };
+    let agent = open("agent", "cli");
+    let person = open("person", "user");
+    let target = agent
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/confirm")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    agent.call("tab.keep", &json!({"targetId": target})).unwrap();
+    // The tab is kept (no creator) and the call is over when the page asks:
+    // no session takes the dialog. (A user-origin session cannot act.)
+    agent
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "agent",
+                "source": "() => { setTimeout(() => confirm('late?'), 50); return 1; }"}),
+        )
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let entries = loop {
+        let info = person.call("tab.info", &json!({"targetId": target})).unwrap();
+        if let Some(entries) = info["unroutedEvents"].as_array().filter(|e| !e.is_empty()) {
+            break entries.clone();
+        }
+        assert!(Instant::now() < deadline, "no unrouted entry for the person: {info}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(entries.len(), 1, "{entries:?}");
+    assert_eq!(entries[0]["event"], "dialog.opened");
+    assert_eq!(entries[0]["action"], "dismissed");
+    let reader = open("reader", "cli");
+    let info = reader.call("tab.info", &json!({"targetId": target})).unwrap();
+    assert!(info.get("unroutedEvents").is_none(), "an agent read the host log: {info}");
+}
