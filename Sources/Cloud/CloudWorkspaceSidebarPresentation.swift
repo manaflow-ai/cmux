@@ -64,7 +64,16 @@ struct CloudWorkspaceSidebarPresentation {
         func machineMetadata(for id: String) -> String? {
             if let name = state.machineNames[id] { return name }
             if let name = state.machineNames[SurfaceMachineID.cloud(id).rawValue] { return name }
-            return catalog.machineInfo(for: .cloud(id))?.name
+            if let name = catalog.machineInfo(for: .cloud(id))?.name { return name }
+            // The window-title path can receive the same authoritative machine
+            // label slightly before the catalog row. Reuse it during that
+            // binding transition so the sidebar does not drop the machine
+            // badge while the first terminal projection is still arriving.
+            let host = workspace.hostLabel
+            if host.kind == .cloud, workspace.cloudVMID == id, !host.label.isEmpty, host.label != id {
+                return host.label
+            }
+            return nil
         }
 
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })

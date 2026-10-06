@@ -559,11 +559,6 @@ struct cmuxApp: App {
                 Button(String(localized: "menu.app.checkForUpdates", defaultValue: "Check for Updates…")) {
                     appDelegate.checkForUpdates(nil)
                 }
-                if let target = appDelegate.appChannelSwitchTarget {
-                    Button(AppChannelSwitchPresenter.menuTitle(for: target)) {
-                        appDelegate.switchAppChannel(nil)
-                    }
-                }
                 InstallUpdateMenuItem(model: appDelegate.updateViewModel, actions: appDelegate)
             }
 

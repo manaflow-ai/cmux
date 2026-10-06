@@ -19,6 +19,12 @@ enum CloudTreeCreateActionBuilder {
                     id: "\(CloudTreeNodeBuilder.nodeID(workspacesGroup: machine))/new-workspace",
                     kind: .createAction(.newWorkspace(machine))
                 ), at: 0)
+            case .coderouterProviderGroup(let provider, _)
+                where provider.canAdd && !node.children.contains(where: { $0.structureTag == "createAction" }):
+                node.children.insert(CloudTreeNode(
+                    id: "\(node.id)/new-account",
+                    kind: .createAction(.newCoderouterAccount(provider))
+                ), at: 0)
             default:
                 break
             }

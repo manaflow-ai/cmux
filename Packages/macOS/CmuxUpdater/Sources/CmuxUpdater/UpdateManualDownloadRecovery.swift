@@ -21,10 +21,6 @@ public struct UpdateManualDownloadRecovery: Sendable {
     private let nightlyDownloadURLString: String
     private let rcDownloadURLString: String
 
-    /// The direct stable DMG URL: the `cmux-macos.dmg` asset of the release the stable feed
-    /// (`releases/latest/download/appcast.xml`) points at.
-    public static let stableDownloadURLString = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg"
-
     /// Creates a recovery resolver.
     ///
     /// - Parameters:
@@ -35,7 +31,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
     ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
     public init(
-        stableDownloadURLString: String = UpdateManualDownloadRecovery.stableDownloadURLString,
+        stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
         nightlyDownloadURLString: String? = nil,
         rcDownloadURLString: String? = nil,
         hostArchitecture: UpdateHostArchitecture = .current

@@ -15,9 +15,7 @@ on:
         type: boolean
         default: true
 
-permissions:
-  contents: read
-  issues: write
+permissions: {}
 
 # One run per issue, and one backfill at a time. Queueing rather than
 # cancelling: a cancelled run can leave labels applied with no receipt line.
@@ -29,6 +27,9 @@ concurrency:
 
 jobs:
   triage:
+    permissions:
+      contents: read
+      issues: write
     if: github.event_name == 'issues'
     runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
     timeout-minutes: 5
@@ -45,6 +46,9 @@ jobs:
         run: python3 scripts/ci/auto_triage.py --issue "$ISSUE_NUMBER"
 
   backfill:
+    permissions:
+      contents: read
+      issues: write
     if: github.event_name == 'workflow_dispatch' && fromJSON(inputs.backfill_limit || '0') > 0
     runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
     timeout-minutes: 30

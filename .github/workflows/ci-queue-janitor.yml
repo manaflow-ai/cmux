@@ -47,10 +47,7 @@ on:
         default: true
         type: boolean
 
-permissions:
-  actions: write
-  pull-requests: read
-  contents: read
+permissions: {}
 
 env:
   # The file behind the `CI` display name in on.workflow_run.workflows;
@@ -65,6 +62,10 @@ concurrency:
 
 jobs:
   sweep:
+    permissions:
+      actions: write
+      pull-requests: read
+      contents: read
     name: Sweep wasted macOS demand
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
