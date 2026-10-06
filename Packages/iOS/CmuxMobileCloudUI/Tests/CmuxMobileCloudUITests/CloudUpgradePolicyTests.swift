@@ -18,7 +18,7 @@ struct CloudUpgradePolicyTests {
             CloudUpgradePolicy(storefrontCountryCode: "GB", hasInAppBilling: true).route == .inApp
         )
         #expect(
-            CloudUpgradePolicy(storefrontCountryCode: nil, hasInAppBilling: true).route == .inApp
+            CloudUpgradePolicy(storefrontCountryCode: "JP", hasInAppBilling: true).route == .inApp
         )
     }
 
