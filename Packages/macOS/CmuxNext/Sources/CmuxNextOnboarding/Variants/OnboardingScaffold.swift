@@ -17,6 +17,8 @@ enum OnboardingScaffold {
         var bodyGap: CGFloat = 28
         /// Continue with a glass bezel (else a plain push button).
         var glassContinue = true
+        /// Continue with a filled accent button (used by the import action).
+        var accentContinue = false
 
         init() {}
     }
@@ -27,7 +29,7 @@ enum OnboardingScaffold {
         let titleLabel = OnboardingLabel.make(title, font: .systemFont(ofSize: style.titleSize, weight: style.titleWeight), lines: 2)
         let sentence = OnboardingLabel.make(subtitle ?? "", color: Palette.textSecondary, lines: 2)
         sentence.isHidden = subtitle == nil
-        let footer = OnboardingFooter(context: context, glassContinue: style.glassContinue)
+        let footer = OnboardingFooter(context: context, glassContinue: style.glassContinue, accentContinue: style.accentContinue)
         body.translatesAutoresizingMaskIntoConstraints = false
         for view in [titleLabel, sentence, body, footer] as [NSView] { root.addSubview(view) }
         let centered = style.alignment == .center
@@ -67,15 +69,15 @@ final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
 
-    init(context: OnboardingStepContext, glassContinue: Bool = true, showsCounter: Bool = true) {
+    init(context: OnboardingStepContext, glassContinue: Bool = true, accentContinue: Bool = false, showsCounter: Bool = true) {
         self.context = context
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
+        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count, step: context.model.step),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
         counter.isHidden = !showsCounter
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
-        let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, target: self, action: #selector(nextPressed))
+        let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, accent: accentContinue, target: self, action: #selector(nextPressed))
         for view in [counter, skip, next] as [NSView] { addSubview(view) }
         NSLayoutConstraint.activate([
             counter.leadingAnchor.constraint(equalTo: leadingAnchor), counter.centerYAnchor.constraint(equalTo: centerYAnchor),
