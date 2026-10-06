@@ -14,6 +14,7 @@ extension CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[CmuxJSONFontSettings.sidebarUserDefaultsKey] = .double(value)
             } else if sidebar.keys.contains("fontSize") {
                 logInvalid(CmuxJSONFontSettings.sidebarPath, sourcePath: sourcePath)
+                snapshot.invalidManagedUserDefaultKeys.insert(CmuxJSONFontSettings.sidebarUserDefaultsKey)
             }
         }
         if let tabBar = root["surfaceTabBar"] as? [String: Any] {
@@ -22,6 +23,7 @@ extension CmuxSettingsFileStore {
                 snapshot.managedUserDefaults[CmuxJSONFontSettings.surfaceTabBarUserDefaultsKey] = .double(value)
             } else if tabBar.keys.contains("fontSize") {
                 logInvalid(CmuxJSONFontSettings.surfaceTabBarPath, sourcePath: sourcePath)
+                snapshot.invalidManagedUserDefaultKeys.insert(CmuxJSONFontSettings.surfaceTabBarUserDefaultsKey)
             }
         }
     }

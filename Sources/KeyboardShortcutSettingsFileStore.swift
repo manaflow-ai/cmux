@@ -335,6 +335,24 @@ final class CmuxSettingsFileStore {
             if malformedAutomation { snapshot.managedUserDefaults[SocketControlSettings.appStorageKey] = preservedSocketMode }
             if !issues.isEmpty {
                 configurationIssues = issues
+                let fontOnlyIssues = !snapshot.invalidManagedUserDefaultKeys.isEmpty
+                    && issues.count == snapshot.invalidManagedUserDefaultKeys.count
+                    && issues.allSatisfy {
+                        $0.contains(CmuxJSONFontSettings.sidebarPath)
+                            || $0.contains(CmuxJSONFontSettings.surfaceTabBarPath)
+                    }
+                if fontOnlyIssues, let lastGoodResolvedSettings {
+                    for key in snapshot.invalidManagedUserDefaultKeys {
+                        if let previousValue = lastGoodResolvedSettings.managedUserDefaults[key] {
+                            snapshot.managedUserDefaults[key] = previousValue
+                        } else {
+                            snapshot.managedUserDefaults.removeValue(forKey: key)
+                        }
+                    }
+                    snapshot.invalidManagedUserDefaultKeys.removeAll()
+                    self.lastGoodResolvedSettings = snapshot
+                    return snapshot
+                }
                 if let lastGoodResolvedSettings {
                     return lastGoodResolvedSettings
                 }
@@ -1906,6 +1924,9 @@ struct ResolvedSettingsSnapshot {
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     var managedUserDefaults: [String: ManagedSettingsValue] = [:]
+    /// Managed defaults whose source fields were invalid. They retain their
+    /// last-good values while valid sibling settings from the same edit apply.
+    var invalidManagedUserDefaultKeys: Set<String> = []
     var legacyDerivedManagedUserDefaultKeys: Set<String> = []
     var managedCustomSettings = ManagedCustomSettings()
 

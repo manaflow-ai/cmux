@@ -144,6 +144,38 @@ struct SessionContentWidthSettingsFileStoreTests {
         withExtendedLifetime(store) {}
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func cmuxJSONFontSettingsOverrideGhosttyAliasesThroughWatcher() async throws {
+        let suite = "cmux-font-live-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        try #"{"sidebar":{"fontSize":13.5},"surfaceTabBar":{"fontSize":12.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let (updates, continuation) = AsyncStream<Void>.makeStream()
+        defer { continuation.finish() }
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onWatchedFileReload: { _ in continuation.yield() }
+        )
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 13.5) < 0.001)
+        try #"{"sidebar":{"fontSize":15.0},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        var iterator = updates.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 15.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        withExtendedLifetime(store) {}
+    }
+
+
     private func loadSettings(
         maxWidthJSON: String,
         alignmentJSON: String,
