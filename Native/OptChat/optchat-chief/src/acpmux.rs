@@ -368,10 +368,15 @@ impl Acpmux {
             .name("acpmux-link".into())
             .spawn(move || {
                 let mut delay = Duration::from_millis(500);
+                // The host starts the daemon only before its first link: once
+                // that daemon (or the one it joined) shuts down, the host's
+                // sessions ended with it, and it never starts another.
+                let mut linked = false;
                 loop {
                     let started = std::time::Instant::now();
-                    match this.connect_once(&sink, &*log) {
+                    match this.connect_once(&sink, &*log, !linked) {
                         Ok(closed) => {
+                            linked = true;
                             let _ = closed.recv();
                             log("acpmux connection closed");
                         }
@@ -390,6 +395,11 @@ impl Acpmux {
                         let _ = tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
+                    if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                        log("acpmux daemon ended; the host does not start another");
+                        sink(AgentEvent::Ended);
+                        return;
+                    }
                     if started.elapsed() > Duration::from_secs(30) {
                         delay = Duration::from_millis(500);
                     }
@@ -406,8 +416,11 @@ impl Acpmux {
         &self,
         sink: &Sink,
         log: &dyn Fn(&str),
+        may_start: bool,
     ) -> Result<std::sync::mpsc::Receiver<()>, String> {
-        crate::acpmux_daemon::ensure(&self.socket, log)?;
+        if may_start {
+            crate::acpmux_daemon::ensure(&self.socket, log)?;
+        }
         let (closed_tx, closed_rx) = channel();
         let turns = self.turns.clone();
         let route_sink = sink.clone();
