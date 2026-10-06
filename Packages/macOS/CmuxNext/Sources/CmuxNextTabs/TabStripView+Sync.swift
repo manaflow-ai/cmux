@@ -89,7 +89,6 @@ extension TabStripView {
             newTabButton.isHidden = !model.showsNewTabButton
             needsLayout = true
         }
-        syncButtonGroup()
 
         relayout(animated: animated || (styleChanged && !reduceMotion), added: added)
 
