@@ -157,8 +157,9 @@ fn v2_terminal_input_counts_only_from_a_persons_attached_client() {
     let mux = Mux::new("activity-v2-input", SurfaceOptions::default());
     let surface = mux.new_workspace(Some("work".into()), Some((80, 24))).unwrap();
     let terminal = surface.terminal_public_id().unwrap().to_string();
-    let socket =
-        std::env::temp_dir().join(format!("cmux-activity-v2-{}", std::process::id())).join("s.sock");
+    let socket = std::env::temp_dir()
+        .join(format!("cmux-activity-v2-{}", std::process::id()))
+        .join("s.sock");
     server::serve(mux.clone(), Some(socket.clone())).unwrap();
     let mut watcher = connect(&socket);
     let first = rpc(&mut watcher, 1, json!({"cmd": "subscribe-activity"}));
@@ -170,9 +171,16 @@ fn v2_terminal_input_counts_only_from_a_persons_attached_client() {
     let reply = v2(&mut agent, "a1", "terminal.input.write", input("echo agent\r"));
     assert_eq!(reply["ok"], true, "{reply}");
     // Force an activity event and check the user input time stayed empty.
-    rpc(&mut agent, 2, json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s1"}));
+    rpc(
+        &mut agent,
+        2,
+        json!({"cmd": "report-agent", "surface": surface.id, "state": "working", "source": "socket", "session": "s1"}),
+    );
     let after_agent = activity_until(&mut watcher, |a| a["live_agents"] == 1);
-    assert!(after_agent["last_user_input_at_ms"].is_null(), "agent v2 input must not count: {after_agent}");
+    assert!(
+        after_agent["last_user_input_at_ms"].is_null(),
+        "agent v2 input must not count: {after_agent}"
+    );
 
     // A person's attached client's v2 input counts.
     let mut person = connect(&socket);
