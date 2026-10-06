@@ -27,7 +27,12 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// sign-in sheet it asked for: the policy may not let pages reach past
     /// any of them from then on (``secretTypingRefusal(name:domains:)``,
     /// ``credentialDomains(origin:)``).
+    /// Each set is kept once, sorted and without repeats
+    /// (``canonical(_:)``), and takes one of the session's
+    /// ``BrowserReplResource/typedDomainSets`` before it is kept.
     private var typedSecretDomains: [[BrowserReplDomainPattern]] = []
+    /// The session's ledger.
+    private let ledger: BrowserReplResourceLedger
 
     /// - Parameters:
     ///   - publicSuffixes: The list `site` and `publicSuffix` answers come
@@ -37,11 +42,14 @@ final class BrowserReplBoundary: @unchecked Sendable {
     ///     the session's own are.
     ///   - isCancelled: Whether a long byte scan is to stop
     ///     (``BrowserReplWatchdog/shouldStopNativeWork``).
+    ///   - ledger: The session's ledger, which bounds the domain sets kept.
     init(
         publicSuffixes: BrowserReplPublicSuffixList = .system,
         typedSecrets: @escaping @Sendable () -> BrowserReplSecretStore? = { nil },
-        isCancelled: @escaping @Sendable () -> Bool = { false }
+        isCancelled: @escaping @Sendable () -> Bool = { false },
+        ledger: BrowserReplResourceLedger = BrowserReplResourceLedger()
     ) {
+        self.ledger = ledger
         self.publicSuffixes = publicSuffixes
         self.secrets = BrowserReplSecretStore(publicSuffixes: publicSuffixes)
         self.typedSecrets = typedSecrets
@@ -285,9 +293,30 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     message: "secret \"\(name)\" is typed only while the domain policy keeps the session's tabs on its domains (\(list)); the policy also allows \(outside)\(Self.httpsHint)"
                 )
             }
-            if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
+            if let refusal = keepLocked(domains) { return refusal.driverError("secret \"\(name)\"") }
             return nil
         }
+    }
+
+    /// Keeps `domains` as a set the policy may not reach past, once
+    /// however they are ordered or repeated; a set new to the session takes
+    /// one of its ``BrowserReplResource/typedDomainSets`` first, or is
+    /// refused and nothing is kept. Call with `lock` held.
+    private func keepLocked(_ domains: [BrowserReplDomainPattern]) -> BrowserReplResourceLimitError? {
+        let set = Self.canonical(domains)
+        guard !typedSecretDomains.contains(set) else { return nil }
+        if let refusal = ledger.reserve(1, of: .typedDomainSets) { return refusal }
+        typedSecretDomains.append(set)
+        return nil
+    }
+
+    /// `domains` sorted by how they are written, each once.
+    static func canonical(_ domains: [BrowserReplDomainPattern]) -> [BrowserReplDomainPattern] {
+        var set: [BrowserReplDomainPattern] = []
+        for domain in domains.sorted(by: { $0.raw < $1.raw }) where !set.contains(domain) {
+            set.append(domain)
+        }
+        return set
     }
 
     /// The domains of the values the sign-in sheet fills into a page of
@@ -321,7 +350,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                     message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on exactly \(domain.raw), the page's own host\(wildcard)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) first"
                 ))
             }
-            if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
+            if let refusal = keepLocked(domains) { return .failure(refusal.driverError("auth.request")) }
             return .success(domains)
         }
     }

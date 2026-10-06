@@ -684,6 +684,7 @@ checks nothing stays reserved after the session ends.
 | Sessions in one cmux instance | 32 | the next is refused |
 | Sessions driving one tab | 4 at once | the next session's call on the tab fails with `limit` |
 | Secrets per session | 256, each at most 4 KiB with 64 domains | refused, naming the limit |
+| Distinct domain sets of the secrets and sign-in credentials the session typed (kept so the policy never reaches past them; one set however its domains are ordered or repeated) | 1,024 over the session's life | typing a secret, or asking the sign-in sheet, on a new set is refused |
 | Domain policy | 1,024 patterns per list, 1,024 bytes a pattern | `invalid`, naming the limit |
 
 JavaScriptCore has no heap limit a context can set, so the heap row is a

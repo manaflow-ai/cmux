@@ -590,7 +590,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         // delivery; it stops when the watchdog would stop the script.
         self.boundary = BrowserReplBoundary(
             typedSecrets: { driver.typedSecretRedaction() },
-            isCancelled: { watchdog.shouldStopNativeWork }
+            isCancelled: { watchdog.shouldStopNativeWork },
+            ledger: ledger
         )
         self.sleeper = sleeper
         self.thread = BrowserReplJSThread(name: "com.cmux.browser-repl.\(id)")
