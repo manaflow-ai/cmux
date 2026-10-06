@@ -47,7 +47,8 @@ struct FeedInboxView: View {
                     FeedInboxDetail(item: shown, thread: groups.all.first { $0.members.contains { $0.id == shown.id } }, model: model)
                 } else {
                     VStack(spacing: 12) {
-                        Icon(.inboxEmpty, size: 28)
+                        // A pack drawing inks about two thirds of its box; 44 matches the 27 pt tray it replaced.
+                        Icon(.inboxEmpty, size: 44)
                         Text(FeedStrings.selectInboxItem).font(.system(size: 13))
                     }
                     .foregroundStyle(colors.tertiary)

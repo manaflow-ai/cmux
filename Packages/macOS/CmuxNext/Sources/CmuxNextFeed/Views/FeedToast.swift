@@ -31,7 +31,8 @@ struct FeedEmptyState: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Icon(.inboxEmpty, size: 20).foregroundStyle(colors.tertiary)
+            // A pack drawing inks about two thirds of its box; 32 matches the 20 pt tray it replaced.
+            Icon(.inboxEmpty, size: 32).foregroundStyle(colors.tertiary)
             Text(text).font(.system(size: 12)).foregroundStyle(colors.tertiary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
