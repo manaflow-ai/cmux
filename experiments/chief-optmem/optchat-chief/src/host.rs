@@ -462,11 +462,13 @@ fn start(
     )
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)));
     spawn_probe(model, fallback, system, route, tx.clone());
+    let (display_name, title) = LinkConfig::names_from_env();
     daemon::spawn_link(
         LinkConfig {
             socket: daemon_socket.into(),
             token_file,
-            display_name: daemon::full_name(),
+            display_name,
+            title,
         },
         Arc::new(move |event| {
             let _ = tx.send(Input::from(event));

@@ -9,11 +9,14 @@ use std::time::{Duration, Instant};
 
 use cmux::raw::{
     Client, ClientConfig, ConversationBindRequest, ConversationCreateRequest,
-    ConversationHistoryRequest, ConversationOpRequest, ConversationSnapshotRequest,
+    ConversationHistoryRequest, ConversationListRequest, ConversationOpRequest, ConversationSnapshotRequest,
     ConversationTypingRequest, Error as SdkError, Event, Nullable, Optional, SubscribeRequest,
     SubscribeRequestTreeEvents,
 };
-use cmux_chief::rules::{AGENT_MUX, DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME, USER_LOCAL};
+use cmux_chief::rules::{
+    AGENT_MUX, CHIEF_CONVERSATION_TITLE, CHIEF_DISPLAY_NAME, DEFAULT_CONVERSATION_KEY,
+    MUX_SESSION_NAME, USER_LOCAL,
+};
 use cmux_conversation::{AgentClass, Change, Message, Op, Participant, ParticipantKind, Summary};
 use serde_json::Value;
 
@@ -73,8 +76,9 @@ pub enum DaemonEvent {
     Fatal(String),
 }
 
-/// The participants of the Chief conversation, the same as mux/host's, so
-/// the owner replays the same create (one conversation, the app's Chief tab).
+/// The participants of the Chief conversation, the same as the app's
+/// (HomeService.mux, HomeChiefName.createRequest), so the owner replays the
+/// app's create (one conversation, the app's Chief tab).
 pub fn participants(display_name: &str) -> Vec<Participant> {
     vec![
         Participant {
@@ -83,13 +87,15 @@ pub fn participants(display_name: &str) -> Vec<Participant> {
             display_name: display_name.into(),
             agent_class: None,
             acp_session: None,
+            person: None,
         },
         Participant {
             id: AGENT_MUX.into(),
             kind: ParticipantKind::Agent,
-            display_name: "mux".into(),
+            display_name: CHIEF_DISPLAY_NAME.into(),
             agent_class: Some(AgentClass::Mux),
             acp_session: Some(MUX_SESSION_NAME.into()),
+            person: None,
         },
     ]
 }
@@ -127,6 +133,16 @@ fn decode<T: serde::de::DeserializeOwned>(value: Value, what: &str) -> Result<T,
     serde_json::from_value(value).map_err(|e| OpError::Transport(format!("{what}: {e}")))
 }
 
+/// The SDK's generated wire struct as the brain's own type (cmux-conversation
+/// is the owner's source of truth; the SDK mirrors it field for field).
+fn rewire<S: serde::Serialize, T: serde::de::DeserializeOwned>(
+    value: &S,
+    what: &str,
+) -> Result<T, OpError> {
+    let json = serde_json::to_value(value).map_err(|e| OpError::Transport(format!("{what}: {e}")))?;
+    decode(json, what)
+}
+
 /// The port over a cmux-sdk connection.
 pub struct SdkConversations {
     client: Client,
@@ -145,16 +161,8 @@ impl ConversationPort for SdkConversations {
                 tail,
             })
             .map_err(sdk_error)?;
-        let summary = decode(
-            data.get("conversation").cloned().unwrap_or(Value::Null),
-            "snapshot summary",
-        )?;
-        let messages = decode(
-            data.get("messages")
-                .cloned()
-                .unwrap_or(Value::Array(Vec::new())),
-            "snapshot messages",
-        )?;
+        let summary = rewire(&data.conversation, "snapshot summary")?;
+        let messages = rewire(&data.messages, "snapshot messages")?;
         Ok((summary, messages))
     }
 
@@ -172,12 +180,7 @@ impl ConversationPort for SdkConversations {
                 limit,
             })
             .map_err(sdk_error)?;
-        decode(
-            data.get("messages")
-                .cloned()
-                .unwrap_or(Value::Array(Vec::new())),
-            "history",
-        )
+        rewire(&data.messages, "history")
     }
 
     fn op(&mut self, conversation: &str, key: &str, op: &Op) -> Result<Option<Change>, OpError> {
@@ -192,9 +195,7 @@ impl ConversationPort for SdkConversations {
                 transaction: Optional::Missing,
             })
             .map_err(sdk_error)?;
-        Ok(data
-            .get("change")
-            .and_then(|c| serde_json::from_value(c.clone()).ok()))
+        Ok(rewire(&data.change, "op change").ok())
     }
 
     fn typing(&mut self, conversation: &str, on: bool) -> Result<(), OpError> {
@@ -220,6 +221,31 @@ pub struct LinkConfig {
     pub socket: PathBuf,
     pub token_file: Option<PathBuf>,
     pub display_name: String,
+    /// The create request's title: the app's (localized) Chief name.
+    pub title: String,
+}
+
+impl LinkConfig {
+    /// The app's names for the create request: `MUX_USER_NAME` (the app's
+    /// user name) and `MUX_CHIEF_TITLE` (its localized Chief title), else
+    /// the Mac's full name and "Chief".
+    pub fn names_from_env() -> (String, String) {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        (
+            var("MUX_USER_NAME").unwrap_or_else(full_name),
+            var("MUX_CHIEF_TITLE").unwrap_or_else(|| CHIEF_CONVERSATION_TITLE.into()),
+        )
+    }
+}
+
+/// The Chief conversation among `conversations`, by the rule the app shares
+/// (HomeChiefName.select, select_chief_conversation): the oldest conversation
+/// with agent_mux, by created_at, then id.
+pub fn select_chief(conversations: Vec<Summary>) -> Option<Summary> {
+    conversations
+        .into_iter()
+        .filter(|c| c.participants.iter().any(|p| p.id == AGENT_MUX))
+        .min_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)))
 }
 
 fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), ConnectError> {
@@ -249,19 +275,29 @@ fn connect(config: &LinkConfig) -> Result<(Client, Summary, cmux::raw::Stream), 
             text("version")
         )));
     }
-    let participants =
-        serde_json::to_value(participants(&config.display_name)).expect("participants");
-    let created = client
-        .conversation_create(ConversationCreateRequest {
-            actor: Optional::Value(USER_LOCAL.into()),
-            idempotency_key: DEFAULT_CONVERSATION_KEY.into(),
-            participants: Nullable::value(participants),
-            title: "mux".into(),
-        })
-        .map_err(other)?;
-    let summary: Summary =
-        serde_json::from_value(created.get("conversation").cloned().unwrap_or(Value::Null))
-            .map_err(|e| ConnectError::Other(format!("conversation-create: {e}")))?;
+    // The app creates the Chief conversation when Home opens; answer in the
+    // one it shows. Create it (with the app's exact request, so the owner
+    // replays one conversation) only when none exists yet.
+    let listed = client.conversation_list(ConversationListRequest {}).map_err(other)?;
+    let listed: Vec<Summary> = rewire(&listed.conversations, "conversation-list")
+        .map_err(|e| ConnectError::Other(e.to_string()))?;
+    let summary = match select_chief(listed) {
+        Some(found) => found,
+        None => {
+            let participants =
+                serde_json::to_value(participants(&config.display_name)).expect("participants");
+            let created = client
+                .conversation_create(ConversationCreateRequest {
+                    actor: Optional::Value(USER_LOCAL.into()),
+                    idempotency_key: DEFAULT_CONVERSATION_KEY.into(),
+                    participants: Nullable::value(participants),
+                    title: config.title.clone(),
+                })
+                .map_err(other)?;
+            rewire(&created.conversation, "conversation-create")
+                .map_err(|e| ConnectError::Other(e.to_string()))?
+        }
+    };
     // Read at every connect: the app mints a new token on each launch.
     match read_token(config.token_file.as_deref()) {
         Some(token) => {

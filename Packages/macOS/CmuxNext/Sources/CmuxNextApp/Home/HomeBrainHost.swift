@@ -54,6 +54,8 @@ nonisolated struct HomeBrainHost: Sendable {
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
+            // ...and its title (HomeChiefName.createRequest, localized).
+            "MUX_CHIEF_TITLE": HomeStrings.chiefName,
         ]
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }

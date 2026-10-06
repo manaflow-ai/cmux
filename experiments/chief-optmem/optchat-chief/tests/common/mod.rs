@@ -63,6 +63,7 @@ pub fn message(seq: u64, author: &str, text: &str) -> Message {
         edited_at: None,
         retracted_at: None,
         reactions: Vec::new(),
+        origin: None,
     }
 }
 
