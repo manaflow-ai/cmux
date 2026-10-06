@@ -12,8 +12,8 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
-    /// The page drew its first frame (`pane.painted`). A pane that has not
-    /// is still transparent: its pane keeps what it showed until then.
+    /// The page drew its first frame after the handshake (`pane.painted`), the
+    /// first that shows what it is. Until then its pane keeps what it showed.
     public private(set) var hasPainted = false
     @ObservationIgnored private var paintWaiters: [() -> Void] = []
 

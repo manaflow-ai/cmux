@@ -51,7 +51,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
-    /// `pane.painted`: the document drew its first frame (once per document).
+    /// `pane.painted`: the document drew its first frame after the handshake
+    /// (once per document).
     case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
