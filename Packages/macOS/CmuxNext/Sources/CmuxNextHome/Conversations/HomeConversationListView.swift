@@ -36,7 +36,7 @@ public final class HomeConversationListView: NSView {
         addSubview(titleLabel)
         addButton.bezelStyle = .accessoryBarAction
         addButton.isBordered = false
-        addButton.image = NSImage.icon(.actionAdd, size: .iconRowSize(forLabelPointSize: Typography.header.pointSize))
+        addButton.image = NSImage.icon(.actionAdd, size: Metrics.iconSize)
         addButton.target = self
         addButton.action = #selector(showAddMenu(_:))
         addButton.setAccessibilityLabel(HomeConversationStrings.newMenu)
