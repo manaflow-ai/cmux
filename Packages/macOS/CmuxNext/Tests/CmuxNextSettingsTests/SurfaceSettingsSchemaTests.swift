@@ -6,7 +6,7 @@ import Testing
 /// each of twelve surfaces (including internal pages, split dividers and the diff viewer), both optional overrides of the window's own color
 /// and opacity, in the shape the Settings lead and the coordinator agreed.
 @Suite struct SurfaceSettingsSchemaTests {
-    static let surfaces = ["sidebar", "tabBar", "terminal", "agentPane", "settings", "newTabPage", "home", "browserChrome", "internalPage", "splitDivider", "docks", "diff"]
+    static let surfaces = ["sidebar", "tabBar", "terminal", "agentPane", "settings", "newTabPage", "home", "browserChrome", "internalPage", "splitDivider", "docks", "diff", "markdown", "editor"]
 
     static func path(_ surface: String, _ field: String) -> [String] { ["appearance", "surfaces", surface, field] }
 
@@ -16,9 +16,9 @@ import Testing
             .diagnostics.filter { $0.path == path.joined(separator: ".") }
     }
 
-    @Test func twentyFourRowsInAppearanceSurfaces() throws {
+    @Test func twentyEightRowsInAppearanceSurfaces() throws {
         let rows = SettingsSchema.all.filter { $0.path.starts(with: ["appearance", "surfaces"]) }
-        #expect(rows.count == 24)
+        #expect(rows.count == 28)
         for surface in Self.surfaces {
             for field in ["color", "opacity"] {
                 let row = try #require(SettingsSchema.descriptor(for: Self.path(surface, field)), "\(surface).\(field)")

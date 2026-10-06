@@ -3,8 +3,10 @@ import Foundation
 
 /// A small control on an item's trailing edge with its own action.
 public nonisolated enum SidebarItemAccessory: Hashable, Sendable {
-    /// An app update is available: a click opens the updater (on Settings).
-    case update
+    /// An app update is available: a click installs it (on Settings).
+    /// `title` is the control's tooltip and VoiceOver label, from the
+    /// App ("Restart to Update" for a staged update).
+    case update(title: String)
 }
 
 /// How a layout item draws. The sidebar knows built-ins; the App resolves
@@ -25,10 +27,13 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isHidden: Bool
     /// The trailing control (`SidebarIntent.activateItemAccessory`).
     public var accessory: SidebarItemAccessory?
+    /// The shorter caption a tile draws under its glyph; nil uses `title`.
+    public var caption: String?
 
     public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
-                isHidden: Bool = false) {
+                isHidden: Bool = false, caption: String? = nil) {
         self.isHidden = isHidden
+        self.caption = caption
         self.title = title
         self.symbol = symbol
         self.color = color
@@ -53,6 +58,8 @@ extension SidebarBuiltIn {
         case .newBrowser: "globe"
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
+        case .newWorkspace: "plus"
+        case .importSync: "square.and.arrow.down"
         }
     }
 
@@ -70,10 +77,22 @@ extension SidebarBuiltIn {
         case .newBrowser: SectionStrings.newBrowser
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
+        case .newWorkspace: SectionStrings.newWorkspace
+        case .importSync: SectionStrings.importSync
         }
     }
 
-    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol) }
+    /// The short tile caption, where the title is too long for a tile.
+    public var caption: String? {
+        switch self {
+        case .appStore: SectionStrings.appStoreCaption
+        case .newWorkspace: SectionStrings.newWorkspaceCaption
+        case .importSync: SectionStrings.importSyncCaption
+        default: nil
+        }
+    }
+
+    public var defaultInfo: SidebarItemInfo { SidebarItemInfo(title: title, symbol: symbol, caption: caption) }
 }
 
 extension SidebarItemInfo {

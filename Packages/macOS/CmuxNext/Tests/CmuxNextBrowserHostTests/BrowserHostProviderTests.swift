@@ -117,7 +117,8 @@ struct BrowserHostProviderTests {
     @Test func leasesReachTheAppAndMarkTheTabAndUserInputIsReported() async throws {
         let h = ProviderHarness(tabs: [tab("c1", .cef)])
         var changes: [(String, ProviderLease?)] = []
-        h.provider.onLeaseChange = { changes.append(($0, $1)) }
+        let observation = h.provider.observeLeases { changes.append(($0, $1)) }
+        defer { _ = observation }
         let (host, _) = await h.connected()
         _ = await host.next() // tab.access
         host.ack()
@@ -168,6 +169,22 @@ struct BrowserHostProviderTests {
         #expect(await host.next() == nil)
         await h.clock.sleepers(atLeast: 1)
         #expect(h.provider.status == .waitingToRetry)
+    }
+
+    @Test func theListenerHolderIsAnAcceptedPeerAndAnyOtherIsNot() async throws {
+        // Socket activation on macOS: the peer is the daemon that holds the listener.
+        let h = ProviderHarness()
+        h.credentials.value = ProviderCredentials(socketPath: "/unused", secret: ProviderSecret("s3cret-value"),
+                                                  hostPID: getpid() + 1, listenerPID: getpid())
+        h.provider.start()
+        let host = try #require(await h.nextHost())
+        guard case .hello(_, _, _, let secret, _, _)? = await host.next() else {
+            Issue.record("expected hello")
+            return
+        }
+        #expect(secret.value == "s3cret-value")
+        let other = ProviderCredentials(socketPath: "/unused", secret: ProviderSecret("x"), hostPID: 7, listenerPID: 9)
+        #expect(!other.acceptsPeer(8) && other.acceptsPeer(7) && other.acceptsPeer(9))
     }
 
     @Test func aFirstFrameOtherThanTheAckDropsTheLink() async throws {

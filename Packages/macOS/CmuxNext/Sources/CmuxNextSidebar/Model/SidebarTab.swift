@@ -6,6 +6,8 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
     case browser
     case remoteTerminal
     case conversation
+    /// A conversation tab on an acpmux session (an agent chat tab).
+    case agentChat
     case other(String)
 
     public var symbolName: String {
@@ -14,6 +16,7 @@ public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
         case .browser: "globe"
         case .remoteTerminal: "network"
         case .conversation: "bubble.left.and.bubble.right"
+        case .agentChat: "bubble.left.and.text.bubble.right"
         case .other: "square"
         }
     }

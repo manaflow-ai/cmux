@@ -187,8 +187,8 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) && !$0.ephemeral }) == false {
-            _ = await createWorkspace()
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
+            _ = await createWorkspace(newTabPage: true)
         }
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)

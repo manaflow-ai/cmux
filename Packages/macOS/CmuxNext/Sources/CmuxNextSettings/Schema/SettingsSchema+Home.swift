@@ -1,8 +1,9 @@
 import CmuxNextDesign
 
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum HomeSettingsSchema {
     /// Settings > Home (the Home tab's conversations).
-    static var home: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let attachments = SettingsText.keyed("settings.group.attachments", "Attachments")
         return [
             SettingDescriptor(

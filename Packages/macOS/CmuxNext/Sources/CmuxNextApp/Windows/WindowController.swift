@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
 import CmuxNextHistory
 import CmuxNextBridge
@@ -12,6 +13,7 @@ import Observation
 /// Which workspace that is, plus frame and sidebar width, persist in the
 /// daemon's personal projection through `WindowManager`.
 final class WindowController: NSWindowController, NSWindowDelegate {
+    var shortcutHints: WindowShortcutHints?
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
@@ -37,6 +39,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
+    private(set) lazy var topPages = TopPageHost(services: services)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -77,18 +83,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
+        observeSidebarHidden()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
-        badgeObservation?.cancel()
+        sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
         roomObservation?.cancel()
@@ -96,6 +105,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = nil
         parked.forEach { $0.teardown() }
         parked.removeAll()
+        topPages.teardown()
         sidebar.teardown()
     }
 
@@ -123,7 +133,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in Observations({ () -> [String] in
                 // Re-run when the request or any machine's workspace list changes.
-                [state.workspaceID ?? "", state.machineID, String(cloud.hasLoadedMachines)]
+                [state.workspaceID ?? "", state.page?.rawValue ?? "", state.machineID, String(cloud.hasLoadedMachines)]
                     + windows.registry.members(of: state.id)
                     + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\($0.store.workspaces.map(\.id))" }
             }) {
@@ -147,14 +157,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.teardown()
             return true
         }
+        if let page = state.page, showTopPage(page) { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         // Keep what is shown (the old content stays until the manager
@@ -225,6 +236,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     var focusedPane: PaneController? { content?.focusedPane }
 
+    /// Parks the shown workspace (mounted, paused) while a top page fills the content area.
+    func parkContentForPage() {
+        titleObservation?.cancel()
+        if let current = content { park(current) }
+        content = nil
+    }
+
     // MARK: Parked workspaces
 
     private func park(_ controller: WorkspaceContentController) {
@@ -251,6 +269,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
         let snapshots = services.sidebarSnapshots, id = state.id
@@ -261,6 +280,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
@@ -269,24 +296,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
-    private var badgeObservation: Task<Void, Never>?
+    var sidebarObservation: Task<Void, Never>?
 
-    /// Marks this window incognito: the badge shows in the sidebar header,
-    /// and in the top row after the traffic lights while the sidebar is
-    /// hidden (strips under it start after it).
-    func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
-        let model = sidebar.model
-        badgeObservation = Task { [weak self] in
-            for await hidden in Observations({ model.isHidden }) {
-                guard let self else { return }
-                root.showsTitlebarBadge = hidden
-                root.layoutSubtreeIfNeeded()
-                for pane in content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
-            }
-        }
-    }
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).
@@ -316,9 +327,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
+    var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?

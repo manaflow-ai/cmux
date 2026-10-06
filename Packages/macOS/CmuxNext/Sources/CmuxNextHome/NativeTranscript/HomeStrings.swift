@@ -35,6 +35,15 @@ enum HomeStrings {
         String(format: String(localized: "home.composer.attach.locationNotRemoved",
                               defaultValue: "Location data couldn’t be removed from “%@”, so it was not attached.", bundle: .module), name)
     }
+    /// Why a send shows "Not Delivered": attachments to an owner that
+    /// stores none, else the refusal's own notice.
+    static func notDeliveredReason(_ rejection: HomeRejection) -> String {
+        if rejection == .invalid("attachments unsupported") {
+            return String(localized: "home.send.attachmentsUnsupported", defaultValue: "This conversation can’t receive attachments yet.",
+                          bundle: .module)
+        }
+        return Self.rejection(rejection)
+    }
     static var unanswered: String {
         String(localized: "home.send.unanswered", defaultValue: "A change may not have gone through. Check your connection.",
                bundle: .module)
@@ -67,11 +76,19 @@ enum HomeStrings {
         case .tooManyParts(let limit): attachTooMany(limit - 1)
         }
     }
-    static var firstRunTitle: String {
-        String(localized: "home.firstRun.title", defaultValue: "Chief runs your agents on this Mac.", bundle: .module)
+    static var firstRunLead: String {
+        String(localized: "home.firstRun.lead", defaultValue: "Ask Chief below, or start something new.", bundle: .module)
     }
-    static var firstRunBody: String {
-        String(localized: "home.firstRun.body", defaultValue: "Ask it to start work, check on your agents, or answer what they need.", bundle: .module)
+    static var firstRunOpenTerminal: String {
+        String(localized: "home.firstRun.openTerminal", defaultValue: "Open a terminal", bundle: .module)
+    }
+    static var firstRunStartAgent: String {
+        String(localized: "home.firstRun.startAgent", defaultValue: "Start an agent", bundle: .module)
+    }
+    /// The keyboard hint under the first-run rows; `keys` is the tab family's
+    /// shortcut as the registry shows it (`⌃1…9`).
+    static func firstRunTabsHint(_ keys: String) -> String {
+        String(format: String(localized: "home.firstRun.tabsHint", defaultValue: "%@ switches tabs.", bundle: .module), keys)
     }
     static var memoryDeviceOnly: String {
         String(localized: "home.chief.memoryScope.deviceOnly", defaultValue: "This Chief remembers on this device only.", bundle: .module)

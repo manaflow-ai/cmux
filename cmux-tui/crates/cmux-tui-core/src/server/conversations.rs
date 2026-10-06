@@ -307,7 +307,7 @@ pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result
     anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
     anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
-    mux.bind_conversation_principal(client, participant.clone());
+    mux.bind_conversation_principal(client, participant.clone())?;
     Ok(json!({"participant": participant}))
 }
 

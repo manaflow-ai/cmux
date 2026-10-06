@@ -123,7 +123,19 @@ import Testing
         return bad
     }
 
-    static func explore(depth: Int, settle: Settle) -> (states: Int, transitions: Int, violations: [String]) {
+    /// Fresh row names do not change the viewport rules. Rename by position
+    /// before deduplicating so inserting and removing a row cannot create an
+    /// otherwise identical state with a larger nextID on every path.
+    static func canonical(_ world: World) -> World {
+        let ids = Dictionary(uniqueKeysWithValues: world.order.enumerated().map { ($1, $0) })
+        return World(
+            heights: Dictionary(uniqueKeysWithValues: world.order.enumerated().map { ($0, world.heights[$1]!) }),
+            order: Array(world.order.indices), viewport: world.viewport, offset: world.offset,
+            focused: world.focused.flatMap { ids[$0] }, nextID: world.order.count
+        )
+    }
+
+    static func explore(depth: Int, settle: Settle, stopAfterViolation: Bool = false) -> (states: Int, transitions: Int, violations: [String]) {
         var frontier: Set<World> = []
         func lists(_ n: Int) -> [[Int]] {
             guard n > 0 else { return [[]] }
@@ -154,8 +166,12 @@ import Testing
                     let after = apply(step, world, settle: settle)
                     transitions += 1
                     let bad = check(step, before: world, after: after, settle: settle)
-                    if !bad.isEmpty, violations.count < 5 { violations.append("\(world.order) h\(world.heights) vp\(world.viewport) off\(world.offset) f\(String(describing: world.focused)) \(step): \(bad)") }
-                    if seen.insert(after).inserted { next.insert(after) }
+                    if !bad.isEmpty, violations.count < 5 {
+                        violations.append("\(world.order) h\(world.heights) vp\(world.viewport) off\(world.offset) f\(String(describing: world.focused)) \(step): \(bad)")
+                        if stopAfterViolation { return (seen.count, transitions, violations) }
+                    }
+                    let key = canonical(after)
+                    if seen.insert(key).inserted { next.insert(key) }
                 }
             }
             frontier = next
@@ -197,7 +213,7 @@ import Testing
                 return real
             }
         }
-        let result = Self.explore(depth: 2, settle: mutant)
+        let result = Self.explore(depth: 2, settle: mutant, stopAfterViolation: true)
         #expect(!result.violations.isEmpty, "mutant \(name) not caught")
     }
 }

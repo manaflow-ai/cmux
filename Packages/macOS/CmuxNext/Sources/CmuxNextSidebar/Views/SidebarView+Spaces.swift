@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 // `sidebar.spacesPosition` (R109): the spaces dots sit in the footer, above
 // the Settings band, or in their own row under the titlebar row.
@@ -10,7 +11,8 @@ extension SidebarView {
             profileBar.frame = NSRect(x: 0, y: top, width: bounds.width, height: height)
         } else {
             if profileBar.superview !== footer { footer.addSubview(profileBar) }
-            profileBar.frame = footer.bounds
+            let helpWidth = helpButton.isHidden ? 0 : SidebarStyle.footerHeight + Metrics.space2
+            profileBar.frame = NSRect(x: 0, y: 0, width: max(0, footer.bounds.width - helpWidth), height: footer.bounds.height)
         }
         profileBar.refresh()
     }

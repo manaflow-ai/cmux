@@ -16,12 +16,12 @@ import Testing
     }
 
     @Test func anUpdateBadgeShowsOnlyWithTheAccessory() {
-        #expect(settingsRow(accessory: .update).isAccessoryShown)
+        #expect(settingsRow(accessory: .update(title: "Restart to Update")).isAccessoryShown)
         #expect(!settingsRow(accessory: nil).isAccessoryShown)
     }
 
     @Test func theBadgeRunsTheAccessoryAndTheRestRunsTheItem() throws {
-        let row = settingsRow(accessory: .update)
+        let row = settingsRow(accessory: .update(title: "Restart to Update"))
         var pressed = 0, accessory = 0
         row.onPress = { pressed += 1 }
         row.onAccessory = { accessory += 1 }
@@ -34,11 +34,11 @@ import Testing
     }
 
     @Test func voiceOverReachesTheUpdateAction() {
-        let row = settingsRow(accessory: .update)
+        let row = settingsRow(accessory: .update(title: "Restart to Update"))
         var accessory = 0
         row.onAccessory = { accessory += 1 }
         let action = row.accessibilityCustomActions()?.first
-        #expect(action != nil)
+        #expect(action?.name == "Restart to Update")
         _ = action?.handler?()
         #expect(accessory == 1)
     }

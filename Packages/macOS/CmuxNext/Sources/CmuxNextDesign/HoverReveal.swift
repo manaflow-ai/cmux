@@ -176,7 +176,7 @@ public final class HoverReveal {
         guard state.isRevealed != wasRevealed else { return }
         let alpha: CGFloat = state.isRevealed ? 1 : 0
         let targets = views.values.compactMap(\.value)
-        Motion.animate(.hover) {
+        Motion.animate(.hover, in: region) {
             for view in targets { view.animator().alphaValue = alpha }
         }
         onChange?(state.isRevealed)
@@ -227,8 +227,16 @@ private final class HoverRevealProbe: NSView {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
         guard tracksPointer else { return }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, trackingOptions],
-                                       owner: self))
+        // Exactly the bounds, not `.inVisibleRect`: the visible rect of a view that does not clip
+        // reaches past its bounds (nxdog43: the whole window), so the pointer never "left" until it
+        // left the window. AppKit calls this again whenever the bounds change.
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, trackingOptions], owner: self))
+    }
+
+    /// The tracked rect follows the bounds even when the visible rect does not change.
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        updateTrackingAreas()
     }
 
     override func mouseEntered(with event: NSEvent) { owner?.setPointerInside(true) }

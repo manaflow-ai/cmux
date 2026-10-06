@@ -1,21 +1,33 @@
 /// One keybinding: a key sequence that runs an action with arguments while
 /// its `when` clause holds (plans/cmux-next/keybindings.md section 4).
 public nonisolated struct KeyBinding: Hashable, Sendable {
-    /// Where the entry comes from. Later sources take precedence.
+    /// Where the entry comes from. Later sources take precedence
+    /// (GHOSTTY-CONFIG, plans/cmux-next/ghostty-config.md "Keybinds").
     public enum Source: Int, Comparable, Sendable, CaseIterable {
-        case `default` = 0
-        case app = 1
-        case user = 2
+        /// A Ghostty keybind as an app-wide fallback: every routed keybind
+        /// of the loaded Ghostty config, below every cmux entry.
+        case ghosttyFallback = 0
+        case `default` = 1
+        case app = 2
+        /// A keybind the user's Ghostty config changed (it differs from
+        /// Ghostty's default), only while a terminal has the keyboard.
+        case ghostty = 3
+        case user = 4
 
         public static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 
         public var name: String {
             switch self {
+            case .ghosttyFallback: "ghostty-fallback"
             case .default: "default"
             case .app: "app"
+            case .ghostty: "ghostty"
             case .user: "user"
             }
         }
+
+        /// The entry comes from the Ghostty config.
+        public var isGhostty: Bool { self == .ghostty || self == .ghosttyFallback }
     }
 
     /// One to ``KeyBindingTable/maxSequenceLength`` keys.
@@ -42,10 +54,11 @@ public nonisolated struct KeyBinding: Hashable, Sendable {
     public func applies(in context: KeyContext) -> Bool { when?.evaluate(context) ?? true }
 }
 
-/// The ordered binding table: defaults, then app entries, then user
-/// entries; the last entry that matches the keys, whose `when` holds and
-/// whose action can run, wins. Pure: the caller supplies the context keys
-/// and whether an action can run now.
+/// The ordered binding table: Ghostty fallbacks, defaults, app entries,
+/// the user's terminal Ghostty keybinds, then user entries; the last entry
+/// that matches the keys, whose `when` holds and whose action can run, wins.
+/// Pure: the caller supplies the context keys and whether an action can run
+/// now.
 public nonisolated struct KeyBindingTable: Sendable {
     public static let maxSequenceLength = 4
 

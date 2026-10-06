@@ -3,11 +3,12 @@ import CmuxHomeCore
 import Testing
 @testable import CmuxNextHome
 
-/// An empty Chief conversation says what the Chief is and offers one
-/// suggested prompt (Leo's dogfood: "an empty pane with an M avatar, a Home
-/// label and a Message box"). The suggestion fills the field; it never
-/// sends. The first message hides the panel. The transcript is
-/// MessagesLab's (`MessagesLabHome`); this view only adds the panel.
+/// An empty Chief conversation offers things to do now instead of a pitch
+/// (Leo's first-launch capture, op-next-look): one plain line, rows to open
+/// a terminal, start an agent or ask the Chief, and a keyboard hint. The
+/// ask row fills the field; it never sends. The first message hides the
+/// panel. The transcript is MessagesLab's (`MessagesLabHome`); this view
+/// only adds the panel.
 @MainActor
 @Suite(.serialized) struct HomeFirstRunTests {
     static let me = ParticipantID("user_me")
@@ -27,30 +28,69 @@ import Testing
         let store = HomeStore(source: source)
         store.start()
         for _ in 0..<400 where !(store.isOnline && store.me != nil) { try? await Task.sleep(for: .milliseconds(5)) }
-        await store.open(id)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
+        await view.binding.opened()
         window.contentView = view
         view.layoutSubtreeIfNeeded()
         return (window, view, store)
     }
 
-    @Test func anEmptyChiefConversationExplainsTheChiefAndSuggestsAPrompt() async throws {
+    @Test func theAskRowFillsTheFieldAndNeverSends() async throws {
         let (window, view, store) = await Self.view()
         defer { view.stop(); store.stop(); window.close() }
         let panel = view.firstRun
         #expect(!panel.isHidden)
-        #expect(!panel.title.stringValue.isEmpty)
+        #expect(!panel.lead.stringValue.isEmpty)
         #expect(!panel.suggestion.title.isEmpty)
         let field = try #require(view.primaryInput as? NSTextView)
         #expect(field.string.isEmpty)
         panel.suggestion.performClick(nil)
         #expect(field.string == panel.suggestion.title, "the suggestion fills the field")
-        // Text on glass, never a control that dims to gray when the window is not key.
-        #expect(panel.suggestion.label.textColor == panel.title.textColor)
-        #expect(panel.suggestion.accessibilityRole() == .button)
+        // Never a control that dims to gray when the window is not key.
+        #expect(panel.suggestion.label.textColor == panel.terminal.label.textColor)
+        #expect(panel.rows.allSatisfy { $0.accessibilityRole() == .button })
+    }
+
+    @Test func theTerminalAndAgentRowsAskTheHost() async throws {
+        let (window, view, store) = await Self.view()
+        defer { view.stop(); store.stop(); window.close() }
+        var picked: [HomeFirstRunAction] = []
+        view.onFirstRunAction = { picked.append($0) }
+        view.firstRun.terminal.performClick(nil)
+        view.firstRun.agent.performClick(nil)
+        #expect(picked == [.openTerminal, .startAgent])
+        let field = try #require(view.primaryInput as? NSTextView)
+        #expect(field.string.isEmpty, "neither row types into the field")
+    }
+
+    @Test func theRowsShowTheirShortcutsAndTheTabHintShowsItsKeys() async {
+        let (window, view, store) = await Self.view()
+        defer { view.stop(); store.stop(); window.close() }
+        let panel = view.firstRun
+        #expect(panel.hint.isHidden, "no hint until the host passes the keys")
+        view.setFirstRunShortcuts(terminal: "⌘T", agent: nil, tabs: "⌃1…9")
+        view.layoutSubtreeIfNeeded()
+        #expect(panel.terminal.shortcutLabel.stringValue == "⌘T" && !panel.terminal.shortcutLabel.isHidden)
+        #expect(panel.agent.shortcutLabel.isHidden, "an unbound action shows no shortcut")
+        #expect(!panel.hint.isHidden && panel.hint.stringValue.contains("⌃1…9"))
+        let row = panel.terminal
+        #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
+    }
+
+    /// Stability rule: a Chief conversation whose history is still loading
+    /// is empty for a moment; the panel waits for the first page instead of
+    /// flashing in and out.
+    @Test func aHeldPanelWaitsForTheFirstPage() async {
+        let (window, view, store) = await Self.view()
+        defer { view.stop(); store.stop(); window.close() }
+        view.holdsFirstRun = true
+        view.layoutSubtreeIfNeeded()
+        #expect(view.firstRun.isHidden)
+        view.holdsFirstRun = false
+        #expect(!view.firstRun.isHidden)
     }
 
     @Test func theFirstMessageHidesThePanel() async {

@@ -115,6 +115,8 @@ public final class PaletteModel {
     @ObservationIgnored var current: PageState? { nav.top.flatMap { pages[$0.id] } }
     @ObservationIgnored var stack: [PageState] { nav.levels.compactMap { pages[$0.id] } }
     @ObservationIgnored let searcher = PaletteSearcher()
+    /// Persistent bridge for synchronous empty-query updates on the main actor.
+    @ObservationIgnored let ranker = PaletteRanker()
     @ObservationIgnored var searchGeneration = 0
     @ObservationIgnored var searchTask: Task<Void, Never>?
     /// Cmd-W pressed while a search was in flight; runs when it lands.

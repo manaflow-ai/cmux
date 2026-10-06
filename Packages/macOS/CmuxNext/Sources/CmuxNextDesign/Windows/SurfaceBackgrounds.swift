@@ -20,6 +20,10 @@ public nonisolated enum SurfaceKind: String, CaseIterable, Sendable, Hashable {
     case splitDivider
     /// The diff viewer page (`--cmux-surface-background` in webviews).
     case diff
+    /// The markdown page (diff-host S6), with its own override.
+    case markdown
+    /// The code editor page (diff-host S7), with its own override.
+    case editor
 }
 
 /// One surface's override: a color, an opacity, or both. Both nil is no

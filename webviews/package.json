@@ -40,6 +40,7 @@
     "@tanstack/react-router": "1.170.11",
     "@tanstack/react-virtual": "3.14.13",
     "@vitejs/plugin-react": "6.1.1",
+    "katex": "0.16.25",
     "marked": "17.0.5",
     "monaco-editor": "0.57.0",
     "prosemirror-commands": "^1.7.1",

@@ -2,7 +2,7 @@ public import CmuxNextActions
 
 /// The searchable text and ranking inputs of one item. Sendable, so an
 /// index can be built and searched off the main actor.
-nonisolated public struct PaletteSearchEntry: Sendable {
+nonisolated public struct PaletteSearchEntry: Sendable, Hashable {
     public var title: String
     public var keywords: [String]
     public var subtitle: String?
@@ -15,6 +15,9 @@ nonisolated public struct PaletteSearchEntry: Sendable {
     public var queryPrefix: String?
     /// Shows for an empty query only (`PaletteItem.hidesWhenTyping`).
     public var hidesWhenTyping = false
+    /// The row enters a scope (`PaletteItem.enters`): a keyword equal to the query ranks it right
+    /// after whole-title matches.
+    public var entersScope = false
     /// Index into the page's section table.
     public var sectionIndex: Int
 
@@ -131,5 +134,6 @@ extension PaletteSearchEntry {
             sectionIndex: sectionIndex
         )
         hidesWhenTyping = item.hidesWhenTyping
+        entersScope = item.enters != nil
     }
 }

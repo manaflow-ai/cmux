@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c22ea1ebef7c5c44b7eba0e03b64b4481380dbee1fc25b388a9156cbf24768d5.
+// cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -38,6 +38,22 @@ pub enum AgentReportSource {
     Socket,
     #[serde(rename = "hook")]
     Hook,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionSource {
+    /// The agent kind the chat was started with.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
+    /// install: and the stable install id of the machine whose acpmux runs the session.
+    pub host: String,
+    /// Display name of the host machine: 1 to 255 bytes, no control characters.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub host_name: Optional<String>,
+    /// The acpmux session id; null for a new chat until bind-conversation-tab-session.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub session: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -100,11 +116,75 @@ pub struct AttachedViewResizeResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bookmark {
+    pub browser_profile_id: String,
+    pub created_ms: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub favicon_key: Option<String>,
+    /// \`bm_\` and 32 lowercase hex digits.
+    pub id: String,
+    /// Dense 0-based position among the node's siblings.
+    pub index: u64,
+    /// Known values: url, folder. Other values are future kinds.
+    pub kind: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub last_used_ms: Option<u64>,
+    /// \`bar\`, \`other\`, or a folder's id.
+    pub parent: String,
+    /// Folders only.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub source_key: Option<String>,
+    pub title: String,
+    /// url nodes.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookmarkChangeResult {
+    pub bookmark: Bookmark,
+    pub changed: bool,
+    pub replayed: bool,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BookmarkImportNode {
+    /// A folder's nodes.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub children: Option<Vec<Box<BookmarkImportNode>>>,
+    /// Defaults to now.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub created_ms: Option<u64>,
+    /// url or folder.
+    pub kind: String,
+    pub title: String,
+    /// Required for a url node; refused for a folder.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BrowserFrame {
     pub data: Base64,
     pub height: u32,
     pub seq: u64,
     pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BrowserHostProviderResult {
+    pub host_pid: u32,
+    pub listener_pid: u32,
+    pub secret: String,
+    pub socket: String,
 }
 
 #[rustfmt::skip]
@@ -201,6 +281,13 @@ pub enum ClientTransport {
     Unix,
     #[serde(rename = "ws")]
     Ws,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CloseReason {
+    #[serde(rename = "session_end")]
+    SessionEnd,
 }
 
 #[rustfmt::skip]
@@ -362,10 +449,17 @@ pub struct ConversationSummary {
 }
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConversationTabRecord {
-    pub conversation: String,
-    pub owner: String,
+    /// Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub agent_session: Option<AgentSessionSource>,
+    /// Conversation source: a conv_ id, with owner.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    /// Conversation source: local or cloud.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -1166,6 +1260,47 @@ pub struct RunResult {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedTabGroupMember {
+    /// kind terminal.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cwd: Optional<String>,
+    /// kind browser. Known values: webkit, cef.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub engine: Optional<String>,
+    /// Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.
+    pub kind: String,
+    /// kind browser.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub profile_id: Optional<String>,
+    /// kind terminal.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    /// kind browser.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SavedTabGroupRecord {
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub id: String,
+    pub members: Vec<SavedTabGroupMember>,
+    pub name: String,
+    /// The room whose bar shows the saved group (\`default\` for groups saved by these commands).
+    pub room: String,
+    pub updated_at_ms: u64,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Screen {
     pub active: bool,
     pub active_pane: Id,
@@ -1586,6 +1721,106 @@ pub struct Tab {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_resource_id: Optional<String>,
     pub title: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupEndedTerminal {
+    pub terminal_id: String,
+    pub terminal_incarnation: Nullable<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupOutcome {
+    /// Null when the command left no group.
+    pub group: Nullable<TabGroupRecord>,
+    pub pane: Nullable<Id>,
+    /// Members in strip order.
+    pub surfaces: Vec<Id>,
+    /// The workspace of the group's pane.
+    pub workspace: Nullable<Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupRecord {
+    pub collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub id: String,
+    /// May be empty: the group shows only its color.
+    pub name: String,
+    /// The linked saved group.
+    pub saved_id: Nullable<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TabGroupRun {
+    pub collapsed: bool,
+    /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.
+    pub color: String,
+    pub count: u64,
+    pub id: String,
+    pub name: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub pane: Option<Id>,
+    pub saved_id: Nullable<String>,
+    /// Strip index of the first member.
+    pub start: u64,
+    pub surfaces: Vec<Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardHost {
+    pub kind: TerminalClipboardHostKind,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalClipboardHostKind {
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "remote")]
+    Remote,
+    #[serde(rename = "cloud")]
+    Cloud,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerminalClipboardLocation {
+    #[serde(rename = "standard")]
+    Standard,
+    #[serde(rename = "selection")]
+    Selection,
+    #[serde(rename = "primary")]
+    Primary,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReplyResult {
+    pub accepted: bool,
+    pub granted: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardSubscribeResult {
+    pub clipboard_read_ready: bool,
 }
 
 #[rustfmt::skip]

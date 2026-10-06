@@ -16,18 +16,20 @@ import Testing
         for _ in 0..<200 where !condition() { await Task.yield() }
     }
 
+    /// The projects screen as New Tab's Import and Sync opens it, chats after it.
     func model(_ projects: [AgentProject]) async -> (OnboardingModel, MockOnboardingServices) {
         let services = MockOnboardingServices()
+        services.firstTaskView = NSView()
         services.agentProjects = projects
-        let model = OnboardingModel(services: services)
+        let model = OnboardingModel(services: services, start: .projects)
         model.stepDidAppear()
         await settle { model.projects.scanned }
         return (model, services)
     }
 
-    @Test func projectsFollowRoleAndTheScanStartsOnTheRoleStep() async {
+    @Test func projectsComeFirstAndTheScanStartsWhenTheyShow() async {
         let (model, _) = await model([project("/Users/demo/code/app")])
-        #expect(model.steps.prefix(2) == [.role, .projects])
+        #expect(model.steps.prefix(2) == [.projects, .chats])
         #expect(model.projects.projects.count == 1)
     }
 
@@ -40,7 +42,7 @@ import Testing
         model.go(to: .projects)
         model.next()
         #expect(services.openedProjects == [[paths[0], paths[2], paths[3], paths[4], paths[6]].map { URL(fileURLWithPath: $0, isDirectory: true) }])
-        #expect(model.step == .defaultBrowser)
+        #expect(model.step == .chats)
     }
 
     /// Continue, Back, Continue opens only what the first Continue did not.
@@ -60,7 +62,7 @@ import Testing
     @Test func aFolderAddedDuringTheScanIsKept() async {
         let services = MockOnboardingServices()
         services.agentProjects = [project("/Users/demo/code/app"), project("/Users/demo/thesis")]
-        let model = OnboardingModel(services: services)
+        let model = OnboardingModel(services: services, start: .projects)
         model.projects.add(URL(fileURLWithPath: "/Users/demo/thesis", isDirectory: true))
         model.stepDidAppear()
         await settle { model.projects.scanned }
@@ -72,7 +74,7 @@ import Testing
         let (skipped, skipping) = await model([project("/Users/demo/code/app")])
         skipped.go(to: .projects)
         skipped.skipStep()
-        #expect(skipping.openedProjects.isEmpty && skipped.step == .defaultBrowser)
+        #expect(skipping.openedProjects.isEmpty && skipped.step == .chats)
 
         let (cleared, clearing) = await model([project("/Users/demo/code/app")])
         cleared.projects.toggle(cleared.projects.projects[0])

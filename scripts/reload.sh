@@ -2076,6 +2076,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""

@@ -102,7 +102,7 @@ final class SidebarCardStackView: NSView {
             view.isPeek = place.isPeek
             let frame = place.frame.offsetBy(dx: inset, dy: gap)
             if animate, view.frame != .zero {
-                Motion.animate(.hover) { view.animator().frame = frame }
+                Motion.animate(.hover, in: view) { view.animator().frame = frame }
             } else {
                 view.frame = frame
             }

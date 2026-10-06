@@ -74,18 +74,21 @@ final class AppsService {
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
     }
 
-    /// Opens the App Store (palette "App Store", `appStore.show`) as a tab
-    /// of the active window (internal page `app-store`, one per window);
-    /// `appID` opens that listing, `installed` the Installed tab. A user run
-    /// selects and focuses the tab; automation opens it without moving
-    /// focus. Falls back to the App Store window when no main window can
-    /// hold the tab.
+    /// Opens the App Store (palette "App Store", `appStore.show`): a user
+    /// run shows it as the active window's App Store top page
+    /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
+    /// view, opens it as a background tab (internal page `app-store`, one
+    /// per window). `appID` opens that listing, `installed` the Installed
+    /// tab. Falls back to the App Store window when no main window can
+    /// hold it.
     func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
-        if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus) {
-            if let page = webStorePages[view.key] {
+        let key = focus ? TopPages.show(.page(.appStore), services: services)
+            : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
+        if let key {
+            if let page = webStorePages[key] {
                 page.open(route: Self.storeRoute(appID: appID, installed: installed))
             } else {
-                storePages.present(view.key, appID: appID, installed: installed)
+                storePages.present(key, appID: appID, installed: installed)
             }
             return
         }
@@ -110,21 +113,12 @@ final class AppsService {
     /// focus the tab; automation opens it without moving focus.
     func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
         guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
-        if appID == CodeRouterPageTab.appID, command == nil, PageTunables.coderouter.value == .web {
-            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
-            if coderouterPage == nil {
-                coderouterPage = tab
-                services.pages.register(tab)
-            }
-            guard services.pages.show(tab.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        let codeRouter = appID == CodeRouterPageTab.appID && PageTunables.coderouter.value == .web
+        if codeRouter, command == nil, let provider = pageProvider(appID: appID) {
+            guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
             return
         }
-        guard AppPanePage.opens(app) else { throw .noPage }
-        let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
-        if appPages[appID] == nil {
-            appPages[appID] = provider
-            services.pages.register(provider)
-        }
+        guard AppPanePage.opens(app), let provider = pageProvider(appID: appID, codeRouterAsPage: false) else { throw .noPage }
         guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
         if let command {
             guard let entry = AppCommandPalette.entries(registry, includingNonPalette: true).first(where: { $0.app.id == appID && $0.command.id == command }) else {
@@ -132,6 +126,26 @@ final class AppsService {
             }
             AppCommandPalette.run(entry, services: services)
         }
+    }
+
+    /// The page provider of app `appID` (registered on first use): CodeRouter's
+    /// web page, else the app's own pane page; nil when the app has no page.
+    func pageProvider(appID: String, codeRouterAsPage: Bool = true) -> (any InternalPageProvider)? {
+        if codeRouterAsPage, appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web {
+            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            if coderouterPage == nil {
+                coderouterPage = tab
+                services.pages.register(tab)
+            }
+            return tab
+        }
+        guard let app = registry.app(appID), app.isActive, AppPanePage.opens(app) else { return nil }
+        let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
+        if appPages[appID] == nil {
+            appPages[appID] = provider
+            services.pages.register(provider)
+        }
+        return provider
     }
 
     private func makeStoreModel() -> AppStoreModel {

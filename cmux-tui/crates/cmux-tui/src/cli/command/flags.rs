@@ -21,6 +21,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "down",
     "force",
     "end-terminals",
+    // `server ensure`: private app contract, the install key comes on stdin.
+    "install-key-stdin",
     "confirm-close",
     "complete",
     "clear-name",
@@ -49,4 +51,5 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-browser-profile",
     "clear-default-session",
     "clear-zoom",
+    "clear-top-index",
 ];

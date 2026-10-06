@@ -26,10 +26,12 @@ final class InternalPageTabStore {
     func provider(_ page: InternalPageID) -> (any InternalPageProvider)? { providers[page] }
 
     /// Adds a tab of `page` to `paneKey`'s strip after `after` (else at the
-    /// end) and returns its id.
+    /// end) and returns its id: `key` when the provider made it first (so it
+    /// can hold the tab's state before the view exists), else a new one.
+    @discardableResult
     func open(_ page: InternalPageID, in paneKey: String, of store: DaemonStore, after: String? = nil,
-              window: WindowController? = nil) -> String {
-        let key = LocalPageTab.makeKey(page)
+              window: WindowController? = nil, key: String? = nil) -> String {
+        let key = key.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var tabs = tabsByPane[paneKey] ?? []
         if let after, let index = tabs.firstIndex(of: after) {
             tabs.insert(key, at: index + 1)
@@ -60,7 +62,7 @@ final class InternalPageTabStore {
 
     func stripItem(_ key: String) -> StripTabItem {
         let provider = LocalPageTab.page(of: key).flatMap { providers[$0] }
-        return StripTabItem(id: StripTabID(key), title: provider?.title ?? "", subtitle: nil,
+        return StripTabItem(id: StripTabID(key), title: provider?.title(for: key) ?? "", subtitle: nil,
                             icon: .symbol(provider?.symbol ?? "square.dashed"), isBusy: false)
     }
 

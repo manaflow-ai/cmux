@@ -26,6 +26,10 @@ public struct OverlayOptions: Equatable, Sendable {
         case dragGhost
         /// Centered in the window (or on the anchor).
         case dialog
+        /// Exactly at the anchor's origin, never clamped, and takes the mouse:
+        /// a part of a control drawn on the host (the omnibar's suggestion
+        /// card continuing its bar).
+        case attached
     }
 
     public var kind: Kind

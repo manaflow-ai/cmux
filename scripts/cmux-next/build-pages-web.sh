@@ -12,7 +12,7 @@ set -eu
 ROOT="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 OUT_ROOT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 MODE="${1:-build}"
-PAGES="history apps coderouter cloud keybindings icon-picker settings"
+PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"

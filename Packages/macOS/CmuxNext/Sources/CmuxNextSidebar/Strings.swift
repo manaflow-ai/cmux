@@ -3,8 +3,6 @@ import Foundation
 
 /// Localized strings. Keys live in Resources/Localizable.xcstrings (en, ja).
 enum Strings {
-    /// The update badge on the Settings item (tooltip, VoiceOver action).
-    static var updateAvailable: String { String(localized: "sidebar.updateAvailable", defaultValue: "Update Available", bundle: .module) }
     static func tabDropRefusal(_ reason: SidebarTabDropRefusal) -> String {
         switch reason {
         case .otherMachine:
@@ -61,4 +59,5 @@ enum Strings {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)
     }
     static var resize: String { String(localized: "sidebar.a11y.resize", defaultValue: "Resize sidebar", bundle: .module) }
+    static var help: String { String(localized: "sidebar.help.button", defaultValue: "Help", bundle: .module) }
 }

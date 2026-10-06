@@ -7071,6 +7071,51 @@
    },
    "additional_properties": false
   },
+  "AgentSessionSource": {
+   "kind": "object",
+   "fields": {
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "install: and the stable install id of the machine whose acpmux runs the session."
+    },
+    "session": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "The acpmux session id; null for a new chat until bind-conversation-tab-session."
+    },
+    "harness": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "The agent kind the chat was started with."
+    },
+    "host_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "description": "Display name of the host machine: 1 to 255 bytes, no control characters."
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationTabRecord": {
    "kind": "object",
    "fields": {
@@ -7079,19 +7124,657 @@
       "kind": "scalar",
       "name": "string"
      },
-     "presence": "required",
-     "nullable": false
+     "presence": "optional",
+     "nullable": false,
+     "description": "Conversation source: a conv_ id, with owner."
     },
     "owner": {
      "type": {
       "kind": "scalar",
       "name": "string"
      },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Conversation source: local or cloud."
+    },
+    "agent_session": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentSessionSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+     "capability": "agent-session-tabs-v1"
+    }
+   },
+   "additional_properties": false
+  },
+  "CloseReason": {
+   "kind": "enum",
+   "values": [
+    "session_end"
+   ]
+  },
+  "TerminalClipboardLocation": {
+   "kind": "enum",
+   "values": [
+    "standard",
+    "selection",
+    "primary"
+   ]
+  },
+  "TerminalClipboardHostKind": {
+   "kind": "enum",
+   "values": [
+    "local",
+    "remote",
+    "cloud"
+   ]
+  },
+  "TerminalClipboardHost": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalClipboardHostKind"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalClipboardSubscribeResult": {
+   "kind": "object",
+   "fields": {
+    "clipboard_read_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
      "presence": "required",
      "nullable": false
     }
    },
    "additional_properties": false
+  },
+  "TerminalClipboardReplyResult": {
+   "kind": "object",
+   "fields": {
+    "accepted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "granted": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "BrowserHostProviderResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "listener_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TabGroupRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "May be empty: the group shows only its color."
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The linked saved group."
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupOutcome": {
+   "kind": "object",
+   "fields": {
+    "group": {
+     "type": {
+      "kind": "ref",
+      "name": "TabGroupRecord"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "Null when the command left no group."
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "workspace": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": true,
+     "description": "The workspace of the group's pane."
+    },
+    "surfaces": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Members in strip order."
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupRun": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "collapsed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "saved_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "start": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Strip index of the first member."
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "surfaces": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "TabGroupEndedTerminal": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "terminal_incarnation": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": true
+  },
+  "SavedTabGroupMember": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties."
+    },
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind terminal."
+    },
+    "cwd": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind terminal."
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "kind browser."
+    },
+    "engine": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind browser. Known values: webkit, cef."
+    },
+    "profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "description": "kind browser."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    }
+   },
+   "additional_properties": true
+  },
+  "SavedTabGroupRecord": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "room": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The room whose bar shows the saved group (`default` for groups saved by these commands)."
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "color": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors."
+    },
+    "updated_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "members": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SavedTabGroupMember"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "Bookmark": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "`bm_` and 32 lowercase hex digits."
+    },
+    "browser_profile_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "parent": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "`bar`, `other`, or a folder's id."
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Known values: url, folder. Other values are future kinds."
+    },
+    "index": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Dense 0-based position among the node's siblings."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "url nodes."
+    },
+    "favicon_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "source_key": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Folders only."
+    },
+    "created_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_used_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
+  },
+  "BookmarkImportNode": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "url or folder."
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "url": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Required for a url node; refused for a folder."
+    },
+    "created_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Defaults to now."
+    },
+    "children": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "BookmarkImportNode"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "A folder's nodes."
+    }
+   },
+   "additional_properties": false
+  },
+  "BookmarkChangeResult": {
+   "kind": "object",
+   "fields": {
+    "bookmark": {
+     "type": {
+      "kind": "ref",
+      "name": "Bookmark"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "changed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": true
   }
  },
  "commands": {
@@ -9422,6 +10105,51 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "env": {
+      "type": {
+       "kind": "map",
+       "values": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1"
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1",
+      "constraints": [
+       {
+        "pattern": "^[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+        "format": "terminal host id (UUIDv4 hex without dashes)"
+       }
+      ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-terminal-env-v1"
      }
     },
     "additional_properties": false,
@@ -9435,7 +10163,8 @@
    },
    "stream": null,
    "constraints": [
-    "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen."
+    "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen.",
+    "env, terminal_id, and shell_args need capability screen-terminal-env-v1: the new screen's terminal takes them as on new-pane, and the result then also carries terminal_id."
    ]
   },
   "set-screen-metadata": {
@@ -13204,6 +13933,26 @@
       "default": null,
       "capability": "terminal-snapshot-v1"
      },
+     "snapshot_images": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "terminal-snapshot-images-v1"
+     },
+     "snapshot_local_history": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "terminal-snapshot-local-history-v1"
+     },
      "snapshot_version": {
       "type": {
        "kind": "scalar",
@@ -13920,6 +14669,86 @@
     "Private frontend URL delivery; no resource or journal mutation. HTTP(S) only, exact projected terminal identity, 16 pending requests maximum, five-second expiry. A request ID is an ephemeral acknowledgement capability."
    ]
   },
+  "terminal-clipboard-subscribe": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "terminal-clipboard-read-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "terminal_ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 256 terminal public ids; each must be a valid term_ id. A new subscription replaces the connection's previous set."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalClipboardSubscribeResult"
+   },
+   "stream": {
+    "kind": "subscribe",
+    "event_names": [
+     "terminal-clipboard-read",
+     "terminal-clipboard-read-cancelled"
+    ],
+    "ordering": "Registration response followed by targeted read requests and their cancellations; no replay. Closing the connection refuses its open reads.",
+    "terminal_event": null
+   },
+   "constraints": [
+    "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+   ]
+  },
+  "terminal-clipboard-reply": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "terminal-clipboard-read-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "Absent or null refuses the read. Text over 1 MiB (UTF-8 bytes) is refused."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalClipboardReplyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Private frontend OSC 52 clipboard-read broker; deny by default, no resource or journal mutation. Only the verified cmux app's frontend connection (client kind frontend, origin user) may subscribe or reply; every other caller gets origin.forbidden. A request ID is an unguessable, single-use answer capability for the connection that received it. Clipboard text is never logged."
+   ]
+  },
   "move-tab-to-workspace": {
    "authority": "control",
    "since": 12,
@@ -14166,16 +14995,28 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      },
      "owner": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "agent_session": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentSessionSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "agent-session-tabs-v1"
      },
      "pane": {
       "type": {
@@ -14230,6 +15071,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "conversation-tab-transaction-v1",
+      "description": "Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result."
      }
     },
     "additional_properties": false
@@ -14276,13 +15128,92 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "The request's transaction, when it sent one."
      }
     },
     "additional_properties": false
    },
    "stream": null,
    "constraints": [
-    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+   ]
+  },
+  "bind-conversation-tab-session": {
+   "authority": "control",
+   "since": 12,
+   "capability": "agent-session-tabs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expected_session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The tab's current session, or null for a tab without one; the bind applies only when it matches."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabRecord"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. See spec/commands.md."
    ]
   },
   "new-frontend-browser-tab": {
@@ -14379,6 +15310,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "activate": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": true
      }
     },
     "additional_properties": false
@@ -14531,8 +15471,21 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabGroupRun"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -14601,7 +15554,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14655,7 +15608,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14705,7 +15658,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14746,8 +15699,33 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Ids of the groups the tabs left."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -14801,7 +15779,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14862,7 +15840,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14934,7 +15912,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -14988,7 +15966,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -15014,8 +15992,29 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "surfaces": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15052,8 +16051,41 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "closed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminals": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "TabGroupEndedTerminal"
+       }
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "With end_terminals: the member terminals the close ended."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15095,6 +16127,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "reason": {
+      "type": {
+       "kind": "ref",
+       "name": "CloseReason"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "close-reason-v1",
+      "description": "The close is not recorded in the closed history (session_end)."
      },
      "origin": {
       "type": {
@@ -15162,8 +16205,21 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "saved_groups": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "SavedTabGroupRecord"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15189,8 +16245,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15216,8 +16290,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "unsaved": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15243,8 +16335,26 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "deleted": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -15288,7 +16398,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "TabGroupOutcome"
    },
    "stream": null,
    "constraints": [
@@ -16256,8 +17366,30 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "bookmarks_revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bookmarks": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Bookmark"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The whole tree in depth-first pre-order: the bar tree, then the other tree."
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -16380,7 +17512,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -16461,7 +17593,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -16522,7 +17654,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "JsonValue"
+    "name": "BookmarkChangeResult"
    },
    "stream": null,
    "constraints": [
@@ -16566,8 +17698,30 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "deleted": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The deleted node's id first, then its descendants."
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -16629,7 +17783,7 @@
        "kind": "array",
        "items": {
         "kind": "ref",
-        "name": "JsonValue"
+        "name": "BookmarkImportNode"
        }
       },
       "presence": "required",
@@ -16657,8 +17811,39 @@
     "additional_properties": false
    },
    "result": {
-    "kind": "ref",
-    "name": "JsonValue"
+    "kind": "object",
+    "fields": {
+     "root_ids": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Top-level nodes written; in replace mode the kept folder first."
+     },
+     "count": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Nodes in the request, descendants included."
+     },
+     "replayed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": true
    },
    "stream": null,
    "constraints": [
@@ -18453,6 +19638,367 @@
    },
    "since": 12,
    "stream": null
+  },
+  "cloud-session-set": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "api_base_url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "access_token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "client_version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-session-clear": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-session-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-inbox-list": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "include_archived": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-snapshot": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tail": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. tail is 1-50. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-history": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. limit is 1-200. Calls the cloud. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-op": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "op": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. One cloud op tagged by kind, forwarded with the client's idempotency key and origin; unsupported kinds are refused with reason unsupported_op. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-inbox-subscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Shares one upstream inbox socket among local clients. Replies {state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-inbox-unsubscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Ends this connection's inbox interest. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-subscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Shares one upstream socket per conversation; at most 64. Replies {conversation, state, reason?, account?} with the shared socket's current state, then emits that state as cloud-subscription-state. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "cloud-conversation-unsubscribe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Ends this connection's interest; the socket closes 60 s after the last subscriber. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+   ]
+  },
+  "browser-host-provider": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "browser-host-provider-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BrowserHostProviderResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
+    "The secret is never journaled, logged or put in an event."
+   ]
   }
  },
  "events": {
@@ -21373,6 +22919,90 @@
     "additional_properties": false
    }
   },
+  "terminal-clipboard-read": {
+   "since": 12,
+   "capability": "terminal-clipboard-read-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-clipboard-read"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "location": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalClipboardLocation"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "host": {
+      "type": {
+       "kind": "ref",
+       "name": "TerminalClipboardHost"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "terminal-clipboard-read-cancelled": {
+   "since": 12,
+   "capability": "terminal-clipboard-read-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "terminal-clipboard-read-cancelled"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "request_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "size-state": {
    "since": 12,
    "capability": "shared-sizing-v1",
@@ -21754,6 +23384,338 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-changed": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rev": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "change": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-conversation-resynced": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-conversation-resynced"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "rev": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "summary": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "messages": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-inbox-changed": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-inbox-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "entries": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-inbox-reset": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-inbox-reset"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-subscription-state": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-subscription-state"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "state": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "account": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "cloud-session-needed": {
+   "since": 12,
+   "capability": "cloud-conversations-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "cloud-session-needed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "reason": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false

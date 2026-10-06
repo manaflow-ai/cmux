@@ -1,10 +1,10 @@
 // Two notices: the one-time banner for machines from cmux Cloud classic (contract 4: "Move them"
 // runs `cloud.migration.start` as a native action, "Later" hides it for this page session), and a
 // typed plan refusal (contract 1.5: `plan_required`, `quota_exceeded {limit, used}`, `size_locked`)
-// as a localized sentence with "See plans", which runs `cloud.billing.checkout {plan}` natively.
+// as a localized sentence with "See plans", which links the public plans page until billing lands.
 import type { Strings } from "../shared/i18n";
 import { migrationBanner } from "./account";
-import type { PlanRefusal } from "./ops";
+import { PLANS_URL, type PlanRefusal } from "./ops";
 import type { CloudState, CloudStore } from "./store";
 import { format, L } from "./strings";
 
@@ -51,16 +51,15 @@ export function refusalText(refusal: PlanRefusal, t: (key: string) => string): s
 }
 
 /**
- * A plan refusal with "See plans". The checkout needs a plan id: the one the backend named in the
- * error, else none is known (CloudPlan carries no upgrade target yet) and the sentence shows alone.
+ * A plan refusal with "See plans", shown when a plan lifts the limit: the error's `details.plan`, else
+ * `CloudPlan.upgrade_plan` (`planRefusal`); otherwise the sentence shows alone. "See plans" links the
+ * public plans page ([PLANS_URL]) until billing lands; then it runs the checkout of that plan.
  */
 export function PlanNotice({
-  store,
   refusal,
   strings,
   onDismiss,
 }: {
-  store: CloudStore;
   refusal: PlanRefusal;
   strings: Strings;
   onDismiss?: () => void;
@@ -72,13 +71,10 @@ export function PlanNotice({
       <span className="cloud-plan-notice-text">{refusalText(refusal, t)}</span>
       <span className="cloud-item-actions">
         {plan && (
-          <button
-            type="button"
-            className="cloud-button cloud-see-plans"
-            onClick={() => void store.account.checkout(plan)}
-          >
+          // A plain link: the host opens it outside the page on the person's click (PageNavigation).
+          <a className="cloud-button cloud-see-plans" href={PLANS_URL}>
             {t(L.seePlans)}
-          </button>
+          </a>
         )}
         {onDismiss && (
           <button type="button" className="cloud-link-button" onClick={onDismiss}>

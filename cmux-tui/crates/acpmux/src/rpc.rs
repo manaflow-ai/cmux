@@ -175,6 +175,9 @@ pub mod method {
     // acpmux extension namespace. Everything a plain ACP client does not need.
     pub const MUX_STATUS: &str = "_acpmux/status";
     pub const MUX_SESSIONS: &str = "_acpmux/sessions";
+    /// The asking-mode table and the remote guard's lists, for the native
+    /// relay; unix socket only.
+    pub const MUX_WEB_MODES: &str = "_acpmux/web_modes";
     pub const MUX_HARNESSES: &str = "_acpmux/harnesses";
     /// Reload catalog configuration without touching existing sessions.
     pub const MUX_RELOAD_CONFIG: &str = "_acpmux/reload_config";

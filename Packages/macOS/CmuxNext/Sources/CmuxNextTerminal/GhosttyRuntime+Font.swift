@@ -27,7 +27,9 @@ extension GhosttyRuntime {
             lines += ["font-family = \"\"", "font-family = \"\(family)\""]
         }
         if let size = font.size, size.isFinite, (4...96).contains(size) {
-            lines.append("font-size = \(Int(size.rounded()))")
+            // Ghostty takes fractional points; at most two decimals.
+            let points = (size * 100).rounded() / 100
+            lines.append(points == points.rounded() ? "font-size = \(Int(points))" : "font-size = \(points)")
         }
         return lines
     }

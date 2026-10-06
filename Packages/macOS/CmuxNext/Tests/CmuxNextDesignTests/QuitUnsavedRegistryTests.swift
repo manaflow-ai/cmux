@@ -48,6 +48,19 @@ struct QuitUnsavedRegistryTests {
         #expect(registry.unsaved().map(\.quitParticipantID) == ["file:local:/a", "file:cloud1:/a"])
     }
 
+    /// The one id format is `file:<host id>:<absolute path>`; any other id
+    /// is refused at registration and never asked about at quit.
+    @Test func aMalformedIDIsNotRegistered() {
+        let registry = QuitUnsavedRegistry(clock: ManualClock(), drafts: nil)
+        let malformed = ["notes.md", "file:/a/b.md", "file::/a/b.md", "file:local:a/b.md", "file:local", "browser:local:/a/b.md", ""]
+            .map { Doc($0) }
+        malformed.forEach { registry.register($0) }
+        #expect(registry.unsaved().isEmpty, "a malformed id is refused")
+        let valid = [Doc("file:local:/a/b.md"), Doc("file:cloud1:/srv/a:b.md")]
+        valid.forEach { registry.register($0) }
+        #expect(registry.unsaved().map(\.quitParticipantID) == ["file:local:/a/b.md", "file:cloud1:/srv/a:b.md"])
+    }
+
     @Test func aSuccessfulSaveRemovesTheDraft() async {
         let clock = ManualClock()
         let store = Self.store(clock)

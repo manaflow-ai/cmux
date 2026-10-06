@@ -53,6 +53,20 @@ import Foundation
             return .tabGroupCollapsed(id, collapsed: !collapsed)
         case .setRowHeights(let column, let heights):
             return setRowHeights(heights, of: column, in: store)
+        case .createTab(let paneHandle, let provisional):
+            guard let pane = store.panesByHandle[paneHandle], store.tabsBySurface[provisional.surface] == nil else { return nil }
+            let tab = TabModel(provisional)
+            pane.insertTab(tab, at: pane.tabs.count)
+            store.tabsBySurface[provisional.surface] = tab
+            return .createdTab(surface: provisional.surface, pane: paneHandle)
+        case .bindAgentSession(let surface, let session):
+            guard let tab = store.tabsBySurface[surface], var record = tab.agentSession, record.session != session else { return nil }
+            let previous = tab.snapshot
+            var next = previous
+            record.session = session
+            next.conversation = ConversationTabRef(agentSession: record)
+            tab.update(next)
+            return .tabSnapshot(surface: surface, previous: previous)
         }
     }
 
@@ -72,6 +86,13 @@ import Foundation
             return .rowHeights(column: column, heights: previous)
         }
         return nil
+    }
+
+    /// Applies a pending intent again after a daemon apply. A created tab the daemon already
+    /// reported replaces its provisional one (``ProvisionalTab/created(_:surface:in:)``).
+    static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
+        if let created = pending.createdSurface, store.tabsBySurface[created] != nil { return nil }
+        return apply(pending.kind, to: store)
     }
 
     static func undo(_ undo: IntentUndo, in store: DaemonStore) {
@@ -100,6 +121,13 @@ import Foundation
         case .rowHeights(let column, let heights):
             guard setRowHeights(heights, of: column, in: store) != nil else {
                 return store.reportMirrorViolation("intent overlay undo found column \(column) without its rows")
+            }
+        case .tabSnapshot(let surface, let previous):
+            store.tabsBySurface[surface]?.update(previous)
+        case .createdTab(let surface, let pane):
+            store.tabsBySurface[surface] = nil
+            guard store.panesByHandle[pane]?.removeTab(surface: surface) != nil else {
+                return store.reportMirrorViolation("intent overlay undo found provisional surface \(surface) missing from pane \(pane)")
             }
         }
     }

@@ -11,7 +11,8 @@ public import Foundation
 /// A top level that is not a JSON object is `Malformed`; an object with
 /// neither `enabled` nor `service` is `NotServerStatus` (a `cmux` without
 /// the server verbs answers `server status` with its terminal daemon's).
-public nonisolated enum LocalServerStatus {
+public nonisolated struct LocalServerStatus {
+    public nonisolated init() {}
     public struct Malformed: Error, Equatable {}
     public struct NotServerStatus: Error, Equatable {}
 

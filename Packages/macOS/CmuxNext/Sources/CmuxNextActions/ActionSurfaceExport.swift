@@ -47,7 +47,24 @@ public nonisolated enum ActionSurfaceExport {
             "order": category.paletteSectionOrder,
         ] as [String: Any]
         row["default_chord"] = descriptor.defaultChord.map { [wireShortcut($0.first), wireShortcut($0.second)] as Any } ?? NSNull()
+        row["default_aliases"] = defaultAliases(for: descriptor.id)
         return row
+    }
+
+    /// The binding table's default entries for `id` beyond its catalog key
+    /// (`KeyBindingDefaults`: browser tab keys, Ctrl-Cmd arrows for pane
+    /// resize, list navigation, the palette keys): each entry's keys and its `when` clause
+    /// (text, or null), in table order, each key sequence once.
+    public static func defaultAliases(for id: ActionID) -> [[String: Any]] {
+        let entries = KeyBindingDefaults.tabSwitching + KeyBindingDefaults.paneResizeAliases + KeyBindingDefaults.listNavigation
+            + KeyBindingDefaults.paletteKeys
+        var seen: [[Shortcut]] = []
+        var aliases: [[String: Any]] = []
+        for entry in entries where entry.command == id && !seen.contains(entry.keys) {
+            seen.append(entry.keys)
+            aliases.append(["keys": entry.keys.map(wireShortcut), "when": entry.when.map { $0.text as Any } ?? NSNull()])
+        }
+        return aliases
     }
 
     /// A shortcut in platform-neutral form: the key as typed (lowercased)
@@ -64,7 +81,12 @@ public nonisolated enum ActionSurfaceExport {
     /// The whole catalog, keys sorted, one stable text.
     public static func json(_ descriptors: [ActionDescriptor], titles: ActionTitleCatalog = ActionTitleCatalog()) -> String {
         let actions = descriptors.map { catalogObject($0, titles: titles) }
-        let root: [String: Any] = ["version": 1, "actions": actions]
+        let root: [String: Any] = [
+            "version": 1, "actions": actions,
+            "context_menus": ContextMenuCatalog(descriptors: descriptors).exportObject(descriptors: descriptors, titles: titles),
+            "context_menu_rules": ContextMenuCatalog.exportRenderRules,
+            "context_menus_not_exported": ContextMenuCatalog.exportHandBuiltMenus,
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys]),
               let text = String(data: data, encoding: .utf8)
         else { return "" }

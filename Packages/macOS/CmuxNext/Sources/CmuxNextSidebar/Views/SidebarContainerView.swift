@@ -236,8 +236,8 @@ public final class SidebarContainerView: NSView {
         // Constraint animators ignore SwiftUI springs (they fall back to
         // AppKit's 0.25 s default), so this is the tokens' timed equivalent.
         // A toggle mid-animation starts from the constant on screen.
-        Motion.animateTimed(hidden ? .disappear : .appear, {
-            widthConstraint.animator().constant = target
+        Motion.animateTimed(hidden ? .disappear : .appear, in: self, {
+            Motion.animator(widthConstraint, in: self).constant = target
         }, completion: { [weak self] in
             guard let self, generation == self.animationGeneration, self.model.isHidden else { return }
             self.panel.isHidden = true

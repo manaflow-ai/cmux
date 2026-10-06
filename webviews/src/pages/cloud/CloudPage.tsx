@@ -10,7 +10,7 @@ import { MachineList } from "./MachineList";
 import { MigrationBanner, PlanNotice } from "./Notices";
 import { AccountOps } from "./ops";
 import type { CloudStore } from "./store";
-import { L } from "./strings";
+import { errorText, L } from "./strings";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -51,8 +51,14 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     return (
       <>
         <MigrationBanner store={store} state={snap} strings={strings} />
-        {snap.refusal && (
-          <PlanNotice store={store} refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
+        {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
+        {snap.blocked === "no_snapshot_configured" && (
+          <div className="cloud-error cloud-blocked" role="alert">
+            <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
+            <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
+              {t(L.dismissError)}
+            </button>
+          </div>
         )}
         <div className={`cloud-body layout-${snap.layout}`}>
           <section className="cloud-machines" aria-label={t(L.machines)}>
@@ -109,7 +115,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>
-            <span className="cloud-error-detail">{snap.error}</span>
+            <span className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</span>
           </span>
           <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
             {t(L.dismissError)}
