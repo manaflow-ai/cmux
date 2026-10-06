@@ -832,7 +832,7 @@ class Controller:
             receipt = Path(tmp) / "submit.json"
             submitted = cmux_ci("build", "cmux", "--ref", sha, "--tag", tag,
                                 "--workspace", f"{self.server}/{self.args.repo}/tree/{branch}",
-                                "--production", "--backend-mode", "local", "--agent", "cmux-next-batch",
+                                "--production", "--agent", "cmux-next-batch",
                                 "--receipt", str(receipt))
             try:
                 job = str(json.loads(receipt.read_text())["id"])
