@@ -162,13 +162,15 @@ struct ClassicConfigCatalogCoverageTests {
             to: settingsURL
         )
 
-        for _ in 0..<60 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while clock.now < deadline {
             if signal.count > 0,
                defaults.string(forKey: "cmux.settings.piiDisplayMode") == "visible",
                defaults.array(forKey: "devices.sidebar.hiddenMacIDs") as? [String] == ["mac-c"] {
                 break
             }
-            try await Task.sleep(for: .milliseconds(50))
+            try await clock.sleep(for: .milliseconds(50))
         }
 
         #expect(signal.count > 0)
@@ -181,6 +183,15 @@ struct ClassicConfigCatalogCoverageTests {
         #expect(defaults.bool(forKey: "mobile.iOSPairingHost.enabled") == false)
         #expect(defaults.integer(forKey: "mobile.iOSPairingHost.port") == 58467)
         #expect(defaults.string(forKey: "mobile.iOSPairingHost.displayName") == "")
+        #expect(defaults.double(forKey: "sidebarBlurOpacity") == 1)
+        #expect(defaults.object(forKey: "sidebarCornerRadius") != nil)
+        #expect(defaults.double(forKey: "sidebarCornerRadius") == 0)
+        #expect(defaults.string(forKey: "sidebarPreset") == "nativeSidebar")
+        #expect(defaults.string(forKey: "sidebarMaterial") == "sidebar")
+        #expect(defaults.string(forKey: "sidebarBlendMode") == "withinWindow")
+        #expect(defaults.string(forKey: "sidebarState") == "followsWindowActiveState")
+        #expect(defaults.object(forKey: "workspaceGroup.anchorCloseSuppressed") != nil)
+        #expect(defaults.bool(forKey: "workspaceGroup.anchorCloseSuppressed") == false)
 
         withExtendedLifetime(store) {}
     }

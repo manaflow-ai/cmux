@@ -688,6 +688,8 @@ def supported_paths_from_source(source: Path) -> list[str]:
     known_sections = (
         "account.",
         "devices.",
+        "mobile.",
+        "workspaceGroups.",
         "app.",
         "terminal.",
         "notifications.",
