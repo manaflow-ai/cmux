@@ -15,9 +15,11 @@ pages see trusted events.
 Without `--session` each call is one-shot: its tabs close at the end unless
 `page.keep()` was called. With `--session NAME`, top-level `const`/`let`
 bindings and tabs persist until `reset NAME` or 30 minutes idle. A session
-binds to your cmux workspace, or to the focused workspace outside cmux; the
-same name in another workspace is another session, and `list` and `reset`
-act on your workspace's sessions (`--all-workspaces` for every one). A name
+binds to your cmux workspace; the same name in another workspace is another
+session. Outside cmux, one session per name is shared by every caller
+outside cmux, whatever workspace is focused (its tabs open in the one
+focused when it was made). `list` and `reset` act on your sessions
+(`--all-workspaces` for every one). A name
 is up to 64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open
 at once.
 

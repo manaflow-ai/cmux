@@ -39,6 +39,39 @@ struct BrowserReplSessionRegistryTests {
         #expect(!registry.reset(.init(workspaceID: second, name: "work")))
     }
 
+    /// Owner decision 2026-10-06: `--session NAME` from a caller outside
+    /// cmux is one session per name, bound to the workspace focused when it
+    /// was made, whatever is focused later, and never the session of that
+    /// name a workspace's own callers share.
+    @Test("A name from outside cmux is one stable session, apart from the workspaces' own sessions")
+    func outsideNameIsOneStableSession() throws {
+        let registry = BrowserReplSessionRegistry()
+        let inside = try registry.session(for: .init(workspaceID: first, name: "work")) { _ in makeSession("work") }
+        let outside = try registry.outsideSession(named: "work", focusedWorkspace: first) { _, _ in makeSession("work") }
+        let later = try registry.outsideSession(named: "work", focusedWorkspace: second) { _, _ in makeSession("work") }
+        defer {
+            inside.close()
+            outside.session.close()
+        }
+
+        #expect(outside.session !== inside)
+        #expect(later.session === outside.session)
+        #expect(later.key.workspaceID == first)
+        #expect(registry.list(workspaceID: first).count == 1)
+        #expect(registry.list(workspaceID: first).first?.outsideCmux == false)
+        #expect(registry.listOutside().map(\.workspaceID) == [first])
+        #expect(registry.list(workspaceID: nil).filter(\.outsideCmux).count == 1)
+
+        // The workspace's own reset leaves the outside session alone, and
+        // the other way round.
+        #expect(registry.reset(outsideNamed: "work"))
+        #expect(outside.session.isClosed && !inside.isClosed)
+        #expect(!registry.reset(outsideNamed: "work"))
+        #expect(throws: BrowserReplSessionRegistry.Refusal.noWorkspace) {
+            try registry.outsideSession(named: "fresh", focusedWorkspace: nil) { _, _ in makeSession("fresh") }
+        }
+    }
+
     /// A session made without `--session` (one-shot, interactive, MCP)
     /// carries its client's private owner token: no other client lists it,
     /// attaches to it or resets it, even knowing its name. A named session

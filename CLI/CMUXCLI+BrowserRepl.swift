@@ -211,8 +211,8 @@ extension CMUXCLI {
 
     /// The workspace a call acts on: `--workspace`, which must exist, else
     /// the caller's. `CMUX_WORKSPACE_ID` is only a hint: it can come from
-    /// another cmux instance, so the app falls back to the focused
-    /// workspace when it does not know the id.
+    /// another cmux instance, so the app treats an id it does not know as a
+    /// caller outside cmux (one shared session per name).
     private func browserReplWorkspaceParams(_ workspaceOption: String?, client: SocketClient) throws -> [String: Any] {
         if let workspaceOption {
             // An explicit choice never falls back to the caller's or the
@@ -489,10 +489,11 @@ extension CMUXCLI {
     Without `--session` each call is one-shot: its tabs close at the end
     unless `page.keep()` was called. With `--session NAME`, top-level
     `const`/`let` bindings and tabs persist across calls. Idle sessions close
-    after 30 minutes. The session binds to your cmux workspace, or to the
-    focused workspace when you run outside cmux; the same name in another
-    workspace is another session, and `list` and `reset` act on your
-    workspace's sessions (`--all-workspaces` for every one). A name is up to
+    after 30 minutes. The session binds to your cmux workspace; the same
+    name in another workspace is another session. Outside cmux, one session
+    per name is shared by every caller outside cmux, whatever workspace is
+    focused (its tabs open in the one focused when it was made). `list` and
+    `reset` act on your sessions (`--all-workspaces` for every one). A name is up to
     64 letters, digits, `.`, `_` and `-`; at most 32 sessions are open.
 
     ## Environment

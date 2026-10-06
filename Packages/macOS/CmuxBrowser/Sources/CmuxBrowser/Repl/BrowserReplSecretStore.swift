@@ -254,15 +254,47 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         }
     }
 
+    /// The fewest characters a value `secrets.load` takes without
+    /// `allowWeak` has.
+    public static let minimumLoadedValueCharacters = 8
+
+    /// Values common enough that an agent guesses them first, compared
+    /// without case; `secrets.load` refuses them without `allowWeak`. Only
+    /// values of at least ``minimumLoadedValueCharacters`` are listed: a
+    /// shorter one is refused anyway.
+    static let commonValues: Set<String> = [
+        "password", "password1", "password12", "password123", "passw0rd", "p@ssw0rd", "p@ssword",
+        "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000", "12341234",
+        "qwertyui", "qwertyuiop", "qwerty123", "1q2w3e4r", "1qaz2wsx", "asdfghjk", "zaq12wsx",
+        "abc12345", "abcd1234", "admin123", "administrator", "changeme", "letmein1", "welcome1",
+        "iloveyou", "sunshine", "princess", "football", "baseball", "superman", "starwars",
+        "trustno1", "whatever", "computer", "internet", "michelle", "jennifer",
+    ]
+
+    /// Whether `secrets.load` refuses `value` without `allowWeak`: shorter
+    /// than ``minimumLoadedValueCharacters`` characters, or one of
+    /// ``commonValues``.
+    /// Looks at no more of `value` than the longest common value, so a
+    /// load of many long values stays linear in their number.
+    static func isWeak(_ value: String) -> Bool {
+        if value.prefix(minimumLoadedValueCharacters).count < minimumLoadedValueCharacters { return true }
+        return value.utf8.count <= longestCommonValueBytes && commonValues.contains(value.lowercased())
+    }
+
+    private static let longestCommonValueBytes = commonValues.map(\.utf8.count).max() ?? 0
+
     /// Loads reference C's `sensitive_data` shape:
     /// `{ "<domain pattern>": { name: value | { value, totp } } }`.
     /// A name repeated with the same value under several patterns gets every pattern.
+    /// - Parameter allowWeak: Takes weak values (``isWeak(_:)``) too.
+    ///   Without it, a load that holds one is refused whole before
+    ///   anything is registered, naming the weak secrets, never their values.
     /// - Returns: The names loaded, in order.
     /// - Throws: `CancellationError` when `isCancelled` says so between
     ///   entries (it runs on the session's JavaScript thread, inside a
     ///   synchronous host call). The masks are rebuilt once when it returns
     ///   or throws, so what it loaded is masked either way.
-    public func load(_ object: Any, isCancelled: () -> Bool = { false }) throws -> [String] {
+    public func load(_ object: Any, allowWeak: Bool = false, isCancelled: () -> Bool = { false }) throws -> [String] {
         if isCancelled() { throw CancellationError() }
         guard let groups = object as? [String: Any] else {
             throw invalid("secrets.load: expected { \"<domain pattern>\": { name: value } }")
@@ -272,6 +304,24 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         let maximumPatterns = Self.maximumSecrets * Self.maximumDomains
         guard groups.count <= maximumPatterns else {
             throw invalid("secrets.load: \(groups.count) domain patterns, past the \(maximumPatterns) the store can hold")
+        }
+        if !allowWeak {
+            // One pass of a constant check per value, before anything is
+            // registered.
+            var weakNames: Set<String> = []
+            for rawEntries in groups.values {
+                for (name, raw) in rawEntries as? [String: Any] ?? [:] {
+                    if let value = ((raw as? [String: Any])?["value"] ?? raw) as? String, Self.isWeak(value) { weakNames.insert(name) }
+                }
+            }
+            let weak = weakNames.sorted()
+            if !weak.isEmpty {
+                throw invalid(
+                    "secrets.load: \(weak.map(Self.quote).joined(separator: ", ")) \(weak.count == 1 ? "has a weak value" : "have weak values") "
+                        + "(shorter than \(Self.minimumLoadedValueCharacters) characters, or a common password), which an agent could confirm by guessing; "
+                        + "nothing was loaded. Use a stronger value, or pass { allowWeak: true } to load it anyway"
+                )
+            }
         }
         var names: [String] = []
         var changed = false

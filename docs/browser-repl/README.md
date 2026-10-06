@@ -44,11 +44,11 @@ reference ([parity-report.md](parity-report.md)).
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label; a frame that navigated after its refs were read gets no labels. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a request body over 64 MiB fails, a response body over 64 MiB fails (download it in a tab instead), as does one past the 128 MiB a session's fetches may hold at once; a fetch fails after 10 minutes; past 256 queued fetches a new one fails at once. |
-| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/`, the home directory and a directory that is, holds or is inside the sessions' private storage or the browser's downloads under the temporary directory are refused, and `repl mcp` started in `/`, the home or the temporary directory uses a temporary directory of its own) and the session's own temporary directory (`os.tmpdir()`, mode 0700, never shared with another session); a symbolic link is never followed out of them (also when another process changes the tree meanwhile), and `rm`, `rename` and `lstat` act on the link itself as in Node. A FIFO, socket or device fails with `EINVAL` instead of blocking, and `readFile` reads at most 64 MiB. While secrets are masked, `copyFile` writes its copy masked like `writeFile` and copies at most 64 MiB. One `writeFile`, `appendFile` or `copyFile` writes at most 256 MiB, and a session at most 2 GiB and 100,000 file changes (files created, directories made, entries renamed or removed, each entry of a recursive `rm` too, which stops at the limit and leaves the rest) in all, file chooser answers' files included (reset it to write more); a long write, copy, directory listing or recursive `rm` stops when its cell times out. `import("node:fs")` and friends return the same modules. |
+| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/`, the home directory and a directory that is, holds or is inside the sessions' private storage or the browser's downloads under the temporary directory are refused, and `repl mcp` started in `/`, the home or the temporary directory uses a temporary directory of its own) and the session's own temporary directory (`os.tmpdir()`, mode 0700, never shared with another session); a symbolic link is never followed out of them (also when another process changes the tree meanwhile), and `rm`, `rename` and `lstat` act on the link itself as in Node. A FIFO, socket or device fails with `EINVAL` instead of blocking, and `readFile` reads at most 64 MiB. While secrets are masked, `copyFile` writes its copy masked like `writeFile` and copies at most 64 MiB. `copyFile` leaves out an extended attribute past 1 MiB and prints a warning line that names it. One `writeFile`, `appendFile` or `copyFile` writes at most 256 MiB, and a session at most 2 GiB and 100,000 file changes (files created, directories made, entries renamed or removed, each entry of a recursive `rm` too, which stops at the limit and leaves the rest) in all, file chooser answers' files included (reset it to write more); a long write, copy, directory listing or recursive `rm` stops when its cell times out. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
 | `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session created. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
-| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` (only into a tab the session opened, while `session.allowedDomains` allows only the secret's domains, over https unless the secret names its scheme) and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). |
+| `secret(name)`, `secrets` | Named secrets scoped to domains, typed with `locator.fill(secret(name))` (only into a tab the session opened, while `session.allowedDomains` allows only the secret's domains, over https unless the secret names its scheme) and masked as `<secret:name>` in every output, read and file. Values stay in the native session, never in the REPL's JavaScript ([reference-c-parity.md](reference-c-parity.md#secrets)). `secrets.load(file \| object)` refuses a weak value, one shorter than 8 characters or a common password (`password1`, `12345678` and the like, compared without case), since a value masked by comparison can be confirmed by printing guesses: the whole load is refused before anything is registered, and the error names the weak secrets, never their values. `secrets.load(source, { allowWeak: true })` loads them anyway. |
 | `search(query, options)` | `[{ title, url, snippet }]` from DuckDuckGo, Bing or Google. |
 | `tools` | `register(name, fn, { description, params, domains })`, `list()`, `call(name, args)`: the session's own callable tools. |
 
@@ -427,6 +427,11 @@ rest. Measurements: [performance.md](performance.md).
 - A cell times out after 120 s by default; `--timeout <ms>` (the socket's
   `timeout_ms`) asks for at most 600000 (10 minutes), and a longer one is
   refused before the cell runs, since a running cell holds the session.
+  A cell that times out is over: its timers, fetches and driver calls are
+  cancelled, code of it that resumes later (an await that a page event or
+  a later cell settles) gets an error with code `cancelled` from every
+  `fs`, `fetch`, timer, secrets, policy and browser call, and the page
+  listeners it registered are dropped unrun.
 - At most 4 sessions drive one tab at once. Each session's page agent,
   refs and handles live in a content world of its own in every tab it
   drives, so code one session runs in its agent world (patched built-ins,
@@ -451,16 +456,22 @@ rest. Measurements: [performance.md](performance.md).
   refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
   directory at most 1024 bytes (`PATH_MAX`); a longer one is refused
   before a session is made.
-- A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`), or
-  to the focused workspace when the caller is outside cmux or the id is unknown
-  to this instance. A named session belongs to that workspace: the same
-  `--session` name in another workspace is another session, with its own
-  variables, secrets, directory and tabs. `cmux browser repl list` and
-  `reset NAME` act on the caller's workspace's sessions; `--all-workspaces`
-  lists or resets every workspace's. The interactive REPL and `mcp` keep
-  the workspace their first call bound, so a change of focus outside cmux
-  does not switch sessions; separate calls from outside cmux follow the
-  focused workspace (pass `--workspace` to pin one). A `--workspace` that
+- A session binds to the caller's cmux workspace (from `CMUX_WORKSPACE_ID`).
+  A named session belongs to that workspace: the same `--session` name in
+  another workspace is another session, with its own variables, secrets,
+  directory and tabs. A caller outside cmux (no `CMUX_WORKSPACE_ID`, or
+  one this instance does not know) shares one session per `--session` name
+  with every other caller outside cmux, whatever workspace is focused: it
+  is made in the workspace focused at its first call, where its tabs open,
+  and it is never the session of that name a workspace's own callers use.
+  `cmux browser repl list` and `reset NAME` act on the caller's sessions (a
+  workspace's, or from outside cmux the ones callers outside cmux share,
+  which `list --json` marks `outside_cmux`); `--all-workspaces` lists or
+  resets every one. A run without `--session`, the interactive REPL and
+  `mcp` from outside cmux bind to the focused workspace; the interactive
+  REPL and `mcp` keep the workspace their first call bound, so a change of
+  focus does not switch sessions. Pass `--workspace` to use a workspace's
+  own session from outside cmux. A `--workspace` that
   names no workspace of this cmux instance (unknown, blank, or a ref that
   does not resolve) is refused; it never falls back to another workspace.
 - A session name is 1 to 64 characters of letters, digits, `.`, `_` and

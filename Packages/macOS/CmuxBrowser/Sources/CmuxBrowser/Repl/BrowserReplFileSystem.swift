@@ -23,6 +23,18 @@ import Foundation
 /// link in for a directory between the check and the use: the directory
 /// already open is the one acted on.
 ///
+/// A directory held open stays usable after it is moved, and a session
+/// whose root holds another session's root can move a directory below the
+/// inner root out of it while an operation of the inner session holds it.
+/// So every system call that acts relative to a directory below a root
+/// (`openat` of the file or directory acted on, `fstatat`, `mkdirat`,
+/// `unlinkat`, `renameat`) runs under ``BrowserReplFileSandbox/pathChangeLock``,
+/// which every REPL `fs.rename` holds, right after a walk up the
+/// directory's `..` entries reaches the root (by identity): a directory
+/// moved out fails the call with `EACCES` and nothing is made, written or
+/// removed there. A file already open stays the file that was opened
+/// inside the root.
+///
 /// Files are opened with `O_NONBLOCK` and checked with `fstat` before any
 /// read or write: a FIFO, socket or device fails with `EINVAL` at once
 /// instead of waiting for its other end, and `readFile` refuses a file over
@@ -31,10 +43,11 @@ import Foundation
 /// most ``BrowserReplWriteBudget/maximumBytesPerSession`` in all, each
 /// refused before anything is written, and they write in chunks that stop
 /// when the session cancels the call (its cell timed out or the session
-/// closed). No lock is held across operations or sessions: the
-/// descriptor walk is what keeps two sessions on one root, or a session and
-/// another process, from racing each other's checks, so a slow operation
-/// holds only its own session's thread.
+/// closed). No lock is held across operations: the descriptor walk is what
+/// keeps two sessions on one root, or a session and another process, from
+/// racing each other's checks, and ``BrowserReplFileSandbox/pathChangeLock``
+/// is held only for one system call and its directory's check, so a slow
+/// operation holds only its own session's thread.
 public struct BrowserReplFileSystem: Sendable {
     /// The largest file `readFile` reads, 64 MiB (the fetch body limit).
     public static let maxReadFileBytes = 64 << 20
@@ -200,9 +213,11 @@ public struct BrowserReplFileSystem: Sendable {
             try writeBudget.take(data.count, syscall: "write", display: display)
             // Truncated only once it is known to be a regular file.
             let flags = O_WRONLY | O_CREAT | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK | O_NOCTTY | (append ? O_APPEND : 0)
-            let descriptor = openat(location.directory.fd, name, flags, 0o666)
+            let (descriptor, number) = try location.withinRoot(syscall: "open", display: display) { fd in
+                let opened = openat(fd, name, flags, 0o666)
+                return (opened, errno)
+            }
             guard descriptor >= 0 else {
-                let number = errno
                 // A FIFO without a reader (ENXIO) or a socket.
                 if number == ENXIO || number == EOPNOTSUPP { throw Self.notRegularFile(display, syscall: "open") }
                 throw Self.posixError(number, syscall: "open", display: display)
@@ -221,8 +236,11 @@ public struct BrowserReplFileSystem: Sendable {
                 throw BrowserReplFileSystemError(code: "EEXIST", message: "EEXIST: file already exists, mkdir '\(display)'")
             }
             try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
-            if mkdirat(location.directory.fd, name, 0o777) != 0 {
-                let number = errno
+            let made = try location.withinRoot(syscall: "mkdir", display: display) { fd in
+                mkdirat(fd, name, 0o777) == 0 ? 0 : errno
+            }
+            if made != 0 {
+                let number = made
                 if number == EEXIST, recursive, (try? location.status())?.isDirectory == true { return NSNull() }
                 throw Self.posixError(number, syscall: "mkdir", display: display)
             }
@@ -254,13 +272,15 @@ public struct BrowserReplFileSystem: Sendable {
             }
             if status.isDirectory {
                 if arguments["recursive"] as? Bool == true {
-                    try Self.removeTree(in: location.directory, name: name, display: display, budget: writeBudget, isCancelled: isCancelled)
-                } else if unlinkat(location.directory.fd, name, AT_REMOVEDIR) != 0 {
-                    throw Self.posixError(errno, syscall: "rm", display: display)
+                    try Self.removeTree(in: location.directory, name: name, root: location.root, display: display, budget: writeBudget, isCancelled: isCancelled)
+                } else {
+                    let removed = try location.withinRoot(syscall: "rm", display: display) { unlinkat($0, name, AT_REMOVEDIR) == 0 ? 0 : errno }
+                    if removed != 0 { throw Self.posixError(removed, syscall: "rm", display: display) }
                 }
-            } else if unlinkat(location.directory.fd, name, 0) != 0 {
+            } else {
                 // A link or file: remove the entry, never what a link points to.
-                throw Self.posixError(errno, syscall: "rm", display: display)
+                let removed = try location.withinRoot(syscall: "rm", display: display) { unlinkat($0, name, 0) == 0 ? 0 : errno }
+                if removed != 0 { throw Self.posixError(removed, syscall: "rm", display: display) }
             }
             return NSNull()
         case "rename":
@@ -276,8 +296,16 @@ public struct BrowserReplFileSystem: Sendable {
             try writeBudget.takeEntryChange(syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             // A browser file navigation checks paths and takes its read
             // access under this lock (BrowserReplFileSandbox.withPinnedFileAccess).
-            let renamed = BrowserReplFileSandbox.pathChangeLock.withLock {
-                renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 ? 0 : errno
+            // Both directories must still be inside their roots: another
+            // session may have moved one out since the walk opened it.
+            let pair = "\(try raw("from"))' -> '\(try raw("to"))"
+            let renamed: Int32 = try BrowserReplFileSandbox.pathChangeLock.withLock {
+                for location in [from, to] {
+                    if let root = location.root, root !== location.directory, !Self.isInside(location.directory, root: root) {
+                        throw Self.movedOutOfRoot(syscall: "rename", display: pair)
+                    }
+                }
+                return renameat(from.directory.fd, fromName, to.directory.fd, toName) == 0 ? 0 : errno
             }
             guard renamed == 0 else {
                 throw Self.posixError(renamed, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
@@ -306,9 +334,13 @@ public struct BrowserReplFileSystem: Sendable {
             // Copy next to the destination, then swap it in, so a failed copy
             // leaves an existing destination untouched.
             let staging = ".\(name).cmux-copy-\(UUID().uuidString)"
-            let descriptor = openat(destination.directory.fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o666)
-            guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: pair) }
+            let (descriptor, number) = try destination.withinRoot(syscall: "copyfile", display: pair) { fd in
+                let opened = openat(fd, staging, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o666)
+                return (opened, errno)
+            }
+            guard descriptor >= 0 else { throw Self.posixError(number, syscall: "copyfile", display: pair) }
             let copy = BrowserReplDescriptor(descriptor)
+            var skipped: [(name: String, size: Int)] = []
             do {
                 if let contents {
                     try writeAll(contents, to: copy, display: pair)
@@ -317,16 +349,21 @@ public struct BrowserReplFileSystem: Sendable {
                 }
                 // Extended attributes through the write budget, then mode
                 // and times as fcopyfile's own copy.
-                try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
+                skipped = try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
-                try Self.publish(staging, as: name, in: destination.directory, holding: copy, display: pair)
+                try Self.publish(staging, as: name, in: destination, holding: copy, display: pair)
             } catch {
-                unlinkat(destination.directory.fd, staging, 0)
+                // Left in place when its directory was moved out of the root.
+                _ = try? destination.withinRoot(syscall: "copyfile", display: pair) { unlinkat($0, staging, 0) }
                 throw error
             }
-            return NSNull()
+            guard !skipped.isEmpty else { return NSNull() }
+            // The runtime prints each as a warning line in the cell's output.
+            return ["warnings": skipped.map { attribute in
+                "fs.copyFile: left out the extended attribute \(attribute.name) (\(attribute.size) bytes), larger than the 1 MiB fs.copyFile copies, copyfile '\(pair)'"
+            }]
         default:
             throw BrowserReplFileSystemError(code: "EINVAL", message: "EINVAL: unsupported fs operation '\(operation)'")
         }
@@ -340,15 +377,20 @@ public struct BrowserReplFileSystem: Sendable {
     /// link into its place while the copy runs; `fs.rename` is the only
     /// fs operation that puts a link at a path, and it takes the same
     /// lock, so the entry checked is the one renamed, and a link is never
-    /// published under the destination's name.
+    /// published under the destination's name. Nor is anything published
+    /// once another session moved the directory out of the root.
     private static func publish(
         _ staging: String,
         as name: String,
-        in directory: BrowserReplDescriptor,
+        in destination: Location,
         holding copy: BrowserReplDescriptor,
         display: String
     ) throws {
-        let result: Int32 = BrowserReplFileSandbox.pathChangeLock.withLock {
+        let directory = destination.directory
+        let result: Int32 = try BrowserReplFileSandbox.pathChangeLock.withLock {
+            if let root = destination.root, root !== directory, !isInside(directory, root: root) {
+                throw movedOutOfRoot(syscall: "copyfile", display: display)
+            }
             var held = stat()
             var named = stat()
             guard fstat(copy.fd, &held) == 0, fstatat(directory.fd, staging, &named, AT_SYMLINK_NOFOLLOW) == 0 else { return errno }
@@ -377,14 +419,82 @@ public struct BrowserReplFileSystem: Sendable {
     struct Location {
         let directory: BrowserReplDescriptor
         let name: String?
+        /// The root the walk reached `directory` from, or nil for a file
+        /// outside the roots the sandbox lets the session read (a download).
+        let root: BrowserReplDescriptor?
 
         /// The entry's status, not following a link.
         func status(display: String = "", syscall: String = "stat") throws -> FileStatus {
             var info = stat()
-            let result = name.map { fstatat(directory.fd, $0, &info, AT_SYMLINK_NOFOLLOW) } ?? fstat(directory.fd, &info)
-            guard result == 0 else { throw BrowserReplFileSystem.posixError(errno, syscall: syscall, display: display) }
+            let (result, number) = try withinRoot(syscall: syscall, display: display) { fd in
+                let done = name.map { fstatat(fd, $0, &info, AT_SYMLINK_NOFOLLOW) } ?? fstat(fd, &info)
+                return (done, errno)
+            }
+            guard result == 0 else { throw BrowserReplFileSystem.posixError(number, syscall: syscall, display: display) }
             return FileStatus(info)
         }
+
+        /// Runs `sink` on `directory`'s descriptor while it is inside its
+        /// root (``BrowserReplFileSystem/withinRoot(_:root:syscall:display:_:)``).
+        func withinRoot<T>(syscall: String, display: String, _ sink: (Int32) throws -> T) throws -> T {
+            try BrowserReplFileSystem.withinRoot(directory, root: root, syscall: syscall, display: display, sink)
+        }
+    }
+
+    /// Runs `sink`, a system call relative to `directory`, while no REPL
+    /// `fs.rename` runs (``BrowserReplFileSandbox/pathChangeLock``) and
+    /// once `directory` is still `root` or below it, or throws `EACCES`
+    /// without running it: another session that shares the tree moved the
+    /// directory out of the root since the walk opened it. With no root
+    /// (a file the sandbox lets the session read by its path) `sink` runs
+    /// as it is. The caller must not hold the lock.
+    static func withinRoot<T>(
+        _ directory: BrowserReplDescriptor,
+        root: BrowserReplDescriptor?,
+        syscall: String,
+        display: String,
+        _ sink: (Int32) throws -> T
+    ) throws -> T {
+        guard let root, root !== directory else { return try sink(directory.fd) }
+        return try BrowserReplFileSandbox.pathChangeLock.withLock {
+            guard isInside(directory, root: root) else { throw movedOutOfRoot(syscall: syscall, display: display) }
+            return try sink(directory.fd)
+        }
+    }
+
+    /// Whether `directory` is `root` or a directory below it now: a walk up
+    /// its `..` entries reaches `root` (same device and inode) before `/`.
+    /// Call while no REPL rename runs (``BrowserReplFileSandbox/pathChangeLock``).
+    /// A step that fails, or a chain deeper than any path, counts as outside.
+    static func isInside(_ directory: BrowserReplDescriptor, root: BrowserReplDescriptor) -> Bool {
+        var rootInfo = stat()
+        guard fstat(root.fd, &rootInfo) == 0 else { return false }
+        var current = directory
+        for _ in 0..<maxAncestorSteps {
+            var info = stat()
+            guard fstat(current.fd, &info) == 0 else { return false }
+            if info.st_dev == rootInfo.st_dev, info.st_ino == rootInfo.st_ino { return true }
+            let parent = openat(current.fd, "..", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+            guard parent >= 0 else { return false }
+            let next = BrowserReplDescriptor(parent)
+            var parentInfo = stat()
+            // `/` is its own parent.
+            guard fstat(next.fd, &parentInfo) == 0,
+                  parentInfo.st_dev != info.st_dev || parentInfo.st_ino != info.st_ino else { return false }
+            current = next
+        }
+        return false
+    }
+
+    /// The most `..` steps ``isInside(_:root:)`` takes: a path of at most
+    /// `PATH_MAX` bytes has fewer components.
+    private static let maxAncestorSteps = Int(PATH_MAX) / 2
+
+    static func movedOutOfRoot(syscall: String, display: String) -> BrowserReplFileSystemError {
+        BrowserReplFileSystemError(
+            code: "EACCES",
+            message: "EACCES: permission denied, \(syscall) '\(display)': its directory was moved out of the REPL working directory while the call ran (another session shares the directory)"
+        )
     }
 
     /// The fields of a `stat` the REPL reports.
@@ -493,7 +603,7 @@ public struct BrowserReplFileSystem: Sendable {
         guard let entry = try? location.status() else { return false }
         return roots.indices.contains { index in
             guard let root = try? openRoot(index, creating: false),
-                  let status = try? Location(directory: root, name: nil).status() else { return false }
+                  let status = try? Location(directory: root, name: nil, root: root).status() else { return false }
             return status.isSameFile(as: entry)
         }
     }
@@ -507,6 +617,8 @@ public struct BrowserReplFileSystem: Sendable {
     ) throws -> Location {
         var root = rootIndex
         var directory = try openRoot(root, creating: creatingDirectories)
+        // The descriptor of the root the walk is under now.
+        var rootDirectory = directory
         // The directories below the root that `directory` is, by name.
         var names: [String] = []
         // Components still to walk, the next one last.
@@ -522,6 +634,9 @@ public struct BrowserReplFileSystem: Sendable {
             }
             directory = current
         }
+        func location(_ name: String?) -> Location {
+            Location(directory: directory, name: name, root: rootDirectory)
+        }
 
         while let component = pending.popLast() {
             if component.isEmpty || component == "." { continue }
@@ -534,17 +649,20 @@ public struct BrowserReplFileSystem: Sendable {
             }
             let isLast = pending.allSatisfy { $0.isEmpty || $0 == "." }
             if isLast, !followingLastLink {
-                return Location(directory: directory, name: component)
+                return location(component)
             }
             var info = stat()
             if fstatat(directory.fd, component, &info, AT_SYMLINK_NOFOLLOW) != 0 {
                 let number = errno
                 guard number == ENOENT else { throw Self.posixError(number, syscall: "open", display: display) }
-                if isLast { return Location(directory: directory, name: component) }
+                if isLast { return location(component) }
                 guard creatingDirectories else { throw Self.posixError(ENOENT, syscall: "open", display: display) }
                 try writeBudget.takeEntryChange(syscall: "mkdir", display: display)
-                if mkdirat(directory.fd, component, 0o777) != 0, errno != EEXIST {
-                    throw Self.posixError(errno, syscall: "mkdir", display: display)
+                let made = try location(component).withinRoot(syscall: "mkdir", display: display) { fd in
+                    mkdirat(fd, component, 0o777) == 0 ? 0 : errno
+                }
+                if made != 0, made != EEXIST {
+                    throw Self.posixError(made, syscall: "mkdir", display: display)
                 }
                 pending.append(component)
                 continue
@@ -564,13 +682,14 @@ public struct BrowserReplFileSystem: Sendable {
                     root = next
                     names = []
                     directory = try openRoot(root, creating: false)
+                    rootDirectory = directory
                     pending.append(contentsOf: below.reversed())
                 } else {
                     pending.append(contentsOf: target.split(separator: "/", omittingEmptySubsequences: true).map(String.init).reversed())
                 }
                 continue
             }
-            if isLast { return Location(directory: directory, name: component) }
+            if isLast { return location(component) }
             let next = openat(directory.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
             guard next >= 0 else {
                 let number = errno
@@ -586,9 +705,9 @@ public struct BrowserReplFileSystem: Sendable {
             names.append(component)
         }
         // The path names a directory the walk is in: a root, or one below it.
-        guard let last = names.popLast() else { return Location(directory: directory, name: nil) }
+        guard let last = names.popLast() else { return location(nil) }
         try reopen()
-        return Location(directory: directory, name: last)
+        return location(last)
     }
 
     /// Walks a canonical path the sandbox allows reading (a download outside
@@ -604,7 +723,7 @@ public struct BrowserReplFileSystem: Sendable {
             guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "open", display: display) }
             directory = BrowserReplDescriptor(descriptor)
         }
-        return Location(directory: directory, name: name)
+        return Location(directory: directory, name: name, root: nil)
     }
 
     private static func readLink(in directory: BrowserReplDescriptor, name: String, display: String) throws -> String {
@@ -621,9 +740,11 @@ public struct BrowserReplFileSystem: Sendable {
     /// but a regular file then fails (`EISDIR` for a directory, `EINVAL`).
     private func openFile(_ location: Location, display: String, syscall: String = "open") throws -> (BrowserReplDescriptor, Int) {
         guard let name = location.name else { throw Self.isDirectoryError }
-        let descriptor = openat(location.directory.fd, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | O_NOCTTY)
+        let (descriptor, number) = try location.withinRoot(syscall: syscall, display: display) { fd in
+            let opened = openat(fd, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | O_NOCTTY)
+            return (opened, errno)
+        }
         guard descriptor >= 0 else {
-            let number = errno
             if number == ENXIO || number == EOPNOTSUPP { throw Self.notRegularFile(display, syscall: syscall) }
             throw Self.posixError(number, syscall: syscall, display: display)
         }
@@ -745,21 +866,24 @@ public struct BrowserReplFileSystem: Sendable {
     /// `COPYFILE_XATTR` does, but each one's bytes are taken from the write
     /// budget as part of the call (`callBytes` already written) and the
     /// copy stops with `ECANCELED` between attributes when the call is
-    /// cancelled. One past ``maxExtendedAttributeBytes`` fails with `EFBIG`.
-    /// Attributes the destination refuses (protected system ones) are left
-    /// out, as `copyfile` leaves them.
+    /// cancelled. One past ``maxExtendedAttributeBytes`` is left out, not
+    /// read, and returned, so the caller can say so. Attributes the
+    /// destination refuses (protected system ones) are left out silently,
+    /// as `copyfile` leaves them.
+    /// - Returns: The attributes left out for their size.
     private func copyExtendedAttributes(
         from source: BrowserReplDescriptor,
         to destination: BrowserReplDescriptor,
         callBytes: Int,
         display: String
-    ) throws {
+    ) throws -> [(name: String, size: Int)] {
+        var skipped: [(name: String, size: Int)] = []
         let listSize = flistxattr(source.fd, nil, 0, 0)
         if listSize < 0 {
-            if errno == ENOTSUP { return }
+            if errno == ENOTSUP { return skipped }
             throw Self.posixError(errno, syscall: "copyfile", display: display)
         }
-        guard listSize > 0 else { return }
+        guard listSize > 0 else { return skipped }
         var list = [CChar](repeating: 0, count: listSize)
         let listed = flistxattr(source.fd, &list, listSize, 0)
         guard listed >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: display) }
@@ -773,10 +897,8 @@ public struct BrowserReplFileSystem: Sendable {
                 throw Self.posixError(errno, syscall: "copyfile", display: display)
             }
             guard size <= Self.maxExtendedAttributeBytes else {
-                throw BrowserReplFileSystemError(
-                    code: "EFBIG",
-                    message: "EFBIG: an extended attribute of \(size) bytes is larger than the 1 MiB fs.copyFile copies, copyfile '\(display)'"
-                )
+                skipped.append((name, size))
+                continue
             }
             written += size
             try writeBudget.take(size, syscall: "copyfile", display: display, callBytes: written)
@@ -793,6 +915,7 @@ public struct BrowserReplFileSystem: Sendable {
                 }
             }
         }
+        return skipped
     }
 
     /// Why a call stopped part way; `display` is the path, or empty when
@@ -811,8 +934,11 @@ public struct BrowserReplFileSystem: Sendable {
             guard copy >= 0 else { throw Self.posixError(errno, syscall: "scandir", display: display) }
             return BrowserReplDescriptor(copy)
         }
-        let descriptor = openat(location.directory.fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
-        guard descriptor >= 0 else { throw Self.posixError(errno, syscall: "scandir", display: display) }
+        let (descriptor, number) = try location.withinRoot(syscall: "scandir", display: display) { fd in
+            let opened = openat(fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            return (opened, errno)
+        }
+        guard descriptor >= 0 else { throw Self.posixError(number, syscall: "scandir", display: display) }
         return BrowserReplDescriptor(descriptor)
     }
 
@@ -882,7 +1008,7 @@ public struct BrowserReplFileSystem: Sendable {
             case DT_DIR: type = "directory"
             case DT_LNK: type = "symlink"
             case DT_UNKNOWN:
-                type = (try? Location(directory: directory, name: name).status().type) ?? "other"
+                type = (try? Location(directory: directory, name: name, root: nil).status().type) ?? "other"
             default: type = "other"
             }
             result.append((name, type))
@@ -913,9 +1039,15 @@ public struct BrowserReplFileSystem: Sendable {
     /// `budget` before it is removed (`name` itself was taken by the
     /// caller); when the budget runs out it stops with `EDQUOT`, saying how
     /// many entries it removed, and leaves the rest.
+    ///
+    /// Each removal runs once its directory is still below `root`
+    /// (``withinRoot(_:root:syscall:display:_:)``): a directory another
+    /// session moves out of the root while the removal runs stops it with
+    /// `EACCES`, and nothing more is removed there.
     private static func removeTree(
         in parent: BrowserReplDescriptor,
         name: String,
+        root: BrowserReplDescriptor?,
         display: String,
         budget: BrowserReplWriteBudget,
         isCancelled: () -> Bool
@@ -970,8 +1102,9 @@ public struct BrowserReplFileSystem: Sendable {
                 let holder = try open(Array(names.dropLast()))
                 // `name` itself was taken by the caller.
                 if path.count > 1 { try take() }
-                if unlinkat(holder.fd, level.name, AT_REMOVEDIR) != 0 {
-                    guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
+                let result = try withinRoot(holder, root: root, syscall: "rm", display: display) { unlinkat($0, level.name, AT_REMOVEDIR) == 0 ? 0 : errno }
+                if result != 0 {
+                    guard result == ENOENT else { throw posixError(result, syscall: "rm", display: display) }
                 } else if path.count > 1 {
                     removed += 1
                 }
@@ -990,8 +1123,9 @@ public struct BrowserReplFileSystem: Sendable {
                     continue
                 }
                 try take()
-                if unlinkat(directory.fd, entry.name, 0) != 0 {
-                    guard errno == ENOENT else { throw posixError(errno, syscall: "rm", display: display) }
+                let result = try withinRoot(directory, root: root, syscall: "rm", display: display) { unlinkat($0, entry.name, 0) == 0 ? 0 : errno }
+                if result != 0 {
+                    guard result == ENOENT else { throw posixError(result, syscall: "rm", display: display) }
                 } else {
                     removed += 1
                 }

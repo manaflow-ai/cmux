@@ -46,13 +46,43 @@ public struct BrowserReplWorkspaceBinding {
     ///   - explicit: The workspace the caller named, or `nil`.
     ///   - caller: The caller's own workspace from its environment, or `nil`.
     public func resolve(explicit: UUID?, caller: UUID?) -> Result<UUID, Failure> {
+        resolveCaller(explicit: explicit, caller: caller).flatMap { found in
+            switch found {
+            case .inside(let workspace): .success(workspace)
+            case .outside(let focused): focused.map { .success($0) } ?? .failure(.noFocusedWorkspace)
+            }
+        }
+    }
+
+    /// Where a call comes from.
+    public enum Caller: Equatable {
+        /// A workspace of this instance: the one the caller named, or its own.
+        case inside(UUID)
+        /// Outside cmux: no workspace in the caller's environment, or one
+        /// this instance does not know (another instance's), with the
+        /// workspace focused now, if any. A named session such a caller
+        /// asks for is one session per name, whatever is focused
+        /// (``BrowserReplSessionRegistry/outsideSession(named:focusedWorkspace:make:)``).
+        case outside(focused: UUID?)
+    }
+
+    /// Like ``resolve(explicitHandle:caller:)``, telling a caller outside
+    /// cmux apart instead of binding it to the focused workspace.
+    public func caller(explicitHandle: String?, caller: UUID?) -> Result<Caller, Failure> {
+        guard let explicitHandle else { return resolveCaller(explicit: nil, caller: caller) }
+        guard let explicit = UUID(uuidString: explicitHandle.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return .failure(.explicitWorkspaceInvalid(explicitHandle))
+        }
+        return resolveCaller(explicit: explicit, caller: caller)
+    }
+
+    private func resolveCaller(explicit: UUID?, caller: UUID?) -> Result<Caller, Failure> {
         if let explicit {
-            return exists(explicit) ? .success(explicit) : .failure(.explicitWorkspaceNotFound(explicit))
+            return exists(explicit) ? .success(.inside(explicit)) : .failure(.explicitWorkspaceNotFound(explicit))
         }
         if let caller, exists(caller) {
-            return .success(caller)
+            return .success(.inside(caller))
         }
-        guard let focused = focused() else { return .failure(.noFocusedWorkspace) }
-        return .success(focused)
+        return .success(.outside(focused: focused()))
     }
 }

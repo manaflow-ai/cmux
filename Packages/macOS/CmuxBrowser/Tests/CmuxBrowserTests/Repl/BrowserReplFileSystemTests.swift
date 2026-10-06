@@ -909,3 +909,131 @@ private extension Result where Success == Any, Failure == BrowserReplFileSystemE
         return (value as? [String: Any])?["type"] as? String
     }
 }
+
+/// r17 native#1: two sessions whose roots nest (one session works in a
+/// directory, another in its parent) share entries. The outer session can
+/// rename a directory the inner one holds open out of the inner root while
+/// an operation of the inner one runs; the inner operation must not then
+/// create, write or remove anything there, outside its root.
+@Suite("Browser REPL fs against a descendant moved out of the root")
+struct BrowserReplFileSystemDescendantMoveTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    private func fileSystem(root: String, isCancelled: @escaping @Sendable () -> Bool = { false }) -> BrowserReplFileSystem {
+        BrowserReplFileSystem(
+            sandbox: BrowserReplFileSandbox(root: root),
+            temporaryDirectory: nil,
+            rootDescriptor: nil,
+            temporaryDescriptor: nil,
+            writeBudget: BrowserReplWriteBudget(),
+            isCancelled: isCancelled
+        )
+    }
+
+    @Test("A copy whose destination directory another session moves out of the root writes nothing there")
+    func copyIntoMovedDirectoryIsRefused() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let victimRoot = scratch.root + "/victim"
+        try FileManager.default.createDirectory(atPath: victimRoot + "/sub", withIntermediateDirectories: true)
+        try Data("payload".utf8).write(to: URL(fileURLWithPath: victimRoot + "/source.txt"))
+        let outer = fileSystem(root: scratch.root)
+        let victim = fileSystem(root: victimRoot)
+        let moved = scratch.root + "/moved"
+
+        // The copy has located its destination's directory; the outer
+        // session moves that directory out of the victim's root.
+        let copied = victim.perform("copyFile", arguments: ["from": "source.txt", "to": "sub/copy.txt"], copyContents: { data in
+            _ = outer.perform("rename", arguments: ["from": "victim/sub", "to": "moved"])
+            return data
+        })
+
+        #expect(FileManager.default.fileExists(atPath: moved), "the outer session's rename did not run")
+        #expect(copied.failureCode == "EACCES", "\(copied)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: moved) == [], "the copy wrote outside its root")
+    }
+
+    @Test("A recursive rm whose directory another session moves out of the root removes nothing more there")
+    func recursiveRemoveOfMovedDirectoryStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let victimRoot = scratch.root + "/victim"
+        let inner = victimRoot + "/tree/inner"
+        try FileManager.default.createDirectory(atPath: inner, withIntermediateDirectories: true)
+        for index in 0..<(2 * BrowserReplFileSystem.entriesPerCancellationCheck) {
+            FileManager.default.createFile(atPath: inner + "/f\(index)", contents: nil)
+        }
+        let outer = fileSystem(root: scratch.root)
+        let moved = scratch.root + "/moved"
+        let left = BrowserReplMovedCount()
+        // The rm asks whether it is cancelled every 1,024 entries: the
+        // first time, the outer session moves the directory the rm is
+        // emptying out of the victim's root.
+        let victim = fileSystem(root: victimRoot, isCancelled: {
+            if !left.isSet {
+                _ = outer.perform("rename", arguments: ["from": "victim/tree/inner", "to": "moved"])
+                left.set((try? FileManager.default.contentsOfDirectory(atPath: moved).count) ?? -1)
+            }
+            return false
+        })
+
+        let removed = victim.perform("rm", arguments: ["path": "tree", "recursive": true])
+
+        #expect(left.isSet, "the rm never asked whether it was cancelled")
+        #expect(left.value > 0, "the outer session's rename did not run")
+        #expect(removed.failureCode == "EACCES", "\(removed)")
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: moved).count) == left.value, "the rm removed entries outside its root")
+    }
+}
+
+/// How many entries a moved directory held when it was moved.
+private final class BrowserReplMovedCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count: Int?
+
+    var isSet: Bool { lock.withLock { count != nil } }
+    var value: Int { lock.withLock { count ?? 0 } }
+
+    func set(_ value: Int) { lock.withLock { count = value } }
+}
+
+/// Owner decision 2026-10-06: an extended attribute past the 1 MiB
+/// `copyFile` copies does not fail the copy; the copy leaves it out and
+/// says so in the cell's output.
+@Suite("Browser REPL copyFile and large extended attributes")
+struct BrowserReplCopyLargeAttributeTests {
+    private typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    @Test("copyFile leaves out an extended attribute past 1 MiB, copies the file and warns")
+    func copySkipsLargeAttributeWithWarning() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let source = scratch.root + "/source.bin"
+        try Data("ten bytes!".utf8).write(to: URL(fileURLWithPath: source))
+        let small = Data("tag".utf8)
+        let large = Data(count: BrowserReplFileSystem.maxExtendedAttributeBytes + 1)
+        for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.large", large)] {
+            let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
+            #expect(set == 0, "setxattr \(name): \(errno)")
+        }
+        let session = BrowserReplSession(
+            id: "xattr-\(UUID().uuidString)",
+            cwd: scratch.root,
+            bundle: try browserReplRepositoryBundle(),
+            driver: RecordingReplDriver()
+        )
+        defer { session.close() }
+
+        let result = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(code: "fs.copyFileSync('source.bin', 'copy.bin'); console.log('copied')", timeout: .seconds(20))
+        }
+
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        let lines = result?.lines ?? []
+        #expect(lines.last?.text == "copied", "\(lines.map(\.text))")
+        #expect(lines.contains { $0.level == "warn" && $0.text.contains("com.cmux.test.large") && $0.text.contains("1 MiB") }, "\(lines.map { "\($0.level): \($0.text)" })")
+        #expect(FileManager.default.contents(atPath: scratch.root + "/copy.bin") == Data("ten bytes!".utf8))
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.small", nil, 0, 0, 0) == small.count)
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.large", nil, 0, 0, 0) == -1)
+    }
+}

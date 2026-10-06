@@ -119,7 +119,7 @@ runs in the page, can read its value and transform it past the masks
 (reversed, split, compressed, hex-encoded, Base64 twice or broken across
 lines).
 
-    secrets.load("./secrets.json")       // { "example.com": { "user": "...", "pw": "..." } }
+    secrets.load("./secrets.json")       // { "example.com": { "user": "...", "pw": "..." } }; a value under 8 characters or a common password needs { allowWeak: true }
     secrets.set("otp", base32Seed, { domains: ["example.com"], totp: true })
     session.allowedDomains(["example.com"])
     await page.getByLabel("Password").fill(secret("pw"))

@@ -80,7 +80,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 try secrets.set(name: name, value: value, domains: domains, totp: args["totp"] as? Bool ?? false, title: "secrets.set")
                 return .success(secrets.describe([name]).first ?? [:])
             case "load":
-                let names = try secrets.load(args["object"] ?? NSNull(), isCancelled: isCancelled)
+                let names = try secrets.load(args["object"] ?? NSNull(), allowWeak: args["allowWeak"] as? Bool == true, isCancelled: isCancelled)
                 return .success(secrets.describe(names))
             case "list":
                 return .success(secrets.describe())
