@@ -236,6 +236,8 @@ class Launch:
 
 
 RUN_TAGS = []
+# --focus: the realistic profile's focused pane at quit ("agent" or "terminal").
+SEED_FOCUS = "agent"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
 
@@ -346,18 +348,38 @@ def seed_realistic(tag, scratch, timeout):
             if not reply.get("ok"):
                 print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
                 agent = False
+        if agent and SEED_FOCUS == "terminal":
+            # The chat stays visible in its pane; a terminal beside it has focus.
+            app = app_client(tag)
+            panes = [pane for workspace in ((app.call("snapshot.get").get("result") or {}).get("topology") or {}).get("workspaces", [])
+                     if workspace.get("name") == "project-01" for screen in workspace.get("screens", []) for pane in screen.get("panes", [])]
+            other = next((pane["tabs"][0]["id"] for pane in panes
+                          if pane.get("tabs") and not any(tab.get("kind") == "conversation" for tab in pane["tabs"])), "")
+            reply = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": other}}) if other else {}
+            app.close()
+            if not reply.get("ok"):
+                print(f"  {tag}: no terminal beside the chat could be focused ({reply.get('error')})", file=sys.stderr)
+                agent = False
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
-        out.write("agent\n" if agent else "terminals\n")
+        out.write(f"agent focus={SEED_FOCUS}\n" if agent else f"terminals focus={SEED_FOCUS}\n")
 
 
 def seeded_agent(tag):
     try:
         with open(seeded_marker(tag)) as marker:
-            return marker.read().strip() == "agent"
+            return marker.read().startswith("agent")
     except OSError:
         return False
+
+
+def seeded_focus(tag):
+    try:
+        with open(seeded_marker(tag)) as marker:
+            return marker.read().strip().partition("focus=")[2]
+    except OSError:
+        return None
 
 
 def seeded_marker(tag):
@@ -376,7 +398,7 @@ def one_run(tag, mode, timeout, profile=None):
     any_of = profile != "realistic"
     if profile == "empty":
         reset_state(tag)
-    elif profile == "realistic" and not os.path.exists(seeded_marker(tag)):
+    elif profile == "realistic" and seeded_focus(tag) != SEED_FOCUS:
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
         final = [FINAL_MARK]
@@ -521,6 +543,8 @@ def main():
     parser.add_argument("--profile", choices=["empty", "realistic"],
                         help="empty: no saved state before each run; realistic: a seeded day's work "
                              "(default: whatever state the tag has)")
+    parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
+                        help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
@@ -530,8 +554,9 @@ def main():
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS
+    global HANG_THRESHOLD_MS, SEED_FOCUS
     HANG_THRESHOLD_MS = args.hangs
+    SEED_FOCUS = args.focus
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
         args.tag.append(app_tag(path))
