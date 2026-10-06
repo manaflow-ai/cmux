@@ -489,10 +489,17 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.configure_ended(session);
-        // Its open file choosers are cancelled (driver-protocol.md: when
-        // the session leaves the tab).
-        let choosers = self.0.routes().session_ended(session);
-        for (target, chooser) in choosers {
+        // Its open dialogs are dismissed (beforeunload: the page stays) and
+        // its file choosers cancelled (driver-protocol.md: when the session
+        // leaves the tab).
+        let left = self.0.routes().session_ended(session);
+        for (target, dialog) in left.dialogs {
+            let _ = self.0.driver.call(
+                "dialog.respond",
+                &json!({"targetId": target, "dialogId": dialog, "accept": false}),
+            );
+        }
+        for (target, chooser) in left.choosers {
             let _ = self.0.driver.call(
                 "filechooser.respond",
                 &json!({"targetId": target, "chooserId": chooser, "cancel": true}),

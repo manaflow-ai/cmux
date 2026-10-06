@@ -31,6 +31,13 @@ pub enum Route {
     Unrouted(&'static str),
 }
 
+/// What an ended session left open, as (tab, id).
+#[derive(Debug, Default)]
+pub struct LeftOpen {
+    pub dialogs: Vec<(String, String)>,
+    pub choosers: Vec<(String, String)>,
+}
+
 #[derive(Debug, Default)]
 pub struct Routes {
     /// Tab -> sessions with handlers, in registration order.
@@ -42,7 +49,7 @@ pub struct Routes {
     /// Tab -> the session whose call the page is handling now.
     in_call: HashMap<String, u64>,
     /// Dialog id -> the session it went to.
-    dialogs: HashMap<String, u64>,
+    dialogs: HashMap<String, (u64, String)>,
     /// Download id -> the session it went to.
     downloads: HashMap<String, u64>,
     /// File chooser id -> (the session it went to, its tab).
@@ -108,7 +115,7 @@ impl Routes {
 
     /// The session a dialog went to, if it went to one.
     pub fn dialog_owner(&self, dialog: &str) -> Option<u64> {
-        self.dialogs.get(dialog).copied()
+        self.dialogs.get(dialog).map(|(session, _)| *session)
     }
 
     pub fn dialog_answered(&mut self, dialog: &str) {
@@ -124,9 +131,9 @@ impl Routes {
         self.choosers.remove(chooser);
     }
 
-    /// Forgets the session; returns its open file choosers as (tab,
-    /// chooser), which the host cancels.
-    pub fn session_ended(&mut self, session: u64) -> Vec<(String, String)> {
+    /// Forgets the session; returns what it left open, which the host
+    /// answers (dialogs dismissed, choosers cancelled).
+    pub fn session_ended(&mut self, session: u64) -> LeftOpen {
         for list in self.handlers.values_mut() {
             list.retain(|(s, _)| *s != session);
         }
@@ -134,7 +141,13 @@ impl Routes {
         self.creator.retain(|_, s| *s != session);
         self.opened_by.retain(|_, s| *s != session);
         self.in_call.retain(|_, s| *s != session);
-        self.dialogs.retain(|_, s| *s != session);
+        let mut dialogs = Vec::new();
+        self.dialogs.retain(|dialog, (s, target)| {
+            if *s == session {
+                dialogs.push((target.clone(), dialog.clone()));
+            }
+            *s != session
+        });
         self.downloads.retain(|_, s| *s != session);
         let mut open = Vec::new();
         self.choosers.retain(|chooser, (s, target)| {
@@ -143,7 +156,7 @@ impl Routes {
             }
             *s != session
         });
-        open
+        LeftOpen { dialogs, choosers: open }
     }
 
     pub fn log_unrouted(&mut self, entry: Value) {
@@ -173,6 +186,7 @@ impl Routes {
                 self.opened_by.remove(target);
                 self.in_call.remove(target);
                 self.choosers.retain(|_, (_, tab)| tab != target);
+                self.dialogs.retain(|_, (_, tab)| tab != target);
                 return Route::Everyone;
             }
             // A popup of a session's tab is that session's too.
@@ -225,7 +239,7 @@ impl Routes {
         if kind == "dialog"
             && let Some(id) = payload.get("dialogId").and_then(Value::as_str)
         {
-            self.dialogs.insert(id.to_owned(), owner);
+            self.dialogs.insert(id.to_owned(), (owner, target.to_owned()));
         }
         if kind == "download"
             && let Some(id) = payload.get("downloadId").and_then(Value::as_str)

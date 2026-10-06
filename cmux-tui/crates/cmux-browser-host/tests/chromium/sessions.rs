@@ -472,7 +472,7 @@ fn a_sessions_end_dismisses_its_open_dialog() {
             engine: "headless".into(),
         };
         cmux_browser_host::headless_source::HeadlessSession::new(
-            source.clone(),
+            source,
             &browsers,
             Arc::from(AGENT),
             Arc::new(move |event| events.lock().unwrap().push(event)),
