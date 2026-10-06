@@ -77,6 +77,15 @@ struct SidebarMappingTests {
         #expect(SidebarMapping.shared.row(gamma, machine: .local).kind == .terminal)
     }
 
+    /// Group by Folder buckets a row by its front tab's folder (Leo 2026-10-06).
+    @Test func theRowFolderIsTheFrontTabCwd() throws {
+        let store = try BridgeFixture.store()
+        let beta = try #require(store.workspaces.first { $0.displayName == "beta" })
+        let front = try #require(beta.screens.flatMap(\.panes).max { $0.focusedAt < $1.focusedAt }?.tabs.first)
+        front.cwd = NSHomeDirectory() + "/src/app"
+        #expect(SidebarMapping.shared.row(beta, machine: .local).folder == "~/src/app")
+    }
+
     /// A row whose selected tab is an agent chat wears the chat's harness mark.
     @Test func anAgentChatRowWearsItsHarnessMark() throws {
         let store = try BridgeFixture.store()
