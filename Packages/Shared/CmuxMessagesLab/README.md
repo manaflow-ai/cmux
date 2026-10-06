@@ -37,7 +37,7 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
-  `HomeLinkPreviews` (which links may fetch a preview),
+  `HomeLinkPreviews` and `LinkPreviewAddressPolicy` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -89,6 +89,10 @@ card; the size cache keyed by part content, `MeasureCache.partVersion`;
 outgoing links in the theme's text colour; LinkPresentation previews;
 compose attachment previews; da2b8ae's text column, 358.4 - 0.654 x (628 - W)
 pt) except WindowView and NativeScroll at 69f4256 and SwipeReply at 0c8147b.
+89a1c5b and 2a0805d are not taken yet: their WindowView needs their Layout
+(`Sizing.linkPending`, the grey loading card) and Engine (`done(nil)`), and
+2a0805d's URLSession LinkPreviews has no address guard upstream; they come in
+as one pin with MessagesLab's guarded fetcher.
 WindowView: cd2bc08 keeps the first visible row in place when the width
 changes while pinned to the bottom (Messages reflows rows downward under the
 field); Home keeps its pinned live resize. NativeScroll: 2f22022's drawn
@@ -111,7 +115,13 @@ once per URL, off main, 8 s timeout, results and failures cached on disk,
 the domain card kept on failure. Privacy: this makes a network request to a
 URL taken from chat content, as Messages does. `Cmux/HomeLinkPreviews`
 lets a fetch through only for links the user or an agent (the Chief) sent;
-another person's links keep the domain card. History loaded later (install,
+another person's links keep the domain card. `Cmux/LinkPreviewAddressPolicy`
+fetches only http(s) to a public host: no localhost, `.local`, `.ts.net` or
+other private names, and every resolved address public (no loopback,
+private, link-local, CGNAT/Tailscale, ULA; mapped IPv6 checked as IPv4).
+Limit: LinkPresentation resolves again and follows redirects itself, so DNS
+rebinding or a redirect to a private address is not caught; MessagesLab's
+guarded URLSession fetcher (after 2a0805d) will replace it. History loaded later (install,
 older pages, rebuilds) shows only cached previews and never fetches.
 
 Messages' 434 pt window minimum (Host.swift) is not applied: a Home tab is a
