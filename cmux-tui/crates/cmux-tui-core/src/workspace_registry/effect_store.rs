@@ -1063,18 +1063,18 @@ impl WorkspaceRegistry {
         let tx = self.connection.transaction()?;
         let (patch, deltas) = complete_terminal_close_patch(&tx, terminals, patch, deltas)?;
 
-        let (workspace_revision, terminal_batch) = if let Some(close) = workspace_close {
-            if let Some(active_workspace) = close.active_workspace.as_ref() {
+        // A terminal close can empty a workspace: both commit here.
+        let terminal_batch =
+            close_terminals_in_transaction(&tx, &mutation, terminals, "topology-closed")?;
+        let workspace_revision = if let Some(close) = workspace_close {
+            if let Some(active) = close.active_workspace.as_ref() {
                 anyhow::ensure!(
-                    close
-                        .remaining_workspaces
-                        .iter()
-                        .any(|workspace| &workspace.public_id == active_workspace),
-                    "active workspace is absent from the post-close registry: {active_workspace}"
+                    close.remaining_workspaces.iter().any(|item| &item.public_id == active),
+                    "active workspace is absent from the post-close registry: {active}"
                 );
             }
             let result_json = canonical_json(&close.legacy_result)?;
-            let (revision, terminal_batch) = commit_workspace_registry_in_transaction(
+            let (revision, _) = commit_workspace_registry_in_transaction(
                 &tx,
                 &mutation,
                 &fingerprint,
@@ -1084,9 +1084,9 @@ impl WorkspaceRegistry {
                 &close.remaining_workspaces,
                 &result_json,
             )?;
-            (Some(revision), terminal_batch)
+            Some(revision)
         } else {
-            (None, close_terminals_in_transaction(&tx, &mutation, terminals, "topology-closed")?)
+            None
         };
         let resource = commit_resource_effect_patch_in_transaction(
             &tx,

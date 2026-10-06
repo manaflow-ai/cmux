@@ -206,6 +206,6 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func onboardingDidEnd(completed: Bool) {
-        owner.markDone(completed: completed)
+        owner.didEnd(completed: completed)
     }
 }

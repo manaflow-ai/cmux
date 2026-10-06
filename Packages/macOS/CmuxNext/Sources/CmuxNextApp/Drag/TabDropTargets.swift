@@ -94,6 +94,28 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
     var layoutView: LayoutRootView? { window?.content?.layoutView }
 
     func dropHitTest(screenPoint: CGPoint, payload: TabDragPayload) -> TabDropProposal? {
+        proposal(screenPoint: screenPoint, dragKey: payload.dragID) { controller in
+            // A tab dropped on its own pane keeps its tab group (the end of
+            // its own strip is not a group change).
+            guard case .tab(let id, _) = payload else { return nil }
+            return controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
+        }
+    }
+
+    /// A sidebar workspace over this layout (`TabDragSession+Workspaces`):
+    /// the same pane targets as a tab, but only inside the layout (the
+    /// rest of the window keeps the workspace's own drops). Its tabs join
+    /// no tab group.
+    func workspaceHitTest(screenPoint: CGPoint, workspaceID: String) -> TabDropProposal? {
+        guard let layout = layoutView, let nsWindow = layout.window,
+              layout.bounds.contains(layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)) else { return nil }
+        return proposal(screenPoint: screenPoint, dragKey: workspaceID) { _ in nil }
+    }
+
+    /// The layout's target under `screenPoint` for a drag keyed `dragKey`;
+    /// `ownGroup` is the group a center drop on `controller` keeps.
+    private func proposal(screenPoint: CGPoint, dragKey: String,
+                          ownGroup: (PaneController) -> String?) -> TabDropProposal? {
         guard let content = window?.content, let layout = content.layoutView, let nsWindow = layout.window,
               !layout.bounds.isEmpty else { return nil }
         let local = layout.convert(nsWindow.convertPoint(fromScreen: screenPoint), from: nil)
@@ -102,7 +124,7 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         let windowPoint = layout.convert(clamped, to: nil)
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
-        guard let target = layout.updateTabDrag(LayoutTabID(payload.dragID), locationInWindow: windowPoint, removing: removingPane) else {
+        guard let target = layout.updateTabDrag(LayoutTabID(dragKey), locationInWindow: windowPoint, removing: removingPane) else {
             return nil
         }
         // The ghost lands on the rect the layout's preview shows (R47).
@@ -110,12 +132,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
-            // A tab dropped on its own pane keeps its tab group (the end of
-            // its own strip is not a group change).
-            let ownGroup: String? = if case .tab(let id, _) = payload {
-                controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
-            } else { nil }
-            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count, groupID: ownGroup),
+            return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count,
+                                                groupID: ownGroup(controller)),
                                    highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
@@ -136,7 +154,12 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         layout.showTabDragOutline(screenRect: screenRect)
     }
 
-    /// Labels the layout's preview: the refusal reason, or the stay note.
+    /// Hides the preview of a zone the drag cannot take (it draws nothing).
+    func hideOutline() {
+        touched?.hideTabDragHighlight()
+    }
+
+    /// Labels the layout's preview: the stay note.
     func note(_ text: String, refused: Bool) {
         touched?.setTabDragNote(text, refused: refused)
     }

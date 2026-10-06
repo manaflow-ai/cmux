@@ -10,6 +10,7 @@
     "CmuxHomeCore": "Packages/Shared/CmuxHomeCore",
     "CmuxHomeRender": "Packages/Shared/CmuxHomeRender",
     "CmuxIrxTransport": "Packages/Shared/CmuxIrxTransport",
+    "CmuxMessagesLab": "Packages/Shared/CmuxMessagesLab",
     "CmuxMobileRPC": "Packages/iOS/CmuxMobileRPC",
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
@@ -578,7 +579,8 @@
       ],
       "packages": [
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ]
     },
     "CmuxNextHomeTests": {
@@ -590,7 +592,8 @@
       ],
       "packages": [
         "CmuxHomeCore",
-        "CmuxHomeRender"
+        "CmuxHomeRender",
+        "CmuxMessagesLab"
       ],
       "reads": []
     },

@@ -7,6 +7,8 @@ final class NewTabButtonView: NSView {
     var isHovered = false { didSet { if oldValue != isHovered { updateColors(animated: true) } } }
     var isPressed = false { didSet { if oldValue != isPressed { updateColors(animated: false) } } }
     var onPress: (() -> Void)?
+    /// VoiceOver moved its focus onto (true) or off (false) the plus.
+    var onAccessibilityFocus: ((Bool) -> Void)?
 
     private let fillLayer = CALayer()
     private let glyphLayer = CAShapeLayer()
@@ -37,6 +39,11 @@ final class NewTabButtonView: NSView {
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func setAccessibilityFocused(_ accessibilityFocused: Bool) {
+        super.setAccessibilityFocused(accessibilityFocused)
+        onAccessibilityFocus?(accessibilityFocused)
+    }
 
     override func layout() {
         super.layout()

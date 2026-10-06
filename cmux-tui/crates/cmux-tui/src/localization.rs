@@ -6,6 +6,7 @@ mod agent_wrapper;
 mod app_control;
 mod attach;
 mod browser;
+mod cli_connection;
 mod coderouter;
 mod config;
 mod foreign_viewport;
@@ -30,6 +31,7 @@ pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use app_control::AppControlMessages;
 pub(crate) use attach::AttachMessages;
 pub(crate) use browser::BrowserMessages;
+pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
@@ -55,6 +57,11 @@ const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
 /// Format a dollar amount with two decimals and thousands separators.
 /// Non-finite or negative inputs render as zero so a bad upstream number
 /// can never produce a misleading readout.
+/// `cmux attach --help`, naming the program the way it was run.
+pub(crate) fn attach_help() -> String {
+    catalog().attach.help.replace("{program}", &crate::cli::BIN.to_string())
+}
+
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;
@@ -115,6 +122,7 @@ pub(crate) struct Catalog {
     pub remote: RemoteMessages,
     pub config: ConfigMessages,
     pub attach: AttachMessages,
+    pub cli_connection: CliConnectionMessages,
     pub sidebar: SidebarMessages,
     pub agent_wrapper: AgentWrapperMessages,
     pub app_control: AppControlMessages,
@@ -152,6 +160,7 @@ static ENGLISH: Catalog = Catalog {
     remote: remote::ENGLISH,
     config: config::ENGLISH,
     attach: attach::ENGLISH,
+    cli_connection: cli_connection::ENGLISH,
     sidebar: sidebar::ENGLISH,
 };
 
@@ -179,6 +188,7 @@ static JAPANESE: Catalog = Catalog {
     remote: remote::JAPANESE,
     config: config::JAPANESE,
     attach: attach::JAPANESE,
+    cli_connection: cli_connection::JAPANESE,
     sidebar: sidebar::JAPANESE,
 };
 

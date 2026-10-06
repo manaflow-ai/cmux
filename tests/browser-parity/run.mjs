@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
 import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
+import { startOwnHost } from "./lib/parity-host.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -141,6 +142,9 @@ for (const engine of HOST_ENGINES) {
     const viaCli = process.env.PARITY_HOST_CLI;
     const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
     const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    // The run's own host (lib/parity-host.mjs), one for all scenarios;
+    // `cmux browser repl` manages the daemon's host itself.
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
     return runCliCells(cells, scenario, {
       evalArgv: viaCli
         ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
@@ -149,6 +153,20 @@ for (const engine of HOST_ENGINES) {
       exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
     });
   };
+}
+
+// The run's own `cmux-browser-host serve`, started on first use and stopped
+// when main ends (stopOwnHost), also when the run fails.
+let ownHostStarted = null;
+function ownHost(bin) {
+  ownHostStarted ??= startOwnHost({ cmd: bin });
+  return ownHostStarted;
+}
+async function stopOwnHost() {
+  if (!ownHostStarted) return;
+  const started = ownHostStarted;
+  ownHostStarted = null;
+  await started.then((host) => host.stop(), () => {});
 }
 
 // One CLI call per cell; output lines without the CLI's status line.
@@ -198,6 +216,30 @@ function parseEmits(outputs, cells) {
     if (error) emits.push({ k: `__error__:${i + 1}`, v: String(error).split("\n")[0] });
   });
   return emits;
+}
+
+// The values a backend must emit. The Rust host backends (host-*) follow
+// cmux-next's automation lease (plans/cmux-next/automation-lease.md); where
+// that intentionally differs from classic, the golden's `lease` section
+// overrides a value (`{"$absent": true}`: the key is not emitted) and names
+// the lease rule in `lease.reasons` (README, "Intentional cmux-next
+// differences"). The `backends` section does the same for one backend.
+export function expectedValues(backend, golden) {
+  if (backend === "oracle") return { ...golden.oracle };
+  const expected = { ...golden.oracle, ...golden.cmux };
+  if (backend.startsWith("host-") && golden.lease) {
+    for (const [key, value] of Object.entries(golden.lease.values || {})) {
+      if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+      else expected[key] = value;
+    }
+  }
+  // One engine's deliberate difference (README, same section): only that
+  // backend gets it.
+  for (const [key, value] of Object.entries(golden.backends?.[backend]?.values || {})) {
+    if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+    else expected[key] = value;
+  }
+  return expected;
 }
 
 // known-failures.json: a scenario whose differing keys are exactly the
@@ -281,7 +323,7 @@ async function main() {
         console.log(`FAIL ${scenario.name}: no golden`);
         continue;
       }
-      const expected = args.backend === "oracle" ? { ...golden.oracle } : { ...golden.oracle, ...golden.cmux };
+      const expected = expectedValues(args.backend, golden);
       const actual = {};
       const problems = [];
       for (const e of emits) {
@@ -302,6 +344,7 @@ async function main() {
       } else console.log(`PASS ${scenario.name}`);
     }
   } finally {
+    await stopOwnHost();
     await server.close();
   }
   if (args.mode !== "run") {

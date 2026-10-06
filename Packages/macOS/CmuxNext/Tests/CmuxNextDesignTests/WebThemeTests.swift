@@ -82,4 +82,27 @@ import WebKit
         #expect(theme.variables["--cmux-text"] == WebTheme.css(opaque.textPrimary))
         #expect(WebTheme(tokens(opacity: 0.6)).variables["--cmux-surface-background"]?.hasSuffix(", 0.0)") == true)
     }
+
+    /// SCROLLBARS-FOLLOW-MACOS: pages learn the "Show scroll bars" setting from their theme as
+    /// `data-scrollers` on `<html>`, and follow a live change.
+    @Test func thePageGetsTheScrollerStyleAsARootAttribute() async {
+        let loaded = Loaded()
+        let webView = await page(loaded)
+        let opaque = tokens(opacity: 1)
+        #expect(WebTheme(opaque, scrollers: "legacy").scrollers == "legacy")
+        _ = await eval(webView, WebTheme(opaque, scrollers: "legacy").applyScript)
+        #expect(await eval(webView, "document.documentElement.getAttribute('data-scrollers')") == "legacy")
+        _ = await eval(webView, WebTheme(opaque, scrollers: "overlay").applyScript)
+        #expect(await eval(webView, "document.documentElement.getAttribute('data-scrollers')") == "overlay")
+    }
+
+    @Test func withoutAnExplicitStyleTheThemeReadsTheSystemSetting() {
+        let saved = SystemScrollers.preferredStyleOverride
+        defer { SystemScrollers.preferredStyleOverride = saved }
+        SystemScrollers.preferredStyleOverride = .legacy
+        #expect(WebTheme(tokens(opacity: 1)).scrollers == "legacy")
+        SystemScrollers.preferredStyleOverride = .overlay
+        #expect(WebTheme(tokens(opacity: 1)).scrollers == "overlay")
+    }
 }
+

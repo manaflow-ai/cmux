@@ -35,7 +35,6 @@ final class SidebarBridge {
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// The item the last Cmd-Ctrl-[ / ] reached and the workspace shown then (R119).
-    var sectionStepCursor: (item: LayoutItemID, workspace: String?)?
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -54,7 +53,6 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
-        SidebarHelpMenuProvider.install(on: container.sidebarView, services: services)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in
@@ -120,13 +118,13 @@ final class SidebarBridge {
             }
         }
         selectionObservation = Task { [weak self] in
-            // While a top page shows, no workspace row is selected (its item is).
-            for await id in Observations({ state.page == nil ? state.workspaceID : nil }) {
+            // One selection: the shown page's top item, else the shown workspace.
+            for await selected in Observations({ SidebarNavigation.selectedItem(page: state.page, workspace: state.workspaceID,
+                                                                                layout: layout.document) }) {
                 guard let self else { return }
-                let selected = id.map { SidebarWorkspaceID($0) }
-                if self.model.activeWorkspaceID != selected {
-                    self.model.activeWorkspaceID = selected
-                    self.model.selection = selected.map { [$0] } ?? []
+                if self.model.selectedItem != selected {
+                    self.model.selectedItem = selected
+                    self.model.selection = self.model.activeWorkspaceID.map { [$0] } ?? []
                 }
             }
         }

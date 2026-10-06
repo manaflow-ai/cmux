@@ -29,7 +29,9 @@ const limits = await import("./highlightLimits");
 
 describe("highlight limits", () => {
   test("an ordinary fence is highlighted", () => {
-    expect(renderToStaticMarkup(createElement(CodeBlock, { code: "let a = 1\n", lang: "ts" }))).toContain("<diffs-container");
+    expect(renderToStaticMarkup(createElement(CodeBlock, { code: "let a = 1\n", lang: "ts" }))).toContain(
+      "<diffs-container",
+    );
   });
 
   test("a fence over the line cap draws as plain monospace text", () => {

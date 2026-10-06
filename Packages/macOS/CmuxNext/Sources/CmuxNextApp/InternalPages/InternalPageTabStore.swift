@@ -1,7 +1,8 @@
 import AppKit
-import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextIcons
 import CmuxNextTabs
 
 /// Which internal page tabs each pane lists, and their views
@@ -98,7 +99,13 @@ final class InternalPageTabStore {
     func stripItem(_ key: String) -> StripTabItem {
         let provider = LocalPageTab.page(of: key).flatMap { providers[$0] }
         return StripTabItem(id: StripTabID(key), title: provider?.title(for: key) ?? "", subtitle: nil,
-                            icon: .symbol(provider?.symbol ?? "square.dashed"), isBusy: false)
+                            icon: Self.tabIcon(provider), isBusy: false)
+    }
+
+    /// A page tab's strip icon: the page's cmux icon, else its SF Symbol.
+    static func tabIcon(_ provider: (any InternalPageProvider)?) -> TabIcon {
+        guard let provider else { return .icon(.placeholder) }
+        return provider.icon.map(TabIcon.icon) ?? .symbol(provider.symbol)
     }
 
     /// The tab's view, made on first show.
@@ -124,7 +131,7 @@ final class InternalPageTabStore {
     /// A store page tab's strip title and icon, from the page it shows.
     func storeTabItem(_ tab: TabModel) -> (title: String, icon: TabIcon)? {
         guard let page = tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
-        return (provider.title(for: storeKeys[tab.id] ?? ""), .symbol(provider.symbol))
+        return (provider.title(for: storeKeys[tab.id] ?? ""), Self.tabIcon(provider))
     }
 
     /// The view of store page tab `tab` (its `page` source), made on first
