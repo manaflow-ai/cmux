@@ -2380,6 +2380,18 @@
 
   // Unfinished requests a page keeps to pair with their later events.
   const MAX_OPEN_REQUESTS = 1000;
+  // Ref provenance a Page keeps (Page._noteRefDocs, Page._forgetFrame): the
+  // document of at most MAX_REF_DOCS issued refs in all (twice the largest
+  // snapshot, so one snapshot never drops its own refs), and the prefixes of
+  // at most MAX_FRAME_TOMBSTONES detached frames. A ref whose record is
+  // dropped fails stale; a prefix is never reused, so a dropped prefix's ref
+  // fails as one that does not exist. Neither resolves to another element.
+  const MAX_REF_DOCS = 500000;
+  const MAX_FRAME_TOMBSTONES = 1024;
+  // The document a dropped ref record reads as: no page agent's token
+  // (16 hex digits) equals it, so the agent refuses the ref as another
+  // document's.
+  const DROPPED_REF_DOC = "dropped";
 
   class Page extends EventEmitter {
     constructor(session, targetId) {
@@ -2394,16 +2406,23 @@
       this._requests = new Map();
       this._testIdAttribute = "data-testid";
       // Frame prefixes are assigned once per frame, in DOM order of first
-      // sight, so a frame's refs keep their prefix.
-      this._framePrefixes = new Map();
+      // sight, so a frame's refs keep their prefix. A detached frame's
+      // prefix maps to null (a tombstone, so its refs fail stale), for the
+      // newest MAX_FRAME_TOMBSTONES detached frames.
+      this._framePrefixes = new WeakMap();
       this._prefixFrames = new Map([["", this._mainFrame]]);
+      this._prefixTombstones = new Set();
       this._prefixCounter = 0;
-      this._refMax = new Map();
+      this._refMax = new WeakMap();
       // Per frame, the document (the page agent's token) each ref this
       // session received came from. A frame keeps its identity when it
       // navigates and refs restart in each document, so a ref is checked
-      // against the document that issued it (`_checkRef`).
+      // against the document that issued it (`_checkRef`). At most
+      // MAX_REF_DOCS records in all; the least recently issued go first,
+      // and `_refFloors` keeps, per frame, the highest ref number dropped.
       this._refDocs = new Map();
+      this._refDocCount = 0;
+      this._refFloors = new Map();
       this._heldDialog = null;
       this._listenedDialog = null;
       this._dismissedDialogs = [];
@@ -2510,11 +2529,33 @@
       }
       for (const [id, frame] of this._frames) {
         if (!alive.has(frame)) {
-          frame._detached = true;
+          this._forgetFrame(frame);
           this._frames.delete(id);
         }
       }
       return list;
+    }
+    // A frame left the tab: its prefix becomes a tombstone (its refs fail
+    // stale), and its ref records go.
+    _forgetFrame(frame) {
+      frame._detached = true;
+      const prefix = this._framePrefixes.get(frame);
+      if (prefix) this._tombstone(prefix);
+      const docs = this._refDocs.get(frame);
+      if (docs) this._refDocCount -= docs.size;
+      this._refDocs.delete(frame);
+      this._refFloors.delete(frame);
+      this._refMax.delete(frame);
+    }
+    _tombstone(prefix) {
+      this._prefixFrames.delete(prefix);
+      this._prefixFrames.set(prefix, null);
+      this._prefixTombstones.add(prefix);
+      for (const old of this._prefixTombstones) {
+        if (this._prefixTombstones.size <= MAX_FRAME_TOMBSTONES) break;
+        this._prefixTombstones.delete(old);
+        this._prefixFrames.delete(old);
+      }
     }
     _prefixFor(frame) {
       if (frame === this._mainFrame) return "";
@@ -2522,7 +2563,8 @@
       if (!prefix) {
         prefix = `f${++this._prefixCounter}`;
         this._framePrefixes.set(frame, prefix);
-        this._prefixFrames.set(prefix, frame);
+        if (frame._detached) this._tombstone(prefix);
+        else this._prefixFrames.set(prefix, frame);
       }
       return prefix;
     }
@@ -2538,15 +2580,35 @@
     }
     // Records that `doc` (a page agent's document token) issued `refs` (local
     // refs, `e5`) in `frame`; a later issue of the same ref rebinds it.
+    // At most MAX_REF_DOCS records are kept: past that the least recently
+    // issued go (the oldest frame's first), and a dropped ref reads as
+    // DROPPED_REF_DOC (`_refDocFor`). A detached frame records nothing.
     _noteRefDocs(frame, doc, refs) {
-      if (typeof doc !== "string") return;
+      if (typeof doc !== "string" || frame._detached) return;
       let docs = this._refDocs.get(frame);
       if (!docs) this._refDocs.set(frame, (docs = new Map()));
-      for (const ref of refs) if (typeof ref === "string") docs.set(ref, doc);
+      for (const ref of refs) {
+        if (typeof ref !== "string") continue;
+        if (docs.delete(ref)) this._refDocCount--;
+        docs.set(ref, doc);
+        this._refDocCount++;
+      }
+      for (const [f, held] of this._refDocs) {
+        for (const ref of held.keys()) {
+          if (this._refDocCount <= MAX_REF_DOCS) return;
+          held.delete(ref);
+          this._refDocCount--;
+          const n = Number(ref.slice(1));
+          if (n > (this._refFloors.get(f) || 0)) this._refFloors.set(f, n);
+        }
+        if (!held.size) this._refDocs.delete(f);
+      }
     }
     _refDocFor(frame, local) {
       const docs = this._refDocs.get(frame);
-      return docs ? docs.get(local) : undefined;
+      const doc = docs ? docs.get(local) : undefined;
+      if (doc !== undefined) return doc;
+      return Number(local.slice(1)) <= (this._refFloors.get(frame) || 0) ? DROPPED_REF_DOC : undefined;
     }
     // Returns the frame that owns a live ref, or throws: a ref whose element
     // is gone never rebinds to another element.
@@ -2730,7 +2792,7 @@
       // The next web process has new frame ids; address the main frame by
       // default until frames are read again.
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
       this.emit("crash", this);
     }
@@ -2738,7 +2800,7 @@
     // to save memory, or recovered a crashed one): frames have new ids.
     _onReplaced() {
       this._mainFrame._id = null;
-      for (const [, frame] of this._frames) frame._detached = true;
+      for (const [, frame] of this._frames) this._forgetFrame(frame);
       this._frames.clear();
     }
     _onClosed() {
