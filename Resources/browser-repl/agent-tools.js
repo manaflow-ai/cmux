@@ -1030,10 +1030,13 @@
       // Reference C's sensitive_data shape: { "<domain pattern>": { name: value } },
       // as an object or a JSON file path (read by the native session, so the
       // values never enter this context). A value { value, totp } is accepted.
-      load(source) {
-        if (typeof source === "string") return secretsHost("load", { path: source }).map(described);
+      // A weak value (shorter than 8 characters, or a common password)
+      // is refused unless options.allowWeak is true.
+      load(source, options) {
+        const allowWeak = !!(options && options.allowWeak === true);
+        if (typeof source === "string") return secretsHost("load", { path: source, allowWeak }).map(described);
         if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
-        return secretsHost("load", { object: source }).map(described);
+        return secretsHost("load", { object: source, allowWeak }).map(described);
       },
       list: () => secretsHost("list").map(described),
       has: (name) => secretsHost("has", { name }),

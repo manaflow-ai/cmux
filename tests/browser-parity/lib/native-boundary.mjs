@@ -146,6 +146,17 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     return out;
   }
 
+  // As BrowserReplSecretStore.commonValues and minimumLoadedValueCharacters.
+  const COMMON_SECRET_VALUES = new Set([
+    "password", "password1", "password12", "password123", "passw0rd", "p@ssw0rd", "p@ssword",
+    "12345678", "123456789", "1234567890", "87654321", "11111111", "00000000", "12341234",
+    "qwertyui", "qwertyuiop", "qwerty123", "1q2w3e4r", "1qaz2wsx", "asdfghjk", "zaq12wsx",
+    "abc12345", "abcd1234", "admin123", "administrator", "changeme", "letmein1", "welcome1",
+    "iloveyou", "sunshine", "princess", "football", "baseball", "superman", "starwars",
+    "trustno1", "whatever", "computer", "internet", "michelle", "jennifer",
+  ]);
+  const isWeakSecret = (value) => [...new Intl.Segmenter().segment(value)].length < 8 || COMMON_SECRET_VALUES.has(value.toLowerCase());
+
   function setSecret(name, value, domains, totp, title) {
     if (typeof name !== "string" || !/^[\w.-]{1,64}$/.test(name)) throw new BoundaryError("invalid", `${title}: name: expected letters, digits, _, . or - (at most 64), got ${JSON.stringify(name)}`);
     if (typeof value !== "string" || !value) throw new BoundaryError("invalid", `${title}: ${name}: value: expected a non-empty string`);
@@ -192,6 +203,21 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
           }
         }
         if (!data || typeof data !== "object" || Array.isArray(data)) throw new BoundaryError("invalid", 'secrets.load: expected { "<domain pattern>": { name: value } }');
+        // As BrowserReplSecretStore.isWeak: refused whole unless allowWeak.
+        if (args.allowWeak !== true) {
+          const weak = [];
+          for (const pattern of Object.keys(data).sort()) {
+            const entries = data[pattern] && typeof data[pattern] === "object" ? data[pattern] : {};
+            for (const name of Object.keys(entries).sort()) {
+              const v = entries[name];
+              const value = v && typeof v === "object" ? v.value : v;
+              if (typeof value === "string" && isWeakSecret(value) && !weak.includes(name)) weak.push(name);
+            }
+          }
+          if (weak.length) {
+            throw new BoundaryError("invalid", `secrets.load: ${weak.map((n) => JSON.stringify(n)).join(", ")} ${weak.length === 1 ? "has a weak value" : "have weak values"} (shorter than 8 characters, or a common password), which an agent could confirm by guessing; nothing was loaded. Use a stronger value, or pass { allowWeak: true } to load it anyway`);
+          }
+        }
         const names = [];
         for (const pattern of Object.keys(data).sort()) {
           const entries = data[pattern];
