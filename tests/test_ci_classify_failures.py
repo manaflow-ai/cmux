@@ -948,7 +948,9 @@ class MainStateTests(unittest.TestCase):
                                                          main_run("failure")])
         self.assertEqual(cf.main_red(gh)["state"], cf.MAIN_RED)
         verdict = self.verdict(gh)
-        self.assertIn("but not on main's latest full suite", verdict)
+        # No issue lists main's failures, so it cannot say this one is not among them.
+        self.assertIn("main's latest full suite is red too, and its failures could not be read", verdict)
+        self.assertNotIn("not on main", verdict)
         self.assertNotIn("green", verdict)
 
     def test_an_unreadable_main_is_not_green(self) -> None:
@@ -1003,6 +1005,23 @@ class KnownElsewhereTests(unittest.TestCase):
                 body, _ = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
                 self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"))
 
+    def test_a_pr_that_hit_it_after_this_one_does_not_hide_this_ones_regression(self) -> None:
+        # A PR stacked on this one, or a copy of its change, fails the same way later.
+        record = {TEST_KEY: {"7": days_ago(3), "101": days_ago(1)}, CRASH_KEY: {"7": days_ago(3), "101": days_ago(0)}}
+        body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"), body.splitlines()[2])
+        self.assertNotIn("Seen on other PRs", body)
+        self.assertEqual(writes, [])  # first sightings are kept, so nothing changed
+
+    def test_a_broken_record_still_comments(self) -> None:
+        from unittest import mock
+
+        record = {TEST_KEY: {"15409": days_ago(1)}}
+        with mock.patch.object(cf, "parse_seen", side_effect=ValueError("bad")):
+            body, writes = self.act(FakeGitHub(files=PR_17258_FILES, seen=self.seen(record)))
+        self.assertTrue(body.splitlines()[2].startswith("**Probably yours:**"))
+        self.assertEqual(writes, [])
+
     def test_a_crash_counts_only_with_the_test_it_crashed(self) -> None:
         # "Bad pointer dereference" alone names no test: another test's crash is not this one.
         record = {TEST_KEY: {"15409": days_ago(1)},
@@ -1055,6 +1074,12 @@ class KnownElsewhereTests(unittest.TestCase):
         marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
         self.assertLess(len(marker), cf.MAX_SEEN_CHARS + 100)
         self.assertEqual(marker.count("-->"), 1)
+
+    def test_the_cap_counts_escaped_angle_brackets(self) -> None:
+        # Swift Testing names like "a -> b": each `>` grows to six characters in the marker.
+        record = {f"test:Suite{i}.swift:" + ">" * 80: {str(1000 + j): days_ago(0) for j in range(5)} for i in range(400)}
+        marker = cf.seen_marker(cf.prune_seen(record, days_ago(0)))
+        self.assertLess(len(marker), cf.MAX_SEEN_CHARS + 100)
 
 
 class WorkflowTests(unittest.TestCase):

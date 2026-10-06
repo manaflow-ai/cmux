@@ -696,7 +696,7 @@ def prune_seen(record: Mapping[str, Mapping[str, str]], today: str) -> dict[str,
     out: dict[str, dict[str, str]] = {}
     size = len(seen_marker({}))
     for key in sorted(kept, key=lambda k: max(kept[k].values()), reverse=True):
-        entry = len(json.dumps({key: kept[key]}, separators=(",", ":"))) + 1
+        entry = len(json.dumps({key: kept[key]}, separators=(",", ":")).replace(">", "\\u003e")) + 1
         if size + entry > MAX_SEEN_CHARS:
             break
         out[key], size = kept[key], size + entry
@@ -704,9 +704,12 @@ def prune_seen(record: Mapping[str, Mapping[str, str]], today: str) -> dict[str,
 
 
 def seen_elsewhere(record: Mapping[str, Mapping[str, str]], keys: Iterable[str], pr: int, today: str) -> set[str]:
-    """The other pull requests that hit any of these keys in the last SEEN_DAYS days."""
+    """The other pull requests that hit any of these keys in the last SEEN_DAYS days, before this one
+    first did. One that hit it later is usually stacked on this PR or a copy of its change, so it
+    would hide this PR's own regression."""
     pruned = prune_seen({k: record[k] for k in keys if k in record}, today)
-    return {p for prs in pruned.values() for p in prs if p != str(pr)}
+    return {p for prs in pruned.values() for p, d in prs.items()
+            if p != str(pr) and d < prs.get(str(pr), today)}
 
 
 def today_utc() -> str:
@@ -749,7 +752,7 @@ def record_seen(record: Mapping[str, Mapping[str, str]], report: Mapping, pr: in
         for item in job.get("failures") or []:
             if item.get("owner") in (NEW, FLAKY):
                 for key in seen_keys(item, job.get("failures") or []):
-                    updated.setdefault(key, {})[str(pr)] = today
+                    updated.setdefault(key, {}).setdefault(str(pr), today)  # the first sighting
     updated = prune_seen(updated, today)
     return None if updated == record else updated
 
@@ -855,7 +858,8 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
         line += seen_too
     elif new:
         # Green only when main's latest full-suite run passed (main_red).
-        where_main = {MAIN_RED: " but not on main's latest full suite",
+        where_main = {MAIN_RED: " but not on main's latest full suite" if main.get("issue") or main.get("keys")
+                      else "; main's latest full suite is red too, and its failures could not be read",
                       MAIN_GREEN: " but not on main, whose full suite is green"}.get(
                           main_state(main), "; main's full-suite result could not be read")
         # A compile error in a file the PR does not change may still be its own (a removed
@@ -869,8 +873,8 @@ def verdict_line(report: Mapping, rerun: bool, rerun_line: str) -> str:
         line = f"**Not yours:** {listed(on_main)} also fails on main{issue}; merge main once it is fixed there."
         line += seen_too
     elif flaky and not unexplained:
-        line = f"**Seen on other PRs too (likely flaky):** {listed(flaky, False)}; probably not this PR's, " \
-               "re-run the failed jobs."
+        line = f"**Seen on other PRs too (likely flaky):** {listed(flaky, False)} also failed on other PRs " \
+               "before this one; check whether it is this PR's before re-running."
     elif unexplained:
         job = unexplained[0]
         who = "Probably yours" if job["verdict"] == CODE else "Unclear"
@@ -1046,16 +1050,20 @@ def act(gh: GitHub, writer: Writer, run: Mapping, report: dict) -> dict:
     report["merged"] = merged
     files = own_failures(gh, pr, report, None)
     today = today_utc()
-    seen = mark_seen_elsewhere(gh, pr, report, today)
+    try:
+        seen = mark_seen_elsewhere(gh, pr, report, today)
+    except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"::warning::issue {SEEN_ISSUE} (failures seen on other PRs) unreadable: {error}", file=sys.stderr)
+        seen = None
     same_repo = str((run.get("head_repository") or {}).get("full_name") or "").lower() == gh.repo.lower()
     if seen is not None and same_repo:
-        record, issue_body = seen
-        updated = record_seen(record, report, pr, today)
-        if updated is not None:
-            try:
+        try:
+            record, issue_body = seen
+            updated = record_seen(record, report, pr, today)
+            if updated is not None:
                 writer.call("PATCH", f"repos/{gh.repo}/issues/{SEEN_ISSUE}", {"body": seen_body(issue_body, updated)})
-            except RuntimeError as error:
-                print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
+        except (RuntimeError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"::warning::could not record failures in issue {SEEN_ISSUE}: {code(error)}", flush=True)
     if report.get("macos_blocked"):
         report["macos_skipped"] = touches_app(files or safe_pr_files(gh, pr))
     rerun, line = False, ""
