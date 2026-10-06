@@ -681,7 +681,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   answers) on a tab that shows a blocked page, cancels main-frame
   navigations to blocked URLs in tabs the session created
   (`navigation.blocked`), and never navigates a user's tab away for the
-  policy. A navigation to `about:` (`about:blank`) or `data:`, or to a
+  policy. The cancel is in the navigation-action decision, which WebKit
+  asks again for each HTTP redirect hop, with the hop's URL and before it
+  requests it, so a redirect to a blocked host is cancelled before that
+  host is asked for anything (`BrowserReplRedirectPolicyTests`). A navigation to `about:` (`about:blank`) or `data:`, or to a
   `blob:` of an opaque origin, takes its document from the frame that
   started it, so it is judged by that frame's document as WebKit recorded
   it (its source frame) and cancelled when the policy blocks that one; one
