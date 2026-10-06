@@ -255,7 +255,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY?, expect? }`. `expect`, on a `down` only: `{ frameId, handle, x, y, owners: [{ frameId, handle, x, y }] }`, the element the press must reach at `x`, `y` of its frame, then each parent frame's `<iframe>` and where the press lands in that frame, innermost first, the last at the press point; the press is sent only while each is still what is at its point (see "Frames and scripts"), else it fails with `stale` and no press. A `frameId` of `null` is the main frame |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains, secretRevision }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
-| `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers }` (native drag session so HTML5 drag and drop fires). The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |
+| `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers, expect?, dropExpect? }` (native drag session so HTML5 drag and drop fires). `expect` binds the press at the first point and `dropExpect` the release at the last, each shaped and checked as `input.mouse`'s `expect`, right before the press and right before the release (a locator's `dragTo` sends both unless `force`): a changed source fails with `stale` (`no press was sent: …`) and no press; a changed target fails with `stale` (`no drop was made: …`), the HTML5 drag ends with no drop and a plain mouse drag is released at the press point. The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
@@ -455,7 +455,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   content world and reads the origin there, masks only in a document
   that still holds the mark, and refuses the capture when, after it, any
   frame shows a document without the mark (it showed another page
-  meanwhile).
+  meanwhile), and (`stale`) when a child frame it marked is gone after
+  it: that frame could have shown any page during the capture.
   Everything the session hands its JavaScript or its output passes one
   egress gate (`BrowserReplBoundary.egress`, Swift only): driver results,
   refusals and errors, events (and withheld events), fetch responses (URL,
@@ -626,7 +627,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `blob:` of an opaque origin, takes its document from the frame that
   started it, so it is judged by that frame's document as WebKit recorded
   it (its source frame) and cancelled when the policy blocks that one; one
-  no page started (the agent's own) passes. The content rules judge a
+  no page started (the agent's own) passes. A page-started navigation to
+  any other URL is judged by that URL and by the frame that started it: a
+  blocked frame cannot move the tab even to an allowed page (whose URL it
+  chose and can put its page's data in). The content rules judge a
   `blob:` subresource or child frame by the origin in its URL. A document
   of an opaque origin whose URL names no host (a `data:` frame, a sandboxed
   `about:srcdoc`, a `blob:` of an opaque origin) is judged by the pages that
@@ -708,6 +712,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   cannot be told from its siblings there, so every frame element in that
   parent's shadow trees is inert meanwhile; a blocked frame in a closed
   shadow root, out of the driver's reach, refuses the input (`blocked`).
+  A blocked frame reports its place in its parent's `window.frames` (from
+  its own window, WebKit's handle of that frame), and the page can reorder
+  its frames before the parent guards that place: so after the guards are
+  on, each guarded frame reports its place again and each parent confirms
+  `window.frames` stayed the list it guarded at every change in between
+  (a mutation observer compares it), else the input fails with `stale`
+  and nothing is sent. The inert element then holds the blocked frame and
+  keeps it wherever the page moves it.
   After a key or inserted text the focus is checked again, still under the
   guard. The driver watches each guarded element's `inert` attribute from
   its own content world and puts it back as soon as the page takes it off:
@@ -792,7 +804,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   schemes, and the page controls its URL. So it goes to the sessions
   (`tab.created`) only when it is an `http`, `https`, `about:blank` or
   `blob:` (of such an origin) page that the browser's URL allowlist and
-  the creating session's domain policy allow; otherwise it opens nothing.
+  the creating session's domain policy allow, and only when that policy
+  allows the document of the frame that opened it (a blocked frame chose
+  the URL); otherwise it opens nothing.
   An `about:blank` window (or one with no URL) takes the origin of the frame
   that opened it, which can write into it, so it opens only when the policy
   allows that frame's document as WebKit recorded it (the same holds for a

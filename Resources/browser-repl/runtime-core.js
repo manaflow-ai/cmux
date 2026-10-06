@@ -1500,13 +1500,32 @@
         await this._page.mouse.move(t.x, t.y, { modifiers: options.modifiers });
       });
     }
+    // The press binds to the source and the release to the target, as a
+    // click's press does (Page._clickAt): each names its element and each
+    // parent frame's <iframe> (`expect`, `dropExpect`), and the driver
+    // checks them right before it presses and right before it drops, so a
+    // page that puts another element or frame at either point after the
+    // runtime's checks (or during the drag) gets no press or no drop.
     async dragTo(target, options = {}) {
       const from = await this._actionPoint({ ...options, position: options.sourcePosition }, "locator.dragTo", ["visible", "stable"]);
       const to = await target._actionPoint({ ...options, position: options.targetPosition, force: true }, "locator.dragTo", ["visible", "stable"]);
       const steps = options.steps || 1;
       const path = [{ x: from.x, y: from.y }];
       for (let i = 1; i <= steps; i++) path.push({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps });
-      await this._page._input("input.drag", { targetId: this._page._targetId, path, button: "left", modifiers: normalizeModifiers(options.modifiers) });
+      const bind = (t) => !options.force && t.handle !== undefined
+        ? { frameId: t.frame._id || null, handle: t.handle, x: t.local.x, y: t.local.y, owners: t.owners || [] }
+        : null;
+      const expect = bind(from);
+      const dropExpect = bind(to);
+      try {
+        await this._page._input("input.drag", {
+          targetId: this._page._targetId, path, button: "left", modifiers: normalizeModifiers(options.modifiers),
+          ...(expect ? { expect } : {}), ...(dropExpect ? { dropExpect } : {}),
+        });
+      } catch (e) {
+        if ((expect || dropExpect) && /^no (press was sent|drop was made): /.test((e && e.message) || "")) throw new Error(`locator.dragTo: ${e.message}`);
+        throw e;
+      }
       this._page.mouse._x = to.x;
       this._page.mouse._y = to.y;
       await this._page._afterAction();

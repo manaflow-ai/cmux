@@ -732,7 +732,7 @@ async function runWithPressWindow(code) {
     const raw = browser.driver({ sessionId: "press-window" });
     const driver = Object.create(raw);
     driver.call = async (method, params = {}) => {
-      if (method === "input.mouse" && params.type === "down") {
+      if ((method === "input.mouse" && params.type === "down") || method === "input.drag") {
         await raw.call("frame.evaluate", {
           targetId: params.targetId,
           world: "page",
@@ -812,6 +812,69 @@ test("pointer: the driver refuses a click's press when the page changes the poin
     assert.match(r.moved.error || "", /no press was sent: .*(moved|intercepts pointer events)/, r.moved.error);
     // A page that leaves the point alone still gets the click.
     assert.deepEqual(r.still, { error: null, clicked: ["target"] });
+  } finally {
+    await server.close();
+  }
+});
+
+test("pointer: a locator drag starts and drops only on the elements the runtime checked, also after the page changes the points", async () => {
+  // dragTo is two points, and the page runs between the runtime's checks
+  // and the driver's drag, and during the drag itself: it can put another
+  // element or another (allowed) frame over the source before the press,
+  // or over the target once the drag started. The driver checks the source
+  // right before the press and the target right before the release, as it
+  // does a click's press, and makes no drop when either changed.
+  const server = await startFixtureServers();
+  try {
+    const out = await runWithPressWindow(`
+      const drag = async () => {
+        try {
+          await page.locator("#s").dragTo(page.locator("#t"), { timeout: 1500 });
+          return null;
+        } catch (e) {
+          return String(e.message || e).split("\\n")[0];
+        }
+      };
+      const setUp = (mode) => page.evaluate((mode) => {
+        window.events = [];
+        document.body.style.margin = "0";
+        const decoy = (left, top) => '<iframe id="d" style="position:absolute;left:' + left + 'px;top:' + top + 'px;width:200px;height:120px;border:0;z-index:5" ' +
+          'srcdoc="<body style=margin:0;height:120px ondragover=event.preventDefault() ondrop=event.preventDefault();parent.events.push(&quot;decoy-drop&quot;) onmousedown=parent.events.push(&quot;decoy-down&quot;)></body>"></iframe>';
+        document.body.innerHTML =
+          '<div id="s" draggable="true" style="position:absolute;left:20px;top:20px;width:100px;height:60px;background:#ccc">source</div>' +
+          '<div id="t" style="position:absolute;left:300px;top:300px;width:120px;height:80px;background:#eee">target</div>' +
+          decoy(-1000, 0);
+        const s = document.getElementById("s");
+        const t = document.getElementById("t");
+        s.addEventListener("dragstart", (e) => {
+          e.dataTransfer.setData("text/plain", "x");
+          window.events.push("dragstart");
+          if (mode === "drop") { const d = document.getElementById("d"); d.style.left = "250px"; d.style.top = "280px"; }
+        });
+        t.addEventListener("dragenter", (e) => e.preventDefault());
+        t.addEventListener("dragover", (e) => e.preventDefault());
+        t.addEventListener("drop", (e) => { e.preventDefault(); window.events.push("target-drop"); });
+        window.onPressWindow = mode === "start" ? () => { const d = document.getElementById("d"); d.style.left = "0px"; d.style.top = "0px"; } : null;
+      }, mode);
+      const ready = () => page.waitForFunction(() => { const d = document.getElementById("d").contentDocument; return !!(d && d.body); });
+      const result = {};
+      for (const mode of ["start", "drop", "still"]) {
+        await setUp(mode);
+        await ready();
+        const error = await drag();
+        result[mode] = { error, events: await page.evaluate(() => window.events) };
+      }
+      console.log("@@" + JSON.stringify(result));
+    `);
+    const line = out.split("\n").find((l) => l.startsWith("@@"));
+    assert.ok(line, out.slice(0, 2000));
+    const r = JSON.parse(line.slice(2));
+    assert.ok(!r.start.events.includes("decoy-down") && !r.start.events.includes("decoy-drop"), `start: the drag reached the frame over the source: ${JSON.stringify(r.start)}`);
+    assert.match(r.start.error || "", /no press was sent: /, JSON.stringify(r.start));
+    assert.ok(!r.drop.events.includes("decoy-drop") && !r.drop.events.includes("target-drop"), `drop: the drop landed on ${JSON.stringify(r.drop.events)}`);
+    assert.match(r.drop.error || "", /no drop was made: /, JSON.stringify(r.drop));
+    // A page that leaves the points alone still gets the drop.
+    assert.deepEqual(r.still, { error: null, events: ["dragstart", "target-drop"] });
   } finally {
     await server.close();
   }
