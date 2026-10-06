@@ -14,6 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use super::{MessageWriter, Mux};
+use crate::request_origin::RequestOrigin;
+use crate::resource::ResourceOperation;
 use crate::{AgentState, MuxEvent};
 
 pub(crate) const CAPABILITY: &str = "vm-activity-v1";
@@ -108,6 +110,39 @@ impl ActivityStream {
         if state.subscribers.remove(&client).is_some() && state.subscribers.is_empty() {
             wake.notify_one();
         }
+    }
+}
+
+/// A person's client: the verified app's main connection (origin `user`), or a connection
+/// attached to a surface whose `set-client-info` kind is a person's client. Agents and
+/// automation (no attach, or another kind) never count, so they cannot keep a machine awake.
+fn is_person(mux: &Mux, client: u64) -> bool {
+    let state = mux.control_clients.state.lock().unwrap_or_else(PoisonError::into_inner);
+    state.clients.get(&client).is_some_and(|c| {
+        c.origin.derive() == RequestOrigin::User
+            || (!c.attached.is_empty()
+                && c.kind.as_deref().is_some_and(|k| PERSON_KINDS.contains(&k)))
+    })
+}
+
+/// Browser pointer, wheel or key input that succeeded (server/browser_input.rs).
+pub(super) fn note_person_input(mux: &Mux, client: u64) {
+    if is_person(mux, client) {
+        mux.activity.note_user_input();
+    }
+}
+
+/// A v2 `terminal.input.*` operation that succeeded counts when a person's client sent it.
+pub(super) fn note_resource_input(mux: &Mux, client: u64, operation: ResourceOperation, response: &Value) {
+    let input = matches!(
+        operation,
+        ResourceOperation::TerminalInputWrite
+            | ResourceOperation::TerminalInputKeys
+            | ResourceOperation::TerminalInputMouse
+            | ResourceOperation::TerminalInputFocus
+    );
+    if input && response["ok"] == true {
+        note_person_input(mux, client);
     }
 }
 
