@@ -15,12 +15,13 @@ import Testing
     @Test func theDefaultLayoutIsTheSectionsSidebar() {
         let top = SidebarLayoutDocument.defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue)
         let bottom = SidebarLayoutDocument.defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.id.rawValue)
-        #expect(top == ["itm_home", "itm_app_store"])
+        // New chat and Search Chats lead, as in the ChatGPT desktop app.
+        #expect(top == ["itm_new_chat", "itm_search_chats", "itm_home", "itm_app_store"])
         // Lawrence 2026-10-05: the top is plain rows, not a tiles card.
         #expect(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
         let shown = SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")),
                                                                      section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter"])
+        #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_new_chat", "itm_search_chats", "itm_home", "itm_app_store", "itm_app_coderouter"])
         // SIDEBAR-FOOTER-MINIMAL: the footer is the avatar, then the gear.
         #expect(bottom == ["itm_account", "itm_settings"])
     }
@@ -35,7 +36,7 @@ import Testing
         let view = sidebar.sidebarView
         #expect(sidebar.convert(sidebar.bounds, to: nil).minX == 0, "the sidebar is flush on the leading edge (no rail)")
         #expect(view.aboveRegion.itemView(LayoutItemID("itm_app_coderouter")) == nil, "CodeRouter is not in the top band by default")
-        for id in ["itm_home", "itm_app_store"] {
+        for id in ["itm_new_chat", "itm_search_chats", "itm_home", "itm_app_store"] {
             #expect(view.aboveRegion.itemView(LayoutItemID(id))?.style == .builtIn, "\(id) is a plain row in the top band")
         }
         for id in ["itm_new_workspace", "itm_import_sync"] {
