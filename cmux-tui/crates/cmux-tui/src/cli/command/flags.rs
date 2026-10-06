@@ -80,7 +80,7 @@ pub(super) fn positional_rename(
     if count < 3 || words[count - 2] != "rename" {
         return Ok(());
     }
-    let name = words.pop().expect("length checked above");
+    let Some(name) = words.pop() else { return Ok(()) };
     if flags.values.insert("name".into(), Some(name)).is_some() {
         return Err(super::UsageError::new(
             "give the new name once: rename <name> or rename --name <name>",
