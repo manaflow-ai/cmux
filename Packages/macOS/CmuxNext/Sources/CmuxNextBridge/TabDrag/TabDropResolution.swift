@@ -7,13 +7,23 @@ public nonisolated enum TabDropPreview: Hashable, Sendable {
     case target(TabDropProposal)
     /// The outline sits on the tabs' own place; the drop changes nothing.
     case stay(TabDropProposal)
-    /// The outline sits on `proposal.highlightFrame` with the reason.
+    /// Nothing highlights (Lawrence 2026-10-07: a refused zone just does
+    /// not light up); the drop springs back.
     case refused(TabDropProposal, TabDropRefusal)
     /// Outside every app window: a new window opens under the pointer.
     case newWindow(screenPoint: CGPoint)
     /// Inside a window where no surface answered. The resolvers cover every
     /// point, so this is a defect; the drop springs back.
     case none
+}
+
+extension TabDropPreview {
+    /// Whether the target under the pointer lights up: every preview but a
+    /// refused zone.
+    public var highlights: Bool {
+        if case .refused = self { return false }
+        return true
+    }
 }
 
 /// One resolved pointer position: the preview and the outcome it commits.
