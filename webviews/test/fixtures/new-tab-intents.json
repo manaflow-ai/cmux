@@ -1,70 +1,396 @@
 {
-  "comment": "The new tab field's typed intent (plans/cmux-next/new-tab.md section 3.1). Read by webviews newTabIntent.test.ts and by the Swift NewTabIntentTests; both classifiers must agree on every row. home is the user's home folder for ~ rows; mode defaults to ask.",
+  "comment": "The new tab field's typed intent (plans/cmux-next/new-tab.md section 3.1; one input, no Search/Ask mode, R86). Read by webviews newTabIntent.test.ts and by the Swift NewTabIntentTests; both classifiers must agree on every row. home is the user's home folder for ~ rows.",
   "home": "/Users/me",
   "rows": [
-    { "input": "", "intent": { "kind": "none" } },
-    { "input": "   ", "intent": { "kind": "none" } },
-    { "input": "", "mode": "search", "intent": { "kind": "none" } },
-
-    { "input": "!", "intent": { "kind": "terminal", "command": "" } },
-    { "input": "!ls", "intent": { "kind": "terminal", "command": "ls" } },
-    { "input": "! ls -la", "intent": { "kind": "terminal", "command": "ls -la" } },
-    { "input": "  !git status  ", "intent": { "kind": "terminal", "command": "git status" } },
-    { "input": "!github.com", "intent": { "kind": "terminal", "command": "github.com" } },
-    { "input": "!", "mode": "search", "intent": { "kind": "terminal", "command": "" } },
-    { "input": "!!", "intent": { "kind": "terminal", "command": "!" } },
-
-    { "input": "github.com", "intent": { "kind": "url", "url": "https://github.com" } },
-    { "input": "GitHub.com/manaflow-ai/cmux", "intent": { "kind": "url", "url": "https://GitHub.com/manaflow-ai/cmux" } },
-    { "input": "vite.dev/guide", "intent": { "kind": "url", "url": "https://vite.dev/guide" } },
-    { "input": "  github.com  ", "intent": { "kind": "url", "url": "https://github.com" } },
-    { "input": "github.com", "mode": "search", "intent": { "kind": "url", "url": "https://github.com" } },
-    { "input": "https://example.com/a?b=1#c", "intent": { "kind": "url", "url": "https://example.com/a?b=1#c" } },
-    { "input": "http://example.com", "intent": { "kind": "url", "url": "http://example.com" } },
-    { "input": "https://example.com/very/\nlong/path", "intent": { "kind": "url", "url": "https://example.com/very/long/path" } },
-    { "input": "localhost", "intent": { "kind": "url", "url": "http://localhost" } },
-    { "input": "localhost:3000", "intent": { "kind": "url", "url": "http://localhost:3000" } },
-    { "input": "localhost:3000/api/health", "intent": { "kind": "url", "url": "http://localhost:3000/api/health" } },
-    { "input": "app.localhost:5173", "intent": { "kind": "url", "url": "http://app.localhost:5173" } },
-    { "input": "127.0.0.1:8080", "intent": { "kind": "url", "url": "http://127.0.0.1:8080" } },
-    { "input": "0.0.0.0:8000", "intent": { "kind": "url", "url": "http://0.0.0.0:8000" } },
-    { "input": "[::1]:8080", "intent": { "kind": "url", "url": "http://[::1]:8080" } },
-    { "input": "192.168.1.10", "intent": { "kind": "url", "url": "https://192.168.1.10" } },
-    { "input": "foo.local:3000", "intent": { "kind": "url", "url": "https://foo.local:3000" } },
-    { "input": "devbox:8080", "intent": { "kind": "url", "url": "https://devbox:8080" } },
-    { "input": "example.com:8080/x", "intent": { "kind": "url", "url": "https://example.com:8080/x" } },
-    { "input": "about:blank", "intent": { "kind": "url", "url": "about:blank" } },
-    { "input": "file:///tmp/notes.txt", "intent": { "kind": "url", "url": "file:///tmp/notes.txt" } },
-    { "input": "/tmp", "intent": { "kind": "url", "url": "file:///tmp" } },
-    { "input": "~", "intent": { "kind": "url", "url": "file:///Users/me/" } },
-    { "input": "~/code", "intent": { "kind": "url", "url": "file:///Users/me/code" } },
-    { "input": "x.ai", "intent": { "kind": "url", "url": "https://x.ai" } },
-    { "input": "github.io", "intent": { "kind": "url", "url": "https://github.io" } },
-    { "input": "www.readme.md", "intent": { "kind": "url", "url": "https://www.readme.md" } },
-    { "input": "readme.md/guide", "intent": { "kind": "url", "url": "https://readme.md/guide" } },
-    { "input": "node.js:3000", "intent": { "kind": "url", "url": "https://node.js:3000" } },
-    { "input": "https://node.js", "intent": { "kind": "url", "url": "https://node.js" } },
-
-    { "input": "node.js", "intent": { "kind": "prompt", "text": "node.js" } },
-    { "input": "readme.md", "intent": { "kind": "prompt", "text": "readme.md" } },
-    { "input": "main.rs", "intent": { "kind": "prompt", "text": "main.rs" } },
-    { "input": "package.json", "mode": "search", "intent": { "kind": "search", "text": "package.json" } },
-    { "input": "App.tsx", "intent": { "kind": "prompt", "text": "App.tsx" } },
-    { "input": "fix the build", "intent": { "kind": "prompt", "text": "fix the build" } },
-    { "input": "  fix the build  ", "intent": { "kind": "prompt", "text": "fix the build" } },
-    { "input": "fix the build", "mode": "search", "intent": { "kind": "search", "text": "fix the build" } },
-    { "input": "what is a.b", "intent": { "kind": "prompt", "text": "what is a.b" } },
-    { "input": "open github.com", "intent": { "kind": "prompt", "text": "open github.com" } },
-    { "input": "rust", "intent": { "kind": "prompt", "text": "rust" } },
-    { "input": "rust", "mode": "search", "intent": { "kind": "search", "text": "rust" } },
-    { "input": "a.b", "intent": { "kind": "prompt", "text": "a.b" } },
-    { "input": "user@example.com", "intent": { "kind": "prompt", "text": "user@example.com" } },
-    { "input": "javascript:alert(1)", "intent": { "kind": "prompt", "text": "javascript:alert(1)" } },
-    { "input": "mailto:a@b.com", "mode": "search", "intent": { "kind": "search", "text": "mailto:a@b.com" } },
-    { "input": "about:config", "intent": { "kind": "prompt", "text": "about:config" } },
-    { "input": "cmux://session/abc", "intent": { "kind": "prompt", "text": "cmux://session/abc" } },
-    { "input": "example.\ncom", "intent": { "kind": "prompt", "text": "example.\ncom" } },
-    { "input": "why does ! fail", "intent": { "kind": "prompt", "text": "why does ! fail" } },
-    { "input": "このビルドを直して", "intent": { "kind": "prompt", "text": "このビルドを直して" } }
+    {
+      "input": "",
+      "intent": {
+        "kind": "none"
+      }
+    },
+    {
+      "input": "   ",
+      "intent": {
+        "kind": "none"
+      }
+    },
+    {
+      "input": "!",
+      "intent": {
+        "kind": "terminal",
+        "command": ""
+      }
+    },
+    {
+      "input": "!ls",
+      "intent": {
+        "kind": "terminal",
+        "command": "ls"
+      }
+    },
+    {
+      "input": "! ls -la",
+      "intent": {
+        "kind": "terminal",
+        "command": "ls -la"
+      }
+    },
+    {
+      "input": "  !git status  ",
+      "intent": {
+        "kind": "terminal",
+        "command": "git status"
+      }
+    },
+    {
+      "input": "!github.com",
+      "intent": {
+        "kind": "terminal",
+        "command": "github.com"
+      }
+    },
+    {
+      "input": "!!",
+      "intent": {
+        "kind": "terminal",
+        "command": "!"
+      }
+    },
+    {
+      "input": "github.com",
+      "intent": {
+        "kind": "url",
+        "url": "https://github.com"
+      }
+    },
+    {
+      "input": "GitHub.com/manaflow-ai/cmux",
+      "intent": {
+        "kind": "url",
+        "url": "https://GitHub.com/manaflow-ai/cmux"
+      }
+    },
+    {
+      "input": "vite.dev/guide",
+      "intent": {
+        "kind": "url",
+        "url": "https://vite.dev/guide"
+      }
+    },
+    {
+      "input": "  github.com  ",
+      "intent": {
+        "kind": "url",
+        "url": "https://github.com"
+      }
+    },
+    {
+      "input": "https://example.com/a?b=1#c",
+      "intent": {
+        "kind": "url",
+        "url": "https://example.com/a?b=1#c"
+      }
+    },
+    {
+      "input": "http://example.com",
+      "intent": {
+        "kind": "url",
+        "url": "http://example.com"
+      }
+    },
+    {
+      "input": "https://example.com/very/\nlong/path",
+      "intent": {
+        "kind": "url",
+        "url": "https://example.com/very/long/path"
+      }
+    },
+    {
+      "input": "localhost",
+      "intent": {
+        "kind": "url",
+        "url": "http://localhost"
+      }
+    },
+    {
+      "input": "localhost:3000",
+      "intent": {
+        "kind": "url",
+        "url": "http://localhost:3000"
+      }
+    },
+    {
+      "input": "localhost:3000/api/health",
+      "intent": {
+        "kind": "url",
+        "url": "http://localhost:3000/api/health"
+      }
+    },
+    {
+      "input": "app.localhost:5173",
+      "intent": {
+        "kind": "url",
+        "url": "http://app.localhost:5173"
+      }
+    },
+    {
+      "input": "127.0.0.1:8080",
+      "intent": {
+        "kind": "url",
+        "url": "http://127.0.0.1:8080"
+      }
+    },
+    {
+      "input": "0.0.0.0:8000",
+      "intent": {
+        "kind": "url",
+        "url": "http://0.0.0.0:8000"
+      }
+    },
+    {
+      "input": "[::1]:8080",
+      "intent": {
+        "kind": "url",
+        "url": "http://[::1]:8080"
+      }
+    },
+    {
+      "input": "192.168.1.10",
+      "intent": {
+        "kind": "url",
+        "url": "https://192.168.1.10"
+      }
+    },
+    {
+      "input": "foo.local:3000",
+      "intent": {
+        "kind": "url",
+        "url": "https://foo.local:3000"
+      }
+    },
+    {
+      "input": "devbox:8080",
+      "intent": {
+        "kind": "url",
+        "url": "https://devbox:8080"
+      }
+    },
+    {
+      "input": "example.com:8080/x",
+      "intent": {
+        "kind": "url",
+        "url": "https://example.com:8080/x"
+      }
+    },
+    {
+      "input": "about:blank",
+      "intent": {
+        "kind": "url",
+        "url": "about:blank"
+      }
+    },
+    {
+      "input": "file:///tmp/notes.txt",
+      "intent": {
+        "kind": "url",
+        "url": "file:///tmp/notes.txt"
+      }
+    },
+    {
+      "input": "/tmp",
+      "intent": {
+        "kind": "url",
+        "url": "file:///tmp"
+      }
+    },
+    {
+      "input": "~",
+      "intent": {
+        "kind": "url",
+        "url": "file:///Users/me/"
+      }
+    },
+    {
+      "input": "~/code",
+      "intent": {
+        "kind": "url",
+        "url": "file:///Users/me/code"
+      }
+    },
+    {
+      "input": "x.ai",
+      "intent": {
+        "kind": "url",
+        "url": "https://x.ai"
+      }
+    },
+    {
+      "input": "github.io",
+      "intent": {
+        "kind": "url",
+        "url": "https://github.io"
+      }
+    },
+    {
+      "input": "www.readme.md",
+      "intent": {
+        "kind": "url",
+        "url": "https://www.readme.md"
+      }
+    },
+    {
+      "input": "readme.md/guide",
+      "intent": {
+        "kind": "url",
+        "url": "https://readme.md/guide"
+      }
+    },
+    {
+      "input": "node.js:3000",
+      "intent": {
+        "kind": "url",
+        "url": "https://node.js:3000"
+      }
+    },
+    {
+      "input": "https://node.js",
+      "intent": {
+        "kind": "url",
+        "url": "https://node.js"
+      }
+    },
+    {
+      "input": "node.js",
+      "intent": {
+        "kind": "prompt",
+        "text": "node.js"
+      }
+    },
+    {
+      "input": "readme.md",
+      "intent": {
+        "kind": "prompt",
+        "text": "readme.md"
+      }
+    },
+    {
+      "input": "main.rs",
+      "intent": {
+        "kind": "prompt",
+        "text": "main.rs"
+      }
+    },
+    {
+      "input": "package.json",
+      "intent": {
+        "kind": "prompt",
+        "text": "package.json"
+      }
+    },
+    {
+      "input": "App.tsx",
+      "intent": {
+        "kind": "prompt",
+        "text": "App.tsx"
+      }
+    },
+    {
+      "input": "fix the build",
+      "intent": {
+        "kind": "prompt",
+        "text": "fix the build"
+      }
+    },
+    {
+      "input": "  fix the build  ",
+      "intent": {
+        "kind": "prompt",
+        "text": "fix the build"
+      }
+    },
+    {
+      "input": "what is a.b",
+      "intent": {
+        "kind": "prompt",
+        "text": "what is a.b"
+      }
+    },
+    {
+      "input": "open github.com",
+      "intent": {
+        "kind": "prompt",
+        "text": "open github.com"
+      }
+    },
+    {
+      "input": "rust",
+      "intent": {
+        "kind": "prompt",
+        "text": "rust"
+      }
+    },
+    {
+      "input": "a.b",
+      "intent": {
+        "kind": "prompt",
+        "text": "a.b"
+      }
+    },
+    {
+      "input": "user@example.com",
+      "intent": {
+        "kind": "prompt",
+        "text": "user@example.com"
+      }
+    },
+    {
+      "input": "javascript:alert(1)",
+      "intent": {
+        "kind": "prompt",
+        "text": "javascript:alert(1)"
+      }
+    },
+    {
+      "input": "mailto:a@b.com",
+      "intent": {
+        "kind": "prompt",
+        "text": "mailto:a@b.com"
+      }
+    },
+    {
+      "input": "about:config",
+      "intent": {
+        "kind": "prompt",
+        "text": "about:config"
+      }
+    },
+    {
+      "input": "cmux://session/abc",
+      "intent": {
+        "kind": "prompt",
+        "text": "cmux://session/abc"
+      }
+    },
+    {
+      "input": "example.\ncom",
+      "intent": {
+        "kind": "prompt",
+        "text": "example.\ncom"
+      }
+    },
+    {
+      "input": "why does ! fail",
+      "intent": {
+        "kind": "prompt",
+        "text": "why does ! fail"
+      }
+    },
+    {
+      "input": "このビルドを直して",
+      "intent": {
+        "kind": "prompt",
+        "text": "このビルドを直して"
+      }
+    }
   ]
 }

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { t } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { sessionSummary } from "./sessionSummary";
@@ -16,6 +16,7 @@ export function SummaryButton({
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
 }) {
+  const t = useT();
   const { open, setOpen, button, popover, toggle } = usePopover();
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   return (

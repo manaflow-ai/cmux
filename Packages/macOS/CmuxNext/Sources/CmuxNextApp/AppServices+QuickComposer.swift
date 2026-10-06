@@ -25,7 +25,7 @@ extension AppServices {
             windows.reopenOrCreateWindow()
             return false
         }
-        pane.showAgentTab(agentTabs.open(in: pane.paneKey, of: pane.daemon.store, session: session))
+        pane.openAgentTab(session: session)
         WindowActivation.show(window, .focus)
         return true
     }

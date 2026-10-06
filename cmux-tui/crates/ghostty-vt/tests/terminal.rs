@@ -69,6 +69,7 @@ fn title_and_pty_callbacks() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: Some(Box::new(move || *tc.lock().unwrap() = true)),
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -90,6 +91,7 @@ fn default_colors_answer_osc_queries() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: None,
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -1209,4 +1211,32 @@ fn theme_portable_replay_omits_terminal_color_osc_state() {
     target.vt_write(&portable);
     assert_no_dynamic_color_overrides(&target.color_overrides());
     assert!(target.viewport_text().unwrap().contains("hello"));
+}
+
+/// zsh PROMPT_SP pads a partial line past the right edge so the terminal
+/// wraps, returns to column 0 and starts the prompt there (OSC 133;A). A
+/// resize must not reflow the prompt onto the padded row: the shell redraws
+/// it from column 0, so a joined prompt leaves a stale copy on screen.
+/// ghostty-next 59a70ffc6 (OSC 133 prompts start their own logical line).
+#[test]
+fn osc133_prompt_after_padded_partial_line_stays_on_its_own_line_across_resize() {
+    let mut term = Terminal::new(10, 5, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"ab%        \r \r");
+    term.vt_write(b"\x1b]133;A;redraw=0\x07$ \x1b]133;B\x07ls");
+
+    term.resize(20, 5, 8, 16).unwrap();
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    let lines = rs.text_lines().unwrap();
+    assert_eq!(lines[0], "ab%", "padded row after widening: {lines:?}");
+    assert_eq!(lines[1], "$ ls", "prompt row after widening: {lines:?}");
+
+    term.resize(6, 5, 8, 16).unwrap();
+    rs.update(&mut term).unwrap();
+    let lines = rs.text_lines().unwrap();
+    assert!(lines.iter().any(|line| line == "$ ls"), "prompt row after narrowing: {lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.contains('%') && line.contains('$')),
+        "prompt joined the padded row: {lines:?}"
+    );
 }

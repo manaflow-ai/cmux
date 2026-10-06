@@ -3,19 +3,14 @@
 /// implements the same rules; `webviews/test/fixtures/new-tab-intents.json` is the table both
 /// pass.
 
-/// Search | Ask: what plain text does. A command or an address ignores it.
-export type NewTabMode = "search" | "ask";
-
 export type NewTabIntent =
   | { kind: "none" }
   /// `!` first: the tab becomes a terminal, `command` typed (not run) at its prompt.
   | { kind: "terminal"; command: string }
   /// An address the browser loads.
   | { kind: "url"; url: string }
-  /// Plain text in Ask mode: a prompt for an agent.
-  | { kind: "prompt"; text: string }
-  /// Plain text in Search mode: a web search.
-  | { kind: "search"; text: string };
+  /// Plain text: a prompt for an agent (a web search is an explicit row, never a mode, R86).
+  | { kind: "prompt"; text: string };
 
 export type NewTabIntentOptions = {
   /// The user's home folder, for `~` and `~/path`; without it those are text.
@@ -28,20 +23,77 @@ export const TERMINAL_PREFIX = "!";
 /// File extensions that are also top-level domains or look like one. A bare `name.ext` with one
 /// of these is text (Q4); a scheme, `www.`, a port or a path makes it an address.
 const FILE_EXTENSIONS = new Set([
-  "c", "cc", "cfg", "cjs", "conf", "cpp", "cs", "css", "csv", "dart", "env", "ex", "exs", "gif", "go",
-  "gradle", "gz", "h", "hpp", "html", "ini", "java", "jpeg", "jpg", "js", "json", "jsx", "kt", "lock",
-  "log", "lua", "md", "mdx", "mjs", "mts", "nix", "pdf", "php", "pl", "plist", "png", "py", "rb", "rs",
-  "scss", "sh", "sql", "svelte", "svg", "swift", "tar", "toml", "ts", "tsx", "txt", "vue", "xml",
-  "yaml", "yml", "zig", "zip", "zsh",
+  "c",
+  "cc",
+  "cfg",
+  "cjs",
+  "conf",
+  "cpp",
+  "cs",
+  "css",
+  "csv",
+  "dart",
+  "env",
+  "ex",
+  "exs",
+  "gif",
+  "go",
+  "gradle",
+  "gz",
+  "h",
+  "hpp",
+  "html",
+  "ini",
+  "java",
+  "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "jsx",
+  "kt",
+  "lock",
+  "log",
+  "lua",
+  "md",
+  "mdx",
+  "mjs",
+  "mts",
+  "nix",
+  "pdf",
+  "php",
+  "pl",
+  "plist",
+  "png",
+  "py",
+  "rb",
+  "rs",
+  "scss",
+  "sh",
+  "sql",
+  "svelte",
+  "svg",
+  "swift",
+  "tar",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "vue",
+  "xml",
+  "yaml",
+  "yml",
+  "zig",
+  "zip",
+  "zsh",
 ]);
 
-export function classifyNewTabInput(input: string, mode: NewTabMode, options: NewTabIntentOptions = {}): NewTabIntent {
+export function classifyNewTabInput(input: string, options: NewTabIntentOptions = {}): NewTabIntent {
   const trimmed = input.trim();
   if (!trimmed) return { kind: "none" };
   if (trimmed.startsWith(TERMINAL_PREFIX)) return { kind: "terminal", command: trimmed.slice(1).trim() };
   const url = newTabURL(trimmed, options.home);
   if (url) return { kind: "url", url };
-  return mode === "ask" ? { kind: "prompt", text: trimmed } : { kind: "search", text: trimmed };
+  return { kind: "prompt", text: trimmed };
 }
 
 /// The address to load for `text`, or undefined for text. BrowserURLResolver's rules (WebKit

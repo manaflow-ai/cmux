@@ -22,6 +22,9 @@ MACOS_15_FORK_JOBS = {
     ("ci-macos.yml", "swift-package-tests"),
     ("release.yml", "build-ghostty-cli-helper"),
     ("nightly.yml", "build-nightly-ghostty-cli-helper"),
+    # Checks the release Ghostty CLI helper's Zig fetch list with a real
+    # build, which must use the same macOS 15 SDK as the helper it describes.
+    ("cmux-next-source-archive.yml", "archive"),
     # Its matrix exists to cover each macOS major; only the macOS 15 row.
     ("ci-macos-compat.yml", "compat-tests"),
     # Exists to exercise the paste worker on macOS 15.
@@ -64,6 +67,13 @@ OUTSIDER_TRIGGER = re.compile(
     r"(?<![\w-])(?:pull_request_target|issue_comment|issues|pull_request_review"
     r"|pull_request_review_comment|discussion|discussion_comment)(?![\w-])"
 )
+# A job holding this in its `if` never starts for a fork pull_request_target run.
+SAME_REPOSITORY_GATE = (
+    "github.event_name != 'pull_request_target' || "
+    "github.event.pull_request.head.repo.full_name == github.repository"
+)
+# A workflow_run job holding this never acts on a run a fork head started.
+WORKFLOW_RUN_GATE = "github.event.workflow_run.head_repository.full_name == github.repository"
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
 )
@@ -469,9 +479,51 @@ def outsider_triggered_workflows() -> list[Path]:
     ]
 
 
+def job_conditions(text: str) -> dict[str, str]:
+    """Job id -> its job-level `if` (folded to one line; "" when absent)."""
+    lines = text.splitlines()
+    try:
+        start = next(i for i, line in enumerate(lines) if re.match(r"^jobs:\s*$", line))
+    except StopIteration:
+        return {}
+    conditions: dict[str, str] = {}
+    job = None
+    collecting = False
+    for line in lines[start + 1:]:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        match = re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line)
+        if match:
+            job, collecting = match.group(1), False
+            conditions[job] = ""
+            continue
+        if job is None or (line and not line.startswith(" ")):
+            break
+        key = re.match(r"^    ([A-Za-z0-9_-]+):\s?(.*)$", line)
+        if key:
+            collecting = key.group(1) == "if"
+            if collecting:
+                conditions[job] = key.group(2).strip()
+            continue
+        if collecting and line.startswith("      "):
+            conditions[job] += " " + line.strip()
+    return {job: " ".join(value.split()) for job, value in conditions.items()}
+
+
+def every_job_gated(text: str, gate: str) -> bool:
+    conditions = job_conditions(text)
+    return bool(conditions) and all(gate in condition for condition in conditions.values())
+
+
 def outsider_runner_errors(name: str, text: str) -> list[str]:
-    """Every runner must be a hosted literal; no runner selector may appear."""
+    """Every runner must be a hosted literal; no runner selector may appear.
+
+    Unless every job holds SAME_REPOSITORY_GATE: then no fork-started run can
+    start any job, and owned runners are fine.
+    """
     errors: list[str] = []
+    if every_job_gated(text, SAME_REPOSITORY_GATE):
+        return errors
     for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
@@ -480,6 +532,26 @@ def outsider_runner_errors(name: str, text: str) -> list[str]:
         elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
+
+
+def workflow_run_gate_errors(name: str, text: str) -> list[str]:
+    """A workflow_run follower of an outsider-triggered workflow gates on the head repository."""
+    if not re.search(r"(?<![\w-])workflow_run(?![\w-])", triggers_block(text)):
+        return []
+    sources = re.search(r"(?m)^\s+SOURCE_WORKFLOW_PATHS:\s*(.+?)\s*$", text)
+    paths = re.split(r"[\s,]+", sources.group(1)) if sources else []
+    outsider = [
+        path for path in paths
+        if path and (ROOT / path).is_file()
+        and OUTSIDER_TRIGGER.search(triggers_block((ROOT / path).read_text(encoding="utf-8")))
+    ]
+    if not outsider:
+        return []
+    return [
+        f"{name}: job {job} follows {', '.join(outsider)} (pull_request_target) without `{WORKFLOW_RUN_GATE}`"
+        for job, condition in job_conditions(text).items()
+        if WORKFLOW_RUN_GATE not in condition
+    ]
 
 
 def fork_exercised_workflows(roots: list[Path] | None = None) -> list[Path]:
@@ -903,8 +975,11 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         roots = outsider_triggered_workflows()
         self.assertIn(WORKFLOWS / "cla.yml", roots)
         self.assertIn(WORKFLOWS / "claude.yml", roots)
+        # A reusable workflow called only from fully gated roots never runs
+        # for a fork head either.
+        ungated = [path for path in roots if not every_job_gated(path.read_text(encoding="utf-8"), SAME_REPOSITORY_GATE)]
         errors: list[str] = []
-        for path in fork_exercised_workflows(roots):
+        for path in fork_exercised_workflows(ungated):
             errors.extend(outsider_runner_errors(path.name, path.read_text(encoding="utf-8")))
         self.assertEqual(errors, [], "\n" + "\n".join(errors))
 
@@ -945,6 +1020,47 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         errors = outsider_runner_errors("x.yml", text)
         self.assertEqual([error.split(" ", 1)[0] for error in errors],
                          ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
+
+    def test_outsider_workflow_may_select_owned_runners_only_when_every_job_is_gated(self) -> None:
+        """A job that no fork-started run can start may use owned capacity.
+
+        pull_request_target runs carry trusted tokens, so a job that a fork PR
+        can start must stay on a hosted literal. A job whose `if` holds
+        SAME_REPOSITORY_GATE never starts for a fork head; when every job of
+        the workflow holds it, owned runner selectors are accepted.
+        """
+        def workflow(gate_b: bool) -> str:
+            gate = "    if: ${{ needs.a.result == 'success' && (" + SAME_REPOSITORY_GATE + ") }}\n"
+            return (
+                "on:\n  pull_request_target:\n  push:\njobs:\n"
+                "  a:\n    if: ${{ " + SAME_REPOSITORY_GATE + " }}\n"
+                "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+                "  b:\n    needs: a\n" + (gate if gate_b else "    if: needs.a.result == 'success'\n")
+                + "    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}\n"
+            )
+        self.assertEqual(outsider_runner_errors("x.yml", workflow(gate_b=True)), [])
+        errors = outsider_runner_errors("x.yml", workflow(gate_b=False))
+        self.assertTrue(errors)
+        self.assertTrue(all("x.yml:" in error for error in errors))
+
+    def test_workflow_run_consumers_of_outsider_workflows_gate_on_the_head_repository(self) -> None:
+        """A workflow_run follower of a pull_request_target workflow acts on fork runs too."""
+        follower = (
+            "on:\n  workflow_run:\n    workflows: [\"x\"]\n    types: [completed]\n"
+            "env:\n  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-tui-artifacts.yml\n"
+            "jobs:\n  retry:\n    if: github.event.workflow_run.conclusion == 'failure'\n"
+            "    runs-on: ubuntu-24.04\n"
+        )
+        self.assertEqual(len(workflow_run_gate_errors("f.yml", follower)), 1)
+        gated = follower.replace(
+            "    if: github.event.workflow_run.conclusion == 'failure'\n",
+            "    if: github.event.workflow_run.conclusion == 'failure' && " + WORKFLOW_RUN_GATE + "\n",
+        )
+        self.assertEqual(workflow_run_gate_errors("f.yml", gated), [])
+        errors: list[str] = []
+        for path in sorted(WORKFLOWS.glob("*.y*ml")):
+            errors.extend(workflow_run_gate_errors(path.name, path.read_text(encoding="utf-8")))
+        self.assertEqual(errors, [], "\n" + "\n".join(errors))
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

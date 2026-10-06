@@ -885,4 +885,38 @@ mod prompt_tests {
         let _ = std::fs::remove_file(&gate);
         drop(dir);
     }
+
+    /// A turn whose backend refuses the model (unsupported_parameter, streamed as the reply)
+    /// makes `_acpmux/models` report that model unavailable with the backend's message.
+    #[tokio::test]
+    async fn a_refused_model_is_reported_unavailable_in_the_model_catalog() {
+        let (hub, client, dir) = daemon().await;
+        hub.config.write().await.harnesses.get_mut("fake").unwrap().models =
+            vec![crate::config::DeclaredModel::Id("m-refused".into())];
+        let s = client
+            .request(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+            .await
+            .unwrap();
+        let id = s["sessionId"].as_str().unwrap().to_owned();
+        let session = hub.resolve(&id).unwrap();
+        crate::hub::model_availability::set_model_for_test(&session, "m-refused");
+        client
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "refuse"}]}),
+            )
+            .await
+            .unwrap();
+        let catalog = client.request("_acpmux/models", json!({})).await.unwrap();
+        let fake = catalog["harnesses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|h| h["harness"] == "fake")
+            .unwrap();
+        let model =
+            fake["models"].as_array().unwrap().iter().find(|m| m["id"] == "m-refused").unwrap();
+        assert_eq!(model["unavailable"], "Image web search is not supported by the backend.");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

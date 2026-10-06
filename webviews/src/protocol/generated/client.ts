@@ -25,16 +25,36 @@ export interface EventMap {
 export type OpName = keyof OpMap;
 export type EventName = keyof EventMap;
 
+/** Per-op metadata from the IR, for tools that list ops (CLI, MCP, code mode). */
+export interface OpMeta {
+  readonly name: string;
+  /** "first-party" or "app:<id>". */
+  readonly owner: string;
+  /** read | mutation | stream. */
+  readonly kind: string;
+  readonly scope: string;
+  readonly aliases: readonly string[];
+  readonly errors: readonly string[];
+  /** Top-level params that name filesystem paths; the provider confines them to the token's roots. */
+  readonly paths: readonly string[];
+  /** MCP exposure. The tool name is the op name with "." and "-" as "_". */
+  readonly mcp: { readonly expose: "default" | "opt_in" | "never"; readonly group?: string };
+  /** CLI verb relative to the app; absent when the op has no verb. */
+  readonly cli?: { readonly path: string; readonly visible: boolean; readonly positional?: readonly string[] };
+  /** The result can carry a secret; never offer this op to agents. */
+  readonly secret_output: boolean;
+}
+
 export const OPS = [
-  { name: "cmux.git.status", owner: "first-party", kind: "read", scope: "git:read", aliases: [], errors: ["cmux.git.not_a_repo"] },
-  { name: "cmux.git.diff", owner: "first-party", kind: "read", scope: "git:read", aliases: [], errors: ["cmux.git.not_a_repo","cmux.git.bad_ref"] },
-  { name: "cmux.router.hello", owner: "first-party", kind: "mutation", scope: "router:provide", aliases: [], errors: ["cmux.router.refused"] },
-  { name: "cmux.router.resolve", owner: "first-party", kind: "read", scope: "router:use", aliases: [], errors: ["cmux.router.no_provider"] },
-  { name: "cmux.router.token.refresh", owner: "first-party", kind: "mutation", scope: "router:use", aliases: [], errors: [] },
-  { name: "cmux.router.interfaces.list", owner: "first-party", kind: "read", scope: "router:use", aliases: [], errors: [] },
-  { name: "cmux.router.pages.list", owner: "first-party", kind: "read", scope: "router:use", aliases: [], errors: [] },
-  { name: "com.example.hello.greet.say", owner: "app:com.example.hello", kind: "read", scope: "com.example.hello:use", aliases: [], errors: [] },
-] as const;
+  {"name":"cmux.git.status","owner":"first-party","kind":"read","scope":"git:read","aliases":[],"errors":["cmux.git.not_a_repo"],"paths":["cwd"],"mcp":{"expose":"default","group":"git"},"cli":{"path":"git status","visible":true},"secret_output":false},
+  {"name":"cmux.git.diff","owner":"first-party","kind":"read","scope":"git:read","aliases":[],"errors":["cmux.git.not_a_repo","cmux.git.bad_ref"],"paths":["cwd"],"mcp":{"expose":"default","group":"git"},"cli":{"path":"git diff","visible":true,"positional":["base"]},"secret_output":false},
+  {"name":"cmux.router.hello","owner":"first-party","kind":"mutation","scope":"router:provide","aliases":[],"errors":["cmux.router.refused"],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+  {"name":"cmux.router.resolve","owner":"first-party","kind":"read","scope":"router:use","aliases":[],"errors":["cmux.router.no_provider"],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+  {"name":"cmux.router.token.refresh","owner":"first-party","kind":"mutation","scope":"router:use","aliases":[],"errors":[],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+  {"name":"cmux.router.interfaces.list","owner":"first-party","kind":"read","scope":"router:use","aliases":[],"errors":[],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+  {"name":"cmux.router.pages.list","owner":"first-party","kind":"read","scope":"router:use","aliases":[],"errors":[],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+  {"name":"com.example.hello.greet.say","owner":"app:com.example.hello","kind":"read","scope":"com.example.hello:use","aliases":[],"errors":[],"paths":[],"mcp":{"expose":"never"},"secret_output":false},
+] as const satisfies readonly OpMeta[];
 
 export const INTERFACES = [
   {"docs":"Produce diff resources (git, agents, automations).","events":["diffs.changed"],"methods":{"list":"(context) -> DiffSummary[]","open":"(id) -> diff_ handle"},"name":"cmux.diff.source/1","props":{},"status":"draft: shapes are refined with the first implementing app before the interface is public","version":1},
@@ -51,9 +71,9 @@ export function createClient(session: Session) {
     subscribe,
     cmux: {
       git: {
-        /** read, scope git:read. Errors: cmux.git.not_a_repo. */
+        /** read, scope git:read. Errors: cmux.git.not_a_repo. CLI: `git status`. MCP: default (git). Paths: cwd. */
         status: (params: T.GitStatusParams, options?: CallOptions): Promise<T.GitStatus> => call("cmux.git.status", params, options),
-        /** read, scope git:read. Errors: cmux.git.not_a_repo, cmux.git.bad_ref. */
+        /** read, scope git:read. Errors: cmux.git.not_a_repo, cmux.git.bad_ref. CLI: `git diff`. MCP: default (git). Paths: cwd. */
         diff: (params: T.GitDiffParams, options?: CallOptions): Promise<T.GitDiff> => call("cmux.git.diff", params, options),
         events: {
           /** scope git:read. */
@@ -61,20 +81,20 @@ export function createClient(session: Session) {
         },
       },
       router: {
-        /** mutation, scope router:provide. Errors: cmux.router.refused. */
+        /** mutation, scope router:provide. Errors: cmux.router.refused. MCP: never. */
         hello: (params: T.ProviderHello, options?: CallOptions): Promise<T.ProviderWelcome> => call("cmux.router.hello", params, options),
-        /** read, scope router:use. Errors: cmux.router.no_provider. */
+        /** read, scope router:use. Errors: cmux.router.no_provider. MCP: never. */
         resolve: (params: T.ResolveParams, options?: CallOptions): Promise<T.ResolveResult> => call("cmux.router.resolve", params, options),
         token: {
-          /** mutation, scope router:use. Errors: none declared. */
+          /** mutation, scope router:use. Errors: none declared. MCP: never. */
           refresh: (params: T.TokenRefreshParams, options?: CallOptions): Promise<T.TokenRefreshResult> => call("cmux.router.token.refresh", params, options),
         },
         interfaces: {
-          /** read, scope router:use. Errors: none declared. */
+          /** read, scope router:use. Errors: none declared. MCP: never. */
           list: (params: T.InterfacesListParams, options?: CallOptions): Promise<T.InterfacesListResult> => call("cmux.router.interfaces.list", params, options),
         },
         pages: {
-          /** read, scope router:use. Errors: none declared. */
+          /** read, scope router:use. Errors: none declared. MCP: never. */
           list: (params: T.PagesListParams, options?: CallOptions): Promise<T.PagesListResult> => call("cmux.router.pages.list", params, options),
         },
       },
@@ -83,7 +103,7 @@ export function createClient(session: Session) {
       example: {
         hello: {
           greet: {
-            /** read, scope com.example.hello:use. Errors: none declared. */
+            /** read, scope com.example.hello:use. Errors: none declared. MCP: never. */
             say: (params: T.HelloParams, options?: CallOptions): Promise<T.HelloResult> => call("com.example.hello.greet.say", params, options),
             events: {
               /** scope com.example.hello:use. */

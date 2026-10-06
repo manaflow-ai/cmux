@@ -1,4 +1,6 @@
+import { PREVIEW_ATTACHMENT_KINDS, type PreviewAttachments } from "../conversation/attachments.ts"
 import type { ConversationKind } from "../conversation/types.ts"
+import { inboxSortKey } from "./order.ts"
 
 /**
  * The UserDO inbox (home-messaging.md section 4.2): one entry per
@@ -18,6 +20,8 @@ export interface InboxEntry {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  /** Attachments of the last message ({kind, count}); absent when it has none. */
+  readonly preview_attachments?: PreviewAttachments
   readonly dm_peer?: string
   /** The user left or was removed; kept as a tombstone so an older bump cannot resurrect it. */
   readonly removed: boolean
@@ -47,10 +51,17 @@ export interface InboxBumpParams {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  readonly preview_attachments?: PreviewAttachments
   readonly unread?: number
   readonly mentions?: number
   readonly dm_peer?: string
   readonly removed?: boolean
+  /** Push facts of the last message (fanout.ts InboxBump); read by the UserDO push decision, never stored in the entry. */
+  readonly last_author?: string
+  readonly last_author_kind?: "human" | "agent"
+  readonly last_approval?: boolean
+  readonly last_mention?: boolean
+  readonly joined_seq?: number
 }
 
 /** The small per-user head next to the entry rows. */
@@ -63,6 +74,11 @@ export interface InboxHead {
   readonly user?: string
   /** The position the next pin without an explicit position gets. */
   readonly next_pin: number
+  /**
+   * Every entry has its order row (order.ts). A new inbox starts ordered; one written before the
+   * order index existed lacks the flag until the owner's `inbox.reindex` batches finish.
+   */
+  readonly ordered?: boolean
   /**
    * Badge totals over entries that are not removed (muted and archived included; clients filter):
    * unread messages, mentions, and conversations that are unread or marked unread. Absent in heads
@@ -98,14 +114,25 @@ export const totalsOf = (entries: Iterable<InboxEntry>): InboxTotals => {
   return t
 }
 
-export const INITIAL_INBOX_HEAD: InboxHead = { next_pin: 0 }
+export const INITIAL_INBOX_HEAD: InboxHead = { next_pin: 0, ordered: true }
 
 export type InboxRejectCode = "invalid_params" | "unknown_conversation" | "forbidden"
 export type InboxResult<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly code: InboxRejectCode }
 
 const KINDS: ReadonlyArray<ConversationKind> = ["chief", "dm", "group"]
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0
+/**
+ * The largest pin position: the order key pads it to 16 digits (order.ts), and `next_pin` is
+ * `position + 1`, which must stay an exact integer.
+ */
+export const MAX_PIN_POSITION = Number.MAX_SAFE_INTEGER - 1
 const isText = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max
+
+const validPreviewAttachments = (v: unknown): v is PreviewAttachments => {
+  if (typeof v !== "object" || v === null) return false
+  const o = v as Record<string, unknown>
+  return Object.keys(o).length === 2 && PREVIEW_ATTACHMENT_KINDS.includes(o.kind as never) && Number.isInteger(o.count) && (o.count as number) > 0 && (o.count as number) <= 16
+}
 
 export const validBump = (params: unknown): params is InboxBumpParams => {
   if (typeof params !== "object" || params === null) return false
@@ -120,12 +147,18 @@ export const validBump = (params: unknown): params is InboxBumpParams => {
     isCount(p.last_seq) &&
     isText(p.last_at, 32) &&
     isText(p.preview, 1024) &&
+    (p.preview_attachments === undefined || validPreviewAttachments(p.preview_attachments)) &&
     (p.unread === undefined || isCount(p.unread)) &&
     (p.mentions === undefined || isCount(p.mentions)) &&
     (p.unread === undefined) === (p.mentions === undefined) &&
     (p.dm_peer === undefined || isText(p.dm_peer, 128)) &&
     (p.removed === undefined || typeof p.removed === "boolean") &&
-    (p.user === undefined || isText(p.user, 128))
+    (p.user === undefined || isText(p.user, 128)) &&
+    (p.last_author === undefined || isText(p.last_author, 128)) &&
+    (p.last_author_kind === undefined || p.last_author_kind === "human" || p.last_author_kind === "agent") &&
+    (p.last_approval === undefined || typeof p.last_approval === "boolean") &&
+    (p.last_mention === undefined || typeof p.last_mention === "boolean") &&
+    (p.joined_seq === undefined || isCount(p.joined_seq))
   )
 }
 
@@ -137,6 +170,7 @@ const conversationFields = (bump: InboxBumpParams) => ({
   last_seq: bump.last_seq,
   last_at: bump.last_at,
   preview: bump.preview,
+  ...(bump.preview_attachments === undefined ? {} : { preview_attachments: { kind: bump.preview_attachments.kind, count: bump.preview_attachments.count } }),
   ...(bump.dm_peer === undefined ? {} : { dm_peer: bump.dm_peer }),
   removed: bump.removed === true
 })
@@ -164,7 +198,7 @@ export const bumpEntry = (entry: InboxEntry | undefined, bump: InboxBumpParams):
   }
   let next = entry
   if (bump.rev > entry.rev) {
-    const { dm_peer: _peer, ...withoutPeer } = entry
+    const { dm_peer: _peer, preview_attachments: _files, ...withoutPeer } = entry
     next = { ...withoutPeer, ...conversationFields(bump) }
   }
   // Checked for every bump, also a stale one, so the result does not depend on arrival order.
@@ -202,6 +236,7 @@ export const userOp = (
         return { ok: true, value: { head, entry: { ...rest, pinned: false } } }
       }
       const position = (p.position as number | undefined) ?? (entry.pinned && entry.pin_position !== undefined ? entry.pin_position : head.next_pin)
+      if (position > MAX_PIN_POSITION) return { ok: false, code: "invalid_params" }
       return { ok: true, value: { head: { ...head, next_pin: Math.max(head.next_pin, position + 1) }, entry: { ...entry, pinned: true, pin_position: position } } }
     }
     case "inbox.mute": {
@@ -226,18 +261,23 @@ export const isMuted = (entry: InboxEntry, now: number): boolean => entry.muted 
 export interface InboxListQuery {
   readonly limit: number
   readonly include_archived?: boolean
+  /** A page cursor (order.ts `pageInbox`): only entries after this sort key. */
+  readonly cursor?: string
 }
 
-/** `inbox.list`: pinned by position, then `last_at` newest first; ties by conversation id. Removed entries never show. */
+/**
+ * `inbox.list` over plain entries (tests, a self-hosted owner without row tables): pinned by
+ * position, then `last_at` newest first; ties by conversation id. Removed entries never show.
+ * The same order and cursor as the row-backed `pageInbox`, which reads only one page.
+ */
 export const listInbox = (entries: Iterable<InboxEntry>, query: InboxListQuery): Array<InboxEntry> => {
-  const visible = [...entries].filter((entry) => !entry.removed && (query.include_archived || !entry.archived))
-  visible.sort((a, b) => {
-    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
-    if (a.pinned && b.pinned && a.pin_position !== b.pin_position) return (a.pin_position ?? 0) - (b.pin_position ?? 0)
-    if (!a.pinned && a.last_at !== b.last_at) return a.last_at < b.last_at ? 1 : -1
-    return a.conversation < b.conversation ? -1 : a.conversation > b.conversation ? 1 : 0
-  })
-  return visible.slice(0, Math.max(0, query.limit))
+  const cursor = query.cursor ?? ""
+  const visible = [...entries]
+    .filter((entry) => !entry.removed && (query.include_archived || !entry.archived))
+    .map((entry) => ({ entry, sort: inboxSortKey(entry) }))
+    .filter((e) => e.sort > cursor)
+  visible.sort((a, b) => (a.sort < b.sort ? -1 : a.sort > b.sort ? 1 : 0))
+  return visible.slice(0, Math.max(0, query.limit)).map((e) => e.entry)
 }
 
 /** A plain-record inbox (tests, a self-hosted owner without row tables). */

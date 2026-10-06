@@ -47,14 +47,16 @@ import Testing
         #expect(ran == ["splitRight", "newCloudMachine"])
     }
 
-    /// Cmd-Y (New Cloud Machine) stops resolving while Cloud is off.
+    /// Cmd-Shift-Y (New Cloud Workspace) stops resolving while Cloud is off.
+    /// (Cmd-Y belongs to browser history since 7ded18b6e37; New Cloud
+    /// Machine has no default shortcut.)
     @Test func aDisabledFeatureLeavesItsShortcuts() throws {
         let registry = ActionRegistry.standard()
-        registry.bind("newCloudMachine") {}
-        let shortcut = Shortcut("y", modifiers: [.command])
-        #expect(registry.resolve(shortcut)?.id == "newCloudMachine")
+        registry.bind("newCloudWorkspace") {}
+        let shortcut = Shortcut("y", modifiers: [.command, .shift])
+        #expect(registry.keyWinner(shortcut)?.command == "newCloudWorkspace")
         registry.disabledFeatures = [.cloud]
-        #expect(registry.resolve(shortcut)?.id != "newCloudMachine")
+        #expect(registry.keyWinner(shortcut)?.command != "newCloudWorkspace")
     }
 
     @Test func serverActionsAreRemoteHosts() {
@@ -71,7 +73,7 @@ import Testing
         registry.disabledFeatures = Set(ActionFeature.allCases)
         let index = registry.currentShortcutIndex()
         let chorded = index.chords.values.flatMap { $0.values.flatMap { $0 } }
-        let keyed = index.byShortcut.values.flatMap { $0 }
+        let keyed = RegistryKeyBindings(registry).table.entries.filter { $0.keys.count == 1 }.map(\.command)
         #expect(!chorded.isEmpty && !keyed.isEmpty)
         for id in chorded + keyed { #expect(registry.disabledFeature(for: id) == nil, "\(id)") }
         #expect(!keyed.contains("newCloudMachine"))

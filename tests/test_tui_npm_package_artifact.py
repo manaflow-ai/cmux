@@ -99,6 +99,7 @@ def make_package_fixture(packages: Path) -> None:
                         "bin/cmux-tui",
                         "bin/cmux-tui-hook",
                         "bin/cmux-tui-ssh/manifest.json",
+                        "THIRD_PARTY_LICENSES.md",
                     ],
                 }
             )
@@ -160,7 +161,7 @@ def make_package_fixture(packages: Path) -> None:
                     "version": VERSION,
                     "os": [os_name],
                     "cpu": [cpu],
-                    "files": ["bin/chatmux-relay", "bin/cmux-tui"],
+                    "files": ["bin/chatmux-relay", "bin/cmux-tui", "THIRD_PARTY_LICENSES.md"],
                 }
             )
             + "\n"
@@ -201,6 +202,9 @@ def write_license_files(packages: Path) -> None:
     for package in packages.iterdir():
         if package.is_dir():
             (package / "LICENSE").write_text("GPL-3.0-or-later\n")
+            # Platform packages also ship their third-party notices.
+            if package.name not in ("cmux", "cmux-relay"):
+                (package / "THIRD_PARTY_LICENSES.md").write_text(f"notices {package.name}\n")
 
 
 def test_archive_round_trip_preserves_package_executables(tmp_path: Path) -> None:

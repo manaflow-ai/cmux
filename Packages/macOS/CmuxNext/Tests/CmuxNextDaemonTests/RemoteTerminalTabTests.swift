@@ -88,7 +88,7 @@ import Testing
     /// surface every later command uses.
     @Test func anUnplacedAttachLearnsItsSurfaceFromVTState() {
         let line = Data(#"{"event":"vt-state","surface":42,"cols":80,"rows":24,"data":""}"#.utf8)
-        #expect(TerminalAttachment.vtStateSurface(line) == 42)
+        #expect(TerminalAttachment.initialSurface(name: "vt-state", line: line) == 42)
         let target = TerminalAttachment.Target.unplaced(terminalResourceID: "term_ab", generation: "g1")
         #expect(target.surface == TerminalAttachment.unresolvedSurface)
         #expect(target.terminalResourceID == "term_ab")

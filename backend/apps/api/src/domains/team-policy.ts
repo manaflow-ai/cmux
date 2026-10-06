@@ -1,5 +1,6 @@
 import type { Reject, ReduceContext } from "@cmux/ownership"
 import {
+  policyProductDefaults,
   policyValueSchema,
   TeamPolicyRollback,
   TeamPolicyUpdate,
@@ -33,6 +34,19 @@ export interface PolicyState {
 
 /** Objects written before team policy existed have no policy field. */
 export const currentPolicy = (state: PolicyState): Policy => state.policy ?? initialPolicy()
+
+/** The link services this team lets members reach on its Cloud machines (cloud.connectServices; a team nobody created has the product default). */
+/** The team's Cloud policy for CloudDO: connect services and whether idle pause is on (default off). */
+export const cloudPolicyOf = (state: PolicyState | undefined): { connect_services: ReadonlyArray<string>; idle_pause: boolean } => {
+  const v = (state ? currentPolicy(state).values : {}) as Record<string, { value?: unknown } | undefined>
+  return { connect_services: connectServicesOf(state), idle_pause: v["cloud.idlePause"]?.value === true }
+}
+
+export const connectServicesOf = (state: PolicyState | undefined): ReadonlyArray<string> => {
+  const v = (state ? currentPolicy(state).values : {}) as Record<string, { value?: unknown } | undefined>
+  const set = v["cloud.connectServices"]?.value
+  return Array.isArray(set) ? (set as Array<string>) : (policyProductDefaults["cloud.connectServices"] ?? [])
+}
 
 type Result<S> = { ok: true; state: S; value: unknown; changed?: boolean } | ({ ok: false } & Reject)
 

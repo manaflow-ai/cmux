@@ -8,7 +8,7 @@ public nonisolated struct AppPresentation: Sendable, Hashable {
     public enum Screen: String, Sendable, Hashable {
         /// The app fills the screen.
         case app
-        /// A sticky app column next to the normal columns (Home).
+        /// A docked app column next to the normal columns (Home).
         case appColumn
     }
 

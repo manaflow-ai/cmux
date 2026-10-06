@@ -24,6 +24,10 @@ extension SidebarBridge {
         .newTerminal: "newSurface",
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
+        .newWorkspace: "newTab",
+        // The combined import entry opens onboarding, whose role step starts
+        // both the classic-session and agent-chat scans.
+        .importSync: "importAndSync.show",
         .customize: "appearance.customize",
     ]
 
@@ -47,11 +51,23 @@ extension SidebarBridge {
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
         case LayoutItemRef.appKind:
-            // An app's label item opens its page as a tab (CodeRouter below the App Store).
-            _ = services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(ref.value)], origin: .user))
+            let (action, arguments) = Self.appActivation(ref.value, registered: { services.registry.action(for: $0) != nil })
+            _ = services.registry.perform(action, invocation: ActionInvocation(arguments: arguments, origin: .user))
         default: break
         }
     }
+
+    /// What an app item's click runs (R63/R64): `cmux.apps.open {app}` (it
+    /// opens the app's screen or page as the manifest says) once it is
+    /// registered. INTERIM until then: Home and the App Store keep their
+    /// show actions, every other app opens its page (`app.open`).
+    static func appActivation(_ app: String, registered: (ActionID) -> Bool) -> (ActionID, [String: ActionValue]) {
+        if registered("cmux.apps.open") { return ("cmux.apps.open", ["app": .string(app)]) }
+        if let action = interimAppActions[app], registered(action) { return (action, [:]) }
+        return ("app.open", ["app": .string(app)])
+    }
+
+    private static let interimAppActions: [String: ActionID] = ["cmux/home": "home.show", "cmux/app-store": "appStore.show"]
 
     /// Keeps `model.itemInfo` current: a built-in whose action this build
     /// does not register draws dimmed.
@@ -74,7 +90,7 @@ extension SidebarBridge {
                 _ = apps.apps
                 let shown = window?.workspaceID
                 return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
-                        updater.indicatorPhase.isUpdateAvailable)
+                        updater.showsSettingsBadge)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
@@ -100,7 +116,10 @@ extension SidebarBridge {
         for section in layout.sections {
             for item in section.items {
                 if item.ref.kind == LayoutItemRef.appKind {
-                    infos[item.id] = app(item.ref.value)
+                    var info = app(item.ref.value)
+                    // Home is active while the window shows the home workspace.
+                    if item.ref == SidebarLayoutDocument.homeRef { info.isActive = homeShown }
+                    infos[item.id] = info
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
@@ -123,8 +142,10 @@ extension SidebarBridge {
     static func appInfo(_ id: String, registry: AppRegistry) -> SidebarItemInfo {
         guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
+        // A first-party app keeps its former built-in's short tile caption.
+        let caption = SidebarLayoutDocument.firstPartyApps.first { $0.value == id }?.key.caption
         return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
-                               isHidden: AppPresence([app]).suppressed.contains(id))
+                               isHidden: AppPresence([app]).suppressed.contains(id), caption: caption)
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to

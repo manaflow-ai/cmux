@@ -36,6 +36,87 @@ export type SnapshotResult = {
   domains?: Partial<PublishedDomains> | null;
 };
 
+/** One Ghostty config key, keybind action or unreadable line cmux does not apply (R92). */
+export type GhosttyDiagnostic = {
+  kind: "key" | "keybind-action" | "invalid";
+  name: string;
+  file: string | null;
+  line: number | null;
+  reason: "superseded" | "not-applicable" | "later" | null;
+  replacement: string | null;
+};
+
+/** One space or machine row (`cmux.settings.host.lists`). */
+export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+
+/** One browser profile row. */
+export type BrowserProfile = {
+  id: string;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  is_default: boolean;
+  source: string | null;
+};
+
+/** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
+export type HostLists = {
+  rooms: HostListRow[] | null;
+  machines: HostListRow[];
+  browser_profiles: BrowserProfile[];
+  profile_colors: Array<{ name: string; swatch: string; fill: string }>;
+  /** Theme levels of the active window (`room`, `workspace`, `terminal`) and each one's theme. */
+  theme?: { levels: string[]; current: Record<string, string | null> };
+  terminal?: { ghostty_config: string; shell_integration: string | null };
+  /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
+  ghostty_diagnostics?: GhosttyDiagnostic[] | null;
+  settings_file?: string | null;
+  /** Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. */
+  backdrops?: Array<{ id: string; title: string; attribution: string }>;
+  /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
+  derived?: Record<string, number>;
+};
+
+/** One button of the Accounts part; the host localizes every text. */
+export type AccountsButton = {
+  id: string;
+  title: string;
+  disabled: boolean;
+  help: string | null;
+  destructive: boolean;
+};
+
+/** One provider row of the Accounts part (`cmux.settings.accounts.state`). */
+export type AccountsRow = {
+  provider: string;
+  name: string;
+  detail: string | null;
+  status: string;
+  statusKind: "success" | "attention" | "neutral" | "quiet";
+  busy: boolean;
+  buttons: AccountsButton[];
+  unsupported: string | null;
+  linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
+  note: string | null;
+  outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
+  confirm: { text: string; confirm: string; cancel: string } | null;
+  paste: { title: string; body: string; placeholder: string; buttons: AccountsButton[] } | null;
+};
+
+/** The Accounts part as the host draws it (texts already localized by the app). */
+export type AccountsState = {
+  intro: string;
+  refresh: string;
+  refreshing: boolean;
+  signIn: { text: string; confirm: string } | null;
+  problem: string | null;
+  removeTitle: string;
+  groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
+};
+
+/** One Accounts gesture; `secret` only for the paste form's save and send. */
+export type AccountsRun = { action: string; provider?: string; account?: string; secret?: string };
+
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
 
@@ -48,6 +129,22 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** Native: spaces, machines and browser profiles from the app's live stores. */
+  "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: the Accounts part (providers, linked accounts, forms). */
+  "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
+  /** Native: one Accounts gesture; a failed Keychain save answers its message. */
+  "cmux.settings.accounts.run": [AccountsRun, { error?: string }];
+  /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
+  "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
+  /** Native: whether typed text is a theme spec Ghostty accepts (a pair, a path). */
+  "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
+  /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
+  "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** Native: the buttons at the end of a section (registry titles, localized by the app). */
+  "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
+  /** Native: show the settings file in Finder. */
+  "cmux.settings.file.reveal": [Record<string, never>, unknown];
   /** Native: show `value` live while a gesture runs; never written. */
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
@@ -55,7 +152,7 @@ export type SettingsOps = {
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
-  "cmux.app.action.run": [{ action: string; args?: Record<string, unknown> }, unknown];
+  "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
 };
 
 export type SettingsOpName = keyof SettingsOps;
@@ -63,6 +160,10 @@ export type SettingsOpName = keyof SettingsOps;
 /** Streams the page subscribes to. */
 export type SettingsStreams = {
   "cmux.settings.changed": { revision: number; keys: string[]; origin?: string };
+  /** The Accounts part changed (the event carries the new state). */
+  "cmux.settings.accounts.changed": AccountsState;
+  /** The host lists changed (the event carries the new lists). */
+  "cmux.settings.host.changed": HostLists;
   /** The page bridge's link to the daemon (one stream for every page). */
   "cmux.page.connection": { connected: boolean };
   /** Commands from the app's key dispatcher (the page handles no Cmd or Ctrl chords). */
@@ -118,7 +219,21 @@ export function errorCode(error: WireError): ErrorCode {
  * The only catalog actions the Settings page may run through `cmux.app.action.run`; the page
  * bridge refuses every other action from this page (and the mock does too).
  */
-export const settingsPageActions = ["palette.openCmuxSettingsFile", "openSettings"] as const;
+export const settingsPageActions = [
+  "palette.openCmuxSettingsFile",
+  "openSettings",
+  "browserProfile.new",
+  "browserProfile.rename",
+  "browserProfile.setColor",
+  "browserProfile.clearColor",
+  "browserProfile.setIcon",
+  "browserProfile.clearIcon",
+  "browserProfile.manageExtensions",
+  "browserProfile.delete",
+  "reloadConfiguration",
+] as const;
+
+export type SettingsPageAction = (typeof settingsPageActions)[number];
 
 /** v2 revisions are decimal strings in mutation results and numbers in reads. */
 export function revisionNumber(value: unknown): number {

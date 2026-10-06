@@ -43,7 +43,7 @@ public struct SettingsSchemaExport {
             ["id": section.rawValue, "title": text(section.title, section.titleKey), "symbol": section.symbol]
         }
         let rows: [[String: Any]] = SettingsSchema.all.map { row(for: $0, text: text) }
-        let rowsData = Data(try DeterministicJSON.string(rows, pretty: false).utf8)
+        let rowsData = Data(try DeterministicJSON().string(rows, pretty: false).utf8)
         let document: [String: Any] = [
             "version": version,
             "schema_hash": SettingsSchemaHash.hex(rowsData),
@@ -51,7 +51,7 @@ public struct SettingsSchemaExport {
             "rows": rows,
         ]
         guard missing.isEmpty else { throw MissingKeys(keys: missing.sorted()) }
-        return try DeterministicJSON.string(document, pretty: true) + "\n"
+        return try DeterministicJSON().string(document, pretty: true) + "\n"
     }
 
     nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
@@ -69,6 +69,7 @@ public struct SettingsSchemaExport {
             "agent_settable": SettingsSchema.agentSettable(descriptor) ?? false,
             "agent_refusal": SettingsSchema.agentRefusedKeys[descriptor.id].map { $0.rawValue as Any } ?? NSNull(),
             "kept_on_reset_all": SettingsSchema.keptOnResetAll.contains(descriptor.path),
+            "consumers": descriptor.consumers.sorted().map(\.rawValue),
         ]
         let samples = SettingsSchemaSamples.samples(for: descriptor)
         row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
@@ -92,15 +93,23 @@ public struct SettingsSchemaExport {
         case .sound: row["kind"] = "sound"
         case .url: row["kind"] = "url"
         case .hostList: row["kind"] = "host_list"
+        case .folderList: row["kind"] = "folder_list"
         case .timeRange: row["kind"] = "time_range"
         case .theme: row["kind"] = "theme"
         case .fontFamily: row["kind"] = "font_family"
+        case .numberList(let number):
+            row["kind"] = "number_list"
+            row["range"] = range(number)
+        case .stringMap: row["kind"] = "string_map"
         }
         // Kinds whose valid values only the app knows (theme names, installed
         // fonts, system sounds): another validator checks them against the
         // value domain the app publishes, not a fixed rule.
         if descriptor.path == BackdropSelectionSetting().configPath {
             row["validation"] = "domain:backdrop_selection"
+        } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
+            // Portable: a web address that contains %s or {searchTerms}, or empty.
+            row["validation"] = "domain:search_template"
         } else {
             switch descriptor.kind {
             case .theme: row["validation"] = "domain:theme"

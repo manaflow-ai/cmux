@@ -40,9 +40,11 @@ import Testing
         #expect(manifest["pfm_domain"] as? String == ManagedPreferences.domain)
         let subkeys = try #require(manifest["pfm_subkeys"] as? [[String: Any]])
         let names = subkeys.compactMap { $0["pfm_name"] as? String }
-        #expect(Set(names) == Set(SettingsSchema.all.map(\.id) + ManagedPreferences.policyKeys.map(\.name)))
+        // MDM manages what cmux-next applies; keys only cmux-browser reads are not published.
+        let published = SettingsSchema.all.filter(\.isShownInCmuxNext)
+        #expect(Set(names) == Set(published.map(\.id) + ManagedPreferences.policyKeys.map(\.name)))
         #expect(names.count == Set(names).count)
-        for (descriptor, key) in zip(SettingsSchema.all, subkeys) where descriptor.kind == .toggle {
+        for (descriptor, key) in zip(published, subkeys) where descriptor.kind == .toggle {
             #expect(key["pfm_type"] as? String == "boolean")
         }
     }

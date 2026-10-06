@@ -191,6 +191,12 @@ jobs:
             --archive dist/*.tar.gz \
             --epoch "$SOURCE_DATE_EPOCH"
 
+      - name: Check the Python distribution licenses
+        run: |
+          set -euo pipefail
+          python3 cmux-tui/bindings/check_package_license.py wheel cmux-tui/bindings/python/dist/*.whl
+          python3 cmux-tui/bindings/check_package_license.py sdist cmux-tui/bindings/python/dist/*.tar.gz
+
       - name: Test the exact Python distributions
         working-directory: cmux-tui/bindings/python
         env:

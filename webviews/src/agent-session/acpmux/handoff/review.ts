@@ -19,7 +19,7 @@ export function reviewedContinuation(
   checkpointConfirmed: boolean,
   memoryReferences: string,
   maxBytes = 65536,
-  strings: HandoffStrings = handoffStrings,
+  strings: HandoffStrings = handoffStrings(),
 ): HandoffReviewInput {
   const reference = checkpointReference.trim();
   const references = [

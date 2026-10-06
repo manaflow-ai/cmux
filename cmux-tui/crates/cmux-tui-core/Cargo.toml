@@ -18,6 +18,7 @@ cmux-unix-socket.workspace = true
 cmux-pty.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
+cmux-terminal-iface.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
@@ -29,16 +30,26 @@ flate2.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
 cmux-local-auth.workspace = true
+cmux-link.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
 sha2.workspace = true
 zeroize.workspace = true
 url.workspace = true
+cmux-app-manifest.workspace = true
+cmux-app-host.workspace = true
 
 [dev-dependencies]
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+
+# The app supervisor's net.fetch egress (same versions the cmux-tui binary
+# already links).
+[target.'cfg(unix)'.dependencies]
+reqwest.workspace = true
+rustls.workspace = true
+tokio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 uds_windows.workspace = true

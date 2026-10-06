@@ -32,19 +32,19 @@ extension DaemonConnection {
 
     @discardableResult
     public func moveTabToColumn(_ surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                                sticky: StickySnapshot? = nil, transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
+                                dock: DockSnapshot? = nil, transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
-                                                    width: width, sticky: sticky, transaction: transaction))
+                                                    width: width, dock: dock, transaction: transaction))
     }
 
     /// New workspace holding the tab. On daemons without `tab-drag-v1` it
     /// falls back to `move-tab-to-workspace` with no destination (same
     /// outcome, without group placement).
     @discardableResult
-    public func moveTabToNewWorkspace(_ surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil,
+    public func moveTabToNewWorkspace(_ surface: SurfaceID, group: WorkspaceGroupID? = nil, index: Int? = nil, name: String? = nil,
                                       transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         do {
-            return try await requestNew(MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, transaction: transaction))
+            return try await requestNew(MoveTabToNewWorkspaceRequest(surface: surface, group: group, index: index, name: name, transaction: transaction))
         } catch DaemonError.missingCapabilities {
             return try await moveTab(surface, toWorkspace: nil, transaction: transaction)
         }

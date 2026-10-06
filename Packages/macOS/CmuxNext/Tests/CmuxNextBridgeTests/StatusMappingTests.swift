@@ -27,6 +27,25 @@ struct StatusMappingTests {
         #expect(StatusMapping.shared.summary(tab) == .idle)
     }
 
+    /// A sidebar row knows the brand of an agent working or waiting in it (R79), so the
+    /// row can draw its mark; a finished or unbranded agent gives none.
+    @Test func rowCarriesTheRunningAgentsBrand() throws {
+        let store = try BridgeFixture.store()
+        let workspace = try #require(store.sidebarSections.flatMap(\.workspaces).first { $0.displayName == "beta" })
+        let tab = try #require(try tabs(store, workspace: "beta").first)
+        let machine = SidebarMachine(id: .local, name: "Mac", kind: .local)
+        func brand() -> String? { SidebarMapping.shared.row(workspace, machine: machine.id).agentBrand }
+        #expect(brand() == nil)
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "codex"))
+        #expect(brand() == "openai")
+        tab.setAgent(AgentStatus(surface: 1, state: .blocked, agent: "claude"))
+        #expect(brand() == "claude")
+        tab.setAgent(AgentStatus(surface: 1, state: .done, agent: "claude"))
+        #expect(brand() == nil)
+        tab.setAgent(AgentStatus(surface: 1, state: .working, agent: "campfire"))
+        #expect(brand() == nil)
+    }
+
     @Test func rowAndTabFollowTheMergedStatus() throws {
         let store = try BridgeFixture.store()
         let tab = try #require(try tabs(store, workspace: "beta").first)

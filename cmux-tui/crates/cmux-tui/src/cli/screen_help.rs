@@ -12,7 +12,7 @@ USAGE
   cmux screen <selector> layout export
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
-  cmux screen <selector> column <split_…> update [--sticky <bool>]
+  cmux screen <selector> column <split_…> update [--dock <bool>]
     [--edge left|right] [--mode docked|overlay] [--width <fraction>]
   cmux screen <selector> pane ...
   cmux screen group list [--workspace <selector>]

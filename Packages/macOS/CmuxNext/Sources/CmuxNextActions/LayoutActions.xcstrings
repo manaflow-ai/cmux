@@ -4848,133 +4848,133 @@
         }
       }
     },
-    "action.tab.moveToNewStickyColumn": {
+    "action.tab.moveToNewDockColumn": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Tab to New Sticky Column"
+            "value": "Move Tab to New Dock Column"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "نقل علامة التبويب إلى عمود مثبت جديد"
+            "value": "نقل علامة التبويب إلى عمود إرساء جديد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Premjesti karticu u novu ljepljivu kolonu"
+            "value": "Premjesti karticu u novu usidrenu kolonu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flyt fane til ny fastgjort kolonne"
+            "value": "Flyt fane til ny dokket kolonne"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tab in neue angeheftete Spalte verschieben"
+            "value": "Tab in neue angedockte Spalte verschieben"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mover pestaña a una nueva columna fija"
+            "value": "Mover pestaña a una nueva columna acoplada"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Déplacer l’onglet vers une nouvelle colonne épinglée"
+            "value": "Déplacer l’onglet vers une nouvelle colonne ancrée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sposta scheda in una nuova colonna fissa"
+            "value": "Sposta scheda in una nuova colonna agganciata"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブを新しい固定列に移動"
+            "value": "タブを新しいドック列に移動"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្លាស់ទីផ្ទាំងទៅជួរឈរខ្ទាស់ថ្មី"
+            "value": "ផ្លាស់ទីផ្ទាំងទៅជួរឈរចតថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "탭을 새 고정 열로 이동"
+            "value": "탭을 새 도킹 열로 이동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Flytt fane til ny festet kolonne"
+            "value": "Flytt fane til ny dokket kolonne"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przenieś kartę do nowej przypiętej kolumny"
+            "value": "Przenieś kartę do nowej zadokowanej kolumny"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mover aba para nova coluna fixa"
+            "value": "Mover aba para nova coluna encaixada"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переместить вкладку в новую закреплённую колонку"
+            "value": "Переместить вкладку в новую колонку у края"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ย้ายแท็บไปยังคอลัมน์ที่ปักหมุดใหม่"
+            "value": "ย้ายแท็บไปยังคอลัมน์ที่เชื่อมต่อใหม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sekmeyi yeni sabit sütuna taşı"
+            "value": "Sekmeyi yeni yerleşik sütuna taşı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемістити вкладку в нову закріплену колонку"
+            "value": "Перемістити вкладку в нову колонку біля краю"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chuyển thẻ sang cột ghim mới"
+            "value": "Chuyển thẻ sang cột neo mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "将标签页移至新的固定列"
+            "value": "将标签页移至新的停靠列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "將分頁移至新的固定欄"
+            "value": "將分頁移至新的停靠欄"
           }
         }
       }

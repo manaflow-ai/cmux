@@ -1,0 +1,194 @@
+name: cmux-browser-host release
+
+# Linux release of cmux-browser-host for the cmux-next VM image
+# (plans/cmux-next/browser-host.md 6d). A push to feat-cmux-next that touches
+# the crate or this release path builds and smoke-tests both targets; a
+# cmux-browser-host-vX.Y.Z tag also publishes them: a GitHub release with the
+# two archives, SHA256SUMS and the channel-manifest package entries, each
+# covered by a build-provenance attestation. The entries are unsigned: the
+# channel manifest is signed where the channel is assembled.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-browser-host/**"
+      - "cmux-tui/Cargo.lock"
+      - "cmux-tui/rust-toolchain.toml"
+      - ".github/workflows/cmux-browser-host-release.yml"
+      - "scripts/cmux-next/smoke-browser-host.sh"
+      - "scripts/cmux-next/browser-host-release.py"
+    tags:
+      - "cmux-browser-host-v*"
+
+permissions: {}
+
+concurrency:
+  group: cmux-browser-host-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  # The VM image's glibc is the floor (6d); zig links against this version.
+  GLIBC_FLOOR: "2.31"
+
+jobs:
+  version:
+    name: version
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Version (a tag must match the crate and sit on feat-cmux-next)
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo_toml=cmux-tui/crates/cmux-browser-host/Cargo.toml
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="$(python3 scripts/cmux-next/browser-host-release.py version "$GITHUB_REF_NAME" "$cargo_toml")"
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/feat-cmux-next; then
+              echo "tag $GITHUB_REF_NAME ($GITHUB_SHA) is not on feat-cmux-next" >&2
+              exit 1
+            fi
+          else
+            version="$(python3 -c 'import sys,tomllib; print(tomllib.load(open(sys.argv[1],"rb"))["package"]["version"])' "$cargo_toml")"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runs_on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+          - target: aarch64-unknown-linux-gnu
+            runs_on: ${{ vars.LINUX_ARM64_RUNNER || 'ubuntu-24.04-arm' }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The workspace builds libghostty-vt from ghostty-next (ghostty-vt-sys);
+      # the crate does not link it. ghostty-next also sets the Zig version.
+      - name: Init ghostty-next submodule
+        run: git submodule update --init --depth 1 ghostty-next
+
+      - name: Resolve Zig version
+        id: zig
+        shell: bash
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.zig.outputs.version }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Install Rust target and cargo-zigbuild
+        shell: bash
+        run: |
+          rustup target add ${{ matrix.target }}
+          cargo install --locked cargo-zigbuild@0.20.0
+
+      # 6d build command, through zig so the binary links against the glibc floor;
+      # zig is also the C compiler QuickJS-ng (rquickjs) needs.
+      - name: Build
+        working-directory: cmux-tui
+        shell: bash
+        env:
+          CMUX_BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          cargo zigbuild --release --locked -p cmux-browser-host --bin cmux-browser-host \
+            --target "${{ matrix.target }}.${GLIBC_FLOOR}"
+          bin="target/${{ matrix.target }}/release/cmux-browser-host"
+          test -x "$bin"
+          # No glibc symbol newer than the floor.
+          newest="$(objdump -T "$bin" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -n 1)"
+          echo "newest glibc symbol: $newest (floor $GLIBC_FLOOR)"
+          [[ "$(printf '%s\n%s\n' "$newest" "$GLIBC_FLOOR" | sort -V | tail -n 1)" == "$GLIBC_FLOOR" ]]
+
+      - name: Smoke
+        shell: bash
+        run: scripts/cmux-next/smoke-browser-host.sh "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" "$GITHUB_SHA"
+
+      - name: Package
+        shell: bash
+        run: |
+          python3 scripts/cmux-next/browser-host-release.py package \
+            "cmux-tui/target/${{ matrix.target }}/release/cmux-browser-host" \
+            "${{ needs.version.outputs.version }}" "${{ matrix.target }}" dist
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-browser-host-${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    if: github.ref_type == 'tag'
+    needs: [version, build]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-browser-host-*
+          path: dist
+          merge-multiple: true
+      - name: Entries and checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+          python3 scripts/cmux-next/browser-host-release.py entries "$base" "$VERSION" dist/*.tar.gz > dist/manifest-entries.json
+          (cd dist && sha256sum ./*.tar.gz manifest-entries.json > SHA256SUMS)
+          cat dist/manifest-entries.json
+      - name: Attest
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/manifest-entries.json
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # A re-run after a partial upload replaces the assets of the release it made.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber \
+              dist/*.tar.gz dist/manifest-entries.json dist/SHA256SUMS
+            exit 0
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+            --title "cmux-browser-host $VERSION" \
+            --notes "cmux-browser-host $VERSION for Linux (x86_64, aarch64; glibc >= $GLIBC_FLOOR), commit $GITHUB_SHA. Channel-manifest entries: manifest-entries.json (unsigned; verify with gh attestation verify)." \
+            dist/*.tar.gz dist/manifest-entries.json dist/SHA256SUMS

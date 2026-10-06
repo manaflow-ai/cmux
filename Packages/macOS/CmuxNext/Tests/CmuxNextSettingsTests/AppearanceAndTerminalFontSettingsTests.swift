@@ -130,7 +130,7 @@ import Testing
         try Data(#"{"appearance": {"theme": "Nord", "metrics": {"chromeFontSize": 14}}, "terminal": {"fontFamily": "SF Mono", "fontSize": 15}}"#.utf8)
             .write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url)
-        try await settings.resetAllSettings()
+        try await settings.resetAllSettings(by: .user)
         let root = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         #expect(root.value(at: AppThemeSetting().configPath) == "Nord")
         #expect(root.value(at: TerminalFontSetting().familyPath) == "SF Mono")

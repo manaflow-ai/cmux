@@ -14,6 +14,18 @@
       "title" : "AllowedSignInMethods",
       "type" : "array"
     },
+    "announcements.enabled" : {
+      "default" : true,
+      "description" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+      "title" : "Show Announcements",
+      "type" : "boolean"
+    },
+    "announcements.fetch" : {
+      "default" : true,
+      "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+      "title" : "Download Announcements",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -133,6 +145,27 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
+      "type" : "number"
+    },
     "appearance.saturation" : {
       "default" : 1,
       "description" : "Increase or reduce the tint color intensity.",
@@ -181,9 +214,189 @@
       "title" : "Line Width",
       "type" : "number"
     },
+    "appearance.surfaces.agentPane.color" : {
+      "description" : "appearance.surfaces.agentPane.color",
+      "title" : "Agent Chat Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.agentPane.opacity" : {
+      "description" : "appearance.surfaces.agentPane.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Agent Chat Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.browserChrome.color" : {
+      "description" : "appearance.surfaces.browserChrome.color",
+      "title" : "Browser Toolbar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.browserChrome.opacity" : {
+      "description" : "appearance.surfaces.browserChrome.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Browser Toolbar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.diff.color" : {
+      "description" : "appearance.surfaces.diff.color",
+      "title" : "Diff Viewer Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.diff.opacity" : {
+      "description" : "appearance.surfaces.diff.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Diff Viewer Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.docks.color" : {
+      "description" : "appearance.surfaces.docks.color",
+      "title" : "Docked Columns Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.docks.opacity" : {
+      "description" : "appearance.surfaces.docks.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Docked Columns Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.editor.color" : {
+      "description" : "appearance.surfaces.editor.color",
+      "title" : "Code Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.editor.opacity" : {
+      "description" : "appearance.surfaces.editor.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Code Editor Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.home.color" : {
+      "description" : "appearance.surfaces.home.color",
+      "title" : "Home Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.home.opacity" : {
+      "description" : "appearance.surfaces.home.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Home Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.internalPage.color" : {
+      "description" : "appearance.surfaces.internalPage.color",
+      "title" : "Internal Pages Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.internalPage.opacity" : {
+      "description" : "appearance.surfaces.internalPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.markdown.color" : {
+      "description" : "appearance.surfaces.markdown.color",
+      "title" : "Markdown Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.markdown.opacity" : {
+      "description" : "appearance.surfaces.markdown.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Markdown Editor Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.newTabPage.color" : {
+      "description" : "appearance.surfaces.newTabPage.color",
+      "title" : "New Tab Page Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.newTabPage.opacity" : {
+      "description" : "appearance.surfaces.newTabPage.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "New Tab Page Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.settings.color" : {
+      "description" : "appearance.surfaces.settings.color",
+      "title" : "Settings Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.settings.opacity" : {
+      "description" : "appearance.surfaces.settings.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Settings Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.sidebar.color" : {
+      "description" : "appearance.surfaces.sidebar.color",
+      "title" : "Sidebar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.sidebar.opacity" : {
+      "description" : "appearance.surfaces.sidebar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Sidebar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.splitDivider.color" : {
+      "description" : "appearance.surfaces.splitDivider.color",
+      "title" : "Split Divider Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.splitDivider.opacity" : {
+      "description" : "appearance.surfaces.splitDivider.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Split Divider Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.tabBar.color" : {
+      "description" : "appearance.surfaces.tabBar.color",
+      "title" : "Tab Bar Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.tabBar.opacity" : {
+      "description" : "appearance.surfaces.tabBar.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Tab Bar Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.terminal.color" : {
+      "description" : "appearance.surfaces.terminal.color",
+      "title" : "Terminal Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.terminal.opacity" : {
+      "description" : "appearance.surfaces.terminal.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Terminal Opacity",
+      "type" : "number"
+    },
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.search" : {
+      "default" : "",
+      "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
+      "title" : "Custom Search Address",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.suggest" : {
+      "default" : "",
+      "description" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.",
+      "title" : "Custom Suggestions Address",
       "type" : "string"
     },
     "browser.defaultEngine" : {
@@ -224,11 +437,102 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.links.cmdClick" : {
+      "default" : "backgroundTab",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Command-Click",
+      "type" : "string"
+    },
+    "browser.links.cmdShiftClick" : {
+      "default" : "foregroundTab",
+      "description" : "Shift-middle-click does the same.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Command-Click",
+      "type" : "string"
+    },
+    "browser.links.middleClick" : {
+      "default" : "backgroundTab",
+      "description" : "Chromium tabs use the Command-Click setting.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Middle-Click",
+      "type" : "string"
+    },
+    "browser.links.optionClick" : {
+      "default" : "download",
+      "description" : "Chromium tabs always download.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Option-Click",
+      "type" : "string"
+    },
+    "browser.links.shiftClick" : {
+      "default" : "newWindow",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Click",
+      "type" : "string"
+    },
     "browser.newTabPage" : {
       "default" : "",
       "description" : "An address such as https://example.com. Empty opens a blank page.",
       "title" : "New Tab Page",
       "type" : "string"
+    },
+    "browser.omnibar.calculator" : {
+      "default" : true,
+      "description" : "Shows the answer to arithmetic you type. Return copies it.",
+      "title" : "Calculator Answers",
+      "type" : "boolean"
+    },
+    "browser.omnibar.inlineAutocomplete" : {
+      "default" : true,
+      "description" : "Completes a site you typed before or visit often.",
+      "title" : "Complete Addresses Inline",
+      "type" : "boolean"
+    },
+    "browser.omnibar.maxRows" : {
+      "default" : 8,
+      "description" : "browser.omnibar.maxRows",
+      "maximum" : 15,
+      "minimum" : 3,
+      "title" : "Suggestions Shown",
+      "type" : "number"
+    },
+    "browser.omnibar.remoteSuggestions" : {
+      "default" : true,
+      "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
+      "title" : "Search Suggestions",
+      "type" : "boolean"
     },
     "browser.remoteLocalhost" : {
       "default" : true,
@@ -236,10 +540,75 @@
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
     },
+    "browser.searchEngine" : {
+      "default" : "google",
+      "description" : "The address bar searches here and asks it for suggestions.",
+      "enum" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "title" : "Search Engine",
+      "type" : "string"
+    },
     "browser.showBookmarksBar" : {
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "diff.diffIndicators" : {
+      "default" : "bars",
+      "description" : "diff.diffIndicators",
+      "enum" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "title" : "Change Markers",
+      "type" : "string"
+    },
+    "diff.expandUnchanged" : {
+      "default" : false,
+      "description" : "diff.expandUnchanged",
+      "title" : "Expand Unchanged Lines",
+      "type" : "boolean"
+    },
+    "diff.layout" : {
+      "default" : "unified",
+      "description" : "diff.layout",
+      "enum" : [
+        "split",
+        "unified"
+      ],
+      "title" : "Layout",
+      "type" : "string"
+    },
+    "diff.lineNumbers" : {
+      "default" : true,
+      "description" : "diff.lineNumbers",
+      "title" : "Line Numbers",
+      "type" : "boolean"
+    },
+    "diff.showBackgrounds" : {
+      "default" : true,
+      "description" : "diff.showBackgrounds",
+      "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.wordDiffs" : {
+      "default" : false,
+      "description" : "diff.wordDiffs",
+      "title" : "Highlight Word Changes",
+      "type" : "boolean"
+    },
+    "diff.wordWrap" : {
+      "default" : false,
+      "description" : "diff.wordWrap",
+      "title" : "Wrap Lines",
       "type" : "boolean"
     },
     "DisableAutoUpdate" : {
@@ -398,6 +767,29 @@
       "title" : "Fixed Column Width",
       "type" : "number"
     },
+    "layout.dockColumnEdge" : {
+      "default" : "nearest",
+      "description" : "layout.dockColumnEdge",
+      "enum" : [
+        "nearest",
+        "right",
+        "left",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Column Edge",
+      "type" : "string"
+    },
+    "layout.dockColumnMode" : {
+      "default" : "docked",
+      "description" : "layout.dockColumnMode",
+      "enum" : [
+        "docked",
+        "overlay"
+      ],
+      "title" : "Dock Column Mode",
+      "type" : "string"
+    },
     "layout.frameOrientation" : {
       "default" : "columnMajor",
       "description" : "layout.frameOrientation",
@@ -471,6 +863,24 @@
       "title" : "Padding",
       "type" : "number"
     },
+    "layout.paneSeparation" : {
+      "default" : "borders",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "enum" : [
+        "none",
+        "dividers",
+        "borders",
+        "cards"
+      ],
+      "title" : "Separation",
+      "type" : "string"
+    },
+    "layout.rows" : {
+      "default" : true,
+      "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
+      "title" : "Rows",
+      "type" : "boolean"
+    },
     "layout.splitSizing" : {
       "default" : "even",
       "description" : "Even gives every pane in the column the same size after a split.",
@@ -479,29 +889,6 @@
         "halve"
       ],
       "title" : "Split Sizing",
-      "type" : "string"
-    },
-    "layout.stickyColumnEdge" : {
-      "default" : "nearest",
-      "description" : "layout.stickyColumnEdge",
-      "enum" : [
-        "nearest",
-        "right",
-        "left",
-        "top",
-        "bottom"
-      ],
-      "title" : "Sticky Column Edge",
-      "type" : "string"
-    },
-    "layout.stickyColumnMode" : {
-      "default" : "docked",
-      "description" : "layout.stickyColumnMode",
-      "enum" : [
-        "docked",
-        "overlay"
-      ],
-      "title" : "Sticky Column Mode",
       "type" : "string"
     },
     "layout.stripScrollbar" : {
@@ -523,6 +910,17 @@
     "MinimumVersion" : {
       "description" : "Oldest cmux version allowed to sign in, for example 1.2.0.",
       "title" : "MinimumVersion",
+      "type" : "string"
+    },
+    "navigation.historyScope" : {
+      "default" : "workspace",
+      "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
+      "enum" : [
+        "workspace",
+        "window",
+        "surface"
+      ],
+      "title" : "Back and Forward",
       "type" : "string"
     },
     "newTerminal.opensWorkspace" : {
@@ -833,10 +1231,40 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "picker.pinned" : {
+      "default" : [
+
+      ],
+      "description" : "The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Folders",
+      "type" : "array"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
+    },
+    "shortcuts.showModifierHoldHints" : {
+      "default" : true,
+      "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
+      "title" : "Show Shortcuts When Holding a Modifier",
+      "type" : "boolean"
+    },
+    "sidebar.border" : {
+      "default" : false,
+      "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
+      "title" : "Border",
+      "type" : "boolean"
+    },
+    "sidebar.borderWidth" : {
+      "description" : "sidebar.borderWidth",
+      "maximum" : 4,
+      "minimum" : 0.5,
+      "title" : "Border Width",
+      "type" : "number"
     },
     "sidebar.bottomBandMaxShare" : {
       "default" : 0.25,
@@ -847,7 +1275,7 @@
       "type" : "number"
     },
     "sidebar.minimalMode" : {
-      "default" : "off",
+      "default" : "bottom",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
       "enum" : [
         "off",
@@ -857,6 +1285,12 @@
       ],
       "title" : "Minimal Mode",
       "type" : "string"
+    },
+    "sidebar.pinnedBandsScroll" : {
+      "default" : true,
+      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
+      "title" : "Scroll Tall Sections",
+      "type" : "boolean"
     },
     "sidebar.sectionLook" : {
       "default" : "quiet",
@@ -877,11 +1311,25 @@
       "title" : "Show Workspace Tabs",
       "type" : "boolean"
     },
-    "sidebar.stickyBandsScroll" : {
-      "default" : true,
-      "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
-      "title" : "Scroll Tall Sections",
-      "type" : "boolean"
+    "sidebar.side" : {
+      "default" : "left",
+      "description" : "The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.",
+      "enum" : [
+        "left",
+        "right"
+      ],
+      "title" : "Sidebar Side",
+      "type" : "string"
+    },
+    "sidebar.spacesPosition" : {
+      "default" : "bottom",
+      "description" : "Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Spaces Position",
+      "type" : "string"
     },
     "sidebar.topBandMaxShare" : {
       "default" : 0.3333333333333333,
@@ -919,8 +1367,28 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
+    },
+    "tabs.barPosition" : {
+      "default" : "top",
+      "description" : "Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.",
+      "enum" : [
+        "top",
+        "bottom"
+      ],
+      "title" : "Tab Bar Position",
+      "type" : "string"
+    },
     "tabs.newTabKind" : {
-      "default" : "same-kind",
+      "default" : "agent",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
       "enum" : [
         "same-kind",
@@ -931,6 +1399,16 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.plusButton" : {
+      "default" : "hover",
+      "description" : "On Hover shows each tab bar's + only while the pointer is over that tab bar.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "New Tab Button",
       "type" : "string"
     },
     "tasks.layout" : {
@@ -976,6 +1454,77 @@
       "title" : "UpdateChannel",
       "type" : "string"
     },
+    "updates.checkAutomatically" : {
+      "default" : true,
+      "description" : "updates.checkAutomatically",
+      "title" : "Check for Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.checkIntervalSeconds" : {
+      "default" : 3600,
+      "description" : "updates.checkIntervalSeconds",
+      "maximum" : 604800,
+      "minimum" : 900,
+      "title" : "Check Every",
+      "type" : "number"
+    },
+    "updates.downloadAutomatically" : {
+      "default" : true,
+      "description" : "Off: a found update waits, and one click downloads and installs it.",
+      "title" : "Download Updates Automatically",
+      "type" : "boolean"
+    },
+    "updates.installOnQuit" : {
+      "default" : true,
+      "description" : "A downloaded update installs as cmux quits. Terminals keep running.",
+      "title" : "Install Updates When Quitting",
+      "type" : "boolean"
+    },
+    "updates.keepPreviousVersions" : {
+      "default" : 1,
+      "description" : "Earlier builds kept so you can roll back. Uses almost no disk until files change.",
+      "maximum" : 5,
+      "minimum" : 0,
+      "title" : "Keep Previous Versions",
+      "type" : "number"
+    },
+    "updates.meteredNetwork" : {
+      "default" : "defer-low-data",
+      "description" : "While downloads wait, a found update shows as a card and one click downloads it.",
+      "enum" : [
+        "defer-low-data",
+        "defer-expensive",
+        "download"
+      ],
+      "title" : "On Metered Networks",
+      "type" : "string"
+    },
+    "updates.notify" : {
+      "default" : "card",
+      "description" : "updates.notify",
+      "enum" : [
+        "card",
+        "badge",
+        "silent"
+      ],
+      "title" : "When an Update Is Ready",
+      "type" : "string"
+    },
+    "updates.quietHours" : {
+      "description" : "No update card between these times.",
+      "properties" : {
+        "end" : {
+          "title" : "end",
+          "type" : "string"
+        },
+        "start" : {
+          "title" : "start",
+          "type" : "string"
+        }
+      },
+      "title" : "Quiet Hours",
+      "type" : "object"
+    },
     "window.titlebar" : {
       "default" : "minimal",
       "description" : "Minimal has no titlebar strip; the top row moves the window.",
@@ -984,6 +1533,16 @@
         "standard"
       ],
       "title" : "Titlebar",
+      "type" : "string"
+    },
+    "window.titlebarButtons" : {
+      "default" : "hover",
+      "description" : "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+      "enum" : [
+        "hover",
+        "always"
+      ],
+      "title" : "Titlebar Buttons",
       "type" : "string"
     }
   },

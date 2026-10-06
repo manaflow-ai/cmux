@@ -13,7 +13,7 @@
 // (runtime-core.js Session.call, its event router and Page._afterAction).
 // The domain policy, the secret vault, TOTP, masking and capture masking are
 // the host's (plans/cmux-next/browser-host.md section 4): this file only
-// forwards to host.secret* and host.policy* and passes secret handles on.
+// calls host.secrets(op) and host.policy(op) and passes secret handles on.
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
@@ -26,6 +26,67 @@
   // "*.example.com" (subdomains and the bare domain), "http*://example.com",
   // "https://example.com", "*". A port in the pattern must match. Multiple
   // wildcards, wildcard TLDs and embedded wildcards are refused when set.
+
+  // Host names as the policy compares them: lower case, no trailing dot,
+  // internationalized labels in Punycode, as the host's domain policy does.
+  function punycode(input) {
+    const cps = [...input].map((c) => c.codePointAt(0));
+    let out = cps.filter((c) => c < 0x80).map((c) => String.fromCharCode(c)).join("");
+    const basic = out.length;
+    let handled = basic;
+    if (basic) out += "-";
+    let n = 128;
+    let delta = 0;
+    let bias = 72;
+    const digit = (d) => String.fromCharCode(d < 26 ? d + 97 : d + 22);
+    const adapt = (d, count, first) => {
+      d = first ? Math.floor(d / 700) : d >> 1;
+      d += Math.floor(d / count);
+      let k = 0;
+      while (d > 455) {
+        d = Math.floor(d / 35);
+        k += 36;
+      }
+      return k + Math.floor((36 * d) / (d + 38));
+    };
+    while (handled < cps.length) {
+      const m = Math.min(...cps.filter((c) => c >= n));
+      delta += (m - n) * (handled + 1);
+      n = m;
+      for (const c of cps) {
+        if (c < n) delta++;
+        if (c === n) {
+          let q = delta;
+          for (let k = 36; ; k += 36) {
+            const t = k <= bias ? 1 : k >= bias + 26 ? 26 : k - bias;
+            if (q < t) break;
+            out += digit(t + ((q - t) % (36 - t)));
+            q = Math.floor((q - t) / (36 - t));
+          }
+          out += digit(q);
+          bias = adapt(delta, handled + 1, handled === basic);
+          delta = 0;
+          handled++;
+        }
+      }
+      delta++;
+      n++;
+    }
+    return out;
+  }
+  function normalizeHost(raw) {
+    let host = String(raw || "").trim();
+    if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`;
+    if (host.startsWith("[")) return host.toLowerCase();
+    host = host.replace(/\.+$/, "");
+    return host
+      .split(".")
+      .map((label) => {
+        const l = label.normalize("NFC").toLowerCase();
+        return /[^\x00-\x7f]/.test(l) ? "xn--" + punycode(l) : l;
+      })
+      .join(".");
+  }
 
   function parsePattern(raw, title) {
     if (typeof raw !== "string" || !raw.trim()) throw new Error(`${title}: expected domain patterns as non-empty strings, got ${JSON.stringify(raw)}`);
@@ -50,7 +111,9 @@
       if (host.includes("*") && !host.startsWith("*.")) throw new Error(`${title}: ${JSON.stringify(raw)}: use *.example.com; other wildcards are not allowed`);
       if (!host || /[\s/]/.test(host)) throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
     }
-    return { raw, scheme, host, port };
+    const normalized = host === "*" ? host : host.startsWith("*.") ? "*." + normalizeHost(host.slice(2)) : normalizeHost(host);
+    if (!normalized || normalized === "*.") throw new Error(`${title}: ${JSON.stringify(raw)}: expected a domain`);
+    return { raw, scheme, host: normalized, port };
   }
 
   const globRe = (glob) => new RegExp("^" + glob.replace(/[.+^${}()|[\]\\?]/g, "\\$&").replace(/\*/g, ".*") + "$");
@@ -66,7 +129,7 @@
       return false;
     }
     const scheme = String(u.protocol || "").replace(/:$/, "").toLowerCase();
-    const host = String(u.hostname || "").toLowerCase();
+    const host = normalizeHost(u.hostname || "");
     if (!host) return false;
     if (pattern.scheme) {
       if (!globRe(pattern.scheme).test(scheme)) return false;
@@ -630,16 +693,38 @@
     };
 
     // ---- secrets -------------------------------------------------------------
-    // The vault is the host's (browser-host.md section 4): values never live in
-    // this context. A secret set here is agent-known (the agent has the value
-    // anyway) and only masked; a secret the user gives the host never enters
-    // this context. secret(name) is a {__secret: name} handle that the host
-    // resolves after checking the receiving frame's origin (TOTP included).
-    const hostCall = (name, ...args) => {
-      if (typeof host[name] !== "function") throw new Error(`${name}: this browser host has no secret vault or domain policy`);
-      return host[name](...args);
+    // Values live in the host (browser-host.md section 4), never in this
+    // context: main's natives host.secrets(op, args) and host.policy(op,
+    // args) answer with names, never values. A secret set here is
+    // agent-known (the agent has the value anyway) and only masked.
+    // secret(name) is main's name object, typed by the host from
+    // input.insertText { secret } after it checks the focused frame's
+    // origin (TOTP included). cmux-next: a host without the "secret.insert"
+    // capability gets a {__secret: name} handle in the text instead.
+    const secretsHost = (op, args) => host.secrets(op, args || {});
+    // main's secret(name) object: a branded name the host resolves from
+    // input.insertText { secret }, where the host has that capability.
+    const SecretBrand = new WeakSet();
+    class Secret {
+      constructor(name) {
+        this.name = name;
+        SecretBrand.add(this);
+        Object.freeze(this);
+      }
+      toString() {
+        return `<secret:${this.name}>`;
+      }
+      toJSON() {
+        return this.toString();
+      }
+    }
+    Object.freeze(Secret.prototype);
+    const hostTypesSecrets = () => {
+      const caps = session.driver && typeof session.driver.capabilities === "function" ? session.driver.capabilities() : [];
+      return Array.isArray(caps) && caps.includes("secret.insert");
     };
-    const isSecret = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    const isHandle = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && typeof v.__secret === "string" && Object.keys(v).length === 1;
+    const isSecret = (v) => (v !== null && typeof v === "object" && SecretBrand.has(v)) || isHandle(v);
     function makeHandle(name) {
       const h = { __secret: name };
       Object.defineProperty(h, "toString", { value: () => `<secret:${name}>`, enumerable: false });
@@ -654,74 +739,48 @@
       for (const d of domains) parsePattern(d, title);
       return { domains: [...domains], totp: !!(options.totp || /bu_2fa_code$/.test(name)) };
     }
-    const listSecrets = () => hostCall("secretList");
-    const secrets = {
+    const secrets = Object.freeze({
       // set(name, value, { domains, totp }): the value is typed only into
       // frames on those domains and is masked as <secret:name> everywhere.
       set(name, value, options) {
         const opts = checkSecretArgs(name, value, options, "secrets.set");
-        return hostCall("secretSet", name, value, opts);
+        return secretsHost("set", { name, value, domains: opts.domains, totp: opts.totp });
       },
-      // Secrets map: { "<domain pattern>": { name: value } },
-      // as an object or a JSON file path. A value { value, totp } is accepted.
+      // { "<domain pattern>": { name: value } }, as an object or a JSON file
+      // path (read by the host, so the values never enter this context). A
+      // value { value, totp } is accepted.
       load(source) {
-        let data = source;
-        if (typeof source === "string") {
-          const text = fs.readFileSync(source, "utf8");
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            throw new Error(`secrets.load: ${source} is not JSON`);
-          }
-        }
-        if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
-        const merged = new Map(); // name -> { value, domains, totp }
-        for (const [pattern, entries] of Object.entries(data)) {
+        if (typeof source === "string") return secretsHost("load", { path: source });
+        if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("secrets.load: expected { \"<domain pattern>\": { name: value } }");
+        for (const [pattern, entries] of Object.entries(source)) {
           if (!entries || typeof entries !== "object") throw new Error(`secrets.load: ${JSON.stringify(pattern)}: a secret needs domains; expected { "<domain pattern>": { name: value } }`);
-          for (const [name, v] of Object.entries(entries)) {
-            const value = v && typeof v === "object" ? v.value : v;
-            const totpOn = !!(v && typeof v === "object" && v.totp);
-            const prior = merged.get(name);
-            if (prior && prior.value === value) {
-              prior.domains.push(pattern);
-              prior.totp = prior.totp || totpOn;
-            } else merged.set(name, { value, domains: [pattern], totp: totpOn });
-          }
+          for (const [name, v] of Object.entries(entries)) checkSecretArgs(name, v && typeof v === "object" ? v.value : v, { domains: [pattern] }, "secrets.load");
         }
-        const out = [];
-        for (const [name, s] of merged) {
-          const opts = checkSecretArgs(name, s.value, { domains: s.domains, totp: s.totp }, "secrets.load");
-          out.push(hostCall("secretSet", name, s.value, opts));
-        }
-        return out;
+        return secretsHost("load", { object: source });
       },
-      list: () => listSecrets(),
-      has: (name) => listSecrets().some((s) => s.name === name),
-      delete: (name) => hostCall("secretDelete", name),
-      clear() {
-        for (const s of listSecrets()) hostCall("secretDelete", s.name);
+      // Main's key order (a host may answer with sorted keys).
+      list: () => (secretsHost("list") || []).map(({ name, domains, totp, agentKnown }) => ({ name, domains, totp, agentKnown })),
+      has: (name) => secretsHost("has", { name }),
+      delete: (name) => secretsHost("delete", { name }),
+      clear: () => {
+        secretsHost("clear");
       },
-    };
+    });
     function secret(name) {
       if (!secrets.has(name)) throw new Error(`secret(${JSON.stringify(name)}): no such secret; register it with secrets.set(name, value, { domains }) or secrets.load(file)`);
-      return makeHandle(name);
+      return hostTypesSecrets() ? new Secret(name) : makeHandle(name);
     }
 
     // ---- domain policy -------------------------------------------------------
     // Enforced by the host below this context. Agent code may narrow the
-    // policy for its session (the host intersects it with the user's policy
-    // and refuses a change after a lock); it can never widen the user's.
+    // policy for its session (cmux-next: the host intersects it with the
+    // user's policy and refuses a change after a lock); it never widens it.
+    const policyHost = (op, args) => host.policy(op, args || {});
     function setPolicy(field, title, list, options) {
-      if (list === undefined) return hostCall("policyGet")[field];
+      if (list === undefined) return policyHost("get")[field];
       if (list !== null && !Array.isArray(list)) throw new Error(`${title}: expected an array of domain patterns or null, got ${JSON.stringify(list)}`);
       if (list) for (const d of list) parsePattern(d, title);
-      const change = { [field]: field === "prohibited" ? list || [] : list && list.length ? list : null };
-      if (options && options.lock) change.lock = true;
-      try {
-        return hostCall("policyNarrow", change)[field];
-      } catch (e) {
-        throw new Error(`${title}: ${(e && e.message) || e}`);
-      }
+      return policyHost("set", { [field]: list, lock: !!(options && options.lock), title })[field];
     }
 
     // ---- browser-context options (session.configure) -------------------------------
@@ -772,13 +831,13 @@
     const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
     // A secret handle is recorded by name; other text as given (the host
     // masks agent-known secret values in every file it writes).
-    const traceText = (t) => (isSecret(t) ? `<secret:${t.__secret}>` : t);
+    const traceText = (t) => (isHandle(t) ? `<secret:${t.__secret}>` : isSecret(t) ? String(t) : t);
     function traceParams(method, p) {
       const o = {};
       if (p.url !== undefined) o.url = p.url;
       if (method === "input.mouse") Object.assign(o, { type: p.type, x: p.x, y: p.y, button: p.button, deltaX: p.deltaX, deltaY: p.deltaY });
       if (method === "input.key") Object.assign(o, { type: p.type, modifiers: p.modifiers, key: traceText(p.key) });
-      if (method === "input.insertText") o.text = traceText(p.text);
+      if (method === "input.insertText") o.text = p.secret ? `<secret:${p.secret}>` : traceText(p.text);
       if (method === "input.setFiles") o.files = (p.files || []).map((f) => f.name);
       if (method === "tab.history") o.delta = p.delta;
       if (method === "dialog.respond") o.accept = p.accept;
@@ -808,7 +867,7 @@
     // ---- hooks -------------------------------------------------------------------
     // Recording and downloads only: the policy, secret resolution, masking
     // and capture masking happen in the host around each driver call.
-    session.agentTools = {
+    const hooks = {
       isSecret,
       async beforeCall() {},
       afterCall(method, params, promise) {
@@ -839,43 +898,44 @@
           if (d) Object.assign(d, { state: p.error ? "failed" : "finished", path: p.path || null, error: p.error || null });
         }
       },
-      // The host already sent a tab that left the policy to about:blank; this
-      // only makes the action that took it there fail with the reason.
       async afterAction(page) {
-        if (typeof host.policyCheck === "function" && !page._closed) {
-          const message = await host.policyCheck(page._targetId);
-          if (message) {
-            await page._syncInfo().catch(() => {});
-            throw new Error(message);
-          }
-        }
         if (recorder) {
           const file = await recordFrame(page);
           if (file) trace({ t: new Date(session.now()).toISOString(), tab: page._targetId, event: "after-action", url: page.url(), frame: file });
         }
       },
     };
+    // Agent code can reach the session object; the hooks stay fixed. They
+    // are conveniences: the guards are native and do not depend on them.
+    Object.freeze(hooks);
+    Object.defineProperty(session, "agentTools", { value: hooks, writable: false, configurable: false, enumerable: false });
 
     // ---- storage state -------------------------------------------------------------
     // Default scope: the sites (registrable domains) of one tab, so a saved
     // state never carries the rest of the user's profile by accident.
     // { all: true } saves everything; { urls } saves what those URLs see.
+    // The host answers a host's site (cmux-next: from a compact suffix list
+    // until it has the Public Suffix List, port plan D6).
+    const siteOf = (hostname) => policyHost("site", { host: String(hostname || "") });
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
       const urls = options.urls ? [].concat(options.urls) : null;
+      const page = fromPage || currentPage();
       let site = null;
       if (!options.all && !urls) {
-        const page = fromPage || currentPage();
         const url = page && !page._closed ? String(page.url()) : "";
         const hostname = /^https?:/i.test(url) ? new core.URL(url).hostname : "";
         if (!hostname) throw new Error(`session.storageState: the current tab (${url || "none"}) has no site to scope to; open the site first, or pass { all: true } for the whole profile or { urls: [...] }`);
-        site = registrableDomain(hostname);
+        site = siteOf(hostname);
       }
-      const inScope = (hostname) => site === null || registrableDomain(hostname) === site;
-      const cookies = (await session.call("cookies.get", urls ? { urls } : {})).filter((c) => inScope(String(c.domain || "")));
+      const inScope = (hostname) => site === null || siteOf(hostname) === site;
+      // The cookies of the page's own data store (cookieScope).
+      const cookies = (await session.call("cookies.get", { ...cookieScope(page), ...(urls ? { urls } : {}) })).filter((c) => inScope(String(c.domain || "")));
+      // localStorage only from the open tabs in that store (storeTabs).
+      const { targetIds } = await storeTabs(page);
       const origins = new Map();
       for (const page of [...session.pages.values()]) {
-        if (page._closed || String(page._targetId).startsWith("lazy:")) continue;
+        if (page._closed || !targetIds.has(page._targetId)) continue;
         for (const frame of [page._mainFrame, ...page._frames.values()]) {
           if (frame._detached) continue;
           const r = await frame._call("agent", "() => { try { return { origin: location.origin, items: Object.entries(localStorage) }; } catch (e) { return null; } }", []).catch(() => null);
@@ -889,21 +949,47 @@
       if (options.path) fs.writeFileSync(options.path, JSON.stringify(state, null, 2));
       return state;
     }
-    async function setStorageState(source) {
+    // A page's cookie calls name its tab, so the driver uses that tab's data
+    // store (a private tab's, or the session's proxy store), not another's.
+    function cookieScope(page) {
+      return page && !page._closed && typeof page._cookieScope === "function" ? page._cookieScope() : {};
+    }
+    // The data store the page's cookie calls use (`tabs.dataStore`), and the
+    // open tabs in it. localStorage belongs to a store too, so storage state
+    // reads and writes it only through those tabs, never through a tab on
+    // the same origin in another store. A driver without `tabs.dataStore`
+    // gets the page's own tab only.
+    async function storeTabs(page) {
+      const scope = cookieScope(page);
+      let dataStore;
+      try {
+        ({ dataStore } = await session.call("tabs.dataStore", scope));
+      } catch (e) {
+        if (errCode(e) !== "unsupported") throw e;
+        return { dataStore: undefined, targetIds: new Set(scope.targetId ? [scope.targetId] : []) };
+      }
+      const list = await session.call("tabs.list", { all: true });
+      return { dataStore, targetIds: new Set(list.filter((t) => t.dataStore === dataStore).map((t) => t.targetId)) };
+    }
+    async function setStorageState(source, fromPage) {
       const state = typeof source === "string" ? JSON.parse(fs.readFileSync(source, "utf8")) : source;
       if (!state || typeof state !== "object" || (!Array.isArray(state.cookies) && !Array.isArray(state.origins))) {
         throw new Error("session.setStorageState: expected { cookies, origins } (Playwright's storage state) or a path to one");
       }
-      if (state.cookies && state.cookies.length) await session.call("cookies.set", { cookies: state.cookies });
+      const target = fromPage || currentPage();
+      if (state.cookies && state.cookies.length) await session.call("cookies.set", { ...cookieScope(target), cookies: state.cookies });
       let restored = 0;
+      let store = null;
       for (const { origin, localStorage } of state.origins || []) {
         if (!localStorage || !localStorage.length) continue;
-        // An open tab on the origin takes the items; otherwise a background
-        // tab loads the origin, takes them and closes.
-        let page = [...session.pages.values()].find((p) => !p._closed && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
+        // An open tab on the origin in the page's data store takes the
+        // items; otherwise a background tab of that store loads the origin,
+        // takes them and closes.
+        if (!store) store = await storeTabs(target);
+        let page = [...session.pages.values()].find((p) => !p._closed && store.targetIds.has(p._targetId) && /^https?:/.test(p.url()) && new core.URL(p.url()).origin === origin);
         const temp = !page;
         if (temp) {
-          page = await session.newPage(undefined, { background: true });
+          page = await session.newPage(undefined, { background: true, dataStore: store.dataStore });
           await page.goto(origin + "/", { waitUntil: "domcontentloaded" });
         }
         try {
@@ -926,17 +1012,13 @@
       allowedDomains: (list, options) => setPolicy("allowed", "session.allowedDomains", list, options),
       prohibitedDomains: (list, options) => setPolicy("prohibited", "session.prohibitedDomains", list, options),
       blockIPAddresses(on, options) {
-        if (on === undefined) return hostCall("policyGet").blockIPAddresses;
-        const change = { blockIPAddresses: !!on };
-        if (options && options.lock) change.lock = true;
-        try {
-          return hostCall("policyNarrow", change).blockIPAddresses;
-        } catch (e) {
-          throw new Error(`session.blockIPAddresses: ${(e && e.message) || e}`);
-        }
+        if (on === undefined) return policyHost("get").blockIPs;
+        return policyHost("set", { blockIPs: !!on, lock: !!(options && options.lock), title: "session.blockIPAddresses" }).blockIPs;
       },
-      blockedNavigations: () => hostCall("policyLog"),
-      // Playwright browser-context options for the tabs this session drives:
+      // cmux-next: the host blocks a navigation before its request and keeps
+      // the log (policy op "log").
+      blockedNavigations: () => policyHost("log"),
+      // Playwright browser-context options for the tabs this session created:
       // { userAgent, extraHTTPHeaders, permissions, proxy }. null clears one.
       configure,
       configuration: () => JSON.parse(JSON.stringify(contextConfig)),
@@ -948,7 +1030,7 @@
       // animated PNG of the run.
       record(options = {}) {
         if (recorder) throw new Error(`session.record: already recording to ${recorder.dir}; call stop() on it first`);
-        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, "cmux-browser-repl", String(host.sessionId || "session").replace(/[^\w.-]/g, "_"), `record-${++recordCount}`);
+        const dir = options.dir ? path.resolve(String(options.dir)) : path.join(host.tmpdir, `record-${++recordCount}`);
         fs.mkdirSync(dir, { recursive: true });
         const r = { dir, trace: path.join(dir, "trace.jsonl"), screenshots: options.screenshots !== false, frames: 0, frameFiles: [], actions: 0, busy: false };
         fs.writeFileSync(r.trace, "");
@@ -1283,7 +1365,7 @@
     const c = context.call(this);
     const storage = this._session.agentStorage;
     // Scoped like session.storageState, to this page's site.
-    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: storage.setStorageState });
+    if (storage) Object.assign(c, { storageState: (options = {}) => storage.storageState(options, this), setStorageState: (source) => storage.setStorageState(source, this) });
     return c;
   };
 
@@ -1292,7 +1374,7 @@
   // stand-in for the Public Suffix List: an unlisted multi-label suffix
   // (e.g. a regional .gov.xx) scopes to the suffix plus one label too few.
   const MULTI_SUFFIXES = new Set(("co.uk org.uk ac.uk gov.uk me.uk ltd.uk plc.uk net.uk co.jp ne.jp or.jp ac.jp go.jp " +
-    "com.au net.au org.au edu.au gov.au co.nz org.nz govt.nz co.in net.in org.in gov.in ac.in com.br net.br org.br gov.br " +
+    "co.at or.at com.au net.au org.au edu.au gov.au co.nz org.nz govt.nz co.in net.in org.in gov.in ac.in com.br net.br org.br gov.br " +
     "com.cn net.cn org.cn gov.cn edu.cn com.hk org.hk com.tw org.tw co.kr or.kr com.sg edu.sg com.mx org.mx co.za org.za " +
     "com.tr com.ar com.co com.pe com.my com.ph com.vn co.id co.il co.th com.ua com.pl com.es com.sa com.eg com.ng " +
     "github.io gitlab.io pages.dev workers.dev vercel.app netlify.app herokuapp.com web.app firebaseapp.com " +
@@ -1308,5 +1390,5 @@
     return labels.slice(-2).join(".");
   }
 
-  ns.agentTools = { install, urlMatches, parsePattern, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
+  ns.agentTools = { install, urlMatches, parsePattern, normalizeHost, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
 })(typeof globalThis !== "undefined" ? globalThis : this);

@@ -85,7 +85,7 @@ const entry = (op: CloudOpDef) => {
   const paramsType = convert(params.schema, params.defs) as { fields?: Json }
   const resultType = convert(result.schema, result.defs)
   const fields = { ...((paramsType.fields as Record<string, Json>) ?? {}) }
-  if (op.class === "mutation") {
+  if (op.class === "mutation" && op.idempotency !== "none") {
     fields.expected_revision = {
       required: false,
       type: { kind: "primitive", name: "decimal" },
@@ -94,7 +94,7 @@ const entry = (op: CloudOpDef) => {
   }
   return {
     class: op.class,
-    idempotency: op.class === "mutation" ? "required" : "forbidden",
+    idempotency: op.idempotency ?? (op.class === "mutation" ? "required" : "forbidden"),
     target: op.target,
     ancestors: op.owner === "cloud:TeamDO" ? ["team"] : ["user"],
     params: { selectors: {}, fields, extra: false },
@@ -147,7 +147,7 @@ const catalog = {
     "auth.unauthenticated": { retryable: false },
     "auth.forbidden": { retryable: false },
     "owner.unreachable": { retryable: true },
-    "mutation.indeterminate": { retryable: false }
+    "mutation.indeterminate": { retryable: true }
   },
   operations
 }

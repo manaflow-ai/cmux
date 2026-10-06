@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
 /// context menus all resolve through the registry (REWRITE.md "Action
@@ -21,6 +22,10 @@ enum AppActions {
         BookmarkHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
         TasksHandlers.bind(into: registry, context: context)
+        KeybindingHandlers.bind(into: registry, context: context)
+        PageCommandHandlers.bind(into: registry, context: context)
+        ListHandlers.bind(into: registry, context: context)
+        PasswordHandlers.bind(into: registry, context: context)
         ServerHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
@@ -40,14 +45,20 @@ enum AppActions {
         TabGroupHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
-        StickyColumnHandlers.bind(into: registry, context: context)
+        ColumnDocking.bind(into: registry, context: context)
         ColumnAvailability.bind(into: registry, context: context)
         ScreenHandlers.bind(into: registry, context: context)
         TerminalHandlers.bind(into: registry, context: context)
         FindInDirectoryHandlers.bind(into: registry, context: context)
         GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
+        BrowserHitHandlers.bind(into: registry, context: context)
+        DiffHandlers.bind(into: registry, context: context)
+        FilePageHandlers.bind(into: registry, context: context)
+        AgentExtensionHandlers.bind(into: registry, context: context)
+        ViewerHandlers.bind(into: registry, context: context)
         PageInfoHandlers.bind(into: registry, context: context)
+        CertificateWarningHandlers.bind(into: registry, context: context)
         ExtensionHandlers.bind(into: registry, context: context)
         BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
@@ -62,6 +73,12 @@ enum AppActions {
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
         WindowKeyTable.install(services)
+        // One owner per action: a second binding silently replaces the first. The check is a test
+        // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
+        if !registry.duplicateBindings.isEmpty {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions")
+                .fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+        }
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
@@ -76,8 +93,18 @@ enum AppActions {
         // --end-everything.
         registry.bind("quit", invoke: { invocation in
             do {
-                let origin = try QuitPolicy.origin(for: invocation, scripted: registry.isCapturingRefusal)
-                services.quit.requestQuit(origin)
+                let scripted = registry.isCapturingRefusal
+                let origin = try QuitPolicy.origin(for: invocation, scripted: scripted)
+                // A scripted quit saves unsaved documents first and refuses,
+                // naming them, when a save fails (R96 quit hook).
+                guard scripted, !services.quit.unsaved.unsaved().isEmpty else { return services.quit.requestQuit(origin) }
+                registry.track(Task { @MainActor in
+                    if let refusal = QuitUnsavedStep.refusal(await QuitUnsavedStep.saveUnattended(services.quit.unsaved)) {
+                        return ActionWorkFailure(refusal)
+                    }
+                    services.quit.requestQuit(origin)
+                    return nil
+                })
             } catch {
                 registry.refuse(QuitArgumentConflict.reason)
             }

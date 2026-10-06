@@ -21,7 +21,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
-    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil)
+    case openTab(AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true)
+    /// The command typed after `!` so far, whole each time, while the
+    /// terminal that replaces the page is being made (`tab.typeAhead`).
+    case typeAhead(String)
+    /// The agent picked on the new tab screen, to remember for the next
+    /// new tab (`newTab.remember`).
+    case rememberNewTab(agent: String)
+    /// The new tab page got its first user input (`newTab.touched`); a
+    /// touched page is never recycled into the prewarm pool.
+    case touched
     /// The location bar picked an open tab or workspace: go there.
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
@@ -31,6 +40,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setDefaultKind(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
+    /// The new-tab project picker asked for the explicit Browse… fallback.
+    case browseProject
+    /// Returns bounded recent project paths for the new-tab picker.
+    case listProjects(String?)
+    /// The empty-chat action opens the existing onboarding project/history import flow.
+    case importAndSync
+    /// The new-tab omnibar invoked a host-owned action id.
+    case appAction(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -56,7 +73,32 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` whose params the bridge refused (no
     /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
     case invalidGit(String)
+    /// `transport.open`: open the host's acpmux socket named by the last handshake
+    /// (``AgentPaneTransport``); answers `{connection}` once it is open.
+    case transportOpen
+    /// `transport.send` with `{connection, frames}`: page frames for the host's socket, checked
+    /// against ``AcpmuxPaneMethods``.
+    case transportSend(connection: Int, frames: [String])
+    /// `transport.close` with `{connection}`.
+    case transportClose(connection: Int)
+    /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
+    /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
+    /// contract (``AgentPaneGestureIntent``).
+    case transportGesture(AgentPaneGestureIntent?)
+    /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
+    case transportGestureRelease
     case unsupported(String)
+
+    /// Most frames in one `transport.send` (the page sends what one task wrote).
+    public static let maximumSendFrames = 4096
+
+    /// A transport request: frequent and carrying chat content, so never logged with its values.
+    public var isTransport: Bool {
+        switch self {
+        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        default: false
+        }
+    }
 
     public static let maximumPacingFrames = 640
     /// Longest `tab.open` text kept; a command or address is far shorter.
@@ -102,7 +144,24 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
                 let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil)
+                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
+                                search: kind == .browser && params?["search"] as? Bool == true,
+                                run: kind != .terminal || params?["run"] as? Bool != false)
+            } else {
+                self = .unsupported(method)
+            }
+        case "tab.typeAhead":
+            if let text = params?["text"] as? String {
+                self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "newTab.touched":
+            self = .touched
+        case "newTab.remember":
+            // One input (R86): only the agent pick is remembered.
+            if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
+                self = .rememberNewTab(agent: agent)
             } else {
                 self = .unsupported(method)
             }
@@ -119,6 +178,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "project.browse": self = .browseProject
+        case "project.list":
+            let query = (params?["query"] as? String).map { String($0.prefix(512)) }
+            self = .listProjects(query)
+        case "onboarding.importAndSync": self = .importAndSync
+        case "app.action":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
+            else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
@@ -154,6 +221,22 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
                 self = .git(git)
             } else {
                 self = .invalidGit(method)
+            }
+        case "transport.open": self = .transportOpen
+        case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))
+        case "transport.gesture.release": self = .transportGestureRelease
+        case "transport.send":
+            if let connection = params?["connection"] as? Int, let frames = params?["frames"] as? [String],
+               !frames.isEmpty, frames.count <= Self.maximumSendFrames {
+                self = .transportSend(connection: connection, frames: frames)
+            } else {
+                self = .unsupported(method)
+            }
+        case "transport.close":
+            if let connection = params?["connection"] as? Int {
+                self = .transportClose(connection: connection)
+            } else {
+                self = .unsupported(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)

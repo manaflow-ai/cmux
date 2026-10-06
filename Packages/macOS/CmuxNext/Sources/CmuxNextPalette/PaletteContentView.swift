@@ -25,8 +25,10 @@ final class PaletteContentView: NSView {
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
     private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
+    /// The page's line under the field (`PaletteModel.fieldHint`).
+    private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
-    private let actionsMenuView = PaletteActionsMenuView()
+    let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
     private var recorderHeight: CGFloat = 0
     /// A click on a shortcut recorder choice.
@@ -54,7 +56,8 @@ final class PaletteContentView: NSView {
         emptyTitle.alignment = .center
         emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
-        [searchBar, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        fieldHint.isHidden = true
+        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -87,7 +90,7 @@ final class PaletteContentView: NSView {
         }
         let length = searchBar.field.stringValue.utf16.count
         searchBar.field.currentEditor()?.selectedRange = model.selectsQuery
-            ? NSRange(location: 0, length: length) : NSRange(location: length, length: 0)
+            ? NSRange(location: 0, length: min(model.selectedQueryLength ?? length, length)) : NSRange(location: length, length: 0)
     }
 
     private func wire() {
@@ -99,6 +102,7 @@ final class PaletteContentView: NSView {
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
+        footer.onCrumb = { model.openCrumb(at: $0) }
         footer.onClose = { model.handle(.closeItem) }
         actionsMenuView.onRun = { model.runActionsMenuCommand(at: $0) }
     }
@@ -154,8 +158,14 @@ final class PaletteContentView: NSView {
             pageSymbol: model.pageSymbol,
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
-            closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil }
+            closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil },
+            crumbs: model.pageCrumbs
         )
+        if fieldHint.stringValue != model.fieldHint ?? "" || fieldHint.isHidden != (model.fieldHint == nil) {
+            fieldHint.stringValue = model.fieldHint ?? ""
+            fieldHint.isHidden = model.fieldHint == nil
+            needsLayout = true
+        }
         if pageToken != appliedPage {
             appliedPage = pageToken
             focusField()
@@ -183,7 +193,7 @@ final class PaletteContentView: NSView {
 
     private func updateMenu(_ state: PaletteActionsMenuState?) {
         guard let state else {
-            if !actionsMenuView.isHidden, !actionsMenuFadingOut { fade(actionsMenuView, in: false) }
+            if !actionsMenuView.isHidden, !actionsMenuFadingOut { animateActionsMenu(appearing: false) }
             return
         }
         actionsMenuView.update(state, alternateID: model.selectedItem?.alternate?.id)
@@ -192,7 +202,7 @@ final class PaletteContentView: NSView {
         let wasHidden = actionsMenuView.isHidden || actionsMenuFadingOut
         needsLayout = true
         layoutSubtreeIfNeeded()
-        if wasHidden { fade(actionsMenuView, in: true) }
+        if wasHidden { animateActionsMenu(appearing: true) }
     }
 
     // MARK: Layout
@@ -208,9 +218,14 @@ final class PaletteContentView: NSView {
         var y: CGFloat = 0
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
         y += PaletteLayout.searchHeight
+        // The hint takes its line from the top of the list.
+        let fieldHintHeight = fieldHint.isHidden ? 0 : fieldHint.intrinsicContentSize.height + Metrics.space2
+        fieldHint.frame = NSRect(x: PaletteLayout.horizontalPadding, y: y,
+                                 width: width - 2 * PaletteLayout.horizontalPadding, height: fieldHintHeight)
+        y += fieldHintHeight
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
-        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight)
+        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight - fieldHintHeight)
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = emptyTitle.intrinsicContentSize.height
@@ -218,7 +233,7 @@ final class PaletteContentView: NSView {
         let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
         emptyTitle.frame = NSRect(x: 0, y: emptyTop, width: width, height: titleHeight)
         emptyHint.frame = NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: hintHeight)
-        y += PaletteLayout.listHeight
+        y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)
@@ -295,7 +310,7 @@ final class PaletteContentView: NSView {
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
         Motion.set(layer, "opacity", to: Float(0), fade: .fadeOut)
-        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), fade: .fadeOut)
+        Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: panelScale(Motion.panelCloseScale)), movementFade: .fadeOut)
         CATransaction.commit()
     }
 
@@ -318,15 +333,28 @@ final class PaletteContentView: NSView {
         return Motion.scale(scale, about: panelCenter, in: layer)
     }
 
-    /// Fades the actions menu. The fade starts from the view's current
-    /// presentation opacity, so a reopen mid-fade does not jump.
-    private func fade(_ view: NSView, in appearing: Bool) {
-        if view.isHidden {
+    /// Shows or hides the Cmd-K Actions menu: it fades and grows from
+    /// `Motion.panelOpenScale` with the `appear` spring about its footer
+    /// corner, and fades out shrinking toward `Motion.panelCloseScale`, as
+    /// the palette does about its center. Both start from what is on screen,
+    /// so a reopen mid-close does not jump; Reduce Motion keeps only the fade.
+    func animateActionsMenu(appearing: Bool) {
+        let view = actionsMenuView
+        let wasHidden = view.isHidden
+        if wasHidden {
             view.alphaValue = 0
             view.isHidden = false
         }
         actionsMenuFadingOut = !appearing
-        Motion.animate(appearing ? .fadeIn : .fadeOut, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
+        if let layer = view.layer {
+            if appearing {
+                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
+                           from: wasHidden ? NSValue(caTransform3D: view.scaled(Motion.panelOpenScale)) : nil)
+            } else {
+                Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
+            }
+        }
+        Motion.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
             guard let self, self.actionsMenuFadingOut, !appearing else { return }
             self.actionsMenuFadingOut = false
             view.isHidden = true

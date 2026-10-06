@@ -14,13 +14,13 @@ extension PaneController {
         case .select(let id):
             select(id)
         case .close(let id, _):
-            close([id])
+            CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
         case .closeToRight(let id):
             let ids = orderedIDs
             guard let index = ids.firstIndex(of: id) else { return }
-            close(Array(ids[(index + 1)...]))
+            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace):
@@ -91,9 +91,11 @@ extension PaneController {
     /// reap grace period once its last tab closes. `fromSelectedTab` (New
     /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
     /// other callers (config commands, account logins) keep the pane's.
+    /// `typingAhead` names a new tab page whose `!` type-ahead the shell
+    /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
     /// `then` runs once the new tab is selected.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false,
-                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
+                        fromSelectedTab: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
@@ -105,8 +107,11 @@ extension PaneController {
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
+                if let page {
+                    try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
+                }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
                 then?(created.surface)
@@ -189,7 +194,8 @@ extension PaneController {
                 services.cache.release(id.rawValue)
                 continue
             }
-            if services.closeLocalTab(id.rawValue) { continue }
+            if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
+            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
@@ -197,7 +203,7 @@ extension PaneController {
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
-        apply(snapshot())
+        BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
         let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)

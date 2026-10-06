@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextTerminal
 import Testing
 @testable import CmuxNextApp
@@ -29,5 +30,21 @@ import Testing
             daemon.noteStartupFailure(.binaryNotFound(searched: []))
         }
         #expect(settle.isSettled)
+    }
+
+    /// A launch whose first pane is a page or an agent (no terminal) settles
+    /// when that content shows: deferred work (the download temp-file
+    /// cleanup, the palette warm-up) must not wait for a terminal frame that
+    /// never comes.
+    @Test func aFirstPaneThatIsNotATerminalSettles() {
+        let reveal = LaunchReveal()
+        let settle = LaunchSettle(reveal: reveal)
+        settle.install(daemon: DaemonService())
+        defer { TerminalTimings.onContentApplied = nil }
+        var runs = 0
+        settle.whenSettled { runs += 1 }
+        reveal.markReady(.pane)
+        #expect(settle.isSettled)
+        #expect(runs == 1)
     }
 }

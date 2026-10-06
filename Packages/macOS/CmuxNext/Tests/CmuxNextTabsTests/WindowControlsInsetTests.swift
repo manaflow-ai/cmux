@@ -22,4 +22,16 @@ struct WindowControlsInsetTests {
         #expect(TabStripView.windowControlsInset(strip: strip, lights: nil, accessory: badge, padding: 4) >= badge.maxX - 4)
         #expect(TabStripView.windowControlsInset(strip: strip, lights: nil, accessory: nil, padding: 4) == 0)
     }
+
+    /// Lawrence (nxdog41): with the sidebar hidden, the top-left strip kept 149 pt clear (its first
+    /// tab at x = 151 in debug.pane_chrome) for the traffic lights and the titlebar band. While the
+    /// window's controls are collapsed (sidebar hidden, pointer not over the top-left corner) the
+    /// strip keeps nothing clear, so its tabs start at the left edge.
+    @Test func collapsedWindowControlsTakeNoRoom() {
+        let lights = CGRect(x: 12, y: 698, width: 54, height: 16)
+        let band = CGRect(x: 74, y: 694, width: 71, height: 24)
+        let open = TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: band, padding: 2, collapsed: false)
+        #expect(open == 149, "the measured inset (first tab at 151 = padding 2 + 149)")
+        #expect(TabStripView.windowControlsInset(strip: strip, lights: lights, accessory: band, padding: 2, collapsed: true) == 0)
+    }
 }

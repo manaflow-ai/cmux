@@ -34,6 +34,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var showsPaneBorder = false
     /// Divider lines and every other line draw (`appearance.borders`).
     public var drawsLines = true
+    /// `layout.paneSeparation`: whether a divider draws at rest and whether
+    /// it shows a line on hover or drag (none shows nothing).
+    public var paneSeparation: PaneSeparation = .borders
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
     /// The attention ring of panes with an unread notification
@@ -69,6 +72,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dockTopDropBand: CGFloat = 32
     /// Which docks own the frame's corners (cmux.json `layout.frameOrientation`).
     public var frameOrientation: FrameOrientation = .columnMajor
+    /// cmux.json `layout.rows` (plans/cmux-next/rows.md O1 to O3): off, a
+    /// column's existing rows fit it like stacked panes and never scroll.
+    public var rowsEnabled = true
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.
     public var prototype = LayoutPrototypeSettings()
 
@@ -98,6 +104,7 @@ extension LayoutStyle {
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
         style.drawsLines = Borders.drawsLines
+        style.paneSeparation = Metrics.paneSeparation
         style.focusRing = DesignSettings.shared.focusRing
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
@@ -114,6 +121,7 @@ extension LayoutStyle {
         // cmux.json `layout.minimumPaneWidth` / `layout.minimumPaneHeight`.
         style.minimumPaneContentSize = DesignSettings.shared.minimumPaneContentSize
         style.frameOrientation = DesignSettings.shared.frameOrientation
+        style.rowsEnabled = DesignSettings.shared.layoutRows
         // Debug Settings overrides only (no override keeps the base style's
         // value; the tunables' defaults equal the literals above).
         if let value = LayoutTunables.inactivePaneDimming.override { style.inactivePaneDimming = value }
@@ -129,7 +137,7 @@ extension LayoutStyle {
         if let height = LayoutTunables.minimumContentHeight.override { style.minimumPaneContentSize.height = height }
         style.prototype = LayoutPrototypeSettings(model: LayoutTunables.prototypeModel.value, dockEdge: LayoutTunables.prototypeDockEdge.value,
                                                   orientation: LayoutTunables.prototypeOrientation.value,
-                                                  dockMode: LayoutTunables.prototypeDockMode.value.stickyMode)
+                                                  dockMode: LayoutTunables.prototypeDockMode.value.dockMode)
         return style
     }
 }

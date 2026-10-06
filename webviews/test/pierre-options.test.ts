@@ -1,52 +1,61 @@
 import { expect, test } from "bun:test";
 import {
+  codeViewOptions,
   codeViewUnsafeCSS,
+  DIFF_FILE_HEADER_HEIGHT,
   fileTreeUnsafeCSS,
   shikiThemeFromGhostty,
   workerHighlighterOptions,
 } from "../src/pierre-options";
 
-test("code view CSS keeps Pierre structural surfaces transparent", () => {
+test("code view CSS keeps code rows clear over the one page backdrop", () => {
   const css = codeViewUnsafeCSS();
 
   expect(css).toContain("--diffs-light-bg: transparent");
   expect(css).toContain("--diffs-dark-bg: transparent");
+  expect(css).toContain("--diffs-bg-separator-override: transparent");
   expect(css).toContain("--diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent)");
   expect(css).toContain("--diffs-bg-context-override: transparent");
   expect(css).toContain("--diffs-bg-context-gutter-override: transparent");
-  expect(css).toContain("background-color: transparent");
-  expect(css).toContain("--cmux-diff-surface-bg: transparent");
-  expect(css).toContain("--cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 42%, transparent)");
-  expect(css).not.toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
-  expect(css).not.toContain("[data-diffs-header][data-sticky]");
   expect(css).toContain("--diffs-bg-addition-override: color-mix");
   expect(css).toContain("--diffs-bg-deletion-override: color-mix");
-  expect(css).toContain("[data-diffs-header] {");
-  expect(css).toContain("background-color: var(--cmux-diff-header-bg) !important");
-  expect(css).toContain("-webkit-backdrop-filter: blur(8px) saturate(1.08)");
-  expect(css).toContain("backdrop-filter: blur(8px) saturate(1.08)");
-  expect(css).toContain("min-height: 30px");
-  expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
-  expect(css).not.toContain("@container sticky-header scroll-state");
-  expect(css).toContain("[data-separator='line-info'] {");
-  expect(css).toContain("[data-separator='line-info'] {\n      background-color: transparent;");
   expect(css).toContain("[data-separator='line-info'] [data-separator-wrapper]");
-  expect(css).toContain("[data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer])");
-  expect(css).toContain("[data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer])");
   expect(css).toContain("[data-gutter-buffer='buffer']");
   expect(css).toContain("background-image: repeating-linear-gradient(");
-  expect(css).not.toContain("[data-line-type='change-addition'] {");
-  expect(css).not.toContain("[data-line-type='change-deletion'] {");
 });
 
-test("file tree sticky overlays use a non-transparent surface", () => {
+test("file headers are opaque and sized to the virtualizer's header metric", () => {
+  const css = codeViewUnsafeCSS();
+  const header = css.match(/\[data-diffs-header\] \{(?<body>[^}]*)\}/)?.groups?.body ?? "";
+
+  expect(header).toContain("background-color: var(--cmux-diff-solid-bg)");
+  expect(header).toContain(`height: var(--cmux-diff-file-header-height, ${DIFF_FILE_HEADER_HEIGHT}px)`);
+  expect(css).not.toContain("backdrop-filter");
+  expect(css).not.toContain("--cmux-diff-header-bg");
+  const options = codeViewOptions(
+    {
+      collapsed: false,
+      diffIndicators: "bars",
+      expandUnchanged: false,
+      layout: "split",
+      lineNumbers: true,
+      showBackgrounds: true,
+      wordDiffs: false,
+      wordWrap: false,
+    },
+    { theme: { dark: "d", light: "l" } },
+  );
+  expect(options.itemMetrics?.diffHeaderHeight).toBe(DIFF_FILE_HEADER_HEIGHT);
+});
+
+test("file tree surfaces use the solid backdrop color and keep counts tabular", () => {
   const css = fileTreeUnsafeCSS();
 
-  expect(css).toContain("background-color: var(--cmux-diff-sidebar-bg)");
-  expect(css).toContain("--cmux-diff-tree-sticky-bg: var(--cmux-diff-bg)");
+  expect(css).toContain("background-color: var(--cmux-diff-solid-bg)");
   expect(css).toContain("[data-file-tree-sticky-overlay-content]");
-  expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg) !important");
-  expect(css).toContain("box-shadow: 0 1px 0 var(--trees-border-color)");
+  expect(css).toContain("background-color: var(--cmux-diff-solid-bg) !important");
+  expect(css).toContain("font-variant-numeric: tabular-nums");
+  expect(css).not.toContain("font-weight");
 });
 
 test("Ghostty Shiki theme maps Markdown token scopes", () => {

@@ -2,9 +2,10 @@
 // viewer's recents: the shared derived data, the keys both layouts handle the same way, and
 // the rows of the layered (cascade and drill) menus.
 import type React from "react";
+import { AgentMark } from "../shared/AgentMark";
 import type { Combo } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
-import { t } from "./i18n";
+import type { Translate } from "./i18n";
 import {
   buildTaxonomy,
   familyDefault,
@@ -108,6 +109,7 @@ const ordered = <T,>(items: T[], order: Order) => (order === "bestLast" ? [...it
 /// A level that shows its best LEVEL_ROWS rows and folds the rest under "More…", which expands
 /// in place. The fold sits at the far end from the best row.
 export function folded<T>(
+  t: Translate,
   key: string,
   ranked: T[],
   row: (item: T) => MenuNode,
@@ -132,6 +134,42 @@ export function folded<T>(
   return order === "bestLast" ? [more, ...ordered(rows, order)] : [...rows, more];
 }
 
+/// One harness choice: the current one checked, another as a new chat. One acpmux cannot start
+/// (`unavailable`) says so and opens its reason with Try again instead of starting a chat that
+/// fails seconds later; one whose switch just failed says so (`harnessNotes`). Resting on an
+/// available one sends the prewarm hint; picking it switches.
+export function harnessNode(
+  harness: { id: string; name: string; unavailable?: string },
+  props: ModelPickerProps,
+  t: Translate,
+  section?: string,
+): MenuNode {
+  const node = {
+    key: `harness:${harness.id}`,
+    label: harness.name,
+    icon: <AgentMark agent={harness.id} size={14} />,
+    section,
+    checked: harness.id === props.harness,
+  };
+  if (harness.unavailable && harness.id !== props.harness)
+    return {
+      ...node,
+      detail: t("picker.unavailable"),
+      children: [
+        { key: `harness:${harness.id}:reason`, label: harness.unavailable },
+        { key: `harness:${harness.id}:retry`, label: t("picker.tryAgain"), run: () => props.onHarness?.(harness.id) },
+      ],
+    };
+  return {
+    ...node,
+    detail: props.harnessNotes?.[harness.id] ?? (harness.id === props.harness ? undefined : t("picker.newChat")),
+    rest: () => props.onHarnessHint?.(harness.id),
+    run: () => {
+      if (harness.id !== props.harness) props.onHarness?.(harness.id);
+    },
+  };
+}
+
 /// The builders for one open menu: rows for models, families, providers, harnesses, the
 /// effort, the recents and a query's matches.
 export function menuNodes(
@@ -141,10 +179,13 @@ export function menuNodes(
     order,
     expanded,
     expand,
+    t,
   }: {
     order: Order;
     expanded: ReadonlySet<string>;
     expand(key: string): void;
+    /** The caller's `useT()` translator. */
+    t: Translate;
   },
 ) {
   const modelRow = (model: TaxModel, section?: string, detail?: string): MenuNode => ({
@@ -157,6 +198,7 @@ export function menuNodes(
   });
   const familyModels = (family: TaxFamily, section?: string) =>
     folded(
+      t,
       `family:${family.key}`,
       data.rankModels(family.models),
       (model) => modelRow(model, section),
@@ -171,6 +213,7 @@ export function menuNodes(
     if (!family) return [];
     const offered = new Set(data.numbered.map((combo) => combo.model));
     return folded(
+      t,
       `current:${family.key}`,
       data.rankModels(family.models).filter((model) => !offered.has(model.id)),
       (model) => modelRow(model, family.name),
@@ -189,6 +232,7 @@ export function menuNodes(
   });
   const families = (provider: TaxProvider, section?: string) =>
     folded(
+      t,
       `families:${provider.name}`,
       data.rankFamilies(provider.families),
       (family) => familyRow(family, section),
@@ -217,6 +261,7 @@ export function menuNodes(
       const providers = data.taxonomy.providers;
       if (providers.length === 1) return families(providers[0]!, section ? t("picker.family") : undefined);
       return folded(
+        t,
         "providers",
         data.rankProviders(providers),
         (provider) => providerRow(provider, section ? t("picker.provider") : undefined),
@@ -231,16 +276,9 @@ export function menuNodes(
       return {
         key: "harness",
         label: data.harnessName,
+        icon: props.harness ? <AgentMark agent={props.harness} size={14} /> : undefined,
         detail: t("picker.harness"),
-        children: data.harnesses.map((harness): MenuNode => ({
-          key: `harness:${harness.id}`,
-          label: harness.name,
-          detail: harness.id === props.harness ? undefined : t("picker.newChat"),
-          checked: harness.id === props.harness,
-          run: () => {
-            if (harness.id !== props.harness) props.onHarness?.(harness.id);
-          },
-        })),
+        children: data.harnesses.map((harness) => harnessNode(harness, props, t)),
       };
     },
     /// The reasoning row: the current effort, with the slider as its submenu.

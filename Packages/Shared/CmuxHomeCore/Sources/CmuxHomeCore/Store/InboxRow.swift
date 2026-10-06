@@ -5,8 +5,11 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
     public var summary: ConversationSummary
     public var kind: ConversationSummary.Kind
     public var title: String
-    /// Preview of the newest message (a pending send wins over the mirror).
+    /// Preview text of the newest message (a pending send wins over the
+    /// mirror), without its attachments: empty for an attachment-only message.
     public var preview: String
+    /// The newest message's attachments, for a localized label ("2 photos").
+    public var previewAttachments: AttachmentPreview?
     public var previewAuthor: String?
     public var timestamp: Date
     public var unread: Int
@@ -63,13 +66,22 @@ extension HomeMirror {
         }
         let rows = summaries.values.map { summary -> InboxRow in
             let pending = pendingSend[summary.id]
-            var preview = summary.lastMessage?.isRetracted == true ? "" : (summary.lastMessage?.plainText ?? "")
+            let last = summary.lastMessage?.isRetracted == true ? nil : summary.lastMessage
+            var preview = last.map { Self.previewText($0.parts) } ?? ""
+            var attachments: AttachmentPreview? = if let last {
+                AttachmentPreview.of(last.parts)
+            } else if summary.lastMessage == nil {
+                summary.previewAttachments
+            } else {
+                nil
+            }
             var author = summary.lastMessage.flatMap { message in
                 summary.participants.first { $0.id == message.author }?.displayName
             }
             var timestamp = summary.lastMessage?.createdAt ?? summary.updatedAt
             if let pending, case .sendMessage(_, let parts) = pending.intent.op {
-                preview = parts.map(\.plainText).joined(separator: "\n")
+                preview = Self.previewText(parts)
+                attachments = AttachmentPreview.of(parts)
                 author = mirror.me?.displayName
                 timestamp = max(timestamp, pending.intent.issuedAt)
             }
@@ -78,6 +90,7 @@ extension HomeMirror {
                 kind: summary.kind(me: me),
                 title: summary.displayTitle(me: me),
                 preview: preview,
+                previewAttachments: attachments,
                 previewAuthor: author,
                 timestamp: timestamp,
                 unread: summary.muted ? 0 : summary.unreadCount(me: me),
@@ -88,5 +101,10 @@ extension HomeMirror {
             )
         }
         return rows.orderedForInbox()
+    }
+
+    /// The text of every part but attachments (the owner's preview rule).
+    static func previewText(_ parts: [MessagePart]) -> String {
+        parts.compactMap { if case .attachment = $0 { nil } else { $0.plainText } }.joined(separator: "\n")
     }
 }

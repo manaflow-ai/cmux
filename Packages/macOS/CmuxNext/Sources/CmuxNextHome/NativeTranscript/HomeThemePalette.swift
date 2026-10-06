@@ -15,8 +15,9 @@ enum HomeThemePalette {
             failure: color(Palette.danger, opaque: true))
         var palette = HomePalette.themed(theme, active: active)
         // One window background (plans/cmux-next/windows.md): the scene
-        // paints the pane's fill, never a tint of its own, active or not.
-        palette.background = color(Palette.paneFill, opaque: false)
+        // paints the pane's fill, never a tint of its own, active or not,
+        // unless the user set Home's background (`appearance.surfaces.home`).
+        palette.background = color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false)
         return palette
     }
 

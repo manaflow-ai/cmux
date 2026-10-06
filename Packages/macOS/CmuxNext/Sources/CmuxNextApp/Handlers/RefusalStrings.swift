@@ -33,6 +33,12 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    static var homeAttachNoHome: String {
+        text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
+    }
+    static func homeAttachNoFile(_ path: String) -> String {
+        String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
+    }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }
@@ -97,8 +103,10 @@ nonisolated enum RefusalStrings {
     static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
-    static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
-    static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    /// cmux.json `layout.rows` is false (plans/cmux-next/rows.md O2).
+    static var rowsTurnedOff: String { text("handlers.refusal.rowsTurnedOff", "Rows are turned off (layout.rows)") }
+    static var columnAlreadyDocked: String { text("handlers.refusal.columnAlreadyDocked", "the column is already docked there") }
+    static var columnNotDocked: String { text("handlers.refusal.columnNotDocked", "the column is not docked") }
     /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
     /// chat, an incognito page) when it is the screen's only tab.
     static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }

@@ -7,7 +7,7 @@ import Testing
 /// cannot report success (plans/cmux-next/state-ownership.md 4.3).
 @Suite struct ActionRunTargetTests {
     func makeRouter(_ executor: RecordingExecutor) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         router.snapshots.publish { snapshot in
             snapshot = ControlSnapshot.sample()
         }

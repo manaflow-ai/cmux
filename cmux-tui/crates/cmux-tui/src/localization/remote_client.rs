@@ -63,6 +63,7 @@ pub(crate) struct RemoteClientMessages {
     pub forward_workspace_required: &'static str,
     pub forward_port_required: &'static str,
     pub rpc_request_invalid: &'static str,
+    pub socket_not_a_route: &'static str,
     pub rpc_input_invalid: &'static str,
     pub(super) rpc_stdin_too_large: &'static str,
     pub rpc_stdin_invalid_utf8: &'static str,
@@ -76,6 +77,7 @@ pub(crate) struct RemoteClientMessages {
     pub(super) wireguard_hub_signal_failed: &'static str,
     pub(super) wg_hub_option_required: &'static str,
     pub wg_hub_help: &'static str,
+    pub link_help: &'static str,
     pub(super) known_daemon_not_known: &'static str,
     pub(super) known_daemon_forgotten: &'static str,
     pub known_daemons_empty: &'static str,
@@ -122,6 +124,17 @@ impl RemoteClientMessages {
 
     pub(crate) fn unknown_option(&self, option: &str) -> String {
         self.unknown_option.replace("{option}", &format!("{option:?}"))
+    }
+
+    /// The refusal of an option a connect-family command does not take. A
+    /// global `--socket` moves after the command (main.rs
+    /// normalize_remote_resource_args); a local socket is not a route.
+    pub(crate) fn connect_option_refused(&self, option: &str) -> String {
+        if option == "--socket" || option.starts_with("--socket=") {
+            self.socket_not_a_route.to_owned()
+        } else {
+            self.unknown_option(option)
+        }
     }
 
     pub(crate) fn unknown_option_for_command(&self, option: &str, command: &str) -> String {
@@ -360,6 +373,7 @@ for up to two relay fallbacks
     forward_workspace_required: "forward needs --workspace-root on the daemon",
     forward_port_required: "forward needs --port",
     rpc_request_invalid: "--request is not a WorkspaceRequest JSON object",
+    socket_not_a_route: "remote commands (connect, ssh, forward, rpc) reach a ROUTE and take no --socket; for the cmux app's control socket (/tmp/cmux-debug-<tag>.sock) use --app-socket PATH with an app verb, for example `cmux --app-socket PATH app identify`",
     rpc_input_invalid: "invalid WorkspaceRequest",
     rpc_stdin_too_large: "RPC stdin line exceeds {maximum} bytes",
     rpc_stdin_invalid_utf8: "RPC stdin line is not valid UTF-8",
@@ -373,6 +387,7 @@ for up to two relay fallbacks
     wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
     wg_hub_option_required: "wg hub requires {option}",
     wg_hub_help: include_str!("wg_hub_help.en.txt"),
+    link_help: include_str!("link_help.en.txt"),
     known_daemon_not_known: "daemon {fingerprint} is not known",
     known_daemon_forgotten: "Forgot daemon {fingerprint}.",
     known_daemons_empty: "No known daemons.",
@@ -528,6 +543,7 @@ ID とセッション:
     forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
     forward_port_required: "forward には --port が必要です",
     rpc_request_invalid: "--request は WorkspaceRequest JSON オブジェクトではありません",
+    socket_not_a_route: "リモートコマンド (connect、ssh、forward、rpc) は ROUTE に接続し、--socket は使えません。cmux アプリの制御ソケット (/tmp/cmux-debug-<tag>.sock) には --app-socket パス とアプリの動詞を使ってください (例: `cmux --app-socket パス app identify`)",
     rpc_input_invalid: "WorkspaceRequest が無効です",
     rpc_stdin_too_large: "RPC 標準入力の 1 行が {maximum} バイトの上限を超えています",
     rpc_stdin_invalid_utf8: "RPC 標準入力の行は有効な UTF-8 ではありません",
@@ -541,6 +557,7 @@ ID とセッション:
     wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
     wg_hub_option_required: "wg hub には {option} が必要です",
     wg_hub_help: include_str!("wg_hub_help.ja.txt"),
+    link_help: include_str!("link_help.ja.txt"),
     known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
     known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
     known_daemons_empty: "登録済みのデーモンはありません。",

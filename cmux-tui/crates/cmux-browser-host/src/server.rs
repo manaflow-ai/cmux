@@ -85,7 +85,123 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
     Ok(())
 }
 
+/// A listening Unix socket the daemon passed as `fd` (socket activation).
+/// Close-on-exec is set again (the daemon clears it to pass the fd), so no
+/// process the host starts, such as a browser and its renderers, inherits the
+/// agent or the provider socket.
+pub fn inherited_listener(fd: std::os::fd::RawFd) -> io::Result<UnixListener> {
+    use std::os::fd::FromRawFd;
+    if fd < 3 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{fd}: not an inherited descriptor"),
+        ));
+    }
+    // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
+    let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::fstat(fd, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
+    {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{fd}: not a socket")));
+    }
+    // SAFETY: fcntl(2) on the fd checked above.
+    if unsafe { libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the daemon passes this listening socket open for this process; it is taken once.
+    Ok(unsafe { UnixListener::from_raw_fd(fd) })
+}
+
+/// The app's provider socket, next to the agent socket.
+pub fn provider_socket_path(agent_socket: &Path) -> PathBuf {
+    agent_socket.with_file_name("browser-host-provider.sock")
+}
+
+/// Serves the app's provider connections (plans/cmux-next/browser-host.md
+/// "Provider connection"): same uid, then `hello` with the per-launch
+/// secret. One provider at a time: a second one is refused while the first
+/// is connected, and replaces it after it disconnects.
+pub fn serve_providers(
+    listener: UnixListener,
+    secret: crate::provider::ProviderSecret,
+    slot: crate::engines::ProviderSlot,
+    agent_bundle: Arc<str>,
+) -> io::Result<()> {
+    serve_providers_notifying(listener, secret, slot, agent_bundle, Arc::new(|| {}))
+}
+
+/// [`serve_providers`], and `on_change` runs after a provider connected and
+/// after it left (the supervised host's idle stop).
+pub fn serve_providers_notifying(
+    listener: UnixListener,
+    secret: crate::provider::ProviderSecret,
+    slot: crate::engines::ProviderSlot,
+    agent_bundle: Arc<str>,
+    on_change: Arc<dyn Fn() + Send + Sync>,
+) -> io::Result<()> {
+    // SAFETY: getuid(2) has no failure modes.
+    let uid = unsafe { libc::getuid() };
+    for stream in listener.incoming() {
+        let Ok(stream) = stream else { continue };
+        if peer_uid(&stream) != Some(uid) {
+            continue;
+        }
+        let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
+        let on_change = on_change.clone();
+        let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
+            move || {
+                let _ = accept_provider(stream, &secret, &slot, &agent_bundle, on_change);
+            },
+        );
+    }
+    Ok(())
+}
+
+fn accept_provider(
+    stream: UnixStream,
+    secret: &crate::provider::ProviderSecret,
+    slot: &crate::engines::ProviderSlot,
+    agent_bundle: &str,
+    on_change: Arc<dyn Fn() + Send + Sync>,
+) -> io::Result<()> {
+    use crate::provider_link::{ProviderDriver, accept};
+    let busy = || {
+        slot.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|provider| provider.closed_reason().is_none())
+    };
+    if busy() {
+        return Ok(());
+    }
+    let mut reader = stream.try_clone()?;
+    let mut writer = stream.try_clone()?;
+    // A client that connects and never says hello does not keep a thread.
+    stream.set_read_timeout(Some(std::time::Duration::from_secs(5)))?;
+    let Ok(info) = accept(&mut reader, &mut writer, secret, agent_bundle) else {
+        return Ok(());
+    };
+    stream.set_read_timeout(None)?;
+    let driver = ProviderDriver::start_notifying(
+        reader,
+        writer,
+        crate::driver::discard_events(),
+        info.tabs,
+        on_change.clone(),
+    )?;
+    let mut current = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if current.as_ref().is_some_and(|provider| provider.closed_reason().is_none()) {
+        // Another provider won the race: this one goes.
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        return Ok(());
+    }
+    *current = Some(driver);
+    drop(current);
+    on_change();
+    Ok(())
+}
+
 fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
+    let _serving = host.serving();
     let actor = peer_actor(&stream);
     let mut writer = stream.try_clone()?;
     let reader = BufReader::new(stream);
@@ -105,8 +221,13 @@ fn handle(stream: UnixStream, host: &Host) -> io::Result<()> {
                     Some("script") => "script",
                     _ => "cli",
                 };
-                let caller =
-                    Caller { actor: actor.clone(), on_behalf_of: None, origin: origin.into() };
+                // The host's own 0600 socket: a local caller (CALLER-LOCALITY).
+                let caller = Caller {
+                    actor: actor.clone(),
+                    on_behalf_of: None,
+                    origin: origin.into(),
+                    locality: crate::locality::CallerLocality::Local,
+                };
                 match host.dispatch(&caller, method, &params) {
                     Ok(result) => json!({"id": id, "result": result}),
                     Err(error) => json!({"id": id, "error": error.to_json()}),
@@ -156,4 +277,93 @@ fn peer_uid(stream: &UnixStream) -> Option<libc::uid_t> {
     // SAFETY: the fd is an open Unix socket; uid and gid are valid out pointers.
     let rc = unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) };
     (rc == 0).then_some(uid)
+}
+
+#[cfg(test)]
+mod inherited_listener_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+
+    #[test]
+    fn an_inherited_listener_closes_on_exec_again() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-inherit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let listener = UnixListener::bind(dir.join("s.sock")).unwrap();
+        // As the daemon passes it: a copy without close-on-exec.
+        // SAFETY: fcntl(2) on our own fds.
+        let passed = unsafe { libc::fcntl(listener.as_raw_fd(), libc::F_DUPFD, 3) };
+        assert!(passed >= 3);
+        assert_eq!(unsafe { libc::fcntl(passed, libc::F_GETFD) } & libc::FD_CLOEXEC, 0);
+        let inherited = inherited_listener(passed).unwrap();
+        let flags = unsafe { libc::fcntl(inherited.as_raw_fd(), libc::F_GETFD) };
+        assert_ne!(flags & libc::FD_CLOEXEC, 0, "close-on-exec is set again");
+        drop(inherited);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod provider_listener_tests {
+    use super::*;
+    use crate::provider::{Frame, PROVIDER_VERSION, ProviderSecret, read_frame, write_frame};
+
+    fn hello(secret: &str) -> Frame {
+        Frame::Hello {
+            version: PROVIDER_VERSION,
+            provider_id: "app".into(),
+            install_id: "install".into(),
+            secret: ProviderSecret::new(secret),
+            engines: vec!["cef".into()],
+            tabs: Vec::new(),
+        }
+    }
+
+    /// Sends hello and returns the stream when the host answered hello.ack.
+    fn dial(path: &Path, secret: &str) -> Option<UnixStream> {
+        let mut stream = UnixStream::connect(path).unwrap();
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        write_frame(&mut stream, &hello(secret)).unwrap();
+        match read_frame(&mut stream) {
+            Ok(Some(Frame::HelloAck { .. })) => Some(stream),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_provider_listener_needs_the_secret_and_takes_one_provider_at_a_time() {
+        let dir = std::env::temp_dir().join(format!("cmux-bh-provider-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("browser-host-provider.sock");
+        let listener = bind(&path, true).unwrap();
+        let slot: crate::engines::ProviderSlot = Arc::default();
+        let secret = "s".repeat(40);
+        let (thread_slot, thread_secret) = (slot.clone(), ProviderSecret::new(secret.clone()));
+        std::thread::spawn(move || {
+            serve_providers(listener, thread_secret, thread_slot, Arc::from("agent"))
+        });
+        assert!(dial(&path, "wrong-secret-wrong-secret-wrong-secret").is_none());
+        assert!(slot.lock().unwrap().is_none());
+        let first = dial(&path, &secret).expect("the right secret is accepted");
+        // The slot is set right after hello.ack; wait for it without sleeping.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while slot.lock().unwrap().is_none() && std::time::Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert!(slot.lock().unwrap().is_some());
+        assert!(
+            dial(&path, &secret).is_none(),
+            "a second provider is refused while the first is live"
+        );
+        drop(first);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while slot.lock().unwrap().as_ref().is_some_and(|p| p.closed_reason().is_none())
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
+        assert!(dial(&path, &secret).is_some(), "a new provider replaces a closed one");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

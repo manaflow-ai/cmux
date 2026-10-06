@@ -1,3 +1,4 @@
+import { agentBrand, agentBrandSpec, type BrandTone } from "../agentBrands.generated";
 import type { Provider } from "../session";
 
 const PROVIDER_COLOR: Record<string, string> = {
@@ -35,51 +36,29 @@ function themeIsDark(): boolean {
   return (r * 299 + g * 587 + b * 114) / 1000 < 150;
 }
 
-function DrawnProviderIcon({ id }: { id: string }) {
-  const color = colorFor(id);
-  if (id === "claude") {
-    return (
-      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <path d="M8 1.7v12.6M1.7 8h12.6M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" />
-      </svg>
-    );
-  }
-  if (id === "codex") {
-    return (
-      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <path d="M8 1.8l4.9 2.8v5.7L8 13.2l-4.9-2.9V4.6L8 1.8zm0 0v4.1m4.9-1.3L9.3 6.7m-6.2-2.1l3.6 2.1m-3.6 3.6l3.6-2.1m6.2 2.1L9.3 8.2M8 13.2V9.1" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  if (id === "opencode") {
-    return (
-      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <rect x="2.2" y="3" width="11.6" height="10" rx="2" fill="none" stroke="currentColor" strokeWidth="1.25" />
-        <path d="M4.6 6.1l2 1.9-2 1.9M7.9 10.1h3.1" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  if (id === "pi") {
-    return (
-      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <text x="8" y="11.8" textAnchor="middle" fontSize="13" fontWeight="400" fill="currentColor">π</text>
-      </svg>
-    );
-  }
-  if (id === "gemini") {
-    return (
-      <svg className="provider-icon" viewBox="0 0 16 16" style={{ color }}>
-        <path d="M8 1.8c.7 3.1 2.1 4.5 5.2 5.2C10.1 7.7 8.7 9.1 8 12.2 7.3 9.1 5.9 7.7 2.8 7 5.9 6.3 7.3 4.9 8 1.8z" fill="currentColor" />
-      </svg>
-    );
-  }
-  return <Dot id={id} />;
-}
+const tone = (value: BrandTone, dark: boolean) => (typeof value === "string" ? value : dark ? value[0] : value[1]);
 
+/// The provider's brand mark from design/agent-icons (agentBrands.generated.ts), in the
+/// owner's colors for the theme; a provider without a mark draws a colored dot.
 export function ProviderIcon({ provider }: { provider: Provider }) {
-  const src = themeIsDark() ? (provider.iconDarkUrl ?? provider.iconUrl) : provider.iconUrl;
-  if (!src) return <DrawnProviderIcon id={provider.id} />;
-  return <span className="provider-icon-img" aria-hidden="true" style={{ backgroundImage: `url(${src})` }} />;
+  const full = agentBrandSpec(provider.id);
+  if (!full) return <Dot id={provider.id} />;
+  // The icon is 15 px: a traced mark draws its owner's simpler small art.
+  const spec = full.small ? { ...full, viewBox: full.small.viewBox, paths: full.small.paths } : full;
+  const dark = themeIsDark();
+  const box = spec.tile?.viewBox ?? spec.viewBox;
+  return (
+    <svg className="provider-icon" data-agent={agentBrand(provider.id)} viewBox={box.join(" ")} fill={tone(spec.tone, dark)} aria-hidden="true">
+      {spec.tile && <rect x={box[0]} y={box[1]} width={box[2]} height={box[3]} rx={spec.tile.radius} fill={tone(spec.tile.tone, dark)} />}
+      {spec.paths.map((path, index) =>
+        path.strokeWidth ? (
+          <path key={index} d={path.d} fill="none" stroke={path.tone ? tone(path.tone, dark) : tone(spec.tone, dark)} strokeWidth={path.strokeWidth} />
+        ) : (
+          <path key={index} d={path.d} fill={path.tone ? tone(path.tone, dark) : undefined} fillRule={path.evenOdd ? "evenodd" : undefined} />
+        ),
+      )}
+    </svg>
+  );
 }
 
 export const ArrowUp = () => (

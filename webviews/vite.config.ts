@@ -1,10 +1,17 @@
-import react from "@vitejs/plugin-react";
+import { reactWithCompiler } from "./reactCompiler.mjs";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite-plus";
 import { cmuxCheckConfig } from "../config/vite-plus/check";
+import { fileURLToPath } from "node:url";
 import { cmuxDevServer, DEV_SERVER_PORT } from "./dev-server/plugins";
 
 const outDir = process.env.CMUX_WEBVIEWS_OUT_DIR ?? "../Resources/markdown-viewer/webviews-app";
+// The code editor's copy of Pierre's extension map (pages/editor/pierre-filetypes.d.ts). The query
+// makes it a module of its own, so the diff viewer's `diff-vendor` chunk does not change.
+const PIERRE_FILETYPES_QUERY = "?cmux-editor";
+const pierreFiletypes =
+  fileURLToPath(new URL("./node_modules/@pierre/diffs/dist/utils/getFiletypeFromFileName.js", import.meta.url)) +
+  PIERRE_FILETYPES_QUERY;
 
 export default defineConfig({
   // `vp check` reads `lint` and `fmt` from here; `vite build` ignores them.
@@ -22,23 +29,56 @@ export default defineConfig({
       "**/*.css",
       "src/agent-session/acpmux/handoff/schema/acpmux-schema.json",
       "src/agent-session/acpmux/icons/cmuxIcons.json",
+      // scripts/agent-icons/generate.py --check owns these bytes.
+      "src/agent-session/shared/agentBrands.generated.ts",
+      // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
+      "src/icon-picker/generated/**",
+      // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
+      "test/fixtures/markdown-roundtrip/**",
     ],
   }),
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },
+  resolve: { alias: [{ find: "cmux:pierre-filetypes", replacement: pierreFiletypes }] },
   // `bun run dev`: every surface on one port (dev-server/plugins.ts). Build ignores it.
   server: { host: "127.0.0.1", port: DEV_SERVER_PORT, strictPort: true },
   plugins: [
     // Serve-only dev hosts (diff sidecar, markdown shell, agent pane pages); never in the build.
     ...cmuxDevServer(),
-    react({
-      babel: {
-        // React Compiler. React 19 ships the required react/compiler-runtime.
-        plugins: [["babel-plugin-react-compiler", { target: "19" }]],
-      },
-    }),
+    // React Compiler: Babel by default, Oxc with CMUX_REACT_COMPILER=oxc (reactCompiler.mjs).
+    ...reactWithCompiler(),
     tailwindcss(),
+    {
+      // Vite writes root-absolute script URLs into `diff-page.html` and `markdown-page.html`; make
+      // them relative to the page so the entry and its chunks resolve under any base
+      // (cmux-page://cmux.diff/ and cmux.markdown/ serve the webviews-app directory as their root).
+      name: "cmux-diff-page-relative-entry",
+      apply: "build",
+      transformIndexHtml: {
+        order: "post",
+        handler: (html: string) => html.replace(/(src|href)="\/(chunks|assets)\//g, '$1="./$2/'),
+      },
+    },
+    {
+      // The code editor's own copies of the few small modules it shares with the diff and markdown
+      // pages outside the `pickerModel` chunk (page streams, the desktop layer, the language
+      // detector and pack): an
+      // import from src/pages/editor/ gets the module under a query, a module of its own, so those
+      // pages' chunks stay byte for byte as they were (test/editor-csp.test.ts checks the first
+      // loads). The cost is a few kilobytes inside the editor's chunks.
+      name: "cmux-editor-own-copies",
+      apply: "build",
+      enforce: "pre",
+      async resolveId(source, importer, options) {
+        // An editor module, or one of the editor's copies (desktop.ts importing desktop.css).
+        const fromEditor = importer?.includes("/src/pages/editor/") || importer?.endsWith(PIERRE_FILETYPES_QUERY);
+        if (!importer || !fromEditor || source.includes("?")) return null;
+        const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+        if (!resolved || !EDITOR_OWN_COPIES.test(resolved.id)) return null;
+        return { ...resolved, id: `${resolved.id}${PIERRE_FILETYPES_QUERY}` };
+      },
+    },
     {
       // `@pierre/diffs` declares `sideEffects: false`, which is right for the
       // main-thread exports but tree-shakes the worker entry (a self-registering
@@ -67,7 +107,19 @@ export default defineConfig({
     // load grants read access to the whole output directory.
     modulePreload: false,
     rolldownOptions: {
-      input: { main: "src/main.tsx", "diff-worker": "src/diff-worker.ts" },
+      // `diff-page.html` is the shared page host's diff entry (cmux-page://cmux.diff/): an HTML input
+      // whose module entry is chunks/diff-page.mjs, sharing every chunk, the worker and the WASM.
+      // `markdown-page.html` is the markdown editor's entry (cmux-page://cmux.markdown/), the same way.
+      // `editor-page.html` is the code editor's (cmux-page://cmux.editor/); Monaco loads lazily from
+      // it, and `editor-worker` is Monaco's editor worker, emitted as chunks/editor-worker.mjs.
+      input: {
+        main: "src/main.tsx",
+        "diff-worker": "src/diff-worker.ts",
+        "diff-page": "diff-page.html",
+        "markdown-page": "markdown-page.html",
+        "editor-page": "editor-page.html",
+        "editor-worker": "src/pages/editor/editor.worker.ts",
+      },
       output: {
         format: "es",
         // `main.mjs` is the page entry the host HTML loads; the worker entry
@@ -111,10 +163,19 @@ export default defineConfig({
             // shiki (which the worker needs without the renderer), and
             // `vendor` before `diff-vendor` so React stays in `vendor` and the
             // agent session does not load the diff renderer at startup.
-            ...["shiki-core", "vendor", "diff-vendor"].map((name, index) => ({
+            // `markdown-vendor` (Milkdown, ProseMirror, remark) is shared by the agent pane's
+            // composer and the markdown editor page.
+            // The viewer pages' shared modules (appearance, page client, strings, terminal syntax theme,
+            // the empty states): one chunk named as before, so the code editor importing a new
+            // combination of them does not split the chunk the diff and markdown pages load.
+            { name: "pickerModel", test: (id: string) => VIEWER_SHARED.test(id), priority: 0 },
+            ...["shiki-core", "vendor", "diff-vendor", "markdown-vendor"].map((name, index) => ({
               name,
               test: (id: string) => sharedChunkName(id) === name,
-              priority: 3 - index,
+              priority: 4 - index,
+              // Only what both use: the editor page's own Milkdown modules stay in its chunk, so
+              // the agent pane does not load them.
+              ...(name === "markdown-vendor" ? { minShareCount: 2 } : {}),
             })),
           ],
         },
@@ -122,6 +183,14 @@ export default defineConfig({
     },
   },
 });
+
+/** Modules the code editor bundles its own copy of (plugin `cmux-editor-own-copies`). */
+const EDITOR_OWN_COPIES =
+  /\/webviews\/src\/(pages\/shared\/(pageStreams\.ts|desktop\.ts|desktop\.css)|diff-languages\/(detect|pack)\.ts)$/;
+
+/** The modules of the viewer pages' shared `pickerModel` chunk (diff, markdown and editor pages). */
+const VIEWER_SHARED =
+  /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/(ops\.ts|drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json))$/;
 
 function lazyChunkName(id: string): string | null {
   const shikiLanguage = id.match(/\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/);
@@ -134,6 +203,15 @@ function lazyChunkName(id: string): string | null {
   }
   if (id.includes("/shiki/dist/wasm.mjs") || id.includes("/@shikijs/engine-oniguruma/dist/wasm-inlined.mjs")) {
     return "shiki-wasm";
+  }
+  // The code editor's lazy pieces: Monaco's language configurations and UI strings, one chunk each.
+  const monacoLanguage = id.match(/\/monaco-editor\/esm\/vs\/languages\/definitions\/([^/]+)\/[^/]+\.js$/);
+  if (monacoLanguage) {
+    return `monaco-lang-${monacoLanguage[1]}`;
+  }
+  const monacoMessages = id.match(/\/monaco-editor\/esm\/vs\/nls\/lang\/([^/]+)\.js$/);
+  if (monacoMessages) {
+    return `monaco-nls-${monacoMessages[1]}`;
   }
   const pierreTheme = id.match(/\/@pierre\/theme\/dist\/(pierre-[^/]+)\.mjs$/);
   if (pierreTheme) {
@@ -160,6 +238,11 @@ function sharedChunkName(id: string): string | null {
   if (!id.includes("node_modules")) {
     return null;
   }
+  // The code editor's own modules stay in its lazy chunks: its copy of Pierre's extension map and
+  // the Shiki-to-Monaco adapter, which the diff viewer never loads.
+  if (id.endsWith(PIERRE_FILETYPES_QUERY) || id.includes("/@shikijs/monaco/") || id.includes("/monaco-editor/")) {
+    return null;
+  }
   if (
     id.includes("/shiki/") ||
     id.includes("/@shikijs/") ||
@@ -171,6 +254,22 @@ function sharedChunkName(id: string): string | null {
   }
   if (id.includes("/@pierre/")) {
     return "diff-vendor";
+  }
+  if (
+    /\/node_modules\/(@milkdown|prosemirror-[a-z-]+|remark[a-z-]*|micromark[a-z-]*|mdast-util-[a-z-]+|unified|unist-util-[a-z-]+|orderedmap|rope-sequence|w3c-keyname)\//.test(
+      id,
+    )
+  ) {
+    return "markdown-vendor";
+  }
+  // The accessibility wrapper's libraries (src/ui: Base UI, its Floating UI, TanStack Virtual). Only
+  // the pages that use src/ui load this chunk; it must not join the eager `vendor` chunk.
+  if (
+    /\/node_modules\/(@base-ui|@floating-ui|@tanstack\/(react-)?virtual-core|@tanstack\/react-virtual|reselect|use-sync-external-store)\//.test(
+      id,
+    )
+  ) {
+    return "ui-vendor";
   }
   // Framework code both surfaces share. Pinning it to a stable `vendor`
   // chunk name keeps the shared chunk from being renamed (and rehashed)

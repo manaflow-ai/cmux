@@ -4,9 +4,10 @@ import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { teamRead } from "./team-reads.ts"
+import { homeCoMembersOf, memberOf, roleOf, TABLE_MEMBER, TEAM_PRIVATE_TABLES } from "./domains/team-members.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { runSyncPending, runSyncPush } from "./domains/team-run-sync.ts"
-import { currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
+import { cloudPolicyOf, currentPolicy, enforcedOn, integrationSlice, ssoServable, type PolicyValues } from "./domains/team-policy.ts"
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
@@ -25,6 +26,9 @@ export interface SignInRules {
   readonly allowed_classes: ReadonlyArray<string>
 }
 
+/** The principal of the plain member view in event effects (no user: no own devices). */
+const MEMBER_VIEW: Principal = { identity: "view:member", kind: "session" }
+
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -36,11 +40,28 @@ export class TeamDO extends OwnerDO<TeamState> {
       ...(p.team ? { team: p.team } : {}),
       ...(p.install ? { install: p.install } : {}),
       ...(p.display_name ? { display_name: p.display_name } : {})
-    }))
+    }), {
+      rowMode: { snapshotTable: TABLE_MEMBER, snapshotTail: 0 },
+      // Row-mode events and snapshots carry only the plain member view (review P1). Admin data
+      // (policy history, tokens, devices, SSO, domains) is read with team.policy.history and the admin reads.
+      redact: { privateTables: TEAM_PRIVATE_TABLES, state: (state) => ({ ...teamSubscriberView(state as TeamState, MEMBER_VIEW), managed_devices: {}, device_status: {} }) }
+    })
+  }
+
+  /** Members and hosts are rows ((f)); an old head moves its maps there on the first bind. */
+  protected override bind(entity: string) {
+    const engine = super.bind(entity)
+    // The key carries the head seq: a later head that again holds maps (a rollback) migrates again.
+    if (engine.currentState.members !== undefined || engine.currentState.hosts !== undefined) this.submitSystem("team.rows_migrate", {}, `rows-migrate:${engine.currentSeq}`)
+    return engine
+  }
+
+  private get rows() {
+    return this.boundEngine?.rows
   }
 
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
-    return teamRead(state, op, params, principal)
+    return teamRead(state, op, params, principal, this.rows)
   }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
@@ -105,6 +126,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     }
   }
 
+  async cloudPolicy(entity: string) { return cloudPolicyOf(this.isBound(entity) ? this.bind(entity).currentState : undefined) } // RPC from CloudDO (CLOUD-CONNECT-ACCESS, cloud.idlePause)
   /** RPC from SchedulerDO (fail closed): the run class as TeamDO would push it now. */
   async runPolicy(entity: string): Promise<{ version: number; runs_allowed: boolean }> {
     return runSyncPush(this.bind(entity).currentState)
@@ -198,11 +220,11 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   protected override subscriberView(state: TeamState, principal: Principal): unknown {
-    return teamSubscriberView(state, principal)
+    return teamSubscriberView(state, principal, this.rows)
   }
 
   protected override mayReceive(state: TeamState, event: EventFrame, principal: Principal): boolean {
-    return teamEventVisible(state, event, principal)
+    return teamEventVisible(state, event, principal, this.rows)
   }
 
   /**
@@ -225,6 +247,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return domainExternal(
       {
         state: engine.currentState,
+        rows: engine.rows,
         team: entity,
         stream: engine.stream,
         http: this.http,
@@ -243,6 +266,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return ssoExternal(
       {
         state: engine.currentState,
+        rows: engine.rows,
         team: entity,
         stream: engine.stream,
         http: this.http,
@@ -261,6 +285,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return sshExternal(
       {
         state: () => this.boundEngine?.currentState ?? engine.currentState,
+        rows: engine.rows,
         team: entity,
         stream: engine.stream,
         kek: this.env.INTEGRATIONS_KEK,
@@ -293,6 +318,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     return revokeInstallCerts(
       {
         state: () => this.boundEngine?.currentState ?? engine.currentState,
+        rows: engine.rows,
         team: entity,
         stream: engine.stream,
         kek: this.env.INTEGRATIONS_KEK,
@@ -328,7 +354,7 @@ export class TeamDO extends OwnerDO<TeamState> {
     const state = this.bind(entity).currentState
     const policy = currentPolicy(state).values as PolicyValues
     const values = policy as Record<string, { value: unknown } | undefined>
-    const role = state.members?.[user]?.role
+    const role = roleOf(state, this.rows, user)
     // Bound by its email domain: only while an active connection serves that very domain, or its user could never sign in.
     const servable = domain === undefined ? ssoServable(state) : connectionForDomain(state, domain) !== undefined
     const enforce = enforcedOn(policy, "sso.enforce") && servable
@@ -353,7 +379,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
     const engine = this.bind(entity)
-    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user, engine.rows)
   }
 
   /**
@@ -462,7 +488,12 @@ export class TeamDO extends OwnerDO<TeamState> {
     return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
+  /** Home reach (home-reach.ts): which of `targets` (at most HOME_REACH_MAX_TARGETS) share this team with `adder`. Never binds a team it does not serve. */
+  async homeCoMembers(entity: string, adder: string, targets: ReadonlyArray<string>): Promise<Array<{ user: string; display_name: string }>> {
+    return this.boundEntity() === entity ? homeCoMembersOf(this.bind(entity).currentState, this.rows, adder, targets) : []
+  }
+
   protected maySubscribe(state: TeamState, principal: Principal): boolean {
-    return Boolean(principal.user && state.members[principal.user])
+    return memberOf(state, this.rows, principal.user) !== undefined
   }
 }

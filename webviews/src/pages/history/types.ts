@@ -72,5 +72,3 @@ export const HistoryOps = {
 export const ACTION_RUN = "cmux.app.action.run";
 /** The native UI op for the pasteboard, when the page origin cannot use the async clipboard. */
 export const CLIPBOARD_WRITE = "cmux.app.clipboard.write";
-/** App to page: the dispatcher delivered a page command (`find`, `focusSearch`). */
-export const PAGE_COMMAND = "cmux.page.command";

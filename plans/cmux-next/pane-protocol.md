@@ -73,6 +73,8 @@ These rules fill gaps in the envelope above. The TS client implements them
    has no portable close signal. Session never sees this message.
 9. The codegen refuses any JSON Schema keyword outside the subset it supports. It never emits a
    validator that accepts everything.
+31. Operation ids (2026-10-04, zero-latency lane, [zero-latency.md](zero-latency.md)): `call` may carry `"opid":"<string>"` (1 to 128 characters of `[A-Za-z0-9._:-]`), a client-generated operation id for one user intent. A provider that applies the call echoes the id on every event the call caused: `{"t":"ev","sub":…,"seq":…,"data":…,"opid":"<id>"}` (envelope field, outside the IR-validated `data`). A provider applies an opid once per caller identity (the token's `sub`, the page instance, so a resend on a new connection after a reconnect is covered): a repeated opid is answered with the first run's `ok` or `err` and runs nothing. Remember at least the last 1024 opids per caller for 10 minutes. `ok` and `err` are matched by `id` and carry no opid. A malformed opid is a bad message (`cmux.protocol.bad_message`). TS: `CallOptions.opid`, `HandlerContext.opid`, `emit(data, {opid})`, `onEvent(data, seq, {opid})`, `OpidLedger` for providers, and the page bridge carries it (`PageClient.call(op, params, {opid})`). Rust and Go providers follow; no Rust change in this slot.
+   (Decisions 10 to 31 and the lane notes are in [pane-protocol-decisions.md](pane-protocol-decisions.md).)
 
 ## Namespaces and the catalog
 
@@ -174,6 +176,15 @@ A page is a surface that a manifest declares. It is the unit that gets a route, 
 Router control ops in the first slice: `cmux.router.hello` (provider admission),
 `cmux.router.resolve`, `cmux.router.token.refresh`, `cmux.router.interfaces.list`,
 `cmux.router.pages.list`.
+
+Every page also gets two event streams from its engine bridge (the host, not a provider), so pages
+handle host state and host commands one way:
+
+- `cmux.page.connection` `{connected: boolean}`: the page's backend connection went up or down.
+  Pages show their own offline state from it instead of guessing from failed calls.
+- `cmux.page.command` `{command: "find" | "focusSearch" | "back" | "forward" | "reset"}`: a host
+  command for the focused page. The app's single key dispatcher (R59) maps keys to these commands;
+  pages add no key handling of their own for them.
 
 ## First slice (proves every part)
 

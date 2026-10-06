@@ -20,15 +20,18 @@ final class HomeHostView: NSView {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(conversation: id, me: service.homeSource.me.id)
+        // The binding opens the conversation now and `binding.stop()` in
+        // deinit closes it, however early the tab closes.
         binding = HomeStoreBinding(store: service.homeStore, controller: transcript.controller)
         super.init(frame: .zero)
+        // Paste, drop and the picker attach files through the store; refusals
+        // and Cancel Upload go through the binding.
+        transcript.connect(binding)
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
-        // task-owner: one snapshot read; ends with its reply
-        Task { await service.homeStore.open(id) }
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             for await (available, online) in Observations({ (service.isAvailable, service.homeStore.isOnline) }) {
@@ -69,4 +72,21 @@ final class HomeHostView: NSView {
     /// Home's primary input: the message box itself. Focusing the transcript
     /// view would leave it the responder after it forwards to the box.
     var focusTarget: NSView { transcript.primaryInput }
+}
+
+/// Home's primary input is its message box (R65, spec app-screens.md 3):
+/// a printable key typed while Home has the keyboard but no text view of
+/// it does (a click on a bubble left the transcript focused) moves the
+/// keyboard to the box and types the key there.
+extension HomeHostView: PrimaryInputTarget {
+    var acceptsRedirectedTyping: Bool {
+        guard let responder = window?.firstResponder as? NSView else { return true }
+        return !(responder is NSText || responder is NSTextField)
+    }
+
+    func beginTyping(with event: NSEvent) {
+        let box = transcript.primaryInput
+        guard let window, window.makeFirstResponder(box) else { return }
+        box.keyDown(with: event)
+    }
 }

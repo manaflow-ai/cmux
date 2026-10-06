@@ -60,6 +60,9 @@ plist = "1.10"
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
+cmux-link.workspace = true
+cmux-unix-socket.workspace = true
+x25519-dalek.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a
 # Cloud VM. chatmux-relay already uses reqwest for pairing bootstrap.
@@ -67,6 +70,10 @@ reqwest.workspace = true
 rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
+# The cloud conversations proxy (`cloud-conversations-v1`): cmux.wire/1
+# sockets to the cmux Cloud API. Both are already in the graph via acpmux.
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true

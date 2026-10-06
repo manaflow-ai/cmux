@@ -10,6 +10,45 @@
 //! seconds after output goes idle the viewer gets `digest {generation, offset,
 //! version, sha256}` of the host's READY encoding.
 //!
+//! Capability `terminal-snapshot-history-v1`: every READY is followed by
+//! `snapshot {phase: "history", generation, offset, version, compression:
+//! "deflate", raw_bytes, data, done}` chunks at that READY's generation and
+//! offset. Each chunk is at most [`HISTORY_CHUNK_BYTES`] of history,
+//! compressed alone as raw DEFLATE (level 1) on the worker thread, outside
+//! the terminal lock. The inflated chunks concatenated are the rest of the
+//! same COMPLETE encode (HISTORY manifests, scrollback pages, FINISH), which
+//! a viewer feeds to its restore after READY. History has lower priority than live
+//! output: a chunk goes out only while the viewer's queue is empty, so live
+//! `output` frames pass between chunks. A newer READY drops the rest of the
+//! older history on the host.
+//!
+//! Capability `terminal-snapshot-local-history-v1`: a viewer that attaches
+//! with `snapshot_local_history: true` reflows its own history. A resize
+//! reaches it, while it holds every frame since its last READY, as one
+//! `snapshot {phase: "ready", history: "local", generation, offset,
+//! history_rows, history_digest, ...}` of the new grid taken under the
+//! terminal lock at the resize: after every output frame before the resize,
+//! at the resize's new generation and the offset at the resize, and never
+//! followed by history. The viewer compares `history_rows` and
+//! `history_digest` with its reflowed history and sends `snapshot-request`
+//! on a mismatch. A viewer that is behind (a snapshot pending or deferred, an
+//! overflow) or still receiving the history of an older READY gets a READY
+//! with history at a later cut, as does attach, overflow and
+//! `snapshot-request`.
+//!
+//! Capability `terminal-snapshot-images-v1`: a viewer that attaches with
+//! `snapshot_images: true` gets, after the history of every READY that has
+//! history, `snapshot {phase: "images", generation, offset, data, done}`
+//! chunks of the libghostty-vt Kitty replay stream (at most
+//! [`IMAGES_CHUNK_BYTES`] of stream per chunk, not compressed again: the
+//! pixels are already zlib). The stream is encoded under the same terminal
+//! lock hold as the READY, at the same cut, with at most
+//! [`SNAPSHOT_IMAGES_MAX_BYTES`] of decoded pixels; the last chunk names
+//! `skipped_images` when the cap left images out. Images have the priority
+//! of history and a newer READY drops them too. A terminal without images
+//! sends no images phase, and a local-history READY is never followed by
+//! images (the viewer keeps its own).
+//!
 //! `snapshot-request {surface, reason?, have?, request_id?}` is the raw v12
 //! form of the channel message `snapshot_request` (sync-and-transport.md):
 //! requests collapse while a snapshot is pending, and a viewer gets at most
@@ -32,13 +71,27 @@ use super::{
 };
 use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::snapshot_attach::{
-    DEFAULT_VIEWER_BACKLOG_BYTES, SNAPSHOT_DIGEST_IDLE, SnapshotAdmission, SnapshotRequestGate,
-    TerminalSnapshotDigest, TerminalSnapshotFrame,
+    DEFAULT_VIEWER_BACKLOG_BYTES, LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotAdmission,
+    SnapshotImages, SnapshotRequestGate, TerminalSnapshotDigest, TerminalSnapshotFrame,
 };
 use crate::surface::{AttachFrame, AttachFrameReceiver, AttachLifecycle, ViewerEvent};
 use crate::{Mux, Surface, SurfaceId};
 
 pub const TERMINAL_SNAPSHOT_CAPABILITY: &str = "terminal-snapshot-v1";
+/// READY is followed by its history chunks (scrollback, then FINISH).
+pub const TERMINAL_SNAPSHOT_HISTORY_CAPABILITY: &str = "terminal-snapshot-history-v1";
+/// A resize reaches an opted-in viewer as a READY without history.
+pub const TERMINAL_SNAPSHOT_LOCAL_HISTORY_CAPABILITY: &str = "terminal-snapshot-local-history-v1";
+/// A READY with history is followed by its Kitty images.
+pub const TERMINAL_SNAPSHOT_IMAGES_CAPABILITY: &str = "terminal-snapshot-images-v1";
+/// Largest images chunk in bytes of the replay stream (base64 adds a third).
+pub(crate) const IMAGES_CHUNK_BYTES: usize = 1 << 20;
+/// Cap on the decoded pixel bytes of the images sent after one READY to one
+/// viewer.
+pub(crate) const SNAPSHOT_IMAGES_MAX_BYTES: u64 = 32 << 20;
+/// Largest uncompressed history chunk. Its compressed base64 stays far under
+/// the per-stream outbound byte cap with a live frame pending.
+pub(crate) const HISTORY_CHUNK_BYTES: usize = 1 << 20;
 /// The only snapshot encoding the host speaks.
 pub const SNAPSHOT_ENCODING_GHOSTSNP: &str = "ghostsnp";
 
@@ -53,6 +106,15 @@ pub(crate) struct SnapshotAttachParams {
     /// [`MIN_VIEWER_BACKLOG_BYTES`, `MAX_VIEWER_BACKLOG_BYTES`].
     #[serde(default)]
     viewer_backlog_bytes: Option<usize>,
+    /// The viewer reflows its own history at a resize
+    /// (`terminal-snapshot-local-history-v1`). Only meaningful with
+    /// `snapshot`.
+    #[serde(default)]
+    snapshot_local_history: bool,
+    /// Every READY with history is followed by its Kitty images
+    /// (`terminal-snapshot-images-v1`). Only meaningful with `snapshot`.
+    #[serde(default)]
+    snapshot_images: bool,
 }
 
 pub(crate) const MIN_VIEWER_BACKLOG_BYTES: usize = 64 * 1024;
@@ -61,6 +123,11 @@ pub(crate) const MIN_VIEWER_BACKLOG_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_VIEWER_BACKLOG_BYTES: usize = 8 * 1024 * 1024;
 
 impl SnapshotAttachParams {
+    /// The images cap of this viewer, or `None` when it did not opt in.
+    pub(crate) fn images_cap(&self) -> Option<u64> {
+        self.snapshot_images.then_some(SNAPSHOT_IMAGES_MAX_BYTES)
+    }
+
     pub(crate) fn backlog_bytes(&self) -> usize {
         self.viewer_backlog_bytes
             .unwrap_or(DEFAULT_VIEWER_BACKLOG_BYTES)
@@ -259,6 +326,19 @@ fn base64(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
+/// The READY of a local-history resize: no history follows it.
+fn local_snapshot_json(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
+    let mut value = snapshot_json(surface, &ready.frame);
+    value["history"] = json!("local");
+    value["history_rows"] = json!(ready.history_rows);
+    value["history_digest"] = json!(hex(&ready.history_digest));
+    value
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
     json!({
         "event": "snapshot",
@@ -276,8 +356,135 @@ fn snapshot_json(surface: SurfaceId, frame: &TerminalSnapshotFrame) -> Value {
     })
 }
 
+/// The history and the images of one READY still to send.
+struct PendingTail {
+    generation: u64,
+    offset: u64,
+    version: u16,
+    history: Vec<u8>,
+    history_sent: usize,
+    history_done: bool,
+    images: Option<PendingImages>,
+}
+
+impl PendingTail {
+    fn of(frame: &mut TerminalSnapshotFrame) -> Self {
+        Self {
+            generation: frame.generation,
+            offset: frame.offset,
+            version: frame.version,
+            history: std::mem::take(&mut frame.history),
+            history_sent: 0,
+            history_done: false,
+            images: frame.images.take().map(PendingImages::of),
+        }
+    }
+
+    /// The next chunk event and whether it ends this READY's tail; `None`
+    /// when nothing is left. History goes first: a placement above the
+    /// active area needs its row.
+    fn next_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Option<(Value, bool)>> {
+        if !self.history_done {
+            let value = self.next_history_chunk(surface)?;
+            let done = self.history_done && self.images.is_none();
+            return Ok(Some((value, done)));
+        }
+        let at = (self.generation, self.offset, self.version);
+        Ok(self.images.as_mut().and_then(|images| images.next_chunk(surface, at)))
+    }
+
+    fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
+        let end = (self.history_sent + HISTORY_CHUNK_BYTES).min(self.history.len());
+        let done = end == self.history.len();
+        let raw = &self.history[self.history_sent..end];
+        let packed = deflate(raw)?;
+        let value = json!({
+            "event": "snapshot",
+            "surface": surface,
+            "phase": "history",
+            "generation": self.generation,
+            "offset": self.offset,
+            "version": self.version,
+            "compression": "deflate",
+            "raw_bytes": raw.len(),
+            "data": base64(&packed),
+            "done": done,
+        });
+        self.history_sent = end;
+        self.history_done = done;
+        Ok(value)
+    }
+}
+
+/// The Kitty replay stream of one READY still to send (shared with the
+/// terminal's cache and other viewers).
+struct PendingImages {
+    data: Arc<SnapshotImages>,
+    sent: usize,
+    finished: bool,
+    skipped_images: u64,
+}
+
+impl PendingImages {
+    fn of(images: Arc<SnapshotImages>) -> Self {
+        let skipped_images = images.stats.skipped_images;
+        Self { data: images, sent: 0, finished: false, skipped_images }
+    }
+
+    /// The next images chunk and whether it is the last one. The stream is
+    /// sent as is: its pixels are already zlib.
+    /// `at`: the READY's `(generation, offset, version)`.
+    fn next_chunk(&mut self, surface: SurfaceId, at: (u64, u64, u16)) -> Option<(Value, bool)> {
+        let (generation, offset, version) = at;
+        if self.finished {
+            return None;
+        }
+        let stream = &self.data.data;
+        let end = (self.sent + IMAGES_CHUNK_BYTES).min(stream.len());
+        let done = end == stream.len();
+        let mut value = json!({
+            "event": "snapshot",
+            "surface": surface,
+            "phase": "images",
+            "generation": generation,
+            "offset": offset,
+            "version": version,
+            "data": base64(&stream[self.sent..end]),
+            "done": done,
+        });
+        if done && self.skipped_images > 0 {
+            value["skipped_images"] = json!(self.skipped_images);
+        }
+        self.sent = end;
+        self.finished = done;
+        Some((value, done))
+    }
+}
+
+/// Raw DEFLATE (RFC 1951, no zlib or gzip framing) at level 1: about 8% of
+/// the history at about 0.7 ms per MiB (the 2026-10-04 Testbox measurement).
+fn deflate(raw: &[u8]) -> std::io::Result<Vec<u8>> {
+    use std::io::Write as _;
+    let mut encoder = flate2::write::DeflateEncoder::new(
+        Vec::with_capacity(raw.len() / 8),
+        flate2::Compression::new(1),
+    );
+    encoder.write_all(raw)?;
+    encoder.finish()
+}
+
+/// One line per READY whose images the cap left out.
+fn log_skipped_images(surface: SurfaceId, frame: &TerminalSnapshotFrame) {
+    if let Some(images) = frame.images.as_ref().filter(|images| images.stats.skipped_images > 0) {
+        eprintln!(
+            "cmux-tui: surface {surface} snapshot images: {} over the {SNAPSHOT_IMAGES_MAX_BYTES}-byte cap not sent (generation {})",
+            images.stats.skipped_images, frame.generation
+        );
+    }
+}
+
 fn digest_json(surface: SurfaceId, digest: &TerminalSnapshotDigest) -> Value {
-    let sha256: String = digest.sha256.iter().map(|byte| format!("{byte:02x}")).collect();
+    let sha256 = hex(&digest.sha256);
     json!({
         "event": "digest",
         "surface": surface,
@@ -336,6 +543,11 @@ struct SnapshotWorker {
     gate: SnapshotRequestGate,
     generation: u64,
     offset: u64,
+    /// History and images of the last READY not yet sent; a newer READY
+    /// replaces them.
+    tail: Option<PendingTail>,
+    /// The images cap when the viewer opted into images.
+    images_cap: Option<u64>,
 }
 
 impl SnapshotWorker {
@@ -350,11 +562,14 @@ impl SnapshotWorker {
     }
 
     fn send_snapshot(&mut self) -> bool {
-        match self.surface.take_viewer_snapshot(&self.receiver) {
-            Ok(frame) => {
+        match self.surface.take_viewer_snapshot(&self.receiver, self.images_cap) {
+            Ok(mut frame) => {
                 self.gate.sent(Instant::now());
                 self.generation = frame.generation;
                 self.offset = frame.offset;
+                log_skipped_images(self.surface_id, &frame);
+                // The older READY's history and images no longer apply.
+                self.tail = Some(PendingTail::of(&mut frame));
                 self.send(&snapshot_json(self.surface_id, &frame))
             }
             Err(_) => {
@@ -368,8 +583,51 @@ impl SnapshotWorker {
         }
     }
 
+    /// A local-history READY at a resize cut. It continues the viewer's
+    /// stream only when the viewer holds a complete history to reflow and
+    /// every byte before the cut; otherwise the viewer gets a READY with
+    /// history at a new cut.
+    fn send_local_ready(&mut self, ready: &LocalReadySnapshot) -> bool {
+        // A viewer still owed the images of an older READY has none to keep.
+        if self.tail.is_some() || self.offset != ready.frame.offset {
+            return self.send_snapshot();
+        }
+        self.generation = ready.frame.generation;
+        self.send(&local_snapshot_json(self.surface_id, ready))
+    }
+
+    /// One history or images chunk; the last one ends the pending tail. A
+    /// history chunk that cannot be compressed ends this READY's tail (its
+    /// images too: they need the history rows); the viewer stays attached
+    /// and its next READY brings a complete history.
+    fn send_tail_chunk(&mut self) -> bool {
+        let Some(tail) = self.tail.as_mut() else { return true };
+        match tail.next_chunk(self.surface_id) {
+            Ok(Some((value, done))) => {
+                if done {
+                    self.tail = None;
+                }
+                self.send(&value)
+            }
+            Ok(None) => {
+                self.tail = None;
+                true
+            }
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: surface {} snapshot history not sent (generation {}): {error}",
+                    self.surface_id, tail.generation
+                );
+                self.tail = None;
+                true
+            }
+        }
+    }
+
     /// Block on the viewer's queue; the only timed wait is the one-shot idle
-    /// digest deadline set by the last output.
+    /// digest deadline set by the last output. While history is pending the
+    /// queue is only polled: a queued event goes first, else one chunk.
+    /// Images chunks follow the history chunks at the same priority.
     fn run(mut self) {
         let interrupt = StreamInterrupt::new();
         self.writer.register_interrupt(&interrupt);
@@ -381,11 +639,16 @@ impl SnapshotWorker {
             && self.outbound_stream.is_open()
             && !self.lifecycle.is_canceled()
         {
-            let event = self.receiver.recv_viewer_event(&interrupt, digest_at);
+            let deadline = if self.tail.is_some() { Some(Instant::now()) } else { digest_at };
+            let event = self.receiver.recv_viewer_event(&interrupt, deadline);
             let sent = match event {
                 Ok(ViewerEvent::Snapshot) => {
                     digest_at = None;
                     self.send_snapshot()
+                }
+                Ok(ViewerEvent::LocalReady(ready)) => {
+                    digest_at = None;
+                    self.send_local_ready(&ready)
                 }
                 Ok(ViewerEvent::Frame(frame)) => {
                     self.offset += frame_output_len(&frame) as u64;
@@ -396,6 +659,9 @@ impl SnapshotWorker {
                         Some(value) => self.send(&value),
                         None => true,
                     }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) if self.tail.is_some() => {
+                    self.send_tail_chunk()
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if digest_at.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -472,6 +738,8 @@ impl SnapshotAttachParams {
             lifecycle,
             outbound_stream,
             self.backlog_bytes(),
+            self.snapshot_local_history,
+            self.images_cap(),
         )
     }
 }
@@ -487,10 +755,12 @@ fn attach(
     lifecycle: AttachLifecycle,
     outbound_stream: OutboundStream,
     backlog: usize,
+    local_history: bool,
+    images_cap: Option<u64>,
 ) -> anyhow::Result<Value> {
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
-    let stream = match surface.attach_snapshot_stream(lifecycle.clone(), backlog) {
+    let stream = match surface.attach_snapshot_stream(lifecycle.clone(), backlog, local_history) {
         Ok(stream) => stream,
         Err(error) => {
             lifecycle.cancel();
@@ -502,8 +772,11 @@ fn attach(
     // encoded yet (an unfinished escape sequence over the continuation
     // budget), the attach still succeeds and the worker sends it at the next
     // output.
-    let (generation, offset) = match surface.take_viewer_snapshot(&stream.receiver) {
-        Ok(first) => {
+    let mut tail = None;
+    let (generation, offset) = match surface.take_viewer_snapshot(&stream.receiver, images_cap) {
+        Ok(mut first) => {
+            log_skipped_images(surface_id, &first);
+            tail = Some(PendingTail::of(&mut first));
             stream.requests.sent(Instant::now());
             let initial = snapshot_json(surface_id, &first);
             if let Err(error) = writer.send_initial(&initial, &outbound_stream) {
@@ -548,6 +821,8 @@ fn attach(
         gate: stream.requests,
         generation,
         offset,
+        tail,
+        images_cap,
     };
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =
@@ -655,6 +930,39 @@ mod tests {
         assert!(validate_request(&request(json!({"surface": 1, "request_id": ok}))).is_ok());
     }
 
+    /// Images chunks: at most 1 MiB of stream each, at the READY's position,
+    /// not compressed again; only the last one names `skipped_images`.
+    #[test]
+    fn images_chunks_split_the_stream_and_the_last_names_skipped_images() {
+        let stream: Vec<u8> = (0..(IMAGES_CHUNK_BYTES * 2 + 17)).map(|i| i as u8).collect();
+        let stats =
+            ghostty_vt::KittyReplayStats { images: 1, skipped_images: 2, ..Default::default() };
+        let mut pending =
+            PendingImages::of(Arc::new(SnapshotImages { data: stream.clone(), stats }));
+        let (mut joined, mut events) = (Vec::new(), Vec::new());
+        while let Some((value, done)) = pending.next_chunk(3, (9, 77, 1)) {
+            assert_eq!(value["phase"], "images");
+            assert_eq!(
+                (value["generation"].as_u64(), value["offset"].as_u64()),
+                (Some(9), Some(77))
+            );
+            assert!(value.get("compression").is_none(), "{value}");
+            assert_eq!(value["version"], 1);
+            let bytes = base64::engine::general_purpose::STANDARD
+                .decode(value["data"].as_str().unwrap())
+                .unwrap();
+            assert!(bytes.len() <= IMAGES_CHUNK_BYTES);
+            joined.extend_from_slice(&bytes);
+            assert_eq!(value["done"], done);
+            events.push(value);
+        }
+        assert_eq!(joined, stream);
+        assert_eq!(events.len(), 3);
+        assert!(events[..2].iter().all(|value| value.get("skipped_images").is_none()));
+        assert_eq!(events[2]["skipped_images"], 2);
+        assert_eq!(events[2]["done"], true);
+    }
+
     #[test]
     fn snapshot_attach_params_fall_back_on_another_version() {
         let ours = ghostty_vt::snapshot_version();
@@ -674,6 +982,10 @@ mod tests {
         let tiny: SnapshotAttachParams =
             serde_json::from_value(json!({"viewer_backlog_bytes": 1})).unwrap();
         assert_eq!(tiny.backlog_bytes(), MIN_VIEWER_BACKLOG_BYTES);
+        assert_eq!(tiny.images_cap(), None, "images are opt-in");
+        let images: SnapshotAttachParams =
+            serde_json::from_value(json!({"snapshot_images": true})).unwrap();
+        assert_eq!(images.images_cap(), Some(SNAPSHOT_IMAGES_MAX_BYTES));
     }
 }
 

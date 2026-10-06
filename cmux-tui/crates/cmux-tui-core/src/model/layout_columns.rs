@@ -1,4 +1,4 @@
-//! Viewport columns of a scrollable screen and their `sticky-columns-v1`
+//! Viewport columns of a scrollable screen and their `dock-columns-v1`
 //! flags, the compat projection of the columns, plus the layout mutation
 //! keys that coalesce undo entries.
 
@@ -24,9 +24,9 @@ pub(crate) struct LayoutColumn {
     pub(crate) width: f32,
     pub(crate) root: Node,
     pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
-    /// `sticky-columns-v1`: the viewport edge this column is pinned to.
-    /// `None` for an ordinary scrolling column. See [`normalize_sticky_columns`].
-    pub(crate) sticky: Option<ColumnSticky>,
+    /// `dock-columns-v1`: the viewport edge this column is pinned to.
+    /// `None` for an ordinary scrolling column. See [`normalize_dock_columns`].
+    pub(crate) dock: Option<ColumnDock>,
     /// `rows-v1`: empty, or two or more rows whose trees `root` chains
     /// (plans/cmux-next/rows.md, super::layout_rows).
     pub(crate) rows: Vec<LayoutRow>,
@@ -40,7 +40,7 @@ impl LayoutColumn {
         root: Node,
         zellij_auto_layout: Option<Vec<PaneId>>,
     ) -> Self {
-        Self { id, width, root, zellij_auto_layout, sticky: None, rows: Vec::new() }
+        Self { id, width, root, zellij_auto_layout, dock: None, rows: Vec::new() }
     }
 
     /// A new scrolling column holding one pane.
@@ -59,7 +59,7 @@ pub(crate) enum ColumnProjection {
     Columns { root: Node, viewport_splits: BTreeMap<SplitId, f32>, base_width: f32 },
 }
 
-/// Restores the row ([`LayoutColumn::normalize_rows`]) and sticky
+/// Restores the row ([`LayoutColumn::normalize_rows`]) and docked
 /// invariants of `columns` and returns the compatibility projection. Owner
 /// of the "columns mode" rule: two or more columns, or one column with two or
 /// more rows. Such a lone column fills the screen width (1.0) and keeps its
@@ -78,7 +78,7 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
     if let [column] = columns.as_mut_slice() {
         column.width = 1.0;
     }
-    normalize_sticky_columns(columns);
+    normalize_dock_columns(columns);
     let Some(first) = columns.first() else { return ColumnProjection::Unchanged };
     let mut root = first.root.clone();
     let mut width_before = first.width;
@@ -98,25 +98,25 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
         viewport_splits.insert(column.id, column.width);
         width_before += column.width;
     }
-    debug_assert!(sticky_columns_are_consistent(columns));
+    debug_assert!(dock_columns_are_consistent(columns));
     ColumnProjection::Columns { root, viewport_splits, base_width: first.width }
 }
 
-/// Viewport edge a column is pinned to. Left and right are sticky columns
-/// (`sticky-columns-v1`); top and bottom are screen-wide docks
+/// Viewport edge a column is pinned to. Left and right are docked columns
+/// (`dock-columns-v1`); top and bottom are screen-wide docks
 /// (`edge-docks-v1`, plans/cmux-next/layout-model.md), sent as
 /// `columns[].dock` and stored outside `viewport_json` so older builds read
 /// such a column as an ordinary one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum StickyEdge {
+pub enum DockEdge {
     Left,
     Right,
     Top,
     Bottom,
 }
 
-impl StickyEdge {
+impl DockEdge {
     pub const ALL: [Self; 4] = [Self::Left, Self::Right, Self::Top, Self::Bottom];
 
     pub fn parse(value: &str) -> Option<Self> {
@@ -132,22 +132,22 @@ impl StickyEdge {
         }
     }
 
-    /// Top and bottom: a screen-wide dock rather than a sticky column.
+    /// Top and bottom: a screen-wide dock rather than a docked column.
     pub fn is_band(self) -> bool {
         matches!(self, Self::Top | Self::Bottom)
     }
 }
 
-/// How a frontend presents a sticky column: `Docked` takes its width out of
+/// How a frontend presents a docked column: `Docked` takes its width out of
 /// the scrolling area, `Overlay` floats above the scrolling columns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum StickyMode {
+pub enum DockMode {
     Docked,
     Overlay,
 }
 
-impl StickyMode {
+impl DockMode {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "docked" => Some(Self::Docked),
@@ -164,58 +164,58 @@ impl StickyMode {
     }
 }
 
-/// The sticky flag of one viewport column, as stored and as sent on the wire
+/// The dock flag of one viewport column, as stored and as sent on the wire
 /// (`{"edge":"left"|"right","mode":"docked"|"overlay"}`).
 /// Unknown members are ignored so a later build may add one without making
 /// this build unable to read the record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct ColumnSticky {
-    pub edge: StickyEdge,
-    pub mode: StickyMode,
+pub struct ColumnDock {
+    pub edge: DockEdge,
+    pub mode: DockMode,
 }
 
-/// True when the sticky flags satisfy the column invariants: no flag on a
+/// True when the dock flags satisfy the column invariants: no flag on a
 /// screen with fewer than two columns, at most one column per edge, and at
-/// least one scrolling (non-sticky) column.
-pub(crate) fn sticky_columns_are_consistent(columns: &[LayoutColumn]) -> bool {
-    sticky_flags_are_consistent(&columns.iter().map(|column| column.sticky).collect::<Vec<_>>())
+/// least one scrolling (non-dock) column.
+pub(crate) fn dock_columns_are_consistent(columns: &[LayoutColumn]) -> bool {
+    dock_flags_are_consistent(&columns.iter().map(|column| column.dock).collect::<Vec<_>>())
 }
 
-/// [`sticky_columns_are_consistent`] over the flags of a screen's columns.
-pub(crate) fn sticky_flags_are_consistent(flags: &[Option<ColumnSticky>]) -> bool {
-    let sticky = flags.iter().flatten().collect::<Vec<_>>();
-    if sticky.is_empty() {
+/// [`dock_columns_are_consistent`] over the flags of a screen's columns.
+pub(crate) fn dock_flags_are_consistent(flags: &[Option<ColumnDock>]) -> bool {
+    let dock = flags.iter().flatten().collect::<Vec<_>>();
+    if dock.is_empty() {
         return true;
     }
     flags.len() >= 2
-        && sticky.len() < flags.len()
-        && StickyEdge::ALL
+        && dock.len() < flags.len()
+        && DockEdge::ALL
             .iter()
-            .all(|edge| sticky.iter().filter(|flag| flag.edge == *edge).count() <= 1)
+            .all(|edge| dock.iter().filter(|flag| flag.edge == *edge).count() <= 1)
 }
 
-/// Restore the sticky invariants after a structural change removed or
+/// Restore the docked invariants after a structural change removed or
 /// reordered columns: a second column on an edge loses its flag, and when no
 /// scrolling column remains every flag is cleared. Commands that set flags
 /// validate first, so this only acts after removals.
-pub(crate) fn normalize_sticky_columns(columns: &mut [LayoutColumn]) {
-    if columns.len() < 2 || columns.iter().all(|column| column.sticky.is_some()) {
+pub(crate) fn normalize_dock_columns(columns: &mut [LayoutColumn]) {
+    if columns.len() < 2 || columns.iter().all(|column| column.dock.is_some()) {
         for column in columns.iter_mut() {
-            column.sticky = None;
+            column.dock = None;
         }
         return;
     }
     let mut seen = Vec::with_capacity(2);
     for column in columns.iter_mut() {
-        if let Some(flag) = column.sticky {
+        if let Some(flag) = column.dock {
             if seen.contains(&flag.edge) {
-                column.sticky = None;
+                column.dock = None;
             } else {
                 seen.push(flag.edge);
             }
         }
     }
-    debug_assert!(sticky_columns_are_consistent(columns));
+    debug_assert!(dock_columns_are_consistent(columns));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,9 +230,9 @@ pub(crate) enum LayoutMutationKey {
         owner: LayoutResizeOwner,
         transaction: u64,
     },
-    /// `set-column-sticky` changes with one connection's transaction. Kept
+    /// `set-column-dock` changes with one connection's transaction. Kept
     /// apart from resizes so a reused transaction id never merges the two.
-    ColumnSticky {
+    ColumnDock {
         owner: LayoutResizeOwner,
         transaction: u64,
     },

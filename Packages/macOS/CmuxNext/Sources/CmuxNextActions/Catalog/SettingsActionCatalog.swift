@@ -23,6 +23,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
+            // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
+            // does not apply. The CLI prints the same list (`cmux ghostty
+            // diagnostics`, the app's `ghostty.diagnostics`).
+            ActionDescriptor(
+                id: "ghostty.showDiagnostics",
+                title: String(localized: "action.ghostty.showDiagnostics", defaultValue: "Show Ghostty Config Diagnostics", bundle: .module),
+                keywords: ["ghostty", "config", "diagnostics", "unsupported", "keybind", "problems"], category: .settings,
+                symbol: "exclamationmark.triangle", surfaces: [.palette]
+            ),
             ActionDescriptor(
                 id: "palette.makeDefaultBrowser",
                 title: String(localized: "action.palette.makeDefaultBrowser", defaultValue: "Make cmux the Default Browser", bundle: .module),
@@ -53,6 +62,15 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.searchShortcuts", defaultValue: "Search Keyboard Shortcuts…", bundle: .module),
                 keywords: ["shortcuts", "keybindings", "hotkeys", "help"], category: .settings, symbol: "keyboard",
                 surfaces: [.palette, .menu], cliName: "settings search-keyboard-shortcuts", mainMenu: .help
+            ),
+            // The Keyboard Shortcuts editor (R59), a React page tab; no
+            // default key (defaults do not change, K1).
+            ActionDescriptor(
+                id: "keybindings.open",
+                title: String(localized: "action.keybindings.open", defaultValue: "Open Keyboard Shortcuts", bundle: .module),
+                keywords: ["shortcuts", "keybindings", "keys", "rebind", "chords", "when", "hotkeys"], category: .settings,
+                symbol: "keyboard", surfaces: [.palette, .keyboard], cliName: "settings keyboard-shortcuts",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             // DEV and NIGHTLY only (`DevTools`); CLI verb for the Rust CLI:
             // `cmux debug open-settings`.
@@ -85,6 +103,24 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.checkForUpdates", defaultValue: "Check for Updates…", bundle: .module),
                 keywords: ["update", "version", "sparkle"], category: .settings, symbol: "arrow.down.circle",
                 surfaces: [.palette, .menu], cliName: "settings check-for-updates", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "updates.whatsNew",
+                title: String(localized: "action.updates.whatsNew", defaultValue: "What's New in cmux", bundle: .module),
+                keywords: ["changelog", "release notes", "update", "new"], category: .settings, symbol: "sparkles",
+                surfaces: [.palette, .menu], cliName: "settings whats-new", mainMenu: .app
+            ),
+            ActionDescriptor(
+                id: "announcements.show",
+                title: String(localized: "action.announcements.show", defaultValue: "Show Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings show-announcements"
+            ),
+            ActionDescriptor(
+                id: "announcements.hide",
+                title: String(localized: "action.announcements.hide", defaultValue: "Hide Announcements", bundle: .module),
+                keywords: ["announcements", "news", "cards"], category: .settings, symbol: "megaphone",
+                surfaces: [.palette], cliName: "settings hide-announcements"
             ),
             ActionDescriptor(
                 id: "palette.applyUpdateIfAvailable",
@@ -125,6 +161,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
             ),
             ActionDescriptor(
+                id: "importAndSync.show",
+                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
+                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
+                symbol: "square.and.arrow.down", surfaces: [.palette],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "palette.onboardingGallery",
                 title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
                 keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",
@@ -135,6 +178,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.sendFeedback", defaultValue: "Send Feedback", bundle: .module),
                 keywords: ["bug", "report", "contact"], category: .settings, symbol: "envelope",
                 surfaces: [.keyboard, .menu], cliName: "settings send-feedback", mainMenu: .help
+            ),
+            // Every entrypoint (Help menu, palette, `cmux settings show-crash-logs`,
+            // the restart notice) opens the newest crash
+            // log in TextEdit (CrashRecoveryService.showCrashLogs).
+            ActionDescriptor(
+                id: "help.showCrashLogs",
+                title: String(localized: "action.help.showCrashLogs", defaultValue: "Show Crash Logs", bundle: .module),
+                keywords: ["crash", "report", "ips", "log", "diagnostics", "textedit"], category: .settings,
+                symbol: "doc.text.magnifyingglass", surfaces: [.palette, .menu], cliName: "settings show-crash-logs",
+                mainMenu: .help
             ),
             ActionDescriptor(
                 id: "help.featureFlags",

@@ -201,6 +201,142 @@
       "scope": "closed:write",
       "class": "mutation"
     },
+    "cloud.auth.status": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.browser.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.pull": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.push": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.transfer.cancel": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.file.transfer.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.mkdir": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.fs.read": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.stat": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.fs.write": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.connect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.connect_info": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.disconnect": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.idle_policy.set": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.link_token": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.machine.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.machine.pause": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.rename": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.machine.upgrade": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.machine.watch": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.migration.start": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.migration.status": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.plan.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.port.forward": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.port.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.rescue.open": {
+      "scope": "cloud:write",
+      "class": "mutation"
+    },
+    "cloud.shell.open": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.snapshot.list": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.self.get": {
+      "scope": "cloud:read",
+      "class": "read"
+    },
+    "cloud.vm.status.report": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
     "codemirror.cycle_variant": {
       "scope": "codemirror:write",
       "class": "mutation"
@@ -1253,9 +1389,17 @@
       "scope": "team:read",
       "class": "read"
     },
+    "team.hosts.list": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.integration.release_lock": {
       "scope": "team:write",
       "class": "mutation"
+    },
+    "team.members.list": {
+      "scope": "team:read",
+      "class": "read"
     },
     "team.policy.get": {
       "scope": "team:read",
@@ -1508,6 +1652,15 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "cloud.billing.checkout",
+    "cloud.fs.remove",
+    "cloud.machine.create",
+    "cloud.machine.delete",
+    "cloud.machine.resize",
+    "cloud.port.close",
+    "cloud.snapshot.create",
+    "cloud.snapshot.delete",
+    "cloud.snapshot.restore",
     "domain.release",
     "firewall.delete",
     "frontend_projection.get",
@@ -1520,6 +1673,7 @@
     "install.revoke",
     "install.sign_out",
     "integration.revoke",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",

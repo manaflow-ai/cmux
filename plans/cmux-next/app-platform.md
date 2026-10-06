@@ -233,7 +233,7 @@ Coordinator answers applied: default first-party apps come from a deployment lis
 | cmd | params | result / events |
 | --- | --- | --- |
 | `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, manifest}]}` |
-| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; `installed`/grant changes require origin `user`; `hidden` any origin |
+| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; every change (including `hidden`) needs a verified cmux app connection (origin `user`) until P8 adds the verified-app path; agents must not change what the user sees (D55 as amended, request-origin.md) |
 | `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
 | `apps-unmount` | `{mount_id}` | — |
 | `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
@@ -292,7 +292,7 @@ The App Store page moves to React (webviews) with a Rust backend; the Swift App 
 | `cmux.apps.asset.get {app, path}` | apps:read | only paths the manifest names (icon, screenshots, notices), as a byte stream; the page never reads bundle folders |
 | `cmux.apps.installed.list` | apps:read | installed, enabled, hidden, sandboxed, source (default, user, bundled, local), version, update, grants |
 | `cmux.apps.install {app, version?, grant_optional}` / `cmux.apps.uninstall {app}` | apps:write | origin user with a gesture; agents refused until the actor stamp |
-| `cmux.apps.set {app, enabled?, hidden?, sandboxed?}` | apps:write | hidden from any origin (D55); the rest origin user; replaces the `app.hide`/`app.unhide` actions |
+| `cmux.apps.set {app, enabled?, hidden?, sandboxed?}` | apps:write | origin user for every field, hidden included, until P8 adds the verified-app path (D55 as amended: agents must not change what the user sees); replaces the `app.hide`/`app.unhide` actions |
 | `cmux.apps.grants.get {app}` / `cmux.apps.grant.set {app, scope, granted}` | apps:read / apps:write | grant changes origin user with a gesture |
 | `cmux.apps.updates.list` / `cmux.apps.update {app}` | apps:read / apps:write | an update that adds scopes asks first; update origin user |
 | `cmux.apps.local.add {path}` / `cmux.apps.local.remove {app}` | apps:write | dev apps start sandboxed; origin user |
@@ -324,7 +324,7 @@ Every app, built-in or third-party, says how it appears with one manifest v2 blo
 | Field | Meaning | Validator |
 | --- | --- | --- |
 | `sidebarItem {section, title?, icon?, order?}` | a sidebar item that opens the app; title and icon default to the app's; the user may hide or move it (R53) | `order` 0-99 is first-party only (`presentation.orderReserved`), so no app sits above Home (Home 0, App Store 10, CodeRouter 20) |
-| `screen` | `app` (the app fills the screen) or `appColumn` (a sticky app column next to the normal columns, like Home) | |
+| `screen` | `app` (the app fills the screen) or `appColumn` (a docked app column next to the normal columns, like Home) | |
 | `tab` | the app may also open as a page tab (Open as Tab, drag into a workspace) | |
 | `primaryInput` | where typing goes when nothing has focus: a CSS selector in a web page, or a scene node id | |
 | `web {url, profile?, origins?}` | a web app shown in the browser engine with its own profile (`app`: cookies stay per app) and the browser's network policy; the native install confirmation lists `url` and `origins` | `https` only; a sidebar item, screen or tab needs content: `implements["cmux.pane/1"]` or `web` (`presentation.noContent`); not both (`presentation.twoContents`) |
@@ -353,3 +353,13 @@ Apps add buttons, menu buttons and small views to the top-left toolbar band, and
 | An action op in the app's own catalog family must exist in its fragment; ids are unique | `toolbar.unknownOp`, `toolbar.duplicate` |
 
 Swift: `AppManifest.toolbarItems` (`AppToolbarItem`: kind, title, icon, action, menu items, width, order, when, overrides), read from first-party v2 manifests. Owners: the sidebar lead renders the band, the slots and the Settings rows; the app platform lead owns the fields and the validator.
+
+## 18. Third-party servers, elevated scopes, one id mapping (2026-10-04, approved by the coordinator)
+
+Gaps found by the Cloud lead's third-party SSH sample (manaflow-ai/ssh-terminal).
+
+- **Server kinds.** `server.kind` is `native`, `js` or `external`. First-party native servers ship inside cmux (`binaries`). A third-party native server is a signed download (`artifacts` per platform `{url, sha256, signature}`): the store listing pins the sha256, the registry checks the signature against the publisher key, and it runs only for Verified apps (`tier.nativeReview` warns), under the same OS sandbox as the app host, reached only over the provider channel. Unverified apps use `js` (QuickJS) or `external`: a process the user starts that connects to the router with an app credential the user approves in the native sheet, local only, with only its grants (pane protocol R60). Strongest objection to third-party native code: a signature proves who built it, not that it is harmless; hence Verified review, pinned hashes and the sandbox.
+- **Elevated scopes.** A fourth class next to standard, sensitive and restricted: never granted at install, never checked by default; any tier gets it only by an explicit user grant in the native confirmation sheet, with a warning, origin user (the A2 gate). `terminal:backend` is elevated, so an unverified app can bring a terminal backend only when the user grants it. Manifests declare elevated scopes in `optionalScopes` (`scope.elevatedOptional`).
+- **Namespaced families (coordinator decision from hq-48's IR work).** A third-party app's catalog family is its namespace, so its ops are `<namespace>.<verb>` and their scopes `<namespace>:<verb>` (`octo.ssh_terminal:read`); the validator refuses any other family (`catalog.namespace`, local dev apps included: `local.<name>`). Bare families (`git`, `fs`, `router`, `apps`, `cmux`, ...) are first-party only. Scope patterns accept dotted families, and `scope-classes.json` classes them by verb. Requesting another owner's scope (`git:read` to call cmux git ops) stays allowed; only defining a family is restricted.
+- **One id mapping.** A manifest app id `<publisher>/<name>` maps to exactly one pane-protocol namespace: `<publisher>.<name>` with `-` replaced by `_` (`octo/ssh-terminal` -> `octo.ssh_terminal`, `cmux/*` -> `cmux.*`). There is no other mapping; the registry keeps publisher ids unique, and the router refuses ops outside the namespace.
+- **Supervisor follow-ups (apps-v1, after the window).** Enforce elevated (no install grant; user grant only through the sheet) and `external` (credential admission); start an app's native server when the app is enabled (`server.lifecycle.start`), first user the cmux Cloud app's `cmux-cloud` server; verify the hosting app connection by its peer code signature (shared task, cmux-tui reviewer).

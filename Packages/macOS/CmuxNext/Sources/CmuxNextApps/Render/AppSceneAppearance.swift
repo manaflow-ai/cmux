@@ -9,11 +9,12 @@ public import SwiftUI
 @Observable
 public final class AppSceneAppearance {
     public var colors: AppSceneColors = .fallback
+    public var useSidebarBackground = false
 
-    public init() {}
+    public init(useSidebarBackground: Bool = false) { self.useSidebarBackground = useSidebarBackground }
 
     public func update(from view: NSView) {
-        let resolved = AppSceneColors.resolve(in: view)
+        let resolved = AppSceneColors.resolve(in: view, useSidebarBackground: useSidebarBackground)
         if resolved != colors { colors = resolved }
     }
 }

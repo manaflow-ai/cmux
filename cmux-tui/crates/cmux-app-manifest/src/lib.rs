@@ -6,9 +6,11 @@
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
 //! tiers, interface names and options, scope classes, package paths, the
-//! catalog fragment) live in [`rules`], [`catalog`] and [`package`].
+//! catalog fragment, CLI names and MCP tool names) live in [`rules`],
+//! [`catalog`], [`cli`] and [`package`].
 
 mod catalog;
+mod cli;
 mod interfaces;
 mod issue;
 mod package;
@@ -18,6 +20,10 @@ mod scopes;
 mod toolbar;
 
 pub use catalog::{CATALOG_SCHEMA, validate_catalog};
+pub use cli::{
+    CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
+    first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
+};
 pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
 pub use package::{PackageReport, validate_package, validate_package_file};
@@ -49,6 +55,13 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
         issues.extend(rules::check(manifest));
     }
     issues
+}
+
+/// The one pane-protocol namespace of an app id (app-platform.md 18):
+/// `<publisher>.<name>` with '-' replaced by '_' (`octo/ssh-terminal` ->
+/// `octo.ssh_terminal`). Third-party op and scope families must use it.
+pub fn app_namespace(id: &str) -> String {
+    id.replace('-', "_").replacen('/', ".", 1)
 }
 
 /// True when no issue is an error.

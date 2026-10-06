@@ -84,3 +84,42 @@ after the change.
 ## Worker Loader binding (automations lead, 2026-10-03)
 
 `worker_loaders: [{ binding: "LOADER" }]` is in every env block of backend/apps/api/wrangler.jsonc. Only Tier 1 code automations use it (backend/apps/api/src/code-run.ts, plans/cmux-next/automations-plan.md slice 3). The coordinator assigned this line to the automations lead while the backend lead is parked. Tenant Dynamic Workers get no bindings and no network (`globalOutbound: null`) until the egress gateway and env.cmux land (slice 4). `AutomationTail` (a WorkerEntrypoint export of the API Worker) is attached as their tail.
+
+## Follow-ups from (e) instant revocation (P3, 2026-10-04)
+
+- In-flight window: a request that joins an in-flight UserDO check after a revoke committed gets the old answer (one RPC). Accepted; a revoke epoch in the answer would close it if needed.
+- Restored chief: a chief restored within its token life (10 min) makes the old token valid again. Fix: a chief generation number in ChiefRecord, carried as a token claim (`agg`), bumped on archive and restore; installGrant refuses a token whose generation differs.
+- Rate budgets (reach): one total cap per owner across chiefs; a replay of a decided key after the limit returns the stored result; homeRateTake must not create storage in an unbound UserDO; dm.open with a user peer counts against the conversation.create budget.
+
+## (f) TeamDO members out of the head, paging, membership index (design, 2026-10-04)
+
+Today TeamDO is JSON mode: `members` and `hosts` are maps in the one state row (2 MB), and only personal teams exist (one member, written by team.ensure_personal). Q5 needs 10k+ member teams at launch.
+
+1. Engine: `Domain.authorize` gets a read-only row reader as a fifth argument (row-mode owners only; JSON owners get EMPTY_ROWS), so authorization can read member rows without the head.
+2. TeamDO moves to row mode (snapshotTable `member`, snapshotTail 0): members are rows `member/<user>` {user, role, display_name}, hosts rows `host/<id>`. The head keeps team, policy (current version only; history stays in audit_events), counts (`member_count`, `host_count`) and the small maps. Row-mode effects carry writes, so subscribers mirror effects and never replay the reducer.
+3. Every `state.members[...]` reader (team.ts, team-reads.ts, team-do.ts, team-ssh-ca.ts, team-sso-external.ts, team-domain-external.ts, team-servers.ts, team-visibility.ts, team-ssh.ts) takes a `memberOf(user)` lookup bound to the rows. One-time migration on wake: if the head still has `members`/`hosts`, write them as rows and drop the maps in one commit (system op `team.rows_migrate`).
+4. Paging: `team.directory` becomes `team.members.list {cursor?, limit<=200, role?}` and `team.hosts.list {cursor?, limit}` (keyset on user id / host id), plus `team.directory` kept as the first page for old clients. Members are also projected to PlanetScale (`membership.upsert` already exists) for filtered admin listing.
+5. UserDO membership index (DM reach, spec 16.7): every membership write emits an E4 outbox item `user.team_index {team, role|null}` to the member's UserDO, which keeps a private table `team_index(team, role)`; read `user.teams` (internal RPC `homeTeamsOf(user)`) returns all teams the user belongs to, multi-member Stack teams included. The reach rule calls it for both users and intersects.
+6. Tests first: a 12k-member team commits with a head under 100 KB; authorize reads rows; paging is stable under inserts; the index follows add, role change and removal; the migration is idempotent on a live DO.
+
+Rollback note for (f) steps 2-3 (security review P2): code before 3e "TeamDO members and hosts in rows" reads `state.members[x]` and `Object.values(state.hosts)` and throws on a migrated head (no maps), so every TeamDO op fails closed. TeamDO is forward-fix only after this lands; a rollback deploy needs a build that keeps the row lookups. The migration key carries the head seq, so a head that a rollback refilled with maps migrates again.
+
+Rollback-safe build recipe for TeamDO (after (f) steps 2-3). A rollback must never deploy a TeamDO that reads only the maps.
+1. Start from the commit you want to roll back to: `git checkout -b rollback-<date> <target>`.
+2. Cherry-pick the row lookups, in order: the ownership commit "authorize gets a read-only row reader in row mode", then "TeamDO members and hosts in rows, one member lookup, live migration", "team events carry only the member view", and "SSH CA issuance reads host rows". Resolve conflicts in favor of `memberOf`/`roleOf`/`hostOf`/`hostByInstall` from `domains/team-members.ts`; keep `rowMode` and `redact` in the TeamDO constructor.
+3. Gates: `bun run typecheck`, `bun run lint:size`, `bun run catalog:check`, and the full backend suite on mini-6 (`nx-remote --ref <sha> -- 'cd backend && bun install --frozen-lockfile && bun run test'`), plus `test/team-members-rows.test.ts` on its own.
+4. Deploy that build. Migrated heads keep working (rows first); a head that the old build refilled with maps migrates again on the next bind (the key carries the head seq).
+
+## (g) SchedulerDO automations, runs and bodies out of the head (design, 2026-10-04)
+
+Today SchedulerDO is JSON mode: `automations` (up to 100, each with `instructions` up to 20,000 characters) and `runs` (open runs plus the newest 200 finished) are maps in the one state row, and every `RunRecord` copies the full `body` of the version that fired. 100 large automations plus 450 runs reach the 1.5 MB guard (do-audit 5.4, F-1), and each webhook-burst commit rewrites the whole head.
+
+1. Row mode (snapshotTable `run`, snapshotTail 0), the (f) pattern: `automation/<id>` rows hold the definition without its body; `body/<sha256>` rows hold each distinct body once (content hash of the canonical JSON), referenced by `automation.body_hash` and `run.body_hash`; `run/<id>` rows hold the run without its body. All three tables are private; events carry the redacted head plus effects.
+2. The head keeps owner, settings, deploy and rate counters, chains, and counts: `automation_count`, `open_runs` (id list, at most the concurrency limit) and `finished_count`. MAX_AUTOMATIONS and the concurrency checks read the counts; `cancelQueued` reads open runs by id; prune deletes the oldest finished run rows past 200 (keyset on a `finished/<finished_at>/<id>` index row).
+3. Body rows are written when an automation version or a run first references them and deleted when no automation and no kept run references them (reference count in the body row, adjusted in the same commit). A started run keeps its body hash, so later edits never change it.
+4. Reads: `automation.list {cursor?, limit<=100}` and `run.list {automation?, state?, cursor?, limit<=100}` (keyset on id / finished_at), plus `automation.get` and `run.get` that join the body. The live UI list stays the first page.
+5. Migration on wake, system op `scheduler.rows_migrate` (key carries the head seq, like (f)): writes automations, runs and bodies as rows and drops the maps in one commit. Forward-fix only; a rollback build must keep the row lookups (recipe to follow the (f) one).
+6. Finished-run history (g2, separate change): the terminal transition emits an outbox item to PlanetScale `automation_runs` (do-audit 5.4 DDL, ON CONFLICT DO NOTHING), and `run.list` pages runs older than the kept 200 from the replica. This needs a `cmux-next` schema migration (development and staging first).
+7. `run_inputs` already leave the head (side table, deleted after the run ends); no change.
+8. Tests first: 100 automations with 20,000-character instructions and 450 runs commit with a head under 100 KB; a body shared by an automation and its runs is stored once and survives an edit until the last run that uses it is pruned; paging is stable under inserts; the migration is idempotent on a live DO; cancel on disable and delete still covers every queued run.
+

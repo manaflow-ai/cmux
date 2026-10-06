@@ -51,7 +51,9 @@ public struct CloudConfiguration: Sendable, Equatable {
     static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
     static let developmentClientKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
     static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
-    static let productionClientKey = "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr"
+    /// Empty on purpose: the production project does not require a publishable
+    /// key, and a shipped key would break sign-in once its key set is revoked.
+    static let productionClientKey = ""
 
     /// Pure resolution. `bundled` is the bundle's `LSEnvironment`; it wins
     /// over `process` because a launch from a shell must not redirect a

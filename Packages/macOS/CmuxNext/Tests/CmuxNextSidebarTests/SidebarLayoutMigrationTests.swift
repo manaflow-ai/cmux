@@ -15,11 +15,11 @@ import Testing
 
     @Test func aStoredRailLayoutBecomesTheSectionsDefaults() throws {
         let stored = SidebarLayoutDocument(revision: 7, sections: rail.sections)
-        let ops = stored.sectionsMigrationOps
+        let ops = stored.layoutMigrationOps
         #expect(!ops.isEmpty)
         let migrated = try apply(ops, to: stored)
-        #expect(migrated.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
+        #expect(migrated.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
         // Each op is a change the owner commits, so the revision moves on.
         #expect(migrated.revision > stored.revision)
         // Moves keep item ids: Settings is the same item, back at the bottom.
@@ -44,10 +44,26 @@ import Testing
 
     /// The sections defaults need nothing, so migrating twice is the same as once.
     @Test func theDefaultsNeedNoMigration() {
-        #expect(SidebarLayoutDocument.defaults.sectionsMigrationOps.isEmpty)
-        let once = rail.sectionsMigration
-        #expect(once.sectionsMigrationOps.isEmpty)
-        #expect(once.sectionsMigration == once)
+        #expect(SidebarLayoutDocument.defaults.layoutMigrationOps.isEmpty)
+        let once = rail.layoutMigration
+        #expect(once.layoutMigrationOps.isEmpty)
+        #expect(once.layoutMigration == once)
+    }
+
+    /// Lawrence 2026-10-05: plain rows are the default top again. A stored
+    /// plain-row top section (with CodeRouter after it or not) stays rows;
+    /// no migration turns it into the large tiles.
+    @Test func aPlainRowTopSectionStaysRows() {
+        let rows = [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                    LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]
+        let coderouter = LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))
+        for items in [rows, rows + [coderouter]] {
+            var stored = SidebarLayoutDocument.defaults
+            stored.revision = 3
+            stored.sections[0] = LayoutSection(id: SidebarLayoutDocument.topSectionID, region: .top, look: .builtIn, items: items)
+            #expect(stored.layoutMigrationOps.isEmpty)
+            #expect(stored.layoutMigration.section(SidebarLayoutDocument.topSectionID)?.arrangement == .list)
+        }
     }
 }
 
@@ -56,8 +72,8 @@ import Testing
 @Suite struct SidebarGridBottomMigrationTests {
     @Test func theInlineBottomDefaultBecomesTheGridRow() {
         let stored = SidebarLayoutDocument(revision: 4, sections: SidebarLayoutDocument.inlineBottomDefaults.sections)
-        #expect(stored.sectionsMigration.sections == SidebarLayoutDocument.defaults.sections)
-        #expect(stored.sectionsMigration.sectionsMigrationOps.isEmpty)
+        #expect(stored.layoutMigration.sections == SidebarLayoutDocument.migrationTarget.sections)
+        #expect(stored.layoutMigration.layoutMigrationOps.isEmpty)
     }
 
     @Test func aCustomizedInlineBottomIsKept() throws {

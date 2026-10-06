@@ -1,0 +1,29 @@
+{
+  "$comment": "Known environment failures: per platform (process.platform) and backend, the scenario keys that differ for a reason outside the runtime. run.mjs check reports such a scenario as KNOWN and does not count it as failed only when exactly these keys differ; any other difference fails. Every entry names its reason. Under \"*\" (every platform), an entry with \"notApplicable\": true marks a scenario that tests a behavior the backend's engine does not have; any difference is then known.",
+  "*": {
+    "host-headless": {
+      "39-policy-rules": {
+        "notApplicable": true,
+        "reason": "The scenario tests WebKit content-rule compile errors (a pattern that parses but cannot compile). Headless Chromium filters requests through CDP Fetch and compiles no content rules, and the Rust policy refuses \"é://example.com\" when it is set, so no compile error can occur."
+      }
+    }
+  },
+  "linux": {
+    "cmux-dev": {
+      "05-input": {
+        "keys": ["select-all-delete", "trusted-types"],
+        "reason": "Meta+A is not select-all on Linux (WebKit and Chromium use Ctrl+A there), so the field keeps its text and fires change on blur; the goldens are macOS behavior."
+      },
+      "18-print": {
+        "keys": ["output:12"],
+        "reason": "Linux font metrics render the printed text image 1 px taller (400x38 instead of 400x37)."
+      }
+    },
+    "oracle": {
+      "05-input": {
+        "keys": ["select-all-delete", "trusted-types"],
+        "reason": "Meta+A is not select-all on Linux (Chromium uses Ctrl+A there), so the field keeps its text and fires change on blur; the goldens are macOS behavior."
+      }
+    }
+  }
+}

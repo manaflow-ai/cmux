@@ -59,10 +59,10 @@ struct DeepLinkNavigator {
     }
 
     /// The tab the pane shows: its controller's selection when a window
-    /// shows it, else the daemon's default tab, else its first agent tab.
+    /// shows it, else the daemon's default tab.
     private func selectedTab(of pane: PaneModel) -> String? {
         if let selected = services.paneController(for: pane)?.stripModel.selectedID { return selected.rawValue }
-        guard !pane.tabs.isEmpty else { return services.agentTabs.tabIDs(in: pane.id).first }
+        guard !pane.tabs.isEmpty else { return nil }
         return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)].id
     }
 
@@ -80,14 +80,13 @@ struct DeepLinkNavigator {
     /// page scrolls to the turn, a page not loaded yet once its row renders.
     private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent) throws {
         let tabs = services.agentTabs
-        let key: String
         if let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) {
-            key = shown
-        } else {
-            guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-            key = pane.openAgentSession(id)
+            if let turn { tabs.revealTurn(turn, in: shown) }
+            return
         }
-        if let turn { tabs.revealTurn(turn, in: key) }
+        guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
+        // The store commits the tab first; the turn waits for its page.
+        pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
     }
 
     /// Nightly's durable workspace UUID is `WorkspaceModel.id` (the

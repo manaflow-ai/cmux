@@ -15,7 +15,7 @@ public nonisolated struct LayoutSection: Hashable, Sendable, Codable, Identifiab
     public var arrangement: SectionArrangement
     /// The room this section shows in; nil = every room.
     public var room: String?
-    /// Rows a sticky section shows before it scrolls inside; nil = the
+    /// Rows a pinned section shows before it scrolls inside; nil = the
     /// region's share of the sidebar height.
     public var maxRows: Int?
     public var content: SectionContent
@@ -94,20 +94,21 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// The default layout (plans/cmux-next/sidebar-sections.md): Home, the
-    /// App Store and CodeRouter (a first-party app's label item; it opens
-    /// the app's page, Lawrence R36) on top, the workspaces, then one bottom
+    /// The default layout (plans/cmux-next/sidebar-sections.md): the
+    /// first-party apps Home and the App Store as plain rows on top (app
+    /// items, R63/R64: apps like any other, from their manifests; Lawrence
+    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, then one bottom
     /// row with Settings (icon and label) over 7/8 of the width and the
     /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
-    /// R53). Sticky sections use
+    /// R53). Pinned sections use
     /// the built-in look and draw no header. The window rail's default
     /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
     /// it move back (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
-                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
-                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
+                      items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
+        // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [

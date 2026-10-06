@@ -7,7 +7,7 @@ import table from "./generated/strings.json";
 import { HistoryPage } from "./HistoryPage";
 import { MockHistoryProvider, sampleEntries } from "./mockProvider";
 import { HistoryStore } from "./store";
-import { ACTION_RUN, HistoryOps, PAGE_COMMAND } from "./types";
+import { ACTION_RUN, HistoryOps } from "./types";
 
 const now = new Date(2026, 9, 4, 12, 0, 0).getTime();
 const saved: Record<string, unknown> = {};
@@ -134,7 +134,7 @@ describe("HistoryPage", () => {
     expect($$(".history-row-title").map((t) => t.textContent)).not.toContain("manaflow-ai/cmux: pull requests");
   });
 
-  test("the dispatcher's find command focuses the search and sets its text", async () => {
+  test("the dispatcher's commands: find focuses the search and sets its text, reset clears", async () => {
     const provider = new MockHistoryProvider(sampleEntries(now), () => now);
     const { mountHistoryPage } = await import("./main");
     const host = dom.window.document.createElement("div");
@@ -146,14 +146,26 @@ describe("HistoryPage", () => {
     await act(async () => {
       await store.start();
     });
-    let reply: unknown;
     await act(async () => {
-      reply = await provider.invoke(PAGE_COMMAND, { command: "find", text: "codex" });
+      expect(provider.page.command({ command: "find", text: "codex" })).toBe(true);
     });
-    expect(reply).toEqual({ handled: true });
     expect(store.getSnapshot().text).toBe("codex");
     expect(dom.window.document.activeElement).toBe(host.querySelector(".history-search"));
-    expect(await provider.invoke(PAGE_COMMAND, { command: "zoom" })).toEqual({ handled: false });
+    await act(async () => {
+      store.setFilter("agents");
+      provider.page.command({ command: "reset" });
+    });
+    expect(store.getSnapshot()).toMatchObject({ text: "", filter: "all" });
+  });
+
+  test("the host's connection stream drives the disconnected state", async () => {
+    const provider = new MockHistoryProvider(sampleEntries(now), () => now);
+    await render(provider);
+    await act(async () => provider.page.setConnected(false));
+    expect($(".history-empty")?.textContent).toBe("History is not available until cmux reconnects.");
+    await act(async () => provider.page.setConnected(true));
+    await act(async () => undefined);
+    expect($$(".history-row").length).toBe(sampleEntries(now).length);
   });
 
   test("empty and no-match states", async () => {

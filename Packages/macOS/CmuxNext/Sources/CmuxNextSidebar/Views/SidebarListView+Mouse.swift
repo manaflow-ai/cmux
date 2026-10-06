@@ -145,6 +145,8 @@ extension SidebarListView {
     // MARK: - Keyboard
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        // F2 renames the active workspace inline.
+        if event.keyCode == 120, flags.isEmpty, let active = model.activeWorkspaceID { return inlineRename.begin(.workspace(active)) }
         if event.keyCode == 53 { // Escape
             if drag != nil { return cancelDrag() }
             if !model.filterText.isEmpty {

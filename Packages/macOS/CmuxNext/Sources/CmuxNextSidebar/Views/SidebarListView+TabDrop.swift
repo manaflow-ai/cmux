@@ -46,6 +46,18 @@ extension SidebarListView {
         guard let proposal = external.proposal, let rect = highlightRect(for: proposal) else { return nil }
         return (proposal, rect)
     }
+    /// Where no drop is possible at a window point: why, and the refused
+    /// row's rect in this view (tab-dnd: the sidebar previews a refusal
+    /// instead of nothing).
+    func externalDragRefusal(windowPoint: NSPoint, sourceMachine: MachineID?) -> (SidebarTabDropRefusal, NSRect)? {
+        guard drag == nil, !model.isFiltering else { return nil }
+        let point = convert(windowPoint, from: nil)
+        guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return nil }
+        let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
+        guard let (key, reason) = DropResolver.tabDropRefusal(y: baseY, base: base, sections: model.sections, sourceMachine: sourceMachine),
+              let row = displayed.row(for: key) else { return nil }
+        return (reason, frame(for: row))
+    }
     func externalDragExited() {
         guard let external else { return }
         external.springTask?.cancel()

@@ -32,7 +32,7 @@ public nonisolated enum ManagedPreferencesManifest {
     public static let lastModified = Date(timeIntervalSince1970: 1_791_000_000)
 
     public static var entries: [Entry] {
-        SettingsSchema.all.map(entry(for:)) + ManagedPreferences.policyKeys.map(entry(for:))
+        SettingsSchema.all.filter(\.isShownInCmuxNext).map(entry(for:)) + ManagedPreferences.policyKeys.map(entry(for:))
     }
 
     static func entry(for d: SettingDescriptor) -> Entry {
@@ -51,10 +51,12 @@ public nonisolated enum ManagedPreferencesManifest {
             return Entry(name: d.id, title: d.title, help: help, type: .real, choices: [], range: number.range, defaultValue: d.defaultValue, members: [])
         case .color, .sound, .url, .theme, .fontFamily:
             return Entry(name: d.id, title: d.title, help: help, type: .string, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
-        case .hostList:
+        case .hostList, .folderList, .numberList:
             return Entry(name: d.id, title: d.title, help: help, type: .array, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         case .timeRange:
             return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: ["start", "end"])
+        case .stringMap:
+            return Entry(name: d.id, title: d.title, help: help, type: .dictionary, choices: [], range: nil, defaultValue: d.defaultValue, members: [])
         }
     }
 
@@ -141,7 +143,7 @@ public nonisolated enum ManagedPreferencesManifest {
             properties[e.name] = p
         }
         let schema: [String: Any] = ["title": "\(title) (\(ManagedPreferences.domain))", "description": summary, "properties": properties]
-        return Data(try DeterministicJSON.string(schema, pretty: true).utf8)
+        return Data(try DeterministicJSON().string(schema, pretty: true).utf8)
     }
 
     /// A JSON value as a property list object (nil has no plist form).

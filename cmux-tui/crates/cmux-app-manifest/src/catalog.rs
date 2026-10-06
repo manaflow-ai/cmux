@@ -33,13 +33,27 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
     }
     let owner = format!("app:{}", manifest["id"].as_str().unwrap_or_default());
     let family = catalog["family"].as_str().unwrap_or_default();
+    let id = manifest["id"].as_str().unwrap_or_default();
+    let publisher = id.split('/').next().unwrap_or_default();
+    if !crate::rules::is_first_party(publisher) && family != crate::app_namespace(id) {
+        out.push(Issue::error(
+            "/catalog/family",
+            "catalog.namespace",
+            format!(
+                "a third-party catalog uses its app namespace {}; bare families are first-party",
+                crate::app_namespace(id)
+            ),
+        ));
+    }
     let has_main = manifest.pointer("/runtime/main").is_some();
     crate::toolbar::check_ops(manifest, catalog, &mut out);
+    check_open_ops(manifest, catalog, &mut out);
     if catalog.get("owner").and_then(Value::as_str).is_some_and(|o| o != owner) {
         out.push(Issue::error("/catalog/owner", "catalog.owner", format!("owner must be {owner}")));
     }
     let mut names = HashSet::new();
     let mut keys = HashSet::new();
+    let mut seen = crate::cli::Seen::default();
     for (i, op) in catalog["operations"].as_array().into_iter().flatten().enumerate() {
         let at = format!("/catalog/operations/{i}");
         let name = op["name"].as_str().unwrap_or_default();
@@ -100,6 +114,38 @@ pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
                 ));
             }
         }
+        out.extend(crate::cli::check_op(&at, op, &mut seen));
     }
     out
+}
+
+/// The interfaces whose implementations list `openOps`.
+const OPEN_OP_INTERFACES: &[&str] = &["cmux.terminal.backend/1", "cmux.terminal.connector/1"];
+
+/// Every `openOps` entry of a terminal backend or connector implementation
+/// is an op in the app's catalog fragment (`catalog.openOpUnknown`).
+fn check_open_ops(manifest: &Value, catalog: &Value, out: &mut Vec<Issue>) {
+    let names: HashSet<&str> = catalog["operations"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|o| o["name"].as_str())
+        .collect();
+    for interface in OPEN_OP_INTERFACES {
+        let open_ops = manifest
+            .get("implements")
+            .and_then(|i| i.get(*interface))
+            .and_then(|i| i.pointer("/options/openOps"))
+            .and_then(Value::as_array);
+        for (i, op) in open_ops.into_iter().flatten().enumerate() {
+            let op = op.as_str().unwrap_or_default();
+            if !names.contains(op) {
+                out.push(Issue::error(
+                    format!("/implements/{}/options/openOps/{i}", crate::issue::escape(interface)),
+                    "catalog.openOpUnknown",
+                    format!("{op} is not in the app's catalog"),
+                ));
+            }
+        }
+    }
 }

@@ -1,8 +1,8 @@
 public import CmuxNextDesign
 public import CoreGraphics
 
-/// How tall the sticky bands are (settings `sidebar.topBandMaxShare`,
-/// `sidebar.bottomBandMaxShare`, `sidebar.stickyBandsScroll`). Pure.
+/// How tall the pinned bands are (settings `sidebar.topBandMaxShare`,
+/// `sidebar.bottomBandMaxShare`, `sidebar.pinnedBandsScroll`). Pure.
 public nonisolated enum SidebarBandHeights {
     /// Heights of the bands above and below the list in `available`
     /// points. With scrolling on, each band stops at its share and scrolls
@@ -15,9 +15,9 @@ public nonisolated enum SidebarBandHeights {
                                preferences p: SidebarSectionsPreferences, minimumList: CGFloat,
                                bandFloor: CGFloat = 0) -> (above: CGFloat, below: CGFloat) {
         var a = above.cappedHeight, b = below.cappedHeight
-        if p.stickyBandsScroll {
-            a = above.stickyHeight(available: available, share: CGFloat(p.topBandMaxShare))
-            b = below.stickyHeight(available: available, share: CGFloat(p.bottomBandMaxShare))
+        if p.pinnedBandsScroll {
+            a = above.pinnedHeight(available: available, share: CGFloat(p.topBandMaxShare))
+            b = below.pinnedHeight(available: available, share: CGFloat(p.bottomBandMaxShare))
         }
         let room = max(0, available - minimumList)
         if a + b > room, a + b > 0 {

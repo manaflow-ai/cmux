@@ -11,7 +11,7 @@ import Testing
 
     @Test func featuresVariableMatchesGhostty() {
         func value(_ features: GhosttyShellIntegration.Features, blink: Bool? = nil) -> String? {
-            GhosttyShellIntegration(features: features, cursorBlink: blink, resourcesDirectory: nil, ghosttyBinary: nil).featuresValue
+            GhosttyShellIntegration(features: features, cursorBlink: blink, resourcesDirectory: nil, ghosttyBinary: binary).featuresValue
         }
         let all: GhosttyShellIntegration.Features = [.cursor, .sudo, .title, .sshEnv, .sshTerminfo, .path]
         #expect(value(all) == "cursor:blink,path,ssh-env,ssh-terminfo,sudo,title")
@@ -21,6 +21,26 @@ import Testing
         #expect(value(.ghosttyDefault) == "cursor:blink,path,title")
         // The C API's packed-struct bits: cursor, sudo, title, ssh-env, ssh-terminfo, path.
         #expect(GhosttyShellIntegration.Features(rawValue: 0b101101) == [.cursor, .title, .sshEnv, .path])
+    }
+
+    /// The ssh wrappers of Ghostty's scripts run `$GHOSTTY_BIN_DIR/ghostty
+    /// +ssh`. Without a Ghostty CLI the features would make `ssh` run a
+    /// missing program, so they are dropped and plain `ssh` runs.
+    @Test func sshFeaturesNeedAGhosttyCLI() {
+        let all: GhosttyShellIntegration.Features = [.cursor, .sudo, .title, .sshEnv, .sshTerminfo, .path]
+        for missing in [nil, ""] as [String?] {
+            let integration = GhosttyShellIntegration(features: all, resourcesDirectory: resources, ghosttyBinary: missing)
+            #expect(integration.featuresValue == "cursor:blink,path,sudo,title")
+            let env = integration.apply(to: ["SHELL": "/bin/zsh"], isDirectory: dirs)
+            #expect(env["GHOSTTY_SHELL_FEATURES"] == "cursor:blink,path,sudo,title")
+            #expect(env["GHOSTTY_BIN"] == nil && env["GHOSTTY_BIN_DIR"] == nil)
+            let onlySSH = GhosttyShellIntegration(features: [.sshEnv, .sshTerminfo], resourcesDirectory: resources, ghosttyBinary: missing)
+            #expect(onlySSH.featuresValue == nil)
+        }
+        let env = GhosttyShellIntegration(features: [.sshEnv], resourcesDirectory: resources, ghosttyBinary: binary)
+            .apply(to: ["SHELL": "/bin/zsh"], isDirectory: dirs)
+        #expect(env["GHOSTTY_SHELL_FEATURES"] == "ssh-env")
+        #expect(env["GHOSTTY_BIN_DIR"] == "/App/Contents/Resources/bin")
     }
 
     @Test func detectsShellsLikeGhostty() {

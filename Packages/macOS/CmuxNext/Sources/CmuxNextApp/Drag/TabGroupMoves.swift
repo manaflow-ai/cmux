@@ -19,11 +19,12 @@ enum TabGroupMoves {
         }
     }
 
-    static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices,
+    /// `roomDecided`: see `TabMoves.toNewSplit`.
+    static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices, roomDecided: Bool = false,
                            transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
-        switch services.splitRoom(for: pane, edge: edge) {
+        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge) {
         case .split:
             break
         case .newColumn(let afterColumn, _):

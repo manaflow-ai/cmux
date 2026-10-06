@@ -70,6 +70,98 @@ export type ChiefId = string
 /** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
 export type ClientToken = string
 
+export type CloudConnectInfo = {
+  readonly machine: MachineId
+  readonly host: HostId
+  readonly epoch: number
+  readonly state: CloudMachineStatus
+  readonly peer: {
+    readonly wg_public_key: string
+    readonly overlay_address: string
+    readonly vpc_endpoint: string | null
+    readonly public_ipv6: string | null
+  }
+  readonly gateway: {
+    readonly tunnel_id: string
+    readonly endpoint: string
+    readonly server_public_key: string
+    readonly client_address: string
+    readonly allowed_ips: ReadonlyArray<string>
+  } | null
+  readonly services: ReadonlyArray<"daemon" | "ssh">
+  readonly daemon: {
+    readonly version: string | null
+    readonly capabilities: ReadonlyArray<string>
+  }
+  readonly revision: Revision
+}
+
+export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
+
+export type CloudMachine = {
+  readonly id: MachineId
+  readonly team: TeamId
+  readonly creator: UserId
+  readonly name: string | null
+  readonly size: CloudMachineSize
+  readonly status: CloudMachineStatus
+  readonly image: {
+    readonly id: string
+    readonly daemon_version: string | null
+  }
+  readonly host: HostId | null
+  readonly classic: boolean
+  readonly created_at: number
+  readonly last_active_at: number | null
+  readonly idle_policy: {
+    readonly idle_seconds: number
+  }
+  readonly error: {
+    readonly code: string
+    readonly message: string
+    readonly at: number
+  } | null
+  readonly pause_reason?: "idle" | "no_report" | "provider_stopped" | "provider_paused" | null
+  readonly revision: Revision
+}
+
+/** A machine size. The plan decides which sizes are allowed (cloud.size.locked). */
+export type CloudMachineSize = {
+  readonly cpu?: number
+  readonly memory_mb?: number
+  readonly disk_mb?: number
+}
+
+export type CloudMachineStatus = "provisioning" | "starting" | "running" | "pausing" | "paused" | "deleting" | "failed"
+
+export type CloudPlan = {
+  readonly plan_id: string
+  readonly upgrade_plan: string | null
+  readonly limits: {
+    readonly max_active: number
+    readonly max_saved: number
+    readonly memory_options_mb: ReadonlyArray<number>
+    readonly locked_memory_options_mb: ReadonlyArray<number>
+    readonly vm_hours_included: number | "Infinity" | "-Infinity" | "NaN" | null
+  }
+  readonly usage: {
+    readonly active: number
+    readonly saved: number
+    readonly vm_hours_used: number | "Infinity" | "-Infinity" | "NaN"
+    readonly period_end: number
+  }
+}
+
+export type CloudSnapshot = {
+  readonly id: SnapshotId
+  readonly machine: MachineId
+  readonly name: string | null
+  readonly size_mb: number
+  readonly status: "creating" | "ready" | "deleting" | "failed"
+  readonly created_at: number
+  readonly revision: Revision
+}
+
 export type CodeRef = {
   readonly commit: CommitSha
   readonly path: string
@@ -294,6 +386,20 @@ export type Grant = {
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
 
+/** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
+export type HomeAttachmentPoster = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
+/** Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: "preview"}. */
+export type HomeAttachmentPreview = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeChief = {
   readonly id: ChiefId
   readonly owner_user: string
@@ -355,6 +461,11 @@ export type HomeInboxEntry = {
   readonly last_seq: number
   readonly last_at: Timestamp
   readonly preview: string
+  /** Attachments of the last message, for a localized preview ("2 photos"); preview is empty for an attachment-only message. */
+  readonly preview_attachments?: {
+    readonly kind: "photo" | "video" | "audio" | "file"
+    readonly count: number
+  }
   readonly dm_peer?: ParticipantId
   readonly removed: boolean
   readonly unread: number
@@ -416,6 +527,17 @@ export type HomePart = {
   readonly host?: string
   readonly status: "running" | "done" | "failed" | "waiting"
   readonly preview?: string
+} | {
+  readonly type: "attachment"
+  readonly hash: HomeSha256
+  readonly name: string
+  readonly mime_type: string
+  readonly byte_count: number
+  readonly width?: number
+  readonly height?: number
+  readonly duration_ms?: number
+  readonly poster?: HomeAttachmentPoster
+  readonly preview?: HomeAttachmentPreview
 }
 
 export type HomeParticipant = {
@@ -457,6 +579,9 @@ export type HomeReactionKind = {
   readonly emoji: string
 }
 
+/** SHA-256 of the bytes, lowercase hex. */
+export type HomeSha256 = string
+
 /** A styled range of a text part, in UTF-16 code units. */
 export type HomeTextRun = {
   readonly start: number
@@ -496,6 +621,7 @@ export type Install = {
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
   readonly sso_team?: TeamId
+  readonly bound_machine?: string
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -506,6 +632,9 @@ export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 export type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
 
 export type InviteId = string
+
+/** A Cloud machine. */
+export type MachineId = string
 
 export type ManagedDevice = {
   readonly install: InstallId
@@ -519,7 +648,7 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
-export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
 export type PairingCode = string
@@ -555,7 +684,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -581,6 +710,9 @@ export type PushTarget = {
 export type PushToken = string
 
 export type RepoPattern = string
+
+/** Decimal per-object revision (the owner's event sequence). */
+export type Revision = string
 
 export type Run = {
   readonly id: RunId
@@ -617,6 +749,9 @@ export type RunError = {
 export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
+
+/** A Cloud machine snapshot. */
+export type SnapshotId = string
 
 /** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
 export type SshCertClass = "human" | "agent"
@@ -767,6 +902,14 @@ export type TeamPolicyValues = {
     readonly mode: PolicyMode
   }
   readonly "cloud.sandboxes"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.connectServices"?: {
+    readonly value: CloudConnectServices
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.idlePause"?: {
     readonly value: boolean
     readonly mode: PolicyMode
   }
@@ -1144,7 +1287,249 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
-  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  /** Start a plan checkout: an https URL the client opens in the browser. No card data enters cmux. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.billing.checkout": {
+    readonly params: {
+      readonly plan: string
+    }
+    readonly result: {
+      readonly url: string
+    }
+  }
+  /** How `cmux link` reaches a machine (contract 1.7). Give exactly one of machine and host. Peer data comes in every bound state; a paused machine is state paused, not an error. cloud.machine.not_bound while it provisions. A read never mints a credential: the dial token comes from cloud.machine.link_token. */
+  readonly "cloud.machine.connect_info": {
+    readonly params: {
+      readonly machine?: MachineId
+      readonly host?: HostId
+    }
+    readonly result: CloudConnectInfo
+  }
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.create": {
+    readonly params: {
+      readonly name?: string
+      readonly size: CloudMachineSize
+      readonly image?: string
+      readonly from_snapshot?: SnapshotId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.delete": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly deleted: true
+    }
+  }
+  /** One Cloud machine. */
+  readonly "cloud.machine.get": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: CloudMachine
+  }
+  /** Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h. */
+  readonly "cloud.machine.idle_policy.set": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly idle_seconds: number
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app. */
+  readonly "cloud.machine.link_token": {
+    readonly params: {
+      readonly host: HostId
+      readonly services: ReadonlyArray<"daemon" | "ssh">
+    }
+    readonly result: {
+      readonly token: string
+      readonly expires_at: number
+      readonly host: HostId
+      readonly epoch: number
+      readonly services: ReadonlyArray<"daemon" | "ssh">
+    }
+  }
+  /** List the team's Cloud machines one page at a time; no cursor = the first page. `revision` is the team's registry revision when the page was read. */
+  readonly "cloud.machine.list": {
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly machines: ReadonlyArray<CloudMachine>
+      readonly next_cursor: string | null
+      readonly revision: Revision
+    }
+  }
+  /** Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.pause": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Rename a machine. */
+  readonly "cloud.machine.rename": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly name: string
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.resize": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly size: CloudMachineSize
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.start": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Move one classic machine onto cmux-next: install the daemon and bind it to the overlay. A failed upgrade leaves a working classic machine (cloud.upgrade.failed). After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.machine.upgrade": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Move this account's classic machines to cmux-next, one way. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.migration.start": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly state: "moving" | "moved"
+    }
+  }
+  /** Whether this account has machines from cmux Cloud classic to move, and which were imported. */
+  readonly "cloud.migration.status": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly state: "none" | "available" | "moving" | "moved"
+      readonly classic_count: number
+      readonly imported: ReadonlyArray<MachineId>
+    }
+  }
+  /** The team's plan: limits and usage this period. Read from the billing owner, never from a request. */
+  readonly "cloud.plan.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: CloudPlan
+  }
+  /** Open the rescue shell: a wire stream id the client opens as a WebSocket (contract 2.6). Works when the VM daemon is down and for classic machines. */
+  readonly "cloud.shell.open": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly cols: number
+      readonly rows: number
+    }
+    readonly result: {
+      readonly stream: string
+    }
+  }
+  /** Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.snapshot.create": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly name?: string
+    }
+    readonly result: {
+      readonly snapshot: CloudSnapshot
+    }
+  }
+  /** Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.snapshot.delete": {
+    readonly params: {
+      readonly snapshot: SnapshotId
+    }
+    readonly result: {
+      readonly deleted: true
+    }
+  }
+  /** Snapshots of one machine, or of the team. */
+  readonly "cloud.snapshot.list": {
+    readonly params: {
+      readonly machine?: MachineId
+    }
+    readonly result: {
+      readonly snapshots: ReadonlyArray<CloudSnapshot>
+    }
+  }
+  /** Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team. After mutation.indeterminate, retry with the same idempotency key. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.snapshot.restore": {
+    readonly params: {
+      readonly snapshot: SnapshotId
+      readonly name?: string
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.event.emit": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"
+      readonly at: number
+      readonly data: unknown
+    }
+    readonly result: {
+      readonly delivered: boolean
+    }
+  }
+  /** The VM's own machine record (the public machine view). VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.self.get": {
+    readonly params: {
+      readonly machine: MachineId
+    }
+    readonly result: {
+      readonly machine: CloudMachine
+    }
+  }
+  /** Report the VM's state, daemon and activity. Coalesced: at most 1 applied per 10 s per machine (applied: false = held, the latest held report applies when the window ends). No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+  readonly "cloud.vm.status.report": {
+    readonly params: {
+      readonly machine: MachineId
+      readonly state: "running" | "degraded" | "stopping"
+      readonly daemon: {
+        readonly version: string
+        readonly capabilities: ReadonlyArray<string>
+      }
+      readonly health?: {
+        readonly disk_free_mb?: number
+        readonly load?: number | "Infinity" | "-Infinity" | "NaN"
+      }
+      readonly activity: {
+        readonly last_user_input_at?: number
+        readonly last_agent_action_at?: number
+        readonly active_sessions: number
+      }
+    }
+    readonly result: {
+      readonly applied: boolean
+    }
+  }
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. At most 60 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "conversation.create": {
     readonly params: {
       readonly kind?: "group"
@@ -1220,7 +1605,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. */
+  /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "dm.open": {
     readonly params: {
       readonly peer: ParticipantId | {
@@ -1634,17 +2019,19 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone and who may start a DM with you. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
-      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from?: "anyone" | "teams" | "nobody"
+      readonly email_requests?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
-      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+      readonly allow_requests_from: "anyone" | "teams" | "nobody"
+      readonly email_requests: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
@@ -1686,9 +2073,11 @@ export interface CloudOps {
     readonly params: {
       readonly limit?: number
       readonly include_archived?: boolean
+      readonly cursor?: string
     }
     readonly result: {
       readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly next_cursor: string | null
       readonly revision: string
     }
   }
@@ -1728,7 +2117,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Register an install's public key under the signed-in user; returns the install with its default grant. */
+  /** Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind). */
   readonly "install.register": {
     readonly params: {
       readonly public_jwk: PublicJwk
@@ -2003,7 +2392,7 @@ export interface CloudOps {
       }>
     }
   }
-  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
@@ -2353,7 +2742,7 @@ export interface CloudOps {
     }
     readonly result: DeviceStatus
   }
-  /** Read a team's directory: members and enrolled hosts (U2). */
+  /** Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list. */
   readonly "team.directory": {
     readonly params: {
       readonly team?: TeamId
@@ -2392,6 +2781,21 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor). */
+  readonly "team.hosts.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly hosts: ReadonlyArray<Host>
+      readonly host_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
+    }
+  }
   /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
   readonly "team.integration.release_lock": {
     readonly params: {
@@ -2399,6 +2803,22 @@ export interface CloudOps {
     }
     readonly result: {
       readonly released: "sso" | "mdm"
+    }
+  }
+  /** Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role. */
+  readonly "team.members.list": {
+    readonly params: {
+      readonly team?: TeamId
+      readonly cursor?: string
+      readonly limit?: number
+      readonly role?: "owner" | "admin" | "member"
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly members: ReadonlyArray<TeamMember>
+      readonly member_count: number | "Infinity" | "-Infinity" | "NaN"
+      readonly next_cursor: string | null
+      readonly revision: string
     }
   }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -2566,6 +2986,30 @@ export const cloudOpMeta = {
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.connect_info": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.machine.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.idle_policy.set": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.link_token": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.machine.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.machine.pause": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.rename": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.resize": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.machine.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-shared" },
+  "cloud.machine.upgrade": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.migration.start": { class: "mutation", owner: "cloud:CloudDO", risk: "mutate-own" },
+  "cloud.migration.status": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.plan.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.shell.open": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.snapshot.create": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.snapshot.delete": { class: "mutation", owner: "cloud:CloudDO", risk: "destructive" },
+  "cloud.snapshot.list": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.snapshot.restore": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
+  "cloud.vm.event.emit": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
+  "cloud.vm.self.get": { class: "read", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.vm.status.report": { class: "mutation", owner: "cloud:CloudDO", risk: "execute" },
   "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -2672,7 +3116,9 @@ export const cloudOpMeta = {
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.hosts.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.members.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },

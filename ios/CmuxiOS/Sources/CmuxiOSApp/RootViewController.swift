@@ -48,7 +48,10 @@ final class RootViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        becomeFirstResponder()
+        // The shake gesture (DEV menu) reaches this controller from any first
+        // responder below it; take first responder only while no Home screen
+        // does, so Home's key commands (Cmd-F, Cmd-N, Esc) stay in the chain.
+        if home == nil { becomeFirstResponder() }
     }
 
     private func show(_ state: AuthState) {

@@ -1,5 +1,5 @@
 public import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Accessibility. Find-in-terminal lives in TerminalSession+Find.
 extension TerminalSurfaceView {

@@ -1,12 +1,15 @@
 import AppKit
 import CmuxNextCopyMode
 import CmuxNextTerminalFind
-import GhosttyKit
+import GhosttyNextKit
 
 // Keyboard copy mode (Toggle Copy Mode, ⇧⌘M): vim keys over the scrollback,
-// ported from the old app. Ghostty owns the cursor, the selection, and the
-// viewport through the cmux fork's keyboard-copy API (ghostty.h:1732-1788);
-// this view resolves keys (`CopyModeKeys`), draws the cursor box and the
+// built on Ghostty's own selection (ghostty-next): a one-cell selection is
+// the copy cursor, the binding action `adjust_selection:<move>` moves its
+// end and scrolls it into view, `ghostty_surface_select_lines` makes it
+// linewise, and `ghostty_surface_selection_end` says where the end is.
+// Ghostty tracks the selection through new output. This view resolves keys
+// (`CopyModeKeys`), owns the selection kind, draws the cursor box and the
 // badge, and copies with `ghostty_surface_copy_selection_to_clipboard_bounded`.
 
 /// One copy-mode session on a surface.
@@ -52,9 +55,7 @@ final class TerminalCopyMode {
     }
 
     private func enter() -> Bool {
-        guard let surface = view.surface else { return false }
-        var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
-        guard ghostty_surface_keyboard_copy_cursor_set(surface, true, &column, &row, &width) else { return false }
+        guard let surface = view.surface, placeCursorAtTerminalCursor(surface) else { return false }
         // Copy mode swallows keys, so an unfinished IME composition would
         // otherwise sit on screen until it ends.
         view.inputContext?.discardMarkedText()
@@ -75,7 +76,7 @@ final class TerminalCopyMode {
         return true
     }
 
-    /// Leaves copy mode and clears its selection.
+    /// Leaves copy mode and clears its selection (and with it the cursor).
     func exit() {
         guard let session else { return }
         self.session = nil
@@ -83,8 +84,6 @@ final class TerminalCopyMode {
         session.badge.removeFromSuperview()
         guard let surface = view.surface else { return }
         _ = ghostty_surface_clear_selection(surface)
-        var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
-        _ = ghostty_surface_keyboard_copy_cursor_set(surface, false, &column, &row, &width)
     }
 
     // MARK: Keys
@@ -122,25 +121,26 @@ final class TerminalCopyMode {
         case .exit:
             exit()
         case .startSelection:
-            startCopyModeSelection(linewise: false, lines: 1, surface: surface)
+            // The cursor already is a one-cell selection; it starts growing.
+            session?.selection = .character
         case .startLineSelection:
-            startCopyModeSelection(linewise: true, lines: count, surface: surface)
+            startLineSelection(lines: count, surface: surface)
         case .clearSelection:
-            _ = ghostty_surface_clear_selection(surface)
+            collapseToEnd(surface)
             session?.selection = .off
         case .copyAndExit:
             if copyModeCopySelection(surface: surface) { exit() }
         case .copyLineAndExit:
-            startCopyModeSelection(linewise: true, lines: count, surface: surface)
+            startLineSelection(lines: count, surface: surface)
             if copyModeCopySelection(surface: surface) { exit() }
         case .scrollLines(let delta):
-            copyModeScroll(GHOSTTY_KEYBOARD_COPY_SCROLL_LINES, delta * count, surface: surface)
+            scroll("scroll_page_lines:\(Self.clampedLines(delta * count))", surface: surface)
         case .scrollPage(let delta):
-            copyModeScroll(GHOSTTY_KEYBOARD_COPY_SCROLL_PAGES, delta * count, surface: surface)
+            scroll(delta < 0 ? "scroll_page_up" : "scroll_page_down", times: count, surface: surface)
         case .scrollHalfPage(let delta):
-            copyModeScroll(GHOSTTY_KEYBOARD_COPY_SCROLL_HALF_PAGES, delta * count, surface: surface)
+            scroll(delta < 0 ? "scroll_page_fractional:-0.5" : "scroll_page_fractional:0.5", times: count, surface: surface)
         case .jumpToPrompt(let delta):
-            copyModeScroll(GHOSTTY_KEYBOARD_COPY_SCROLL_PROMPTS, delta * count, surface: surface)
+            scroll("jump_to_prompt:\(Self.clampedLines(delta * count))", surface: surface)
         case .scrollToTop:
             moveCopyModeCursor(.home, count: 1, surface: surface)
         case .scrollToBottom:
@@ -160,26 +160,63 @@ final class TerminalCopyMode {
 
     // MARK: Ghostty
 
-    private func startCopyModeSelection(linewise: Bool, lines: Int, surface: ghostty_surface_t) {
-        guard let lines = UInt16(exactly: CopyModeKeys.clampCount(lines)) else { return }
-        var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
-        guard ghostty_surface_keyboard_copy_selection_start(surface, linewise, lines, &column, &row, &width) else { return }
-        session?.selection = linewise ? .line : .character
+    /// A one-cell selection at the terminal cursor, scrolled into view.
+    private func placeCursorAtTerminalCursor(_ surface: ghostty_surface_t) -> Bool {
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics) else { return false }
+        if !metrics.cursor_in_viewport {
+            _ = view.performBindingAction("scroll_to_bottom")
+            guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport else { return false }
+        }
+        return ghostty_surface_select_viewport_cell(surface, metrics.cursor_column, metrics.cursor_row)
+    }
+
+    /// The selection's moving end, in viewport cells.
+    private func selectionEnd(_ surface: ghostty_surface_t) -> ghostty_surface_selection_end_s? {
+        var end = ghostty_surface_selection_end_s()
+        return ghostty_surface_selection_end(surface, &end) ? end : nil
+    }
+
+    /// Moves the cursor to the selection's end (no selection grows).
+    private func collapseToEnd(_ surface: ghostty_surface_t) {
+        guard let end = selectionEnd(surface), end.in_viewport, let row = UInt16(exactly: end.row) else { return }
+        _ = ghostty_surface_select_viewport_cell(surface, end.column, row)
+    }
+
+    private func startLineSelection(lines: Int, surface: ghostty_surface_t) {
+        guard ghostty_surface_select_lines(surface) else { return }
+        for _ in 1..<max(1, CopyModeKeys.clampCount(lines)) {
+            _ = view.performBindingAction("adjust_selection:down")
+        }
+        _ = ghostty_surface_select_lines(surface)
+        session?.selection = .line
     }
 
     /// Moves the cursor, or the selection's moving end while selecting.
     private func moveCopyModeCursor(_ move: CopyModeMove, count: Int, surface: ghostty_surface_t) {
-        guard let count = UInt16(exactly: CopyModeKeys.clampCount(count)) else { return }
-        let selection = session?.selection ?? .off
-        var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
-        _ = ghostty_surface_keyboard_selection_move(surface, Self.ghosttyMove(move), count, selection != .off,
-                                                    selection == .line, &column, &row, &width)
+        for _ in 0..<CopyModeKeys.clampCount(count) {
+            _ = view.performBindingAction("adjust_selection:\(move.rawValue)")
+        }
+        switch session?.selection ?? .off {
+        case .off: collapseToEnd(surface)
+        case .line: _ = ghostty_surface_select_lines(surface)
+        case .character: break
+        }
     }
 
-    private func copyModeScroll(_ kind: ghostty_keyboard_copy_scroll_e, _ amount: Int, surface: ghostty_surface_t) {
-        guard let amount = Int32(exactly: amount) else { return }
-        var column: UInt16 = 0, row: UInt16 = 0, width: UInt16 = 0
-        _ = ghostty_surface_keyboard_copy_scroll(surface, kind, amount, &column, &row, &width)
+    /// Scrolls the viewport. Without a selection the cursor stays on screen:
+    /// it moves to the nearest visible row in its column.
+    private func scroll(_ action: String, times: Int = 1, surface: ghostty_surface_t) {
+        for _ in 0..<CopyModeKeys.clampCount(times) { _ = view.performBindingAction(action) }
+        guard session?.selection == .off, let end = selectionEnd(surface), !end.in_viewport else { return }
+        var metrics = ghostty_surface_grid_metrics_s()
+        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.rows > 0 else { return }
+        let row = end.row < 0 ? 0 : metrics.rows - 1
+        _ = ghostty_surface_select_viewport_cell(surface, end.column, row)
+    }
+
+    private static func clampedLines(_ value: Int) -> Int {
+        min(max(value, Int(Int16.min)), Int(Int16.max))
     }
 
     /// Publishes the selection to the standard clipboard through Ghostty's
@@ -188,21 +225,18 @@ final class TerminalCopyMode {
         ghostty_surface_copy_selection_to_clipboard_bounded(surface, Self.maximumClipboardBytes)
     }
 
-    /// Places the cursor box from Ghostty's cursor and grid metrics, and
-    /// picks up the selection kind Ghostty reports. The box hides while a
-    /// selection is drawn.
+    /// Places the cursor box on the selection's end while nothing is
+    /// selected; the box hides while a selection is drawn. A selection the
+    /// mouse cleared puts the cursor back at the terminal cursor.
     func syncCursor() {
         guard let session, let surface = view.surface else { return }
-        let selection: CopyModeSession.Selection = switch ghostty_surface_keyboard_copy_selection_kind(surface) {
-        case GHOSTTY_KEYBOARD_COPY_SELECTION_CHARACTER: .character
-        case GHOSTTY_KEYBOARD_COPY_SELECTION_LINE: .line
-        default: .off
+        if !ghostty_surface_has_selection(surface) {
+            self.session?.selection = .off
+            _ = placeCursorAtTerminalCursor(surface)
         }
-        self.session?.selection = selection
-        var cursor = ghostty_keyboard_copy_cursor_s()
         var metrics = ghostty_surface_grid_metrics_s()
-        guard selection == .off,
-              ghostty_surface_keyboard_copy_cursor_snapshot(surface, &cursor),
+        guard self.session?.selection == .off,
+              let end = selectionEnd(surface), end.in_viewport,
               ghostty_surface_grid_metrics(surface, &metrics),
               let frame = CopyModeCursorFrame(cellWidth: metrics.cell_width, cellHeight: metrics.cell_height,
                                               paddingLeft: metrics.padding_left, paddingTop: metrics.padding_top,
@@ -211,27 +245,10 @@ final class TerminalCopyMode {
             session.cursorBox.isHidden = true
             return
         }
-        session.cursorBox.frame = frame.rect(column: Int(cursor.column), row: Int(cursor.row),
-                                             widthCells: Int(cursor.width_cells))
-        session.cursorBox.layer?.borderColor = NSColor(
-            srgbRed: CGFloat(cursor.color_red) / 255, green: CGFloat(cursor.color_green) / 255,
-            blue: CGFloat(cursor.color_blue) / 255, alpha: 1).cgColor
+        session.cursorBox.frame = frame.rect(column: Int(end.column), row: Int(end.row),
+                                             widthCells: Int(end.width_cells))
+        session.cursorBox.layer?.borderColor = GhosttyRuntime.shared.copyCursorColor.cgColor
         session.cursorBox.isHidden = false
-    }
-
-    private static func ghosttyMove(_ move: CopyModeMove) -> ghostty_keyboard_selection_move_e {
-        switch move {
-        case .left: GHOSTTY_KEYBOARD_SELECTION_MOVE_LEFT
-        case .right: GHOSTTY_KEYBOARD_SELECTION_MOVE_RIGHT
-        case .up: GHOSTTY_KEYBOARD_SELECTION_MOVE_UP
-        case .down: GHOSTTY_KEYBOARD_SELECTION_MOVE_DOWN
-        case .pageUp: GHOSTTY_KEYBOARD_SELECTION_MOVE_PAGE_UP
-        case .pageDown: GHOSTTY_KEYBOARD_SELECTION_MOVE_PAGE_DOWN
-        case .home: GHOSTTY_KEYBOARD_SELECTION_MOVE_HOME
-        case .end: GHOSTTY_KEYBOARD_SELECTION_MOVE_END
-        case .beginningOfLine: GHOSTTY_KEYBOARD_SELECTION_MOVE_BEGINNING_OF_LINE
-        case .endOfLine: GHOSTTY_KEYBOARD_SELECTION_MOVE_END_OF_LINE
-        }
     }
 }
 
