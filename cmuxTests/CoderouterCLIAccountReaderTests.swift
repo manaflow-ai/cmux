@@ -44,6 +44,38 @@ struct CoderouterCLIAccountReaderTests {
         #expect(snapshot.accounts.map(\.label) == ["austin+10@manaflow.com", "austin+3@manaflow.com"])
     }
 
+    @Test("An exact team ID wins over an earlier team with the same name")
+    func exactIDWinsOverName() async throws {
+        let organizationID = Self.austinOrganizationID
+        let snapshot = try await CoderouterCLIAccountReader.snapshot(
+            for: organizationID, name: "Example",
+            run: { arguments in
+                switch arguments {
+                case ["org", "list"]:
+                    return Data("Example\t\(Self.cmuxOrganizationID)\nExample\t\(organizationID)\n".utf8)
+                case ["accounts", "--json"]:
+                    return Data("{\"teamId\":\"\(organizationID)\",\"accounts\":[]}".utf8)
+                default:
+                    throw NSError(domain: "UnexpectedCLICommand", code: 1)
+                }
+            }
+        )
+        #expect(snapshot.organizationID == organizationID)
+    }
+
+    @Test("Ambiguous normalized team names cannot select an account destination")
+    func ambiguousNamesFailClosed() async {
+        await #expect(throws: NSError.self) {
+            try await CoderouterCLIAccountReader.snapshot(
+                for: Self.cmuxTeamID, name: "Example",
+                run: { arguments in
+                    #expect(arguments == ["org", "list"])
+                    return Data("Example\t\(Self.cmuxOrganizationID)\nExample's Team\t\(Self.austinOrganizationID)\n".utf8)
+                }
+            )
+        }
+    }
+
     @Test("Refresh leaves the terminal's CodeRouter organization alone when it already matches")
     func matchingOrganizationIsNotSwitched() async throws {
         let cli = FakeCoderouterCLI(activeOrganizationID: Self.austinOrganizationID)
@@ -232,23 +264,16 @@ struct CoderouterSidebarSectionTests {
 
         #expect(added.providers == [.claude])
         #expect(CoderouterProvider.claude.addCommand == "cmux cr add claude")
-        let teamScopedCodex = CoderouterProvider.codex.addCommand(for: "17a2ba34-5a88-412e-8380-0ea4118139c3")
-        #expect(teamScopedCodex.contains("cmux cr org switch '17a2ba34-5a88-412e-8380-0ea4118139c3'"))
-        #expect(teamScopedCodex.contains("cmux cr add codex"))
-        #expect(teamScopedCodex.contains("CODEROUTER_DATA_DIR=\"$tmp\""))
-        let quotedTeam = CoderouterProvider.claude.addCommand(for: "team's-id")
-        #expect(quotedTeam.contains("cmux cr org switch 'team'\\''s-id'"))
-        #expect(teamScopedCodex.hasPrefix("/bin/sh -c "))
-        #expect(!teamScopedCodex.contains("status=0"))
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
     }
 
-    @Test("Team-scoped add runs in a child shell and cleans its copied config")
-    func teamScopedAddCommandIsContained() throws {
-        let organizationID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
-        for shell in ["/bin/zsh", "/bin/bash"] {
+    @Test("Team-scoped add preserves the parent shell and shared config",
+          arguments: ["/bin/zsh", "/bin/bash"], ["codex", "claude", "opencode-go"])
+    func teamScopedAddCommandIsContained(shell: String, providerID: String) throws {
+        let organizationID = "team's-id"
+        for switchResult in [0, 7] {
             let root = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cmux-coderouter-add-\(UUID().uuidString)")
             let configDirectory = root.appendingPathComponent("coderouter")
@@ -264,7 +289,13 @@ struct CoderouterSidebarSectionTests {
             #!/bin/sh
             printf '%s\\n' "$CODEROUTER_DATA_DIR" >> "$CMUX_TEST_LOG"
             printf '%s\\n' "$*" >> "$CMUX_TEST_LOG"
-            test -f "$CODEROUTER_DATA_DIR/coderouter/config.json"
+            test -f "$CODEROUTER_DATA_DIR/coderouter/config.json" || exit 8
+            if [ "$2" = org ]; then
+                [ "$4" = "$CMUX_TEST_TEAM" ] || exit 9
+                printf '%s' "$4" > "$CODEROUTER_DATA_DIR/coderouter/config.json"
+                exit "$CMUX_TEST_SWITCH_RESULT"
+            fi
+            [ "$(cat "$CODEROUTER_DATA_DIR/coderouter/config.json")" = "$CMUX_TEST_TEAM" ]
             """.write(to: fakeCmux, atomically: true, encoding: .utf8)
             try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmux.path)
 
@@ -273,28 +304,36 @@ struct CoderouterSidebarSectionTests {
             let error = Pipe()
             let terminated = DispatchSemaphore(value: 0)
             process.executableURL = URL(fileURLWithPath: shell)
-            process.arguments = ["-fc", "\(CoderouterProvider.codex.addCommand(for: organizationID)); printf '%s\\n' sentinel"]
+            process.arguments = ["-fc", "\(CoderouterProvider(id: providerID).addCommand(for: organizationID)); printf 'sentinel:%s\\n' \"$?\""]
             process.environment = [
                 "PATH": "\(binDirectory.path):/usr/bin:/bin",
                 "HOME": root.path,
                 "CODEROUTER_DATA_DIR": root.path,
                 "CMUX_TEST_LOG": log.path,
+                "CMUX_TEST_TEAM": organizationID,
+                "CMUX_TEST_SWITCH_RESULT": String(switchResult),
             ]
             process.standardOutput = output
             process.standardError = error
             process.terminationHandler = { _ in terminated.signal() }
             try process.run()
-            #expect(terminated.wait(timeout: .now() + 5) == .success, "\(shell) timed out")
-            if process.isRunning { process.terminate() }
+            let completed = terminated.wait(timeout: .now() + 5) == .success
+            if !completed { process.terminate() }
+            try #require(completed, "\(shell) timed out")
 
-            #expect(process.terminationStatus == 0, String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
-            #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).contains("sentinel\n"))
+            #expect(process.terminationStatus == 0, "\(String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))")
+            #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self) == "sentinel:\(switchResult)\n")
             let lines = try String(contentsOf: log, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
-            #expect(lines.count == 4)
+            try #require(lines.count == (switchResult == 0 ? 4 : 2))
             #expect(lines[1] == "cr org switch \(organizationID)")
-            #expect(lines[3] == "cr add codex")
-            #expect(lines[0] == lines[2])
-            #expect(!FileManager.default.fileExists(atPath: lines[0] + "/coderouter/config.json"))
+            if switchResult == 0 {
+                let verb = providerID == "opencode-go" ? "opencode" : providerID
+                #expect(lines[3] == "cr add \(verb)")
+                #expect(lines[0] == lines[2])
+            }
+            #expect(lines[0] != root.path)
+            #expect(!FileManager.default.fileExists(atPath: lines[0]))
+            #expect(try String(contentsOf: configDirectory.appendingPathComponent("config.json"), encoding: .utf8) == "{}\n")
         }
     }
 
