@@ -1235,9 +1235,44 @@ jobs:
             derived_data="$RUNNER_TEMP/cmux-scheme-compile"
           fi
           scripts/cmux-next/check-cmux-scheme-compile.sh "$derived_data"
+          echo "CMUX_NEXT_DERIVED_DATA=$derived_data" >> "$GITHUB_ENV"
           # The app links C++, iroh-ffi and CCmuxAppFFI; compact unwind holds
           # three personality routines (decision 2026-10-05).
           scripts/cmux-next/check-app-personalities.sh "$(find "$derived_data/Build/Products/Debug" -maxdepth 1 -name 'cmux DEV*.app' -print -quit)"
+
+      # The default-branch publisher consumes the exact app produced by this
+      # job.  Keep the upload limited to same-repository member PRs carrying
+      # the existing dev-build label; the publisher repeats this trust check
+      # before it writes the immutable R2 object or comments on the PR.
+      - name: Package the trusted cmux-next dogfood artifact
+        id: dogfood-artifact
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(github.event.pull_request.labels.*.name, 'dev-build')) }}
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          app="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          test -d "$app"
+          if [[ -n "$PR" ]]; then
+            artifact_name="dogfood-app-${PR}-${HEAD_SHA}"
+          else
+            artifact_name="cmux-next-base-app-${HEAD_SHA}"
+          fi
+          archive="$RUNNER_TEMP/${artifact_name}.app.zip"
+          /usr/bin/ditto -c -k --keepParent "$app" "$archive"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the exact cmux-next app for the trusted publisher
+        if: ${{ steps.dogfood-artifact.outputs.archive != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.dogfood-artifact.outputs.artifact_name }}
+          path: ${{ steps.dogfood-artifact.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 0
 
   # The post-merge backstop: every feat-cmux-next push runs every tier (a
   # superseded push skips its Mac jobs, so a burst of merges is checked once,

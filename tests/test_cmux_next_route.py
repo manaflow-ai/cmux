@@ -147,6 +147,12 @@ class PullRequestTiers(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(fnmatch.fnmatch(path, pattern.replace("**", "*")) for pattern in patterns), path)
 
+    def test_dev_build_label_keeps_the_scheme_compile(self):
+        """The dogfood artifact (#17500) is the scheme compile's app."""
+        result = tiers(PR_17470, labels=frozenset({"dev-build"}))
+        self.assertEqual(result["scheme"], "true")
+        self.assertEqual(result["daemon"], "false")
+
     def test_web_and_docs_need_no_mac(self):
         result = tiers(["web/app/page.tsx", "docs/cmux-next.md"])
         self.assertEqual(result["macos"], "false")
