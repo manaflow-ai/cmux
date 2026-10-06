@@ -71,6 +71,11 @@ extension AgentPaneTransport {
             if method == "_acpmux/attach", let session = params["sessionId"] as? String, !snapshot.sessions.contains(session) {
                 facts.attachSession = session
             }
+            // A fork or handoff from a session outside the scope waits for the click's scope credit.
+            if let method, AcpmuxPaneMethods.sourceScoped.contains(method), !snapshot.sessions.holdsSource(params) {
+                facts.foreignSource = true
+                facts.handoffId = params["handoffId"] as? String
+            }
         }
         if let requested = AcpmuxPaneMethods.requestedSetting(frame) {
             let value = requested.value ?? configValueText(frame)
@@ -87,9 +92,7 @@ extension AgentPaneTransport {
             guard let next = ids.begin(pageID: pageID, method: method ?? "") else { return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil) }
             relayID = next
         }
-        if !snapshot.isFirst, let method, AcpmuxPaneSessions.starting.contains(method) {
-            snapshot.sessions.sent(method: method, id: pageID, params: [:])
-        }
+        if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)
         if error != nil, let relayID { ids.cancel(relayID) }
         if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
