@@ -149,7 +149,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// that loses its last workspace is closed by `WindowManager` in the
     /// same turn, before this observer runs. Until a workspace is mirrored
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
-    private func showWorkspace(requested: String?) {
+    func showWorkspace(requested: String?) {
         let machines = services.machines
         // A parked workspace that closed (or whose machine left) goes now.
         parked.removeAll { controller in

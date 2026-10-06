@@ -15,6 +15,8 @@ class ProtocolDecodeError(ValueError):
 
 
 MODEL_BY_PATH = {
+    'types/ActivitySnapshot': models.ActivitySnapshot,
+    'types/ActivitySubscribeResult': models.ActivitySubscribeResult,
     'types/AgentRecord': models.AgentRecord,
     'types/AgentSessionSource': models.AgentSessionSource,
     'types/AppliedPane': models.AppliedPane,
@@ -219,6 +221,13 @@ MODEL_BY_PATH = {
     'commands/cloud-session-status/request': models.CloudSessionStatusRequest,
     'commands/conversation-agent-token/request': models.ConversationAgentTokenRequest,
     'commands/conversation-agent-token/result': models.ConversationAgentTokenResult,
+    'commands/conversation-attachment-read/request': models.ConversationAttachmentReadRequest,
+    'commands/conversation-attachment-read/result': models.ConversationAttachmentReadResult,
+    'commands/conversation-attachment-upload/request': models.ConversationAttachmentUploadRequest,
+    'commands/conversation-attachment-upload/result': models.ConversationAttachmentUploadResult,
+    'commands/conversation-attachment-upload/result/fields/stored/type': models.ConversationAttachmentUploadResultStored,
+    'commands/conversation-attachment-upload/result/fields/stored/type/fields/poster/type': models.ConversationAttachmentUploadResultStoredPoster,
+    'commands/conversation-attachment-upload/result/fields/stored/type/fields/preview/type': models.ConversationAttachmentUploadResultStoredPreview,
     'commands/conversation-bind/request': models.ConversationBindRequest,
     'commands/conversation-bind/result': models.ConversationBindResult,
     'commands/conversation-create/request': models.ConversationCreateRequest,
@@ -393,6 +402,7 @@ MODEL_BY_PATH = {
     'commands/snapshot-request/request': models.SnapshotRequestRequest,
     'commands/split/request': models.SplitRequest,
     'commands/subscribe/request': models.SubscribeRequest,
+    'commands/subscribe-activity/request': models.SubscribeActivityRequest,
     'commands/swap-pane/request': models.SwapPaneRequest,
     'commands/terminal-clipboard-reply/request': models.TerminalClipboardReplyRequest,
     'commands/terminal-clipboard-subscribe/request': models.TerminalClipboardSubscribeRequest,
@@ -424,6 +434,7 @@ MODEL_BY_PATH = {
     'commands/vt-state/request': models.VtStateRequest,
     'commands/wait-for/request': models.WaitForRequest,
     'commands/zoom-pane/request': models.ZoomPaneRequest,
+    'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,
     'events/bell/payload': models.BellEvent,
     'events/bookmarks-changed/payload': models.BookmarksChangedEvent,

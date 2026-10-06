@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextSettings
 import Foundation
 import Testing
 
@@ -26,12 +28,27 @@ struct LocationTrailWiringTests {
         return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
     }
 
+    /// `navigation.history.scope = everything`: every settled tab focus is a
+    /// step (these tests walk tabs inside one workspace; the default steps
+    /// only between workspaces, BACK-FORWARD-WORKSPACES-ONLY).
+    static func useEverythingSteps(_ services: AppServices) async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-trail-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"navigation": {"history": {"scope": "everything"}}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
+        services.settings = settings
+        await settings.reload()
+    }
+
     static func settle(_ condition: () -> Bool) async {
         for _ in 0..<500 where !condition() { await Task.yield() }
     }
 
     @Test func settledFocusRecordsAndGoBackReturnsToTheEarlierTab() async throws {
         let services = ActionBindingCoverageTests.boundServices()
+        try await Self.useEverythingSteps(services)
         services.windows.ordersWindowsIn = false
         services.daemon.store.apply(snapshot: try Self.tree(tabs: [7, 8]))
         let controller = try #require(services.windows.openWindow(workspaces: [Self.key]))
@@ -60,6 +77,11 @@ struct LocationTrailWiringTests {
         #expect(trail.trail.entries.map(\.location.key.tab) == [first, second])
         #expect(trail.trail.current?.location.key.tab == first)
         #expect(trail.trail.canGoForward(isAvailable: trail.isAvailable))
+        // Boundary activation is a silent no-op for keyboard and menu callers.
+        #expect(services.registry.perform("focusHistoryForward"))
+        await Self.settle { trail.trail.current?.location.key.tab == second }
+        #expect(services.registry.perform("focusHistoryForward"))
+        #expect(trail.trail.current?.location.key.tab == second)
     }
 
     @Test func aClosedWorkspaceIsListedUnderClosedHistory() async throws {

@@ -29,6 +29,7 @@ on:
       - "scripts/cmux-next/notices/test_vt_link_graph.py"
       - "scripts/cmux-next/notices/vt-link-graph.json"
       - "scripts/cmux-next/check-ghostty-fetch-list.sh"
+      - "scripts/cmux-next/lib/**"
       - "scripts/build-ghostty-cli-helper.sh"
       - "scripts/install-zig-ci.sh"
       - ".github/workflows/cmux-next-source-archive.yml"

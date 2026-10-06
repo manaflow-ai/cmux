@@ -14490,7 +14490,7 @@ impl App {
                 Err(error) => {
                     crate::client_log::stderr_log!(
                         "status-segment",
-                        "cmux-tui: could not start a status segment worker: {error}"
+                        "{BIN}: could not start a status segment worker: {error}"
                     );
                 }
             }
@@ -16022,7 +16022,7 @@ impl App {
                     SessionMutationOutcome::CreationResponseAmbiguous(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session creation response was ambiguous: {error}"
+                            "{BIN}: session creation response was ambiguous: {error}"
                         );
                         self.status_message =
                             Some(localization::catalog().session.creation_reconciling.to_string());
@@ -16034,7 +16034,7 @@ impl App {
                     SessionMutationOutcome::MutationTimedOut(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session operation timed out: {error}"
+                            "{BIN}: session operation timed out: {error}"
                         );
                         if let Some(intent) = semantic_intent {
                             // A peer without creation receipts cannot identify
@@ -16053,7 +16053,7 @@ impl App {
                     SessionMutationOutcome::Failed(error) => {
                         crate::client_log::stderr_log!(
                             "session",
-                            "cmux-tui: session operation failed: {error}"
+                            "{BIN}: session operation failed: {error}"
                         );
                         if let Some(intent) = semantic_intent {
                             self.mark_semantic_destination_failed(intent);

@@ -62,17 +62,14 @@ extension SidebarListView {
         // The lifted row follows the pointer vertically; x stays locked.
         SidebarReorderLift.follow(drag.lift, top: point.y - drag.grabOffsetY, visible: visibleRect)
         autoscroll.update(windowPoint: windowPoint)
-        // The card's leading edge decides (nxdog30): a row makes way once the card covers half of it.
         let card = drag.lift.frame
         if point.y != drag.lastY {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
-        let probe = drag.movingUp ? card.minY : card.maxY
-        guard let baseY = DropResolver.baseY(forDisplayY: probe, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
-                                          ungroupedFirst: model.ungroupedFirst)
+        guard let target = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections,
+                                        ungroupedFirst: model.ungroupedFirst) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
@@ -92,7 +89,8 @@ extension SidebarListView {
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids))
+            // The group forms at the target row (`anchor`).
+            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids, anchor: anchor))
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }

@@ -29,8 +29,8 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
-//   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
-//     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
+//   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
+//     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -124,6 +124,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxHomeCore"),
         .package(path: "../../Shared/CmuxHomeRender"),
+        // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
+        .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -306,12 +308,12 @@ let package = Package(
                 "CmuxNextDesign", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
             ],
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings,
-            linkerSettings: [.linkedLibrary("sqlite3")]
+            swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHomeTests",
@@ -319,6 +321,7 @@ let package = Package(
                 "CmuxNextHome", "CmuxNextDesign",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
             ],
             swiftSettings: uiSwiftSettings
         ),

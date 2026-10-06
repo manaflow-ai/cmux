@@ -26,6 +26,8 @@ final class HomeCloudLink {
     private let lease: HomeCloudLease
     private let source: CloudHomeSource
     private let localID: ParticipantID
+    /// The Stack project the account signs in to (the Worker's user ids derive from it).
+    private let stackProjectID: String?
     private var last: Link?
     /// Lease work started and not finished. A missing lease asks for a new
     /// one only while none is in flight: that one's outcome answers it.
@@ -72,10 +74,12 @@ final class HomeCloudLink {
     private var pendingForced: String?
 
     /// `clock` runs the retry backoff; tests pass a manual clock.
-    init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, clock: any Clock<Duration> = ContinuousClock()) {
+    init(lease: HomeCloudLease, source: CloudHomeSource, localID: ParticipantID, stackProjectID: String? = nil,
+         clock: any Clock<Duration> = ContinuousClock()) {
         self.lease = lease
         self.source = source
         self.localID = localID
+        self.stackProjectID = stackProjectID
         retry = DemandTimer(owner: "App.homeCloud.leaseRetry", clock: clock)
         cooldown = DemandTimer(owner: "App.homeCloud.renewCooldown", clock: clock)
         source.onLeaseMissing { [weak self] in
@@ -269,7 +273,7 @@ final class HomeCloudLink {
     }
 
     private func identity(_ userID: String?, _ link: Link) -> CloudIdentity? {
-        userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID) }
+        userID.map { CloudIdentity(stackUserID: $0, displayName: link.displayName, localID: localID, stackProjectID: stackProjectID) }
     }
 
     #if DEBUG
