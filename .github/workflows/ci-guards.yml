@@ -278,6 +278,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
 
+      - name: Validate reload emits the app module on Xcode versions that fail the module merge
+        if: ${{ matrix.group == 'preflight' }}
+        run: ./tests/test_reload_app_module_emission.sh
+
       - name: Validate sidebar extension point generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_write_sidebar_extension_point.py
