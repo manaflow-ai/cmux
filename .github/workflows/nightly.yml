@@ -1544,6 +1544,7 @@ jobs:
           mkdir -p nightly-inputs/app nightly-inputs/ghostty remote-daemon-assets
           python3 scripts/ci/download-run-artifact.py \
             --name cmux-nightly-unsigned-app --out nightly-inputs/app \
+            --connections 64 \
             >"$RUNNER_TEMP/nightly-app-download.log" 2>&1 &
           app_pid=$!
           python3 scripts/ci/download-run-artifact.py \
