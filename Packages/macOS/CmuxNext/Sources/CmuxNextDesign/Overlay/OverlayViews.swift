@@ -49,8 +49,8 @@ final class OverlayScrimView: NSView {
     override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
-        let isDark = performWithTheme { (ThemeContext.active ?? ThemeScope.app.tokens).isDark }
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(Scrim.alpha(isDark: isDark)).cgColor
+        let alpha = performWithTheme { (ThemeContext.active ?? ThemeScope.app.tokens).scrimAlpha }
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(alpha).cgColor
     }
 
     override func viewDidChangeEffectiveAppearance() {

@@ -8,8 +8,8 @@ import Testing
 /// Popovers anchored to a control draw no scrim.
 @MainActor @Suite struct ScrimTokenTests {
     @Test func theTokenIsLightInBothThemes() {
-        #expect(Scrim.alpha(isDark: false) == 0.12)
-        #expect(Scrim.alpha(isDark: true) == 0.25)
+        #expect(ThemeTokens.derive(from: ThemeFixtures.githubLight).scrimAlpha == 0.12)
+        #expect(ThemeTokens.derive(from: ThemeFixtures.catppuccinMocha).scrimAlpha == 0.25)
     }
 
     @Test func pagesGetTheTokenForTheirTheme() {
@@ -26,7 +26,7 @@ import Testing
         scrim.appearance = NSAppearance(named: .aqua)
         scrim.updateLayer()
         let alpha = scrim.layer?.backgroundColor.flatMap { NSColor(cgColor: $0)?.alphaComponent } ?? -1
-        #expect(alpha == Scrim.alpha(isDark: (ThemeContext.active ?? ThemeScope.app.tokens).isDark))
+        #expect(alpha == (ThemeContext.active ?? ThemeScope.app.tokens).scrimAlpha)
         #expect(alpha <= 0.25)
     }
 
