@@ -73,7 +73,10 @@ import Testing
 
     @Test func chiefCompactorErrorsAreNotShownAsPreviews() {
         var row = Self.row("conv_chief_error", with: [Self.chief("agent_mux", "Chief")], at: 1)
-        row.preview = "The memory compactor cannot build summaries (acpmux route: unavailable)"
+        row.summary.lastMessage = Message(id: MessageID("m_notice"), conversation: row.id, seq: 1,
+            clientMessageID: IdempotencyKey("notice:optchat:compactor:123"), author: ParticipantID("agent_mux"),
+            parts: [.text("The memory compactor cannot build summaries (acpmux route: unavailable)")], createdAt: Self.base)
+        row.preview = row.summary.lastMessage!.plainText
         #expect(HomeConversationCellView.previewText(row).isEmpty)
     }
 
