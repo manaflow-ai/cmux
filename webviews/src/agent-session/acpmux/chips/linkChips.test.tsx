@@ -69,10 +69,10 @@ test("a path in inline code is a chip named by its file; a line suffix is droppe
   await unmount();
 });
 
-test("a file:// link and a page type open in the editor, never as a page in a tab", async () => {
+test("a file:// link and a page type open in cmux's file pages (a tab), never in an outside app", async () => {
   const { container, calls, unmount } = await render("[report](file:///tmp/out/report.html)");
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-chip.is-path")!.click());
-  expect(calls).toEqual([{ method: "file.open", params: { path: "/tmp/out/report.html", where: "editor" } }]);
+  expect(calls).toEqual([{ method: "file.open", params: { path: "/tmp/out/report.html", where: "tab" } }]);
   await unmount();
 });
 

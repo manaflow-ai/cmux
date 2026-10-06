@@ -59,13 +59,9 @@ export function pathName(path: string): string {
   return trimmed.split("/").at(-1) || path;
 }
 
-/// Where `file.open` shows the file: a tab beside the agent for text, source, images and PDFs,
-/// the editor for a page type or a name without an extension (the host makes the same split).
-export function openTarget(path: string): "tab" | "editor" {
-  const name = pathName(path);
-  const ext = name.includes(".") ? name.split(".").at(-1)!.toLowerCase() : "";
-  if (!ext) return "editor";
-  return /^(?:html?|shtml|xht|xhtml|xml|xsl|xslt|svgz?|rss|atom|rdf|webarchive|mht|mhtml|webloc|inetloc|url)$/.test(ext)
-    ? "editor"
-    : "tab";
+/// Where `file.open` shows the file: always a tab of the pane, which is cmux's file pages (the
+/// markdown page for Markdown, the code editor page for any other text, a preview for images and
+/// PDFs). They show a file as text and never run it, so a page type is safe there too.
+export function openTarget(_path: string): "tab" {
+  return "tab";
 }
