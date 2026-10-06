@@ -180,6 +180,9 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
         let data = args.object;
         if (args.path !== undefined) {
           const text = readFile(args.path);
+          // As BrowserReplSecretStore.loadSourceRefusal: UTF-8 only, and no digit spelled as a JSON escape.
+          if (/[\u0000\ufffd]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} is not UTF-8; save it as UTF-8, so files read back can mask its values`);
+          if (/\\u003[0-9]/.test(text)) throw new BoundaryError("invalid", `secrets.load: ${args.path} spells a digit with a JSON escape (\\u0030 to \\u0039); write digits as they are, so files read back can mask its values`);
           try {
             data = JSON.parse(text);
           } catch {

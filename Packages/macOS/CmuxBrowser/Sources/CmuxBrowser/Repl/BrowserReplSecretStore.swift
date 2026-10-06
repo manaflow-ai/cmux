@@ -412,6 +412,31 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// stays short.
     public static let maximumLoadFileBytes = 8 << 20
 
+    /// Why `secrets.load` refuses a file's bytes, or nil. File reads mask a
+    /// loaded value by its UTF-8 bytes and their escaped forms, except a
+    /// short digit value's, which is masked by its shape alone; a source
+    /// that holds a value some other way would read back unmasked through
+    /// `fs`. So a source must be UTF-8 (JSON's parser also reads UTF-16
+    /// and UTF-32: a byte order mark or a NUL byte, which UTF-8 JSON never
+    /// holds, says it is one of them) and may not spell a digit with a JSON
+    /// escape (`\u0030` to `\u0039`), the only other way JSON writes one.
+    static func loadSourceRefusal(_ data: Data) -> String? {
+        let bytes = [UInt8](data)
+        let utf8Message = "is not UTF-8; save it as UTF-8, so files read back can mask its values"
+        if bytes.starts(with: [0xfe, 0xff]) || bytes.starts(with: [0xff, 0xfe]) || bytes.contains(0) { return utf8Message }
+        guard String(data: data, encoding: .utf8) != nil else { return utf8Message }
+        let escape = Array(#"\u003"#.utf8)
+        var index = 0
+        while index + escape.count < bytes.count {
+            if bytes[index] == escape[0], Array(bytes[index..<(index + escape.count)]) == escape,
+               (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(bytes[index + escape.count]) {
+                return "spells a digit with a JSON escape (\\u0030 to \\u0039); write digits as they are, so files read back can mask its values"
+            }
+            index += 1
+        }
+        return nil
+    }
+
     /// Keeps `entry`'s value masked after its name lets go of it, on its
     /// domains and on those of every earlier retirement of the same value
     /// (one entry per value holds their union). Call with `lock` held.

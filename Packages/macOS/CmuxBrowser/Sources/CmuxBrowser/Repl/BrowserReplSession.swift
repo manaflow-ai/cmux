@@ -1792,6 +1792,9 @@ public final class BrowserReplSession: @unchecked Sendable {
                     } catch {
                         return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load"))))
                     }
+                    if let data, let reason = BrowserReplSecretStore.loadSourceRefusal(data) {
+                        return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) \(reason)"))))
+                    }
                     guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
                         if isCancelled() { return self.boundary.egress(.host(.failure(BrowserReplBoundary.cancelled("secrets.load")))) }
                         return self.boundary.egress(.host(.failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) is not JSON"))))
