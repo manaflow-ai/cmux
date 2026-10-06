@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import Testing
 
 /// Launch gives a tree without a workspace of the user's own its first
-/// workspace (`WindowManager.restore`).
+/// workspace (`FirstWorkspace`, `WindowManager.restore`).
 @MainActor
 struct FirstWorkspaceTests {
     private static func workspaces(_ snapshots: [WorkspaceSnapshot]) -> [WorkspaceModel] {
@@ -19,24 +19,24 @@ struct FirstWorkspaceTests {
     }
 
     @Test func anEmptyTreeGetsAWorkspace() {
-        #expect(WindowManager.needsFirstWorkspace(Self.workspaces([]), leftover: []))
+        #expect(FirstWorkspace.isNeeded(Self.workspaces([]), leftover: []))
     }
 
     /// Regression (dogfood 80e323c): the store's home workspace exists from
     /// the first connect, so a first launch counted it and opened on Home
     /// with "No workspaces" in the sidebar and no terminal.
     @Test func theHomeWorkspaceAloneStillGetsAWorkspace() {
-        #expect(WindowManager.needsFirstWorkspace(Self.workspaces([Self.home()]), leftover: []))
+        #expect(FirstWorkspace.isNeeded(Self.workspaces([Self.home()]), leftover: []))
     }
 
     @Test func aUserWorkspaceNeedsNoOther() {
         let user = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "user"), name: "code")
-        #expect(!WindowManager.needsFirstWorkspace(Self.workspaces([Self.home(), user]), leftover: []))
+        #expect(!FirstWorkspace.isNeeded(Self.workspaces([Self.home(), user]), leftover: []))
     }
 
     @Test func leftoverIncognitoWorkspacesDoNotCount() {
         let user = WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "user"), name: "private")
         let models = Self.workspaces([user])
-        #expect(WindowManager.needsFirstWorkspace(models, leftover: models.map(\.id)))
+        #expect(FirstWorkspace.isNeeded(models, leftover: models.map(\.id)))
     }
 }
