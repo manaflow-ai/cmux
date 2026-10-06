@@ -32,6 +32,10 @@ public extension AgentPaneTransportPacer {
     private var scheduled = false
     public init() {}
 
+    // The pacer has no actor-bound resources. Its lifetime can end when AppKit replaces a view
+    // from a synchronous callback, so deallocation must not require a main-actor executor hop.
+    nonisolated deinit {}
+
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
         guard !scheduled else { return }
         scheduled = true
