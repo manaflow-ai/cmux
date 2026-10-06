@@ -46,7 +46,11 @@ public enum HomeGallery {
         let group = store.rows.first { $0.kind == .group }?.id
         for (name, id) in [("chief", chief), ("group", group)] {
             guard let id else { continue }
+            // The gallery's own open (the page is in before the screen draws)
+            // pairs with the close after its captures; the screen's binding
+            // pairs its own.
             await store.open(id)
+            defer { store.close(id) }
             let screen = ConversationViewController(store: store, conversation: id)
             navigation.setViewControllers([home, screen], animated: false)
             navigation.view.layoutIfNeeded()
