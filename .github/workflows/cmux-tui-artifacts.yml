@@ -484,10 +484,22 @@ jobs:
       - name: Init ghostty submodule
         run: git submodule update --init --depth 1 ghostty-next
 
+      # A verified Zig tarball survives a mirror outage (FLAKE-ZIG-MIRRORS-502):
+      # install-zig-ci.sh uses it only when it matches the pinned SHA-256.
+      - name: Cache the verified Zig tarball
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/cmux-zig-tarballs
+          key: cmux-zig-tarball-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ci/zig-tarballs.sha256') }}
+
       - name: Install zig
         env:
           GHOSTTY_ZIG_SOURCE: ghostty-next
+          ZIG_TARBALL_CACHE_DIR: ${{ runner.temp }}/cmux-zig-tarballs
         run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch the ghostty-next Zig packages (retried)
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

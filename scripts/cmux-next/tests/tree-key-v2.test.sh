@@ -114,6 +114,14 @@ rm -f "$dir/fetched-key"
 out=$(fetch) || fail "fetch over an unrecorded cache failed:" "$out"
 grep -qxF "fetched cmux-tui tree $v2 (v2)" <<<"$out" || fail "an unrecorded cache was trusted instead of fetched again:" "$out"
 
+# The cmux-next gate: `wait` reports a published tree and superseded=false.
+: > "$TMP/gh-output"
+out=$(cd "$src" && env -u GITHUB_ACTIONS -u CI_JOB_DIR PATH="$TMP/bin:$PATH" CMUX_NEXT_TUI_ALLOW_DIRTY=1 \
+  GITHUB_OUTPUT="$TMP/gh-output" CMUX_TUI_PIN_BASE=https://cdn.test/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
+  bash scripts/cmux-next/pin-cmux-tui.sh wait 2>&1) || fail "wait for a published tree failed:" "$out"
+grep -qxF "cmux-tui tree $v2 is published: $v2 (v2)" <<<"$out" || fail "wait did not name the published tree:" "$out"
+grep -qxF "superseded=false" "$TMP/gh-output" || fail "wait did not write superseded=false"
+
 # resolve-commit names the key it resolved on stderr; stdout is the commit only.
 sha=$(awk '{print $1}' "$cdn/tree/$v2/cmux-tui-aarch64-apple-darwin.sha256")
 printf '{"binaries": {"cmux-tui-aarch64-apple-darwin": "%s"}}\n' "$sha" > "$cdn/$base_commit/manifest.json"

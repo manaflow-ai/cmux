@@ -38,6 +38,10 @@ final class SidebarRegionView: NSView {
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
     var reorder: SidebarRegionDrag?
+    /// Where a drag's lifted card lives: a view above the band's scroll
+    /// view (the sidebar), so the card and its shadow are never clipped to
+    /// the band. Nil: the region itself (tests, a region on its own).
+    weak var liftHost: NSView?
     var reorderSections: [LayoutSection]?
     private var width: CGFloat = 0
     private var animatesFrames = false

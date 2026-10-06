@@ -86,6 +86,7 @@
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | resolve-commit (the commit that published this tree, for nightly)
+#        | wait (the cmux-next gate: wait for the tree; superseded=true output for a superseded commit)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
 set -euo pipefail
@@ -214,6 +215,30 @@ else:
 ' <<<"$body" 2>/dev/null || echo unknown
 }
 
+# Prints the newer head of the pushed branch (GITHUB_REF) when <sha> was
+# superseded: every artifacts run for it ended cancelled or skipped (success
+# without publishing) and the branch head has moved. Prints nothing otherwise,
+# including when the head cannot be read (a failure then stays a failure).
+superseded_by() {
+  local sha="$1" state="$2" branch head
+  [[ "$state" == ended\ * ]] || return 0
+  # Any other conclusion (failure, timed_out, ...) is a real failure.
+  python3 -c '
+import re, sys
+parts = sys.argv[1][len("ended "):].split(", ")
+sys.exit(0 if parts and all(re.match(r"(cancelled|success): ", p) for p in parts) else 1)
+' "$state" || return 0
+  [[ "${GITHUB_REF:-}" == refs/heads/* ]] || return 0
+  branch="${GITHUB_REF#refs/heads/}"
+  head="$(curl -fsSL --connect-timeout 10 --max-time 30 \
+    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/git/ref/heads/$branch" 2>/dev/null \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["object"]["sha"])' 2>/dev/null)" || return 0
+  [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$sha" ]] && echo "$head"
+  return 0
+}
+
 # Exits 1 with the reason when no cmux-tui artifacts run will publish tree <key>.
 fail_unpublishable_tree() {
   local key="$1" sha="$2" state="$3" elapsed="$4"
@@ -280,7 +305,15 @@ wait_for_tree() {
       echo "cmux-tui artifacts runs for $publisher: $state" >&2
       # Two checks in a row: a failed publish requeues its run, and a new
       # push's run can appear a moment after the push.
-      (( ended_checks >= 2 )) && fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
+      if (( ended_checks >= 2 )); then
+        # `wait` (CMUX_TUI_TREE_ALLOW_SUPERSEDED=1) returns for a superseded
+        # commit instead of failing; fetch and resolve-commit still fail.
+        if [[ "${CMUX_TUI_TREE_ALLOW_SUPERSEDED:-}" == 1 ]]; then
+          tree_superseded_by="$(superseded_by "$publisher" "$state")"
+          [[ -n "$tree_superseded_by" ]] && return 0
+        fi
+        fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
+      fi
     fi
     if (( elapsed >= wait_seconds )); then
       {
@@ -470,6 +503,31 @@ fetch_tree() {
   echo "fetched same-tree cmux-tui $key to $binary"
   echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
+}
+
+# The cmux-next gate: waits for this checkout's tree like fetch, without
+# downloading the binary. A commit superseded by a newer branch head (its
+# artifacts runs were cancelled or skipped) is not a failure: it prints a
+# notice and writes superseded=true to GITHUB_OUTPUT, and the jobs that need
+# the binary are skipped. A failed publish, or a timeout, exits 1.
+wait_for_checkout_tree() {
+  local key temp_dir
+  key="$(tree_key HEAD)"
+  refuse_dirty_source
+  temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-tree.XXXXXX")"
+  # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
+  trap "rm -rf '$temp_dir'" EXIT
+  tree_superseded_by=""
+  CMUX_TUI_TREE_ALLOW_SUPERSEDED=1 wait_for_tree "$key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
+  if [[ -n "$tree_superseded_by" ]]; then
+    echo "::notice title=cmux-tui tree superseded::$(git rev-parse HEAD) was superseded by $tree_superseded_by on ${GITHUB_REF#refs/heads/}: its cmux-tui tree $key was not published, so the jobs that need it are skipped (the newer head is tested)."
+    echo "cmux-tui tree $key: superseded by $tree_superseded_by"
+    [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "superseded=true" >> "$GITHUB_OUTPUT"
+    return 0
+  fi
+  echo "cmux-tui tree $key is published: $(tree_source_label "$published_key" "$key")"
+  [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "superseded=false" >> "$GITHUB_OUTPUT"
+  return 0
 }
 
 # Prints the commit whose attested commit-addressed artifacts carry this
@@ -674,6 +732,9 @@ PY
     ;;
   resolve-commit)
     resolve_tree_commit
+    ;;
+  wait)
+    wait_for_checkout_tree
     ;;
   local-build)
     local_build_matches "${1:-}"
