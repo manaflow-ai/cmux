@@ -13,9 +13,10 @@ public import AppKit
 ///   and Ctrl-Shift-Tab change tabs too;
 /// - Cmd-Opt-Right/Left and Cmd-Shift-]/[ are a browser's next/previous tab
 ///   in a web page, when no cmux binding claims them.
-/// - Ctrl-Cmd arrows are aliases for the pane-resize actions. Their catalog
-///   defaults are also available as Ctrl-Cmd H/J/K/L, so both familiar
-///   layouts work without a user override.
+/// - Ctrl-Cmd arrows are aliases for the pane-resize actions (Ghostty's
+///   `resize_split` defaults); their catalog keys are Ctrl-Shift H/J/K/L.
+/// - Ctrl-Cmd H/J/K/L are aliases for the pane-focus actions, whose catalog
+///   keys are Cmd-Opt arrows (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS).
 ///
 /// Unbinding `nextSurface` or `prevSurface` in cmux.json removes its entries.
 public nonisolated struct KeyBindingDefaults {
@@ -50,7 +51,7 @@ public nonisolated struct KeyBindingDefaults {
     ]
 
     /// The arrow aliases for pane resize. These are defaults in addition to
-    /// each action's catalog Ctrl-Cmd-Shift H/J/K/L key, and disappear when a user
+    /// each action's catalog Ctrl-Shift H/J/K/L key, and disappear when a user
     /// overrides or unbinds that action.
     public static let paneResizeAliases: [KeyBinding] = [
         KeyBinding(keys: [Shortcut(left, modifiers: [.control, .command])], command: "resizePaneLeft"),
@@ -59,16 +60,19 @@ public nonisolated struct KeyBindingDefaults {
         KeyBinding(keys: [Shortcut(down, modifiers: [.control, .command])], command: "resizePaneDown"),
     ]
 
-    /// The original Cmd-Opt arrow focus bindings remain available as aliases
-    /// while Ctrl-Cmd H/J/K/L is the primary focus map.
-    public static let focusAliases: [KeyBinding] = [
-        KeyBinding(keys: [Shortcut(left, modifiers: [.command, .option])], command: "focusLeft"),
-        KeyBinding(keys: [Shortcut(right, modifiers: [.command, .option])], command: "focusRight"),
-        KeyBinding(keys: [Shortcut(up, modifiers: [.command, .option])], command: "focusUp",
-                   when: .not(.has(KeyContext.codeEditorFocusedKey))),
-        KeyBinding(keys: [Shortcut(down, modifiers: [.command, .option])], command: "focusDown",
-                   when: .not(.has(KeyContext.codeEditorFocusedKey))),
+    /// The vim-letter aliases for pane focus, in addition to each action's
+    /// catalog Cmd-Opt arrow; they disappear when a user overrides or
+    /// unbinds that action.
+    public static let paneFocusAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("h", modifiers: [.control, .command])], command: "focusLeft"),
+        KeyBinding(keys: [Shortcut("j", modifiers: [.control, .command])], command: "focusDown"),
+        KeyBinding(keys: [Shortcut("k", modifiers: [.control, .command])], command: "focusUp"),
+        KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
     ]
+
+    /// Aliases that follow their action's catalog key: present only while
+    /// the action has its default key (no cmux.json override or chord).
+    public static var actionAliases: [KeyBinding] { paneResizeAliases + paneFocusAliases }
 
     /// Actions whose default key Monaco also uses for editing (R127,
     /// webviews/src/pages/editor/README.md): while the code editor has the
@@ -81,6 +85,13 @@ public nonisolated struct KeyBindingDefaults {
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
     ]
+
+    /// Actions whose default key a terminal program also uses (Ctrl-_ is
+    /// readline/emacs undo): their default binding applies everywhere but a
+    /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
+    /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
+    /// binding keeps its own `when`.
+    public static let yieldsToTerminal: Set<ActionID> = ["focusHistoryBack", "focusHistoryForward"]
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
@@ -140,12 +151,7 @@ public nonisolated struct KeyBindingDefaults {
     /// one by one with `-list.next` entries in keybindings.json).
     @MainActor static func entries(registry: ActionRegistry) -> [KeyBinding] {
         var entries = tabSwitching.filter { registry.effectiveShortcut(for: $0.command) != nil }
-        entries += paneResizeAliases.filter { binding in
-            registry.effectiveShortcut(for: binding.command) != nil
-                && !registry.shortcutOverrides.keys.contains(binding.command)
-                && registry.chordOverrides[binding.command] == nil
-        }
-        entries += focusAliases.filter { binding in
+        entries += actionAliases.filter { binding in
             registry.effectiveShortcut(for: binding.command) != nil
                 && !registry.shortcutOverrides.keys.contains(binding.command)
                 && registry.chordOverrides[binding.command] == nil

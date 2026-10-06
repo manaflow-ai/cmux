@@ -59,28 +59,28 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "resizePaneLeft",
                 title: String(localized: "action.resizePaneLeft", defaultValue: "Resize Pane Left", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .command, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("h", modifiers: [.control, .shift]), category: .pane,
                 symbol: "arrow.left.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-left", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneRight",
                 title: String(localized: "action.resizePaneRight", defaultValue: "Resize Pane Right", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .command, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("l", modifiers: [.control, .shift]), category: .pane,
                 symbol: "arrow.right.to.line", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-right", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneUp",
                 title: String(localized: "action.resizePaneUp", defaultValue: "Resize Pane Up", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .command, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("k", modifiers: [.control, .shift]), category: .pane,
                 symbol: "arrow.up.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-up", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "resizePaneDown",
                 title: String(localized: "action.resizePaneDown", defaultValue: "Resize Pane Down", bundle: .module),
-                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .command, .shift]), category: .pane,
+                keywords: ["resize"], defaultShortcut: Shortcut("j", modifiers: [.control, .shift]), category: .pane,
                 symbol: "arrow.down.to.line.compact", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane resize-down", mainMenu: .view
             ),
@@ -88,7 +88,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusLeft",
                 title: String(localized: "action.focusLeft", defaultValue: "Focus Pane Left", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut("h", modifiers: [.control, .command]), category: .pane,
+                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.left.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-left"
             ),
@@ -96,14 +96,14 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusRight",
                 title: String(localized: "action.focusRight", defaultValue: "Focus Pane Right", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut("l", modifiers: [.control, .command]), category: .pane,
+                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.right.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-right"
             ),
             ActionDescriptor(
                 id: "focusUp",
                 title: String(localized: "action.focusUp", defaultValue: "Focus Pane Above", bundle: .module),
-                keywords: ["navigate"], defaultShortcut: Shortcut("k", modifiers: [.control, .command]),
+                keywords: ["navigate"], defaultShortcut: Shortcut(Shortcut.upArrowKey, modifiers: [.option, .command]),
                 category: .pane, symbol: "arrow.up.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-above"
             ),
@@ -111,7 +111,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
                 id: "focusDown",
                 title: String(localized: "action.focusDown", defaultValue: "Focus Pane Below", bundle: .module),
                 keywords: ["navigate"],
-                defaultShortcut: Shortcut("j", modifiers: [.control, .command]), category: .pane,
+                defaultShortcut: Shortcut(Shortcut.downArrowKey, modifiers: [.option, .command]), category: .pane,
                 symbol: "arrow.down.square", surfaces: [.palette, .keyboard], targets: [.pane],
                 cliName: "pane focus-below"
             ),

@@ -4912,8 +4912,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
-          "shift",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneLeft",
@@ -4956,8 +4955,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
-          "shift",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneRight",
@@ -5000,8 +4998,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
-          "shift",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneUp",
@@ -5044,8 +5041,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
-          "shift",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneDown",
@@ -5073,9 +5069,9 @@
         {
           "keys" : [
             {
-              "key" : "",
+              "key" : "h",
               "modifiers" : [
-                "opt",
+                "ctrl",
                 "cmd"
               ]
             }
@@ -5085,9 +5081,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "h",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },
@@ -5116,9 +5112,9 @@
         {
           "keys" : [
             {
-              "key" : "",
+              "key" : "l",
               "modifiers" : [
-                "opt",
+                "ctrl",
                 "cmd"
               ]
             }
@@ -5128,9 +5124,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "l",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },
@@ -5159,21 +5155,21 @@
         {
           "keys" : [
             {
-              "key" : "",
+              "key" : "k",
               "modifiers" : [
-                "opt",
+                "ctrl",
                 "cmd"
               ]
             }
           ],
-          "when" : "!codeEditorFocused"
+          "when" : null
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "k",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },
@@ -5202,21 +5198,21 @@
         {
           "keys" : [
             {
-              "key" : "",
+              "key" : "j",
               "modifiers" : [
-                "opt",
+                "ctrl",
                 "cmd"
               ]
             }
           ],
-          "when" : "!codeEditorFocused"
+          "when" : null
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "j",
+        "key" : "",
         "modifiers" : [
-          "ctrl",
+          "opt",
           "cmd"
         ]
       },

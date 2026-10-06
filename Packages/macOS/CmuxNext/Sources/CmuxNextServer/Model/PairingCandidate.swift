@@ -12,7 +12,7 @@ public nonisolated struct PairingCandidate: Sendable, Equatable {
     public var region: String?
     public var words: [String]
     public var teams: [ServerTeam]
-    /// The server runs a Chief brain (`optchat-chief cloud pair`): the
+    /// The server declared the `optchat-chief-brain` capability: the
     /// approver offers to run the user's Chief there.
     public var isChiefBrain: Bool
 

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6a8683d848449d95fc36bb1e5c5391547842520c0e3104bb8c7b82fe24b5b935";
+pub const ir_sha256 = "b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -377,8 +377,8 @@ pub const ConversationMessage = struct {
 pub const ConversationPart = struct {
     /// type work.
     host: ?[]const u8 = null,
-    /// type work.
-    preview: ?[]const u8 = null,
+    /// type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.
+    preview: ?JsonValue = null,
     /// type text.
     runs: ?[]const ConversationTextRun = null,
     /// type work.
@@ -387,7 +387,7 @@ pub const ConversationPart = struct {
     status: ?[]const u8 = null,
     /// type text.
     text: ?[]const u8 = null,
-    /// Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.
+    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.
     type: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -3740,6 +3740,74 @@ pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRe
             .authority = "local-admin",
             .since = 12,
             .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationAttachmentReadRequest = struct {
+    conversation: []const u8,
+    hash: []const u8,
+    length: wire.Field(u64) = .absent,
+    offset: wire.Field(u64) = .absent,
+    variant: wire.Field([]const u8) = .absent,
+};
+
+pub const ConversationAttachmentReadResult = struct {
+    byte_count: u64,
+    data: []const u8,
+    eof: bool,
+    hash: []const u8,
+    mime_type: []const u8,
+    offset: u64,
+};
+
+pub fn conversationAttachmentRead(client: anytype, request: ConversationAttachmentReadRequest) !wire.Decoded(ConversationAttachmentReadResult) {
+    return client.callTyped(
+        ConversationAttachmentReadResult,
+        .{
+            .name = "conversation-attachment-read",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "local-attachments-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationAttachmentUploadRequest = struct {
+    byte_count: wire.Field(u64) = .absent,
+    conversation: wire.Field([]const u8) = .absent,
+    data: wire.Field([]const u8) = .absent,
+    duration_ms: wire.Field(u64) = .absent,
+    height: wire.Field(u32) = .absent,
+    mime_type: wire.Field([]const u8) = .absent,
+    name: wire.Field([]const u8) = .absent,
+    offset: wire.Field(u64) = .absent,
+    op: []const u8,
+    piece: wire.Field([]const u8) = .absent,
+    poster: wire.Field(JsonValue) = .absent,
+    preview: wire.Field(JsonValue) = .absent,
+    sha256: wire.Field([]const u8) = .absent,
+    upload: wire.Field([]const u8) = .absent,
+    width: wire.Field(u32) = .absent,
+};
+
+pub const ConversationAttachmentUploadResult = struct {
+    needs: wire.Field([]const []const u8) = .absent,
+    received: wire.Field(u64) = .absent,
+    stored: wire.Field(wire.Value) = .absent,
+    upload: wire.Field([]const u8) = .absent,
+};
+
+pub fn conversationAttachmentUpload(client: anytype, request: ConversationAttachmentUploadRequest) !wire.Decoded(ConversationAttachmentUploadResult) {
+    return client.callTyped(
+        ConversationAttachmentUploadResult,
+        .{
+            .name = "conversation-attachment-upload",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "local-attachments-v1",
         },
         request,
     );
@@ -9195,7 +9263,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 229;
+pub const command_count: usize = 231;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -9241,6 +9309,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "cloud-session-set", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "cloud-session-status", .authority = "local-admin", .since = 12, .capability = "cloud-conversations-v1", .stream = null },
     .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-attachment-read", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
+    .{ .name = "conversation-attachment-upload", .authority = "local-admin", .since = 12, .capability = "local-attachments-v1", .stream = null },
     .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },

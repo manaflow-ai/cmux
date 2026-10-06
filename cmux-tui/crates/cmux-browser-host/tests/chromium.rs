@@ -809,3 +809,83 @@ console.log("stats:" + !!(cr && cr.walks >= 1 && cr.roots >= 1 && cr.walkMs >= 0
         assert!(out.lines().any(|l| l.trim() == line), "{line} missing in: {out}");
     }
 }
+
+/// One headless browser per (host, profile) (item 4b): a tab a one-shot run
+/// kept outlives the run, the next session lists and attaches it, and a tab
+/// it did not keep is gone (parity 20).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_kept_tab_outlives_its_one_shot_run() {
+    let binary = std::env::var("CMUX_BROWSER_HOST_TEST_CHROME")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let dir = std::env::temp_dir().join(format!("cmux-host-kept-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("host.sock");
+    let eval = |code: &str| -> String {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"))
+            .args(["eval", "--engine", "headless", "--socket"])
+            .arg(&socket)
+            .arg("-")
+            .current_dir(&dir)
+            .env("CMUX_BROWSER_HOST_CHROMIUM", &binary)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("run cmux-browser-host eval");
+        child.stdin.take().unwrap().write_all(code.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
+    };
+    let origin = format!("http://127.0.0.1:{port}");
+    let first = eval(&format!(
+        "const kept = await tabs.open('{origin}/second?kept'); await kept.keep(); \
+         await tabs.open('{origin}/second?closed', {{ background: true }}); console.log('opened');"
+    ));
+    assert!(first.contains("opened"), "{first}");
+    let second = eval(&format!(
+        "const urls = (await tabs.list()).map((t) => t.url).filter((u) => u.startsWith('{origin}')).sort(); \
+         console.log('after:' + JSON.stringify(urls)); \
+         const row = (await tabs.list()).find((t) => t.url.endsWith('?kept')); \
+         if (row) {{ await tabs.use(row.id); console.log('attached:' + page.url().endsWith('?kept')); await page.close(); }}"
+    ));
+    let mut stop = std::process::Command::new(env!("CARGO_BIN_EXE_cmux-browser-host"));
+    let _ = stop.args(["close", "--socket"]).arg(&socket).output();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert!(second.contains(&format!("after:[\"{origin}/second?kept\"]")), "{second}");
+    assert!(second.contains("attached:true"), "{second}");
+}
+
+/// One `tabs.list` shape for every source: the headless source through the
+/// session engine (the provider source is checked in provider_engine_tests).
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn headless_tabs_list_has_the_protocol_shape() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let lease = cmux_browser_host::lease::LeaseCaller {
+        session: "s".into(),
+        actor: "t".into(),
+        on_behalf_of: None,
+        origin: "cli".into(),
+        label: String::new(),
+        implicit_session: false,
+        engine: "headless".into(),
+    };
+    let session =
+        HeadlessSession::new(source, &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease).unwrap();
+    session.call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/")})).unwrap();
+    let tabs = session.call("tabs.list", &json!({})).unwrap();
+    cmux_browser_host::tab_source::check_tabs_list_shape(&tabs).unwrap();
+    assert_eq!(tabs.as_array().map(Vec::len), Some(1), "{tabs}");
+}
