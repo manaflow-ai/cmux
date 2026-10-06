@@ -930,6 +930,16 @@
       "title" : "MinimumVersion",
       "type" : "string"
     },
+    "navigation.history.scope" : {
+      "default" : "workspaces",
+      "description" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace.",
+      "enum" : [
+        "workspaces",
+        "everything"
+      ],
+      "title" : "Back and Forward Steps",
+      "type" : "string"
+    },
     "navigation.historyScope" : {
       "default" : "workspace",
       "description" : "What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.",
