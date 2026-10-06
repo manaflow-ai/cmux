@@ -8,7 +8,7 @@ import CmuxNextSettings
 /// its daemon). `{open: true}` starts a quit exactly as Cmd-Q does
 /// (interactive origin); `{remember: bool}` sets "Don't ask again";
 /// `{open: true, inactive: true}` does it as a Dock quit of an inactive app;
-/// `{press: "keep" | "quit-everything" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
+/// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
 /// clicks that button. While "Some sessions did not end" shows, the report
 /// carries `failure` (its lines and buttons) and `press: "retry" |
 /// "quit-anyway"` answers it.
