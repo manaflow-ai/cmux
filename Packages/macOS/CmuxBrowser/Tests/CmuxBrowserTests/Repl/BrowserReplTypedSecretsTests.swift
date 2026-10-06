@@ -92,6 +92,25 @@ struct BrowserReplTypedSecretsTests {
         #expect(typed.captureMasks(forReader: "reader").count == 2)
     }
 
+    /// A session that types a secret name into a tab again (a new value)
+    /// leaves the earlier value wherever the page kept it (another field,
+    /// its history, a hidden copy) until the tab closes, so both values stay
+    /// masked for other sessions, also after the typing session ends.
+    @Test func aNameTypedAgainKeepsItsEarlierValueMasked() throws {
+        let typed = BrowserReplTypedSecrets()
+        try typed.record(tab: "tab1", name: "password", value: "first-typed-value", domains: Self.domains, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "second-typed-value", domains: Self.domains, typist: "typist")
+        let reader = try #require(typed.redaction(forReader: "reader"))
+        #expect(reader.redact("first-typed-value second-typed-value") == "<secret:password> <secret:password>")
+        typed.sessionLeft("typist")
+        let later = try #require(typed.redaction(forReader: "later"))
+        #expect(later.redact("first-typed-value second-typed-value") == "<secret:password> <secret:password>")
+        #expect(Set(typed.captureMasks(forReader: "later").compactMap { $0["value"] as? String }) == ["first-typed-value", "second-typed-value"])
+        // Typing the same value again is still one record.
+        try typed.record(tab: "tab1", name: "password", value: "second-typed-value", domains: Self.domains, typist: "next")
+        #expect(typed.captureMasks(forReader: "reader").count == 2)
+    }
+
     /// One session types a secret of one name into two tabs: both values
     /// stay masked.
     @Test func sameNamedSecretsInTwoTabsAreBothMasked() throws {
@@ -130,10 +149,15 @@ struct BrowserReplTypedSecretsTests {
         #expect(throws: BrowserReplDriverError.self) {
             try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")
         }
-        // Typing a name into the same tab again replaces its value.
-        try typed.record(tab: "tab0", name: "n0", value: "value-again", domains: Self.domains, typist: "typist")
+        // Typing a name into the same tab again with a new value is one more
+        // value (the earlier one may still be in the page), so it is refused
+        // too; the same value again is the record it already has.
+        #expect(throws: BrowserReplDriverError.self) {
+            try typed.record(tab: "tab0", name: "n0", value: "value-again", domains: Self.domains, typist: "typist")
+        }
+        try typed.record(tab: "tab0", name: "n0", value: "value-0", domains: Self.domains, typist: "typist")
         let reader = try #require(typed.redaction(forReader: "reader"))
-        #expect(reader.redact("value-4095 value-again value-more") == "<secret:n4095> <secret:n0> value-more")
+        #expect(reader.redact("value-4095 value-0 value-more") == "<secret:n4095> <secret:n0> value-more")
         // A closed tab's values go with it, which makes room.
         typed.tabClosed("tab1")
         try typed.record(tab: "tab0", name: "one-more", value: "value-more", domains: Self.domains, typist: "typist")

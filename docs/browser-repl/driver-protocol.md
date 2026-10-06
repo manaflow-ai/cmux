@@ -473,16 +473,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   values first would let one value's mask cut into another before the
   gate looks for it. Another session that drives the same tab
   (`tabs.use`) does not hold the secret, so the driver remembers each value
-  it typed, by tab, typing session and secret name, from when the domain
+  it typed, by tab and value, from when the domain
   check passes, before it types, until the tab closes (a value the check
   refuses is never remembered; sessions whose secrets share a name keep
-  separate values), and every other session masks it as typed,
+  separate values, and a name typed again with a new value keeps the
+  earlier one, which the page may still hold), and every other session masks it as typed,
   `<secret:name>`, at its egress gate (every result, event and error), and
   the driver in their captures; once the typing session ends, also for a
   later session of the same name.
-  The open tabs hold at most 4,096 such values (one per tab, typing
-  session and name; a value typed again after the session that typed it
-  ended replaces that record): past that the driver refuses to type
+  The open tabs hold at most 4,096 such values (one per tab and distinct
+  value; the same value typed into the tab again, also after the session
+  that typed it ended, is the record it already has): past that the driver refuses to type
   another (`invalid`) until tabs close, since a value it typed is never
   dropped while its tab is open.
   A capture takes those masks before it waits for the page, so one during
@@ -516,6 +517,13 @@ native (`BrowserReplBoundary` in the session, and the driver):
   by printing guesses: value masking keeps a value out of what pages and
   files hand back, not away from an agent that guesses it. Capture masks
   still mask the exact values and codes.
+  Masking matches whole values, so where the page agent cuts a page
+  string (the page-read budget, a long name) it drops the 53,248
+  characters before the cut (4,096 bytes in their longest escaped form)
+  before the reply leaves the page: a cut never hands on a value's prefix.
+  Text the agent's own page scripts cut or search (a `searchText` context
+  window, a regex group, `page.evaluate`) is outside this, as other
+  transforms are.
   This masks the value as typed and in the encodings the session's
   redaction knows; page script that copies it elsewhere or transforms it
   is outside it, as it is within one session. Redaction is best-effort

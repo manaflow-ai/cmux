@@ -596,6 +596,7 @@ checks nothing stays reserved after the session ends.
 | The session's JavaScript heap (M) | 384 MiB, measured as each cell ends and after other runs (at most 5% of the thread's time) | after a full garbage collection, the session ends: the running cell fails with the limit, and the next session of its name prints it first |
 | Cells waiting for the running one | 64 | the cell fails at once |
 | Source of the waiting cells (M) | 64 MiB | the cell fails at once |
+| Parsing the running cell (M) | 64 bytes for each byte of its source, reserved before it is parsed and held until it ends (Acorn's tree is about 50 bytes a byte of dense code); within the session's 512 MiB, so a cell holds at most about 8 MiB of source | the cell fails at once |
 | A cell's timeout (`--timeout`, `timeout_ms`) | 10 minutes (default 120 s) | refused before the cell runs |
 | Output a cell keeps in memory (M) | 16 MiB per cell | the rest goes to a spill file |
 | Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |
@@ -605,6 +606,7 @@ checks nothing stays reserved after the session ends.
 | Parameters of calls and fetch requests waiting or running (M) | 512 MiB | the call fails at once |
 | One browser call's result | 64 MiB, also with secrets masked | the call fails before its result is masked |
 | Results the session's JavaScript has not taken yet (M) | 512 MiB | the call fails instead of waiting |
+| One `fs`, `secrets` or `policy` call's arguments (M), reserved before they are parsed or decoded | 64 MiB (an fs call: one write in Base64, plus 1 MiB) | the call fails before it is parsed (`E2BIG` / `ENOMEM` for fs) |
 | Fetches waiting for their response headers | 16 | later ones wait in order |
 | Open fetches | 64 | later ones wait in order |
 | Fetches waiting for a slot | 256 | the fetch fails at once |
@@ -622,7 +624,7 @@ checks nothing stays reserved after the session ends.
 | fs file changes over the session's life | 100,000 | `EDQUOT` |
 | One `readFile` / `readdir` | 64 MiB / 10,000 entries | `ERR_FS_FILE_TOO_LARGE` / `ERR_FS_DIR_TOO_LARGE` |
 | One fs path (`path`, `from`, `to`) | 1,024 bytes (`PATH_MAX`) | `ENAMETOOLONG`, before any work |
-| A page read (snapshot, Markdown and its `exportContent`, extract, locator reads, …) | 250,000 nodes, 2,000,000 characters, 8 s | cut, with a note |
+| A page read (snapshot, Markdown and its `exportContent`, extract, locator reads, …) | 250,000 nodes, 2,000,000 characters, 8 s | cut, with a note; a string cut at the size budget (or a name past 2,000 characters) also loses the 53,248 characters before its cut, so it never ends inside a value masked as a secret |
 | The localStorage one `storageState` reads, over all frames | 250,000 items, 2,000,000 characters of names and values | the call fails with the page-read note |
 | One reply from the page agent's world | 10,000,000 characters (the page-read budget's characters plus 32 per node) | the call fails with the page-read note |
 | Handles one `queryAll` makes | 250,000 | without a limit, the call fails with the page-read note |

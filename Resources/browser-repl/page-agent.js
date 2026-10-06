@@ -270,8 +270,34 @@
     }
   };
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  // Where this world cuts a page string, it leaves CUT until the reply is
+  // sealed (`sealReply`). Secrets are masked natively, after the reply
+  // leaves the page, by matching whole values, so a cut inside a value
+  // would hand on its unmasked prefix: sealing drops the CUT_MARGIN
+  // characters before each cut, the longest form a masked value takes
+  // (4,096 bytes, BrowserReplSecretStore.maximumValueBytes, each character
+  // at most 13 characters as an HTML reference, `&#1114111;`), and writes
+  // "…" there. CUT is a noncharacter: page text that holds one only loses
+  // the text before it.
+  const CUT = "\ufdd0";
+  const CUT_MARGIN = 13 * 4096;
+  // `s` with each cut settled: the text within CUT_MARGIN before it dropped.
+  function settleCuts(s) {
+    if (typeof s !== "string" || s.indexOf(CUT) === -1) return s;
+    let out = "";
+    let from = 0;
+    for (let i = s.indexOf(CUT); i !== -1; i = s.indexOf(CUT, from)) {
+      let end = Math.max(from, i - CUT_MARGIN);
+      // Never split a surrogate pair.
+      if (end > from && /[\ud800-\udbff]/.test(s[end - 1])) end--;
+      out += s.slice(from, end) + "…";
+      from = i + 1;
+      while (s[from] === CUT) from++;
+    }
+    return out + s.slice(from);
+  }
   // A safety cap only: the host decides how much of a name to print.
-  const capName = (s) => (s.length > 2000 ? s.slice(0, 1999) + "…" : s);
+  const capName = (s) => (s.length > 2000 ? s.slice(0, 1999) + CUT : s);
 
   function parentCrossingShadow(el) {
     if (el.parentElement) return el.parentElement;
@@ -475,7 +501,7 @@
     "menuitemcheckbox", "menuitemradio", "option", "radio", "row", "rowheader", "switch", "tab", "tooltip", "treeitem"]);
   const NAME_ATTRS = ["aria-label", "title", "alt", "placeholder", "value", "aria-description"];
   const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button", "meter", "output", "progress"]);
-  const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) : v || "");
+  const cutAttr = (v) => (v && v.length > NAME_CHARS ? v.slice(0, NAME_CHARS) + CUT : v || "");
   function labelledTargets(el, ctx) {
     const value = el.getAttribute("aria-labelledby");
     if (!value) return [];
@@ -563,13 +589,16 @@
     walkTree(root, (n) => {
       if (out.length >= NAME_CHARS || ++nodes > NAME_NODES) return STOP;
       if (own ? ++ctx.ticks % 256 === 0 && now() > ctx.deadline && (ctx.truncated = ctx.truncated || "time") : !spend(ctx, 1)) return STOP;
-      if (n.nodeType === 3 || n.nodeType === 4) out += n.data.slice(0, NAME_CHARS - out.length);
+      if (n.nodeType === 3 || n.nodeType === 4) out += n.data.length > NAME_CHARS - out.length ? n.data.slice(0, NAME_CHARS - out.length) + CUT : n.data;
       else if (n.nodeType === 1 && spaced) {
         if (SKIP_TAGS.has(tagOf(n))) return false;
         if (out && out[out.length - 1] !== " ") out += " ";
         if (n !== root && tagOf(n) === "select") {
           const chosen = n.selectedOptions;
-          for (let i = 0; i < chosen.length && i < NAME_NODES && out.length < NAME_CHARS; i++) out += chosen[i].text.slice(0, NAME_CHARS - out.length) + " ";
+          for (let i = 0; i < chosen.length && i < NAME_NODES && out.length < NAME_CHARS; i++) {
+            const t = chosen[i].text;
+            out += (t.length > NAME_CHARS - out.length ? t.slice(0, NAME_CHARS - out.length) + CUT : t) + " ";
+          }
           return false;
         }
       }
@@ -879,6 +908,9 @@
       spend: (count) => spend(b, count === undefined ? 1 : count),
       charge: (count) => chargeSize(b, count),
       fit: (s) => fit(b, s),
+      // `s` with its cuts settled, for a page function that cuts or
+      // searches its own text before it replies (sealing settles the rest).
+      settle: (s) => settleCuts(s),
       // The bounded DOM reads above, charged to this budget.
       textContent: (node) => boundedTextContent(node, b),
       innerText: (el) => boundedInnerText(el, b),
@@ -929,9 +961,25 @@
     }
     return size;
   }
+  // Settles every cut in `value`'s strings (settleCuts), in place.
+  function settleReply(value) {
+    if (typeof value === "string") return settleCuts(value);
+    const stack = [value];
+    while (stack.length) {
+      const v = stack.pop();
+      if (v === null || typeof v !== "object") continue;
+      for (const key of Array.isArray(v) ? v.keys() : Object.keys(v)) {
+        const item = v[key];
+        if (typeof item === "string") {
+          if (item.indexOf(CUT) !== -1) v[key] = settleCuts(item);
+        } else if (item !== null && typeof item === "object") stack.push(item);
+      }
+    }
+    return value;
+  }
   function sealReply(value, limit) {
     const max = Math.min(MAX_REPLY, typeof limit === "number" && limit >= 0 ? Math.floor(limit) : MAX_REPLY);
-    if (replySize(value, max) <= max) return value;
+    if (replySize(value, max) <= max) return settleReply(value);
     return cutReply({ truncated: "size", maxSize: max });
   }
   function reply(value, limit) {
@@ -961,7 +1009,8 @@
     if (!ctx.truncated) ctx.truncated = "size";
     return false;
   }
-  // `s` charged to the size budget, cut where the budget ends.
+  // `s` charged to the size budget, cut where the budget ends (CUT, which
+  // sealing turns into "…" well before the cut).
   function fit(ctx, s) {
     if (typeof s !== "string" || !s) return s;
     const left = ctx.sizeLeft;
@@ -969,7 +1018,7 @@
     let end = left;
     // Never split a surrogate pair.
     if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
-    return s.slice(0, end) + "…";
+    return s.slice(0, end) + CUT;
   }
 
   // ---------------------------------------------------------------------------
