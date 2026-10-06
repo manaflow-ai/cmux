@@ -164,7 +164,7 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
-    func showNotice(_ text: String?) {
+    public func showNotice(_ text: String?) {
         guard text != notice else { return }
         notice = text
         noticeLabel.stringValue = text ?? ""
