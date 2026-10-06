@@ -189,6 +189,24 @@ final class HostView: NSView {
     override func mouseUp(with event: NSEvent) { controller?.mouseUp(at: point(event), event) }
     override func menu(for event: NSEvent) -> NSMenu? { controller?.menu(at: point(event)) }
 
+    // Hover (MessagesLab cd2bc08): an image attached in the field shows its remove button.
+    private var hoverArea: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = hoverArea { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(t)
+        hoverArea = t
+    }
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        controller?.demo?.compose.hoverAttachments(point(event))
+    }
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        controller?.demo?.compose.hoverAttachments(nil)
+    }
+
     // MARK: Drop
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { controller?.dragEntered(sender) ?? [] }
@@ -294,6 +312,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         host.fieldChrome.onEmoji = { [weak self] in self?.showEmojiPicker() }
         demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
+        // An attachment grows the field at once (MessagesLab cd2bc08): the glass follows without animating.
+        demo.compose.onFieldJump = { [weak self] in
+            guard let self, let demo = self.demo else { return }
+            self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+        }
         let tv = demo.compose.textView
         tv.view.delegate = self
         tv.onSend = { [weak self] in self?.send() }

@@ -158,7 +158,8 @@ enum PartRenderer {
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
         let color = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        let link = outgoing ? UIColor.white : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        // An outgoing link is the bubble's text colour (white; a themed host's own colour).
+        let link = outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
         let attr = tl.attributed(color: color, linkColor: link)
         for (i, line) in tl.lines.enumerated() where line.range.length > 0 {
             let l = CTLineCreateWithAttributedString(attr.attributedSubstring(from: line.range))

@@ -12,7 +12,9 @@ and render-server field animation, blurred header and native scrolling.
   path and the pin (first line).
   - catalyst core: Model, Engine (types and the reducer, kept as a projection
     of HomeStore), Layout, Transcript, Recycler, RowDrawing, Springs, Morph,
-    Shapes, Fixture, Header, WindowView, Replay; `Resources/springs.json`.
+    Shapes, Fixture, Header, WindowView, Replay, ComposeAttachments (the
+    field's attachments: images as the image, 177 x 118 pt, stacked; files as
+    tiles), LinkPreviews; `Resources/springs.json`.
   - appkit-port shim: UIKitNames, RoundedRect, LayerViews.
   - appkit-native: Compose, Materials, NativeScroll, HeaderBar,
     HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
@@ -35,6 +37,7 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
+  `HomeLinkPreviews` (which links may fetch a preview),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -61,6 +64,9 @@ and render-server field animation, blurred header and native scrolling.
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
+| Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
+| LinkPreviews | the cache lives in the app's own caches folder (`<bundle id>/link-previews`), not MessagesLab's; `cached(_:)` lets a HomeStore rebuild show a fetched preview again |
+| ComposeAttachments | the image placeholder and file tile fill use the theme's chip fill on a light theme (a dark theme keeps the measured white) |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 
 ## Updating
@@ -76,17 +82,49 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-05): every file at 69f4256
-(macOS 27 geometry: ComposeMetrics' 31 pt field, the receipt row in place of
-the gap below it, the 22 pt "N Replies" row, text thread previews; the 5-bar
-mic and compose glyphs; the shared `.delete`; the live thread backdrop; the
-real tapback strip; the receipt ghost kept after the row it followed) except
-SwipeReply at 0c8147b (no SwipeReply change is taken: it is not installed
-while HomeOp has no reply). Host.swift is not vendored: 7f1a811's press and
+that are wip checkpoints. Current pins (2026-10-05): every file at cd2bc08
+(Messages' link rule: a line that is only a URL becomes the link card in its
+place, the other lines stay one text bubble, a URL inside a sentence gets no
+card; the size cache keyed by part content, `MeasureCache.partVersion`;
+outgoing links in the theme's text colour; LinkPresentation previews;
+compose attachment previews; da2b8ae's text column, 358.4 - 0.654 x (628 - W)
+pt) except WindowView and NativeScroll at 69f4256 and SwipeReply at 0c8147b.
+WindowView: cd2bc08 keeps the first visible row in place when the width
+changes while pinned to the bottom (Messages reflows rows downward under the
+field); Home keeps its pinned live resize. NativeScroll: 2f22022's drawn
+scroll indicator sits 2 pt from the window's right edge, which in a pane is
+not the transcript's edge. No SwipeReply change is taken: it is not
+installed while HomeOp has no reply.
+
+The link rule on the Home path: HomeStore stores a text part as typed, and
+`HomeMapping.projectedParts` shows it through the vendored
+`TextParts.parts` (the rule MessagesLab's own send applies), so the local
+send and the stored message show the same bubbles. A text with mentions
+stays one bubble, and so does an agent's Markdown with a fenced block. A
+split text is still one HomeStore part: a tapback on its card or its text
+bubble is on that part and shows on its first bubble.
+
+Link previews (LinkPresentation, `LinkPreviews.shared`) fetch a card's page
+title, site and image for links in messages sent or received while the
+conversation is open (the live view only; tests and the harness pass none):
+once per URL, off main, 8 s timeout, results and failures cached on disk,
+the domain card kept on failure. Privacy: this makes a network request to a
+URL taken from chat content, as Messages does. `Cmux/HomeLinkPreviews`
+lets a fetch through only for links the user or an agent (the Chief) sent;
+another person's links keep the domain card. History loaded later (install,
+older pages, rebuilds) shows only cached previews and never fetches.
+
+Messages' 434 pt window minimum (Host.swift) is not applied: a Home tab is a
+pane in the cmux-next window, whose layout has one global minimum pane width
+(`layout.minimumPaneWidth`) and no per-content minimum. A narrower pane scales
+the text column (Layout patch above).
+
+Host.swift is not vendored: 7f1a811's press and
 hold, picker dim and Esc, double-click word and menu tapback rows are carried
 in Cmux/PaneInteractions.swift and PaneHost, and 69f4256's menu (Tapback
 Details…, Attach Sticker…, Share… for text and links), target highlight,
-lifted bubble and the picker's emoji bubble in Cmux/PaneMenu.swift. Not
+lifted bubble and the picker's emoji bubble in Cmux/PaneMenu.swift; cd2bc08's
+attachment hover and at-once field growth (`onFieldJump`) in PaneHost. Not
 offered in Home: Reply… (no reply op), Delete… (MessagesLab's `.delete`
 hides a message on this device; HomeStore has no local hide and HomeOp no
 delete), Edit and Undo Send. Threads never open in Home, so the thread

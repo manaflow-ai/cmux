@@ -34,7 +34,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -115,7 +128,8 @@
+@@ -119,7 +132,8 @@
      var onSendPulse: ((CFTimeInterval) -> Void)?
  
      static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
@@ -44,7 +44,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -128,8 +142,8 @@
+@@ -132,8 +146,8 @@
          default: return .limited
          }
      }()
@@ -55,7 +55,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -327,11 +341,11 @@
+@@ -332,11 +346,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -69,21 +69,12 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -356,7 +370,7 @@
-                 let font = NSFont.systemFont(ofSize: 11, weight: .medium)
-                 let w = min(200, TextDraw.width(a.fileName, font: font) + 34)
-                 let r = CGRect(x: x, y: 5, width: w, height: 22)
--                NSColor(white: 1, alpha: 0.12).setFill()
-+                Fixture.chipFill.setFill()  // cmux: themed
-                 UIBezierPath(roundedRect: r, cornerRadius: 11).fill()
-                 TextDraw.line(a.fileName, font: font, color: Fixture.incomingText, x: r.minX + 10, baseline: r.minY + 15, in: ctx.cgContext)
-                 TextDraw.line("\u{2715}", font: .systemFont(ofSize: 9, weight: .bold), color: Fixture.secondaryText, x: r.maxX - 16,
-@@ -398,7 +412,7 @@
-         placeholderLayer.opacity = text.isEmpty ? 1 : 0
-         waveLayer.opacity = text.isEmpty ? 1 : 0
+@@ -396,7 +410,7 @@
+         placeholderLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
+         waveLayer.opacity = text.isEmpty && chips.isEmpty ? 1 : 0
          CATransaction.commit()
--        let h = ComposeView.height(lines: ComposeView.lines(d.text), chips: !d.attachments.isEmpty)
-+        let h = ComposeView.height(lines: lines(d.text), chips: !d.attachments.isEmpty)
+-        let h = ComposeView.height(lines: ComposeView.lines(d.text), chips: false) + strip.height
++        let h = ComposeView.height(lines: lines(d.text), chips: false) + strip.height  // cmux: per view
          let old = fieldHeight
          fieldHeight = h
          place(height: h)

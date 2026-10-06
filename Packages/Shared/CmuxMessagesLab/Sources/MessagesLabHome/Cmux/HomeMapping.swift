@@ -16,14 +16,72 @@ enum HomeMapping {
     /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
     typealias Media = (String) -> String?
 
+    /// A link card's fetched preview (`LinkPreviews.cached`), nil: the domain card.
+    typealias Links = (String) -> LinkMetadata?
+
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                        summary: ConversationSummary?, media: Media = { _ in nil }) -> Message {
-        let markdown = isAgent(item.author, summary)
+                        summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil }) -> Message {
+        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
         return Message(id: id(item, aliases: aliases), senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: item.isRetracted ? [] : item.parts.map { part($0, media: media, progress: item.attachmentProgress, markdown: markdown) },
-                replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
+                parts: parts, replyTo: nil, status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
-                reactions: item.reactions.map(reaction))
+                reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) })
+    }
+
+    /// The item's parts as MessagesLab shows them, and for each one the
+    /// HomeStore part it came from. A text part follows Messages' link rule
+    /// (the vendored `TextParts.parts`, as MessagesLab's own send does): a
+    /// line that is only a URL is a link card in its place, the other lines
+    /// stay one text bubble, a URL in a sentence gets no card. So the local
+    /// send and the message HomeStore stores show the same bubbles.
+    static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
+                               links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
+        guard !item.isRetracted else { return ([], []) }
+        let markdown = isAgent(item.author, summary)
+        var parts: [Part] = [], owners: [Int] = []
+        for (i, p) in item.parts.enumerated() {
+            let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
+            parts += shown
+            owners += Array(repeating: i, count: shown.count)
+        }
+        return (parts, owners)
+    }
+
+    /// A HomeStore part index as the first MessagesLab part it shows as
+    /// (a reaction on a split text sits on its first bubble).
+    static func projectedIndex(_ homeIndex: Int, _ owners: [Int]) -> Int {
+        owners.firstIndex(of: homeIndex) ?? homeIndex
+    }
+
+    /// A MessagesLab part index as the HomeStore part it shows (a tapback's partIndex).
+    static func homeIndex(_ projected: Int, _ owners: [Int]) -> Int {
+        owners.indices.contains(projected) ? owners[projected] : projected
+    }
+
+    /// One HomeStore part as MessagesLab parts: a text part by Messages'
+    /// link rule (people's text with its URLs as link runs, an agent's as
+    /// Markdown per bubble); every other part is one part. Text with
+    /// mentions stays one bubble (the mention offsets index the whole text),
+    /// and so does an agent's text with a fenced block (a split would cut it).
+    static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
+                      links: Links = { _ in nil }) -> [Part] {
+        guard case .text(let text, let mentions) = p, mentions.isEmpty,
+              !(markdown && (text.contains("```") || text.contains("~~~"))) else {
+            return [part(p, media: media, progress: progress, markdown: markdown)]
+        }
+        return TextParts.parts(for: text).map { shown in
+            switch shown {
+            case let .text(t, _) where markdown:
+                let (rendered, runs) = HomeMarkdown.render(t)
+                return .text(rendered, runs: runs)
+            case let .link(url, title, site, image, theme):
+                // A preview fetched before (this view's sends and receives) fills the card, as `.linkMetadata` did.
+                guard let meta = links(url) else { return shown }
+                return .link(url: url, title: meta.title ?? title, siteName: meta.site ?? site, image: meta.image ?? image, theme: theme)
+            default:
+                return shown
+            }
+        }
     }
 
     /// My messages: sending, delivered once the owner committed it, read when
@@ -97,8 +155,8 @@ enum HomeMapping {
                           transfer: progress.map { .uploading($0) } ?? .done)
     }
 
-    static func reaction(_ r: CmuxHomeCore.Reaction) -> Reaction {
-        Reaction(senderId: r.author.rawValue, partIndex: r.partIndex, kind: kind(r.kind), at: "")
+    static func reaction(_ r: CmuxHomeCore.Reaction, partIndex: Int? = nil) -> Reaction {
+        Reaction(senderId: r.author.rawValue, partIndex: partIndex ?? r.partIndex, kind: kind(r.kind), at: "")
     }
 
     static func kind(_ k: CmuxHomeCore.Reaction.Kind) -> Reaction.Kind {

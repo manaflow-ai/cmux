@@ -115,7 +115,18 @@ struct Metrics: Hashable {
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
     var centerX: CGFloat { Fixture.centerX + dx / 2 }
     var receiptRight: CGFloat { Fixture.receiptRight + dx }
-    var maxTextWidth: CGFloat { (Fixture.maxTextWidth * width / Fixture.windowWidth * 10).rounded() / 10 }
+    /// Text column: 358.4 pt at the 628 pt window, then 0.654 pt per point of window width.
+    /// Measured on macOS 27 Messages at 434, 480, 520, 560 and 600 pt (lossless stills,
+    /// references/real-messages/recordings/stills/widths; line breaks bound it per width to
+    /// [226,232), [260,273), [287.5,294), [304.5,319.5), >= 338; 0.654 is inside all five). The old rule, proportional to
+    /// the width (0.5707 W), wrapped later than Messages below 600 pt.
+    var maxTextWidth: CGFloat {
+        // cmux: a Home pane can be narrower than Messages' 434 pt window minimum (the
+        // pane layout has no per-content minimum): below 434 pt the column keeps its
+        // 434 pt share of the width (the rule alone reaches 0 pt at 80 pt).
+        guard width < 434 else { return ((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - width)) * 10).rounded() / 10 }
+        return (((Fixture.maxTextWidth - 0.654 * (Fixture.windowWidth - 434)) * width / 434) * 10).rounded() / 10
+    }
     var maxLinkWidth: CGFloat { min(Fixture.maxLinkWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
     var mediaWidth: CGFloat { min(Fixture.mediaWidth, maxTextWidth + 2 * Fixture.bubblePadX) }
 }
@@ -459,13 +470,32 @@ final class MeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var hits = 0, misses = 0, estimates = 0
 
+    /// A part whose content changes in place is a new measurement: text a host
+    /// replaces under the same message id (an optimistic send, then the stored
+    /// message), a link preview's metadata (title, site, image), an
+    /// attachment's dimensions. The key used to be the message id and its edit
+    /// count only: the bubble kept the size of the first text while the row
+    /// drew the new one (cmux-next: a one-line bubble under a two-line text, the
+    /// second line outside it), and a card kept the domain card's size while
+    /// it drew the image (its text below the card).
+    static func partVersion(_ p: Part) -> Int {
+        var h = Hasher()
+        switch p {
+        case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
+        case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
+        case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
+        default: return 0
+        }
+        return h.finalize()
+    }
+
     static func version(_ m: Message) -> Int { ((m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1)) * 2 + (m.deletedAt == nil ? 0 : 1) }
 
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
     /// the row is re-measured before it draws). Exact misses measure now.
     func size(_ m: Message, _ pi: Int, width: CGFloat, estimate: Bool = false) -> Value {
-        let version = MeasureCache.version(m)
+        let version = MeasureCache.version(m) &+ MeasureCache.partVersion(m.parts[pi])
         let k = Key(id: m.id, part: pi, version: version, width: width)
         lock.lock()
         if let v = store[k] { hits += 1; lock.unlock(); return v }
@@ -542,7 +572,10 @@ enum RowBuilder {
                 if let r = m.replyTo, m.retractedAt == nil, let c = replyCount[r.messageId] { replyCount[r.messageId] = c + 1 }
             }
         }
-        var prev: Message? = span.lowerBound > 0 ? messages[span.lowerBound - 1] : nil
+        // The message above the range: the nearest one that is not deleted.
+        var prevIndex = span.lowerBound - 1
+        while prevIndex >= 0, messages[prevIndex].deletedAt != nil { prevIndex -= 1 }
+        var prev: Message? = prevIndex >= 0 ? messages[prevIndex] : nil
         for idx in span {
             let m = messages[idx]
             if m.deletedAt != nil { continue }

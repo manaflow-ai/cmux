@@ -38,8 +38,10 @@ oracle)
   app="$build/MessagesLabAppKitNative.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   files=( "$src"/appkit-native/Sources/*.swift )
-  for f in Model Engine PagedSource Pager Layout Transcript Recycler RowDrawing Springs Morph Shapes Fixture Header WindowView Replay; do
-    files+=( "$src/catalyst/Sources/$f.swift" )
+  for f in Model Engine PagedSource Pager Layout Transcript Recycler RowDrawing Springs Morph Shapes Fixture Header WindowView Replay \
+           ComposeAttachments LinkPreviews; do
+    # ComposeAttachments and LinkPreviews exist from MessagesLab 2f22022 / cd2bc08 on.
+    [[ -f "$src/catalyst/Sources/$f.swift" ]] && files+=( "$src/catalyst/Sources/$f.swift" )
   done
   files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
   xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 \

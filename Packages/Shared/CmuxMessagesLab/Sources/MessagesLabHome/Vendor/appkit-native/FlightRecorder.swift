@@ -90,6 +90,9 @@ final class FlightRecorder: NSObject {
         if events.count > 400 { events.removeFirst(events.count - 400) }
     }
 
+    /// True while the display link samples (the self-test's idle check waits for it).
+    var isSampling: Bool { link != nil }
+
     /// Something may animate: sample until it settles.
     func kick() {
         guard FlightRecorder.enabled, link == nil, let c else { return }
