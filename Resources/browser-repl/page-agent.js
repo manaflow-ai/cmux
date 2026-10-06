@@ -1514,7 +1514,10 @@
       focus: deepActiveElement(document),
       visited: new Set(),
       depth: 0,
-      nest: 0,
+      // How deep the snapshot already is where this frame's tree goes (an
+      // iframe's frame stitches under its iframe): the walk's depth bound
+      // holds for the whole stitched tree, not for each frame alone.
+      nest: Math.min(MAX_DEPTH, Math.max(0, Math.floor(Number(opts.nest)) || 0)),
       clips: EMPTY_CLIPS,
       positioned: -1,
       transformed: -1,

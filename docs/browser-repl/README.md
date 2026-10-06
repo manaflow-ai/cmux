@@ -304,7 +304,9 @@ rest. Measurements: [performance.md](performance.md).
   counted; once a read's budget is spent, controls have no labels in it,
   never WebKit's getter, which scans the whole document per control. The
   walk descends at most 1,000 elements deep (script can nest elements
-  deeper than the stack); a deeper element prints as `generic [ref=e9]
+  deeper than the stack), counted over the whole snapshot: an iframe's
+  frame starts at its iframe's depth, so frames nested inside each other
+  share the bound; a deeper element (or iframe) prints as `generic [ref=e9]
   [not read: nested deeper than 1000 elements; snapshot this ref to read
   it]`. A cut snapshot ends with `# the page is too large
   to read whole: the snapshot stopped after 250,000 nodes; …` (or `after

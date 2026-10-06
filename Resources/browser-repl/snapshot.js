@@ -985,13 +985,20 @@
   // the frames inside split what this frame left of its own share, never
   // the snapshot's remaining budget, which siblings still being read hold
   // shares of. So frames read together never pass the budget.
-  async function frameTree(page, frame, rootHandle, options, inner, share, sizeShare) {
+  // The page agent's walk depth bound (page-agent.js MAX_DEPTH), here for
+  // the whole stitched tree: a frame's tree goes under its iframe, so
+  // iframes nested inside each other would otherwise stack each frame's
+  // depth, and stitching, diffing and printing recurse per level.
+  const MAX_NEST = 1000;
+  const NEST_CUT = `nested deeper than ${MAX_NEST} elements; snapshot this ref to read it`;
+
+  async function frameTree(page, frame, rootHandle, options, inner, share, sizeShare, nest = 0) {
     const limit = options._limit || (options._limit = limiter(FRAME_CONCURRENCY));
     const budget = nodeBudget(options);
     const maxNodes = Math.max(1, share === undefined ? budget.left : share);
     const maxSize = Math.max(1, sizeShare === undefined ? budget.sizeLeft : sizeShare);
     let called = 0;
-    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize });
+    const read = () => frame._agent("snapshot", { root: rootHandle || null, showHidden: !!options.showHidden, viewport: !!options.viewport, options: !!options.options, base: page._refMaxFor(frame), maxNodes, maxSize, nest });
     const r = await limit(() => ((called = clock()), inner ? withDeadline(page, read(), options._frameTimeout) : read()));
     const usedNodes = Math.min(maxNodes, Math.max(0, Number(r.visited) || 0));
     const usedSize = Math.min(maxSize, Math.max(0, Number(r.size) || 0));
@@ -1013,15 +1020,19 @@
       if (r.offscreenMore) options._offscreenMore = true;
     }
     const iframes = [];
-    const collect = (list) => {
+    // `level` is the node's depth in the stitched tree; an iframe whose
+    // frame would start at the depth bound is not read (stitch notes it).
+    const collect = (list, level) => {
       for (const n of list) {
         if (typeof n === "string") continue;
         if (n.ref) issued.push(n.ref);
-        if (n.role === "iframe") iframes.push(n);
-        else if (n.children) collect(n.children);
+        if (n.role === "iframe") {
+          if (level + 1 >= MAX_NEST) n._child = { deep: true };
+          else iframes.push(n), (n._nest = level + 1);
+        } else if (n.children) collect(n.children, level + 1);
       }
     };
-    collect(r.nodes);
+    collect(r.nodes, nest);
     // Each ref is bound to the document that issued it (Page._checkRef).
     page._noteRefDocs(frame, r.doc, issued);
     // The document that issued this read's refs, for annotate.
@@ -1050,7 +1061,7 @@
         if (child && !child._detached && (childShare < 1 || childSizeShare < 1)) {
           node._child = { frame: child, overBudget: childShare < 1 ? "node" : "size" };
           budget.truncated = budget.truncated || (childShare < 1 ? "nodes" : "size");
-        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, childShare, childSizeShare) };
+        } else if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true, childShare, childSizeShare, node._nest) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
         // The driver does not read a frame that shows a page the domain
@@ -1082,6 +1093,8 @@
           delete node.frame;
           delete node.frameFocused;
           delete node._child;
+          delete node._nest;
+          if (child && child.deep) node.unread = NEST_CUT;
           if (child && child.timedOut) node.unread = "timed out";
           if (child && child.blocked) node.unread = "blocked by the domain policy";
           if (child && child.overBudget) node.unread = `the snapshot's ${child.overBudget} budget is used up`;
