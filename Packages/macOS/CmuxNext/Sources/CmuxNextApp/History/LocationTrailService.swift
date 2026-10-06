@@ -187,15 +187,15 @@ final class LocationTrailService {
     // MARK: Page history (history.md 4.2b)
 
     /// The page history of what `controller` (else the active window) shows: its top page, else
-    /// the internal page tab selected in its focused pane.
+    /// the internal page tab (app-only or store) its focused pane shows.
     func pageHistory(in controller: WindowController? = nil) -> (any PageHistory)? {
         guard let controller = controller ?? services.windows.active else { return nil }
         if let route = controller.shownTopPage {
             guard case .page(let id) = route, let key = controller.topPages.key(for: route) else { return nil }
             return TopPages.provider(id, services: services)?.history(for: key)
         }
-        guard let key = controller.focusedPane?.stripModel.selectedID?.rawValue, let id = LocalPageTab.page(of: key) else { return nil }
-        return services.pages.provider(id)?.history(for: key)
+        guard case .page(let view)? = controller.focusedPane?.currentContent else { return nil }
+        return TopPages.provider(view.page, services: services)?.history(for: view.key)
     }
 
     /// A page moved through its history, or the shown page changed: the titlebar arrows re-read

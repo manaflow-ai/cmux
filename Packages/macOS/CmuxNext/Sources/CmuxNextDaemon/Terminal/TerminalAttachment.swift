@@ -1,5 +1,6 @@
 public import Foundation
 import Synchronization
+import CmuxNextWakeups
 import os
 
 /// One attached terminal view on its own connection (v12 has no stream
@@ -134,6 +135,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
+                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded) }
                     queue.push(event)
                 }
             },
@@ -199,6 +201,7 @@ public actor TerminalAttachment: TerminalByteChannel {
             }) { id in
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data), id: id)
             }
+            TypingLatencyProbe.shared.mark(.socketSubmit)
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }

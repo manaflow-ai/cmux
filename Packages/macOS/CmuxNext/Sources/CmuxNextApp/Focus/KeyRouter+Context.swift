@@ -32,6 +32,9 @@ extension KeyRouter {
         /// The focused address bar shows its suggestion list: it is a list
         /// for Ctrl-N/P/J/K (R110) until the list closes.
         var omnibarListOpen = false
+        /// The focused internal page's id when its tab id does not name it
+        /// (a store page tab, `page-tabs-v1`).
+        var internalPage: String?
         /// The window shows a page with its own history (`PageHistory`):
         /// Cmd-[ / Cmd-] run Go Back / Go Forward there.
         var showsPageHistory = false
@@ -67,7 +70,7 @@ extension KeyRouter {
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
-        if let kind = surfaceKind(resolved) { context[KeyContext.surfaceKind] = .string(kind) }
+        if let kind = surfaceKind(resolved, internalPage: facts.internalPage) { context[KeyContext.surfaceKind] = .string(kind) }
         context[KeyContext.focus] = .string(focusName(resolved))
         if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
@@ -78,13 +81,13 @@ extension KeyRouter {
     }
 
     /// `surfaceKind`: what has the keyboard; nil outside a pane.
-    nonisolated static func surfaceKind(_ resolved: FocusState.Resolved) -> String? {
+    nonisolated static func surfaceKind(_ resolved: FocusState.Resolved, internalPage: String? = nil) -> String? {
         switch resolved {
         case .terminal: "terminal"
         case .browserPage, .addressBar, .findBar, .devTools: "page"
         case .agentPage: "agent"
         case .conversation: "home"
-        case .page(_, let tab): internalPageKind(tab)
+        case .page(_, let tab): internalPageKind(tab, page: internalPage)
         case .emptyPane: "empty"
         case .overlay(.palette): "palette"
         case .sidebar, .sidebarField, .textField, .overlay, .none: nil
@@ -92,9 +95,10 @@ extension KeyRouter {
     }
 
     /// An internal page's `surfaceKind`: `settings` (Settings, Debug
-    /// Settings), `appStore`, else the page id (`tasks`, `inbox`).
-    nonisolated static func internalPageKind(_ tab: String) -> String {
-        switch LocalPageTab.page(of: tab)?.rawValue {
+    /// Settings), `appStore`, else the page id (`tasks`, `inbox`). `page`
+    /// names the page of a tab whose id does not.
+    nonisolated static func internalPageKind(_ tab: String, page: String? = nil) -> String {
+        switch LocalPageTab.page(of: tab)?.rawValue ?? page {
         case "settings", "debug-settings": "settings"
         case "app-store": "appStore"
         case let id?: id
@@ -124,7 +128,15 @@ extension KeyRouter {
               listFocus: focusedReadiness(in: controller)?.isListFocused == true,
               pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
               omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
+              internalPage: focusedInternalPage(in: controller),
               showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil)
+    }
+
+    /// The page id of the focused internal page tab.
+    private func focusedInternalPage(in controller: WindowController) -> String? {
+        guard case .page = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return view.page.rawValue
     }
 
     /// The sidebar list and its search field are lists for Ctrl-N/P/J/K.
