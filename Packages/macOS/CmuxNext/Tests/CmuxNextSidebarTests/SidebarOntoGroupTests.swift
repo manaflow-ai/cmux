@@ -10,6 +10,11 @@ import Testing
 @MainActor @Suite struct SidebarOntoGroupTests {
     @Test func aRowDroppedOnALooseRowsMiddleGroupsTheTwo() throws {
         let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("a"))
+        var sent: [SidebarIntent] = []
+        model.onIntent = { [weak model] intent in
+            sent.append(intent)
+            model?.apply(intent)
+        }
         let sidebar = SidebarView(model: model)
         let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 700, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -45,5 +50,11 @@ import Testing
         }
         try #require(groups.count == 1, "one new group: \(shape(model.sections, cloud))")
         #expect(Set(groups[0].workspaces.map(\.id)) == [id("x"), id("y")])
+        // The group forms at the target row: the intent names it as the anchor.
+        let anchors = sent.compactMap { intent -> WorkspaceID? in
+            if case let .createGroup(_, _, _, _, anchor) = intent { return anchor }
+            return nil
+        }
+        #expect(anchors == [id("x")])
     }
 }

@@ -29,7 +29,10 @@ export CARGO_TARGET_DIR="$root/.build/cmux-remote-browser-host-target"
 cd "$crate"
 echo "rust toolchain: $(rustup show active-toolchain 2>/dev/null || echo unknown)"
 echo "CEF_PATH=$CEF_PATH"
-cargo test --locked
+# --all-targets runs the lib, bin and integration tests; no doctests: the
+# step's minimal toolchain has no rustdoc (step 42dc56837182b305e5d5b1a2:
+# "could not execute process `rustdoc`").
+cargo test --locked --all-targets
 cargo build --release --locked
 mkdir -p "$root/.build/artifacts"
 cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-host" "$root/.build/artifacts/cmux-remote-browser-host"
