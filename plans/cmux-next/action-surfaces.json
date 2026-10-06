@@ -17116,6 +17116,58 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud domain-list",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudDomainList",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "title" : "List Cloud Domains",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud publication-list",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPublicationList",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "title" : "List Cloud Publications",
+      "title_key" : null,
+      "title_table" : null
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud new-terminal-on-machine",
       "context_menu" : "offered",
       "context_menus" : [
