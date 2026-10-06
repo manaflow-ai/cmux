@@ -518,6 +518,23 @@ class FormatBeforeLanding(unittest.TestCase):
         with mock.patch.dict(os.environ, self.env), self.assertRaises(nb.OwnerPushed):
             controller.format_pr(target, "next-batch/x-1")
 
+    def test_never_pushes_to_a_branch_outside_the_batch_authors(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False, land=False)
+        controller.run_url = "u"
+        controller.gh = mock.Mock()
+        controller.merge_green = lambda: Path("/bin/true")
+        controller.comment_once = lambda *args: None
+        formatted = []
+        controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
+        opted_in = pr(3, author="someone-else", labels=[nb.OPT_IN], files=["webviews/a.ts"],
+                      checks=[("web / react-apps-check", "completed", "failure")])
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[opted_in]),
+                                   branch="next-batch/x-1")
+        with mock.patch.object(nb, "open_prs", return_value=[opted_in]):
+            controller.land(validation)
+        self.assertEqual(formatted, [])
+
     def test_land_formats_only_a_pr_with_a_red_format_check(self):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r", dry_run=False, no_land=False)
