@@ -163,6 +163,8 @@ final class BrowserReplTabAttachment {
 
     /// An automated left-button press and the HTML5 drag it may have started.
     struct DragState {
+        /// The session whose press armed it; no other session's input uses it.
+        let sessionID: String
         let capture: BrowserAutomationDragCapture
         var drop: BrowserAutomationDraggingInfo?
         var operation: NSDragOperation = []
@@ -199,9 +201,14 @@ final class BrowserReplTabAttachment {
     /// Runs a whole drag as one press of `sessionID`: it waits for another
     /// session's press to end, and no other session's mouse input reaches
     /// the page until the drag ends.
+    /// When the gesture ends, also when it throws partway, its press and
+    /// drag end without a drop before another session gets the pointer.
     func performPointerGesture<T>(sessionID: String, _ gesture: () async throws -> T) async throws -> T {
         do {
-            return try await pointer.performGesture(sessionID: sessionID, gesture)
+            return try await pointer.performGesture(sessionID: sessionID, ending: { [self] in
+                mouseState.reset()
+                discardDrag()
+            }, gesture)
         } catch let held as BrowserReplPointerOwner.Held {
             throw Self.pointerHeldError(held)
         }
@@ -878,6 +885,16 @@ final class BrowserReplTabAttachment {
         webView.cancelPendingAutomationContextMenus()
         endDragSilently(dragState, in: webView)
         webView.releaseBrowserReplModifiers()
+    }
+
+    /// Ends the drag in progress, if any, without a drop and without a
+    /// mouse event (``endDragSilently(_:in:)``): its press failed partway,
+    /// or another session's input found it.
+    func discardDrag() {
+        let dragState = drag
+        drag = nil
+        guard let dragState, let webView = panel?.webView as? CmuxWebView else { return }
+        endDragSilently(dragState, in: webView)
     }
 
     /// Ends the automated drag session `dragState` started, if any: WebKit's

@@ -2211,12 +2211,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             webView.deliverAutomationMouseEvent(event)
         }
         let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: css)
+        // A drag is its own session's: one another session's press left
+        // (it failed partway) ends without a drop, never consumed here.
+        if let drag = attachment.drag, drag.sessionID != sessionID {
+            attachment.discardDrag()
+        }
         switch type {
         case .leftMouseDown:
             let capture = BrowserAutomationDragCapture()
             webView.automationDragCapture = capture
-            attachment.drag = BrowserReplTabAttachment.DragState(capture: capture)
-            try send()
+            attachment.drag = BrowserReplTabAttachment.DragState(sessionID: sessionID, capture: capture)
+            do {
+                try send()
+            } catch {
+                attachment.discardDrag()
+                throw error
+            }
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
         case .leftMouseDragged:
             if let drop = attachment.drag?.drop {
