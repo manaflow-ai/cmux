@@ -45,6 +45,14 @@ on:
       - ".github/workflows/cmux-next-notices.yml"
       - "ios/cmux/Settings.bundle/**"
       - "Packages/Shared/CmuxGhosttyKit/Package.swift"
+      # First-party license declarations (check_first_party_licenses.py).
+      - "**/package.json"
+      - "**/Cargo.toml"
+      - "**/pyproject.toml"
+      - "**/cmux-app.json"
+      - "**/cmux-app.v2.json"
+      - "**/LICENSE*"
+      - "**/COPYING*"
   workflow_dispatch:
 
 permissions:
@@ -91,6 +99,13 @@ jobs:
           python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
           python3 scripts/cmux-next/notices/test_ios_notices.py
           python3 scripts/cmux-next/notices/test_ios_source_archive.py
+          python3 scripts/cmux-next/notices/test_check_first_party_licenses.py
+
+      # Lawrence 2026-10-06: first-party code is GPL-3.0-or-later. package.json, Cargo.toml,
+      # pyproject.toml, cmux-app manifests, LICENSE files and SPDX headers outside the BUSL
+      # directories and the listed third-party paths may declare nothing else.
+      - name: First-party license declarations are GPL-3.0-or-later
+        run: python3 scripts/cmux-next/notices/check_first_party_licenses.py
 
       # The iOS Settings.bundle Acknowledgements pane, its link set and the libintl
       # exception all name the CmuxGhosttyKit pin (no network).

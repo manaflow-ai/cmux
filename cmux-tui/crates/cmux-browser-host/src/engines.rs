@@ -229,6 +229,7 @@ impl HostEngines {
             self.agent_source.clone(),
             events,
         )?;
+        driver.save_downloads_in(browser.downloads_dir())?;
         // Chromium opens a start tab; it is no session's tab, so the session
         // starts with none (headless Chromium keeps running without tabs).
         if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {

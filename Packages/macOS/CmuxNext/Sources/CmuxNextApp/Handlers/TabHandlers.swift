@@ -56,7 +56,7 @@ enum TabHandlers {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
             } else if ctx.services.agentTabs.isAgentTab(id.rawValue) {
                 pane.duplicateAgentTab(id.rawValue)
-            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) {
+            } else if id.rawValue.hasPrefix(LocalPageTab.prefix) || pane.tab(id)?.page != nil {
                 // One tab per page per window: the page is already there.
                 return
             } else {
