@@ -100,6 +100,50 @@ struct WorktreeSeedRepositoryTests {
         #expect(entry.escapesRepository)
     }
 
+    @Test func aChainedSymlinkOutOfTheRepositoryIsAnEscape() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        try tree.symlink("redirect", to: target)
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aSymlinkedTargetParentDoesNotHideAnEscapingLeaf() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let outside = try WorktreeSeedTemporaryTree("outside")
+        let target = try outside.file("secret")
+        let directory = try tree.directory("config")
+        try tree.symlink("config/redirect", to: target)
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(entry.escapesRepository)
+    }
+
+    @Test func aValidSymlinkChainCanRevisitAnAlias() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        let directory = try tree.directory("real")
+        try tree.file("real/file")
+        try tree.symlink("alias", to: directory)
+        try tree.symlink("real/redirect", to: tree.root.appendingPathComponent("alias/file"))
+        try tree.symlink("selected", to: tree.root.appendingPathComponent("alias/redirect"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "selected" })
+        #expect(!entry.escapesRepository)
+    }
+
+    @Test func aSelfExpandingSymlinkIsRefusedWithoutHanging() throws {
+        let tree = try WorktreeSeedTemporaryTree()
+        try tree.symlink("a", to: tree.root.appendingPathComponent("a/child"))
+        let listing = WorktreeSeedRepository(root: tree.root).listing("")
+        let entry = try #require(listing.first { $0.name == "a" })
+        #expect(entry.escapesRepository)
+    }
+
     @Test func aDanglingSymlinkInsideTheRepositoryIsNotAnEscape() throws {
         let tree = try WorktreeSeedTemporaryTree()
         let target = tree.root.appendingPathComponent("future/secret")

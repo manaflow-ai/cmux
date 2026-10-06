@@ -5,11 +5,12 @@ import Foundation
 /// This is the only part of seeding that touches the source repository, so it is
 /// also where "inside the repository" is decided. `root` is resolved once, and a
 /// child is reported as escaping when it is a symlink whose target resolves
-/// outside that resolved root.
+    /// outside that resolved root.
 public struct WorktreeSeedRepository: Sendable {
     /// The repository root, as given.
     public let root: URL
     private let resolvedRootPath: String
+    private static let maximumSymlinkResolutions = 64
 
     /// Creates a reader for a repository root.
     public init(root: URL) {
@@ -87,18 +88,38 @@ public struct WorktreeSeedRepository: Sendable {
     /// The comparison adds the separator so `/repo-backup` does not read as being
     /// inside `/repo`.
     private static func isInside(_ url: URL, resolvedRootPath: String) -> Bool {
-        let target: URL
-        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: url.path) {
-            target = URL(fileURLWithPath: destination, relativeTo: url.deletingLastPathComponent())
-                .standardizedFileURL
-        } else {
-            target = url
-        }
-        // The parent is resolved, not the target: the target may not exist, and
-        // every real component above it does.
-        let parent = target.deletingLastPathComponent().resolvingSymlinksInPath().standardizedFileURL
-        let resolved = parent.appendingPathComponent(target.lastPathComponent).standardizedFileURL.path
+        guard let resolved = resolveSymlinksPreservingMissingLeaf(url)?.path else { return false }
         if resolved == resolvedRootPath { return true }
         return resolved.hasPrefix(resolvedRootPath.hasSuffix("/") ? resolvedRootPath : resolvedRootPath + "/")
+    }
+
+    private static func resolveSymlinksPreservingMissingLeaf(_ url: URL) -> URL? {
+        var current = url.standardizedFileURL
+        var seen: Set<String> = []
+        var resolutions = 0
+
+        while true {
+            guard seen.insert(current.path).inserted else { return nil }
+            let components = current.pathComponents
+            var rebuilt = URL(fileURLWithPath: components[0], isDirectory: true)
+            var foundSymlink = false
+
+            for (offset, component) in components.dropFirst().enumerated() {
+                rebuilt.appendPathComponent(component)
+                if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: rebuilt.path) {
+                    guard resolutions < maximumSymlinkResolutions else { return nil }
+                    resolutions += 1
+                    current = URL(fileURLWithPath: destination, relativeTo: rebuilt.deletingLastPathComponent())
+                    for suffix in components.dropFirst(offset + 2) {
+                        current.appendPathComponent(suffix)
+                    }
+                    current = current.standardizedFileURL
+                    foundSymlink = true
+                    break
+                }
+            }
+
+            if !foundSymlink { return rebuilt.standardizedFileURL }
+        }
     }
 }
