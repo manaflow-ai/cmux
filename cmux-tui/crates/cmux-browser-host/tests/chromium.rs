@@ -112,6 +112,7 @@ fn serve() -> u16 {
                     "/files" => files_page(),
                     "/clip" => clipboard::clip_page(),
                     "/leak" => clipboard::leak_page(),
+                    "/clicks" => files::clicks_page(),
                     "/fields" => "<!doctype html><title>Fields</title>\
                          <label for=pw>Password</label><input id=pw type=password value=hunter2-default>\
                          <input id=otp autocomplete=one-time-code><input id=cc autocomplete=\"cc-number\">\
