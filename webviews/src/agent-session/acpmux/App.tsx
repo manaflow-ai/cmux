@@ -947,6 +947,13 @@ function AcpmuxPane() {
   });
   const showCheckpoint = useRef(checkpoints.show);
   showCheckpoint.current = checkpoints.show;
+  // The pane keeps what it showed until this document's first frame: the second animation
+  // frame after mount runs once that frame was drawn.
+  useEffect(() => {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => void callNative("pane.painted").catch(() => undefined)),
+    );
+  }, []);
   useEffect(() => {
     void callNative("pane.checkpointAvailability", { available: checkpoints.supported }).catch(() => undefined);
   }, [checkpoints.supported, snapshot.sessionId]);

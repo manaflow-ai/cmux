@@ -38,6 +38,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// Whether the strip is pinned to a browser's header band.
     var isBandActive: Bool { !bandPins.isEmpty }
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
+    /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
+    var paintHold: PanePaintHold?
+    var paintHoldCounter: UInt64 = 0
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).
@@ -175,12 +178,18 @@ final class PaneContentView: NSView, PaneContentChrome {
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
-        if hosted !== view { hosted?.removeFromSuperview() }
+        // An earlier switch still waiting on a first frame ends now.
+        endPaintHold()
+        // An agent page draws nothing until it paints: what this pane showed
+        // stays until then (`beginPaintHold`), not an empty pane.
+        let holds = holdsForFirstPaint(view, replacing: hosted)
+        if hosted !== view, !holds { hosted?.removeFromSuperview() }
         if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
         }
+        if holds, let hosted, let view { beginPaintHold(outgoing: hosted, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
@@ -207,6 +216,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     func detachContent() {
         // The strip's band pins end before the browser leaves (R109).
         releaseBand()
+        endPaintHold()
         if hostsContent {
             (content as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
             content?.removeFromSuperview()

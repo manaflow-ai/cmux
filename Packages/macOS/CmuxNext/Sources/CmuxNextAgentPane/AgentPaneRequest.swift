@@ -51,6 +51,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
+    /// `pane.painted`: the document drew its first frame (once per document).
+    case painted
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
@@ -134,6 +136,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.painted":
+            self = .painted
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
