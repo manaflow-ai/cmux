@@ -25,11 +25,10 @@ import Testing
         let children = strip.accessibilityChildren() ?? []
         #expect(children.count == tabs.count + 1)
         #expect(children.last as? NSView === strip.newTabButton)
-        // Nothing visible sits right of "+" (no trailing buttons here).
+        // Nothing visible sits right of "+": the strip has no trailing buttons.
         let plusEnd = strip.newTabButton.frame.maxX
         let after = strip.newTabButton.superview?.subviews.filter { view in
             !view.isHidden && view.alphaValue > 0 && view !== strip.newTabButton && view.frame.minX >= plusEnd && view.frame.width > 0
-                && view !== strip.buttonGroup
         } ?? []
         #expect(after.isEmpty, "views after +: \(after)")
     }
