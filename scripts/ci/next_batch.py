@@ -685,6 +685,10 @@ class Validation:
         return out
 
 
+class OwnerPushed(Exception):
+    """The PR's branch moved while the queue formatted it."""
+
+
 class Controller:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -882,7 +886,12 @@ class Controller:
                 sha = self.git("rev-parse", "HEAD", cwd=checkout)
             finally:
                 self.git("worktree", "remove", "--force", str(checkout))
-        self.git("push", "--quiet", "origin", f"{sha}:refs/heads/{pr.head_ref}")
+        try:
+            self.git("push", "--quiet", "origin", f"{sha}:refs/heads/{pr.head_ref}")
+        except RuntimeError as error:
+            if "non-fast-forward" in str(error) or "rejected" in str(error):
+                raise OwnerPushed(f"#{pr.number}") from error
+            raise
         log(f"#{pr.number}: pushed formatting {sha[:12]}")
         return sha
 
@@ -1054,6 +1063,9 @@ class Controller:
                         self.comment_once(pr, "formatted", (
                             "Batch queue: pushed `bun run check:fix` output (web formatting and lint "
                             "autofix) to this branch; landing once its checks rerun."))
+                except OwnerPushed:
+                    landed.append((pr, "skipped: pushed while formatting; next batch"))
+                    continue
                 except RuntimeError as error:
                     landed.append((pr, f"not landed: {error}"))
                     continue
