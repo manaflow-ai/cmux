@@ -199,6 +199,7 @@ extension View {
 }
 
 private struct SidebarImmediateObservationState: Equatable {
+    let title: String
     let customTitle: String?
     let customDescription: String?
     let isPinned: Bool
@@ -254,11 +255,12 @@ extension Workspace {
         // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
+            $title,
             $customTitle,
             $customDescription,
-            $isPinned,
-            $customColor
+            $isPinned
         )
+        .combineLatest($customColor)
         .combineLatest($isMuted)
         let conversationFields = Publishers.CombineLatest4(
             $latestConversationMessage,
@@ -279,11 +281,12 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0.0,
-                    customDescription: workspaceFields.0.1,
-                    isPinned: workspaceFields.0.2,
+                    title: workspaceFields.0.0.0,
+                    customTitle: workspaceFields.0.0.1,
+                    customDescription: workspaceFields.0.0.2,
+                    isPinned: workspaceFields.0.0.3,
                     isMuted: workspaceFields.1,
-                    customColor: workspaceFields.0.3,
+                    customColor: workspaceFields.0.1,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,
