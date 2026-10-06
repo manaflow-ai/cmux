@@ -107,15 +107,17 @@ final class TitlebarToolbarBand: NSView {
 /// An icon button of the toolbar band: the chrome's hover and pressed look.
 final class TitlebarBandButton: NSButton {
     static var side: CGFloat { Metrics.sidebarRowHeight - Metrics.space1 }
+    private let symbol: String
+    private var renderedIconSize: CGFloat = 0
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
 
     init(symbol: String) {
+        self.symbol = symbol
         super.init(frame: .zero)
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .regular))
+        renderSymbol()
         contentTintColor = performWithTheme { Palette.textSecondary }
         _ = hover
     }
@@ -125,16 +127,31 @@ final class TitlebarBandButton: NSButton {
 
     override var mouseDownCanMoveWindow: Bool { false }
 
+    override func layout() {
+        super.layout()
+        renderSymbol()
+    }
+
+    private func renderSymbol() {
+        let size = Metrics.smallIconSize
+        guard size != renderedIconSize else { return }
+        renderedIconSize = size
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
+    }
+
     /// A right-click or long-press menu (Back / Forward lists).
     var menuProvider: (() -> NSMenu?)?
 
     override func rightMouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
         guard menuProvider != nil, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {

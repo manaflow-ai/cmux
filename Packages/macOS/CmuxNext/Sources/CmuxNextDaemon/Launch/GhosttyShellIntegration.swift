@@ -102,7 +102,8 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
         isDirectory: (String) -> Bool = { path in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-        }
+        },
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) -> [String: String] {
         var env = env
         if let ghosttyBinary, !ghosttyBinary.isEmpty {
@@ -110,7 +111,16 @@ public struct GhosttyShellIntegration: Sendable, Equatable {
             env["GHOSTTY_BIN"] = ghosttyBinary
             env["GHOSTTY_BIN_DIR"] = binDirectory
             let path = env["PATH"] ?? ""
-            if path.isEmpty {
+            let bundledCLI = binDirectory + "/cmux"
+            if isExecutable(bundledCLI) {
+                // This terminal's CMUX_SOCKET_PATH is this app's socket, so
+                // its `cmux` must be this app's CLI: first on PATH, and the
+                // CLI that `CMUX_BUNDLED_CLI_PATH`-aware shims exec. An
+                // inherited value names the app that launched this one.
+                let rest = path.split(separator: ":").filter { $0 != Substring(binDirectory) }
+                env["PATH"] = ([Substring(binDirectory)] + rest).joined(separator: ":")
+                env["CMUX_BUNDLED_CLI_PATH"] = bundledCLI
+            } else if path.isEmpty {
                 env["PATH"] = binDirectory
             } else if !path.split(separator: ":").contains(Substring(binDirectory)) {
                 env["PATH"] = path + ":" + binDirectory

@@ -96,7 +96,7 @@ nonisolated final class HomeSourceRouter: HomeSource {
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         let toCloud: Bool
         switch intent.op {
-        case .createGroup, .startConversation, .invite: toCloud = true
+        case .createGroup, .startConversation, .invite, .openDirect: toCloud = true
         case .createChief: toCloud = false
         default:
             if let conversation = intent.op.conversation { toCloud = await owner(of: conversation) == .cloud } else { toCloud = false }

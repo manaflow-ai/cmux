@@ -51,6 +51,10 @@ nonisolated struct CloudHomeState {
     /// Bumps on every configure; work started under an older one is dropped.
     var generation: UInt64 = 0
     var entries: [ConversationID: CloudInboxEntry] = [:]
+    /// People the user can reach that no head names yet (team members and
+    /// connections from the Home directory), by Home id: their names for a
+    /// new group's participants.
+    var directory: [ParticipantID: Participant] = [:]
     /// The inbox stream seq of the newest inbox event per conversation.
     /// An inbox list reply at an older revision keeps these
     /// conversations as the events left them. Emptied when the account
@@ -179,7 +183,7 @@ nonisolated extension CloudHomeState {
 
     /// A participant for `conversation.create`, as a known head names it.
     func participantRecord(_ id: ParticipantID, identity: CloudIdentity) -> ConversationParticipant {
-        let known = heads.values.lazy.flatMap(\.participants).first { $0.id == id }
+        let known = heads.values.lazy.flatMap(\.participants).first { $0.id == id } ?? directory[id]
         let wireID = identity.toCloud(id)
         let isAgent = known.map { $0.kind == .agent } ?? wireID.hasPrefix("agent_")
         return ConversationParticipant(id: wireID, kind: isAgent ? .agent : .human, displayName: known?.displayName ?? wireID,

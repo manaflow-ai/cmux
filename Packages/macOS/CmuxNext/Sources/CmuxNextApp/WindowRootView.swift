@@ -53,9 +53,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row is
-    /// hovered (`window.titlebarButtons`). The sidebar toggle never fades.
+    /// The sidebar toggle, Back, Forward and the glass patch: hidden until the
+    /// top row or the sidebar is hovered (`window.titlebarButtons`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
+    /// Held while the pointer is over the sidebar (its chrome reveal).
+    var sidebarHoverHold: HoverReveal.Hold?
     /// The top-left corner (traffic lights and the band): while the sidebar is hidden, the window's
     /// controls show only while the pointer is here (`WindowRootView+CornerReveal`).
     let cornerRegion = PassThroughView(frame: .zero)

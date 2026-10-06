@@ -296,7 +296,12 @@ export class MockAcpmuxSocket {
         return {
           protocolVersion: 1,
           _meta: {
-            acpmux: { operations: [FORK_OP, ...Object.values(HANDOFF_OPS)], handoff: { maxCapsuleBytes: 65536 } },
+            // The mock stands in for the local daemon, which names the app's connection local.
+            acpmux: {
+              origin: "local",
+              operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
+              handoff: { maxCapsuleBytes: 65536 },
+            },
           },
         };
       case FORK_OP:

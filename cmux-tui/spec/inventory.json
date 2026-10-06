@@ -406,6 +406,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "subscribe-activity",
       "set-terminal-command-history",
       "register-browser-provider",
       "get-browser-provider",
@@ -433,7 +434,9 @@
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
       "cloud-conversation-subscribe",
-      "cloud-conversation-unsubscribe"
+      "cloud-conversation-unsubscribe",
+      "conversation-attachment-upload",
+      "conversation-attachment-read"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -757,6 +760,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "activity-changed",
       "streams": [
         "control"
       ]

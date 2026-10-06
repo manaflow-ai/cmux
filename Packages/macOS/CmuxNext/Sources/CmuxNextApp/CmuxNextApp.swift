@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextMallocZone
@@ -21,6 +22,8 @@ public struct CmuxNextApp {
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
+        // A debug build's sign-in choice (CMUX_AUTH_CREDENTIALS_FILE and friends) is kept for CloudAuth only.
+        CloudAuth.captureLaunchEnvironment()
         LaunchIdentity.stripInheritedEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
         LaunchWarmup.start()

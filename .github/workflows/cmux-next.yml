@@ -62,6 +62,7 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
@@ -133,6 +134,7 @@ on:
       - web/**
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
@@ -430,11 +432,13 @@ jobs:
         run: |
           bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-run-check.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
           bash scripts/cmux-next/tests/reset-stale-submodules.test.sh
           bash scripts/cmux-next/tests/tree-key-v2.test.sh
           bash scripts/cmux-next/tests/tree-publish-v2.test.sh
           bash scripts/cmux-next/tests/embed-cef.test.sh
-          bash scripts/cmux-next/tests/check-action-surfaces-fleet-only.test.sh
+          bash scripts/cmux-next/tests/check-fleet-only.test.sh
+          bash scripts/cmux-next/tests/dev-account-guard.test.sh
           bash scripts/cmux-next/tests/check-motion.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
           bash scripts/cmux-next/tests/cef-credits.test.sh
