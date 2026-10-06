@@ -76,6 +76,9 @@ pub struct TabState {
     /// Keys pressed and not released, oldest first: (key, code, location).
     /// Released when the last session leaves the tab.
     pub held_keys: Vec<(String, String, i64)>,
+    /// The creating session's `session.configure` user agent and headers
+    /// (None: the browser's own). A popup starts with its opener's.
+    pub overrides: Option<std::sync::Arc<TabOverrides>>,
     pub mouse: (f64, f64),
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
@@ -87,6 +90,26 @@ pub struct TabState {
     /// A fetch shell (a9 shell-tab conditions): the host's own tab. Never
     /// listed, no events, no page agent, no calls from the session.
     pub hidden: bool,
+}
+
+/// A tab's `session.configure` request options (driver-protocol.md).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TabOverrides {
+    pub user_agent: Option<String>,
+    pub headers: Option<Map<String, Value>>,
+}
+
+impl TabOverrides {
+    /// The CDP steps that set them (missing ones go back to the browser's:
+    /// `default_ua`, no extra headers).
+    pub fn steps(this: Option<&TabOverrides>, default_ua: &str) -> Vec<(&'static str, Value)> {
+        let ua = this.and_then(|o| o.user_agent.clone()).unwrap_or_else(|| default_ua.to_owned());
+        let headers = this.and_then(|o| o.headers.clone()).unwrap_or_default();
+        vec![
+            ("Emulation.setUserAgentOverride", serde_json::json!({"userAgent": ua})),
+            ("Network.setExtraHTTPHeaders", serde_json::json!({"headers": headers})),
+        ]
+    }
 }
 
 impl TabState {
@@ -115,6 +138,7 @@ impl TabState {
             last_nav_same_document: false,
             buttons: 0,
             held_keys: Vec::new(),
+            overrides: None,
             mouse: (0.0, 0.0),
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
@@ -338,6 +362,8 @@ impl State {
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
         let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
+        tab.overrides =
+            opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
         tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
         let hidden = tab.hidden;
         self.tabs.insert(target_id.to_owned(), tab);
