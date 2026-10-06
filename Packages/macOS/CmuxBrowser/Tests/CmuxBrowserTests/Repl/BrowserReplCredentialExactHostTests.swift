@@ -37,10 +37,10 @@ struct BrowserReplCredentialExactHostTests {
             Issue.record("a sign-in sheet was asked for under a policy that lets www.example.com load")
             return
         }
-        #expect(refusal.message.contains(#"session.allowedDomains(["=https://example.com"])"#), "\(refusal.message)")
+        #expect(refusal.message.contains(#"session.allowedDomains(["=https://example.com:443"])"#), "\(refusal.message)")
 
         let fresh = BrowserReplBoundary(publicSuffixes: suffixes)
-        try allow(fresh, ["=https://example.com"])
+        try allow(fresh, ["=https://example.com:443"])
         let domains = try credentialDomains(fresh, origin: "https://example.com").get()
         #expect(!domains.isEmpty)
         // Domain matcher.
@@ -55,8 +55,71 @@ struct BrowserReplCredentialExactHostTests {
         #expect(!www.isOn(secretDomains: domains))
         #expect(apex.isOn(secretDomains: domains))
         // And the policy may not widen to www later.
-        let (widened, _) = fresh.policyOperation("set", ["allowed": ["https://example.com"], "title": "session.allowedDomains"])
+        let (widened, _) = fresh.policyOperation("set", ["allowed": ["https://example.com:443"], "title": "session.allowedDomains"])
         #expect(throws: BrowserReplDriverError.self) { try widened.get() }
+    }
+
+    /// r25 tabs#1: the credential's domain names the page's port, so a
+    /// value typed for `https://example.com:8443` never goes to a page on
+    /// `:9443` (another service on the same host), and one typed on the
+    /// default port never to a page on another.
+    @Test("A sign-in credential keeps its page's port, the default one included")
+    func credentialKeepsPort() throws {
+        // Two different non-default ports.
+        for (port, other) in [("8443", "9443"), ("9443", "8443")] {
+            let boundary = BrowserReplBoundary(publicSuffixes: suffixes)
+            // A policy without the port lets the other port's pages load.
+            try allow(boundary, ["=https://example.com"])
+            guard case .failure(let refusal) = credentialDomains(boundary, origin: "https://example.com:\(port)") else {
+                Issue.record("a sign-in sheet on :\(port) was asked for under a policy that lets :\(other) load")
+                continue
+            }
+            #expect(refusal.message.contains(#"session.allowedDomains(["=https://example.com:\#(port)"])"#), "\(refusal.message)")
+
+            let fresh = BrowserReplBoundary(publicSuffixes: suffixes)
+            try allow(fresh, ["=https://example.com:\(port)"])
+            let domains = try credentialDomains(fresh, origin: "https://example.com:\(port)").get()
+            #expect(!domains.isEmpty)
+            #expect(domains.allSatisfy { $0.matches(origin: "https://example.com:\(port)", secure: true) }, "\(domains.map(\.raw))")
+            for elsewhere in ["https://example.com:\(other)", "https://example.com", "https://example.com:443"] {
+                #expect(!domains.contains { $0.matches(origin: elsewhere, secure: true) }, "\(elsewhere): \(domains.map(\.raw))")
+                #expect(!BrowserReplFrameDocument(origin: elsewhere, place: elsewhere).isOn(secretDomains: domains), "\(elsewhere)")
+            }
+            #expect(BrowserReplFrameDocument(origin: "https://example.com:\(port)", place: "https://example.com:\(port)").isOn(secretDomains: domains))
+            // And the policy may not drop the port later.
+            let (widened, _) = fresh.policyOperation("set", ["allowed": ["=https://example.com"], "title": "session.allowedDomains"])
+            #expect(throws: BrowserReplDriverError.self) { try widened.get() }
+        }
+
+        // The default port, implicit or written out, is the same origin.
+        for origin in ["https://accounts.example.com", "https://accounts.example.com:443"] {
+            let portless = BrowserReplBoundary(publicSuffixes: suffixes)
+            try allow(portless, ["https://accounts.example.com"])
+            guard case .failure = credentialDomains(portless, origin: origin) else {
+                Issue.record("\(origin): a sign-in sheet was asked for under a policy that lets :8443 load")
+                continue
+            }
+            let boundary = BrowserReplBoundary(publicSuffixes: suffixes)
+            try allow(boundary, ["https://accounts.example.com:443"])
+            let domains = try credentialDomains(boundary, origin: origin).get()
+            for same in ["https://accounts.example.com", "https://accounts.example.com:443"] {
+                #expect(domains.allSatisfy { $0.matches(origin: same, secure: true) }, "\(origin) at \(same): \(domains.map(\.raw))")
+            }
+            #expect(!domains.contains { $0.matches(origin: "https://accounts.example.com:8443", secure: true) }, "\(origin): \(domains.map(\.raw))")
+        }
+    }
+
+    @Test("A loopback sign-in keeps its port on http and https, IPv6 included")
+    func loopbackCredentialKeepsPort() throws {
+        for host in ["localhost", "127.0.0.1", "[::1]"] {
+            let boundary = BrowserReplBoundary(publicSuffixes: suffixes)
+            try allow(boundary, ["\(host):3000"])
+            let domains = try credentialDomains(boundary, origin: "http://\(host):3000").get()
+            #expect(domains.allSatisfy { $0.matches(origin: "http://\(host):3000", secure: true) }, "\(host): \(domains.map(\.raw))")
+            #expect(domains.allSatisfy { $0.matches(origin: "https://\(host):3000", secure: true) }, "\(host): \(domains.map(\.raw))")
+            #expect(!domains.contains { $0.matches(origin: "http://\(host):4000", secure: true) }, "\(host): \(domains.map(\.raw))")
+            #expect(boundary.blockReason("http://\(host):4000/") != nil, "\(host)")
+        }
     }
 
     @Test("The exact-host form compiles content rules that block the www host; the general form still allows it")
