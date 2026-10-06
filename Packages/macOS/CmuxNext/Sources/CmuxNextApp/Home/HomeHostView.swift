@@ -34,7 +34,12 @@ final class HomeHostView: NSView {
         sidebar.isHidden = true
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
-        transcript.avatarText = HomeChiefSidebar.readAvatar(HomeBrainHost.muxHome(tag: services.environment.tag))
+        let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
+        // task-owner: one profile read off the main actor; ends when it is shown
+        Task { [weak self] in
+            let avatar = await Task.detached { files.avatar() }.value
+            self?.transcript.avatarText = avatar
+        }
         sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
         sidebar.onRename = { [weak service] name in
             guard let connection = service?.connection else { return }
@@ -46,7 +51,8 @@ final class HomeHostView: NSView {
             }
         }
         toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.toggleSidebar() }
+            // task-owner: one hop to the main actor for the toggle
+            Task { @MainActor in self?.toggleSidebar() }
         }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
@@ -160,8 +166,9 @@ final class HomeHostView: NSView {
             transcript.animator().frame = NSRect(x: 0, y: 0, width: bounds.width - side, height: bounds.height)
             sidebar.animator().frame = NSRect(x: bounds.width - side, y: 0, width: HomeChiefSidebar.width, height: bounds.height)
         }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                if !open { self?.sidebar.isHidden = true }
+            // task-owner: one hop to the main actor when the slide ends
+            Task { @MainActor in
+                if !open, self?.sidebarOpen == false { self?.sidebar.isHidden = true }
             }
         })
     }

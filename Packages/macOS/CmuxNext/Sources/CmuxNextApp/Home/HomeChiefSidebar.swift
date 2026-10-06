@@ -59,7 +59,6 @@ final class HomeChiefSidebar: NSView {
             stack.addArrangedSubview(field)
             field.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
-        avatarField.stringValue = Self.readAvatar(muxHome) ?? ""
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
             button.action = #selector(picked(_:))
@@ -120,48 +119,36 @@ final class HomeChiefSidebar: NSView {
     @objc private func avatarChanged() {
         let text = String(avatarField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2))
         avatarField.stringValue = text
-        let file = muxHome.appendingPathComponent("optchat/profile.json")
-        var profile = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
-        if text.isEmpty { profile.removeValue(forKey: "avatar") } else { profile["avatar"] = text }
-        if let data = try? JSONSerialization.data(withJSONObject: profile, options: [.prettyPrinted, .sortedKeys]) {
-            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
-        }
+        let files = HomeChiefFiles(muxHome: muxHome)
+        // task-owner: one file write off the main actor; ends with it
+        Task.detached { files.writeAvatar(text) }
         onAvatar(text.isEmpty ? nil : text)
     }
 
-    /// This Chief's avatar text from its profile.json.
-    static func readAvatar(_ muxHome: URL) -> String? {
-        let file = muxHome.appendingPathComponent("optchat/profile.json")
-        guard let data = try? Data(contentsOf: file),
-              let profile = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let avatar = profile["avatar"] as? String, !avatar.isEmpty else { return nil }
-        return avatar
-    }
-
     @objc private func openTraces() {
-        NSWorkspace.shared.activateFileViewerSelecting([traceDirectory])
+        NSWorkspace.shared.activateFileViewerSelecting([HomeChiefFiles(muxHome: muxHome).traceDirectory])
     }
 
-    private var engineFile: URL { muxHome.appendingPathComponent("optchat/engine.json") }
-    private var traceDirectory: URL { muxHome.appendingPathComponent("optchat/traces", isDirectory: true) }
-
-    private func readChoice() -> [String: Any] {
-        guard let data = try? Data(contentsOf: engineFile),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return object
-    }
-
-    /// Re-reads the file and the trace (a new message or a turn's end).
+    /// Re-reads the engine file and the trace (a new message or a turn's
+    /// end) off the main actor, then shows them.
     func refresh() {
-        let choice = readChoice()
-        fill(harness, Self.harnesses, current: choice["harness"] as? String)
-        fill(model, Self.models, current: choice["model"] as? String)
-        fill(effort, Self.efforts, current: choice["effort"] as? String)
-        stats.stringValue = lastTurn().map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
+        let files = HomeChiefFiles(muxHome: muxHome)
+        // task-owner: one read off the main actor; ends when it is shown
+        Task { [weak self] in
+            let snapshot = await Task.detached { files.snapshot() }.value
+            self?.show(snapshot)
+        }
+    }
+
+    private func show(_ snapshot: HomeChiefSnapshot) {
+        fill(harness, Self.harnesses, current: snapshot.harness)
+        fill(model, Self.models, current: snapshot.model)
+        fill(effort, Self.efforts, current: snapshot.effort)
+        if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
+        stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
-        let recent = recentTurns(limit: 5)
-        replies.stringValue = recent.isEmpty ? "" : HomeEngineStrings.answeredBy + "\n" + recent.map(HomeEngineStrings.reply).joined(separator: "\n")
+        replies.stringValue = snapshot.turns.isEmpty ? ""
+            : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map(HomeEngineStrings.reply).joined(separator: "\n")
     }
 
     /// `values` with a "default" first and the current value kept even
@@ -184,41 +171,91 @@ final class HomeChiefSidebar: NSView {
     }
 
     @objc private func picked(_ sender: NSPopUpButton) {
-        var choice = readChoice()
         let key = sender === harness ? "harness" : sender === model ? "model" : "effort"
-        if let value = sender.selectedItem?.representedObject as? String {
-            choice[key] = value
-        } else {
-            choice.removeValue(forKey: key)
+        let value = sender.selectedItem?.representedObject as? String
+        let files = HomeChiefFiles(muxHome: muxHome)
+        // task-owner: one read-modify-write off the main actor, then a refresh
+        Task { [weak self] in
+            await Task.detached { files.setEngine(key, value) }.value
+            self?.refresh()
         }
-        write(choice)
-        refresh()
+    }
+}
+
+/// What the sidebar shows, read from this Chief's files.
+struct HomeChiefSnapshot: Sendable {
+    var harness: String?
+    var model: String?
+    var effort: String?
+    var avatar: String?
+    /// The trace's last `turn.end`s, newest first.
+    var turns: [HomeEngineTurn]
+}
+
+/// This Chief's files under its mux home: `optchat/engine.json` (the engine
+/// optchat-chief reads at each turn start), `optchat/profile.json` (the
+/// avatar) and `optchat/traces/` (read only). Blocking file I/O, so it runs
+/// off the main actor.
+nonisolated struct HomeChiefFiles: Sendable {
+    let muxHome: URL
+    var engineFile: URL { muxHome.appendingPathComponent("optchat/engine.json") }
+    var profileFile: URL { muxHome.appendingPathComponent("optchat/profile.json") }
+    var traceDirectory: URL { muxHome.appendingPathComponent("optchat/traces", isDirectory: true) }
+
+    private func object(_ file: URL) -> [String: Any] {
+        // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
+        guard let data = try? Data(contentsOf: file),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return object
     }
 
-    /// The same file optchat-chief writes: 0600, through a rename.
-    private func write(_ choice: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: choice, options: [.prettyPrinted, .sortedKeys]) else { return }
-        let directory = engineFile.deletingLastPathComponent()
+    func snapshot() -> HomeChiefSnapshot {
+        let choice = object(engineFile)
+        let avatar = (object(profileFile)["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return HomeChiefSnapshot(harness: choice["harness"] as? String, model: choice["model"] as? String,
+                                 effort: choice["effort"] as? String, avatar: avatar, turns: recentTurns(limit: 5))
+    }
+
+    /// The avatar alone (the header reads it when Home opens).
+    func avatar() -> String? { snapshot().avatar }
+
+    /// Sets (or with nil clears) one engine field; the compactor fields stay.
+    func setEngine(_ key: String, _ value: String?) {
+        var choice = object(engineFile)
+        if let value { choice[key] = value } else { choice.removeValue(forKey: key) }
+        write(choice, to: engineFile)
+    }
+
+    func writeAvatar(_ text: String) {
+        var profile = object(profileFile)
+        if text.isEmpty { profile.removeValue(forKey: "avatar") } else { profile["avatar"] = text }
+        write(profile, to: profileFile)
+    }
+
+    /// 0600, through a temporary file and a replace, as optchat-chief writes.
+    private func write(_ object: [String: Any], to file: URL) {
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let directory = file.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let temporary = directory.appendingPathComponent("engine.json.app.tmp")
+        let temporary = directory.appendingPathComponent(file.lastPathComponent + ".app.tmp")
         guard FileManager.default.createFile(atPath: temporary.path, contents: data + Data("\n".utf8),
                                              attributes: [.posixPermissions: 0o600]) else { return }
-        _ = try? FileManager.default.replaceItemAt(engineFile, withItemAt: temporary)
-        if !FileManager.default.fileExists(atPath: engineFile.path) {
-            try? FileManager.default.moveItem(at: temporary, to: engineFile)
+        if FileManager.default.fileExists(atPath: file.path) {
+            _ = try? FileManager.default.replaceItemAt(file, withItemAt: temporary)
+        } else {
+            try? FileManager.default.moveItem(at: temporary, to: file)
         }
     }
 
-    private func lastTurn() -> HomeEngineTurn? { recentTurns(limit: 1).first }
-
     /// The trace's last `turn.end`s, newest first (today's file, then yesterday's).
-    private func recentTurns(limit: Int) -> [HomeEngineTurn] {
+    func recentTurns(limit: Int) -> [HomeEngineTurn] {
         var found: [HomeEngineTurn] = []
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         for offset in [0, -1] {
             let day = formatter.string(from: Date().addingTimeInterval(Double(offset) * 86_400))
             let file = traceDirectory.appendingPathComponent("\(day).jsonl")
+            // concurrency-allow: HomeChiefFiles runs only inside Task.detached, never on the main actor
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             for line in text.split(separator: "\n").reversed() where line.contains("\"turn.end\"") {
                 if let turn = HomeEngineTurn(line: String(line)) { found.append(turn) }
@@ -230,7 +267,7 @@ final class HomeChiefSidebar: NSView {
 }
 
 /// One `turn.end` of the trace.
-struct HomeEngineTurn: Equatable {
+nonisolated struct HomeEngineTurn: Equatable, Sendable {
     var harness: String
     var model: String?
     var seconds: Double
