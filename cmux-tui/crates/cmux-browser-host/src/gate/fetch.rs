@@ -352,8 +352,16 @@ impl Gate {
                     );
                 }
             }
-            let Some(redirect) = value.as_object_mut().and_then(|object| object.remove("redirect"))
-            else {
+            let redirect = value.as_object_mut().and_then(|object| object.remove("redirect"));
+            // HOP-ADDRESS (ff): a hop whose address never arrived (the engine
+            // waited 1 s, unchecked for rebinding) is logged, not silent.
+            if redirect.is_some() && remote_ip.is_none() {
+                push_log(
+                    &self.cors_log,
+                    json!({"url": hop.url, "what": "hop address missing, waited", "at": now_ms()}),
+                );
+            }
+            let Some(redirect) = redirect else {
                 // The final URL and `redirected` come from the host's chain.
                 value["url"] = json!(hop.url);
                 value["redirected"] = json!(redirects > 0);
