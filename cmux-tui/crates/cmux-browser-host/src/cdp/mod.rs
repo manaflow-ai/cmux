@@ -9,6 +9,7 @@ mod capture;
 mod connection;
 mod cookies;
 mod cors;
+mod downloads;
 mod driver;
 mod evaluate;
 mod fetch;
