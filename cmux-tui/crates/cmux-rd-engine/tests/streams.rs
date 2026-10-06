@@ -10,7 +10,10 @@ use cmux_rd_engine::{EncodeRequest, Encoded, EngineConfig, MediaEngine, StreamEr
 use cmux_rd_proto::{DatagramHeader, DatagramKind, Feedback, InputEvent, InputPacket, Nack};
 
 fn engine() -> MediaEngine {
-    MediaEngine::new(EngineConfig { width: 640, height: 480, max_fps: 60, ..EngineConfig::default() }, 0)
+    MediaEngine::new(
+        EngineConfig { width: 640, height: 480, max_fps: 60, ..EngineConfig::default() },
+        0,
+    )
 }
 
 fn dgram(kind: DatagramKind, stream: u16, payload: &[u8]) -> Vec<u8> {
@@ -73,7 +76,10 @@ fn nacks_and_recovery_are_per_stream() {
     let popup = e.damage(POPUP, SMALL, 0).expect("popup");
     send(&mut e, &main, 6_000, 0);
     let sent = send(&mut e, &popup, 6_000, 0);
-    let nack = Feedback { nacks: vec![Nack { frame: popup.frame, indexes: vec![2] }], ..Feedback::default() };
+    let nack = Feedback {
+        nacks: vec![Nack { frame: popup.frame, indexes: vec![2] }],
+        ..Feedback::default()
+    };
     let out = e.on_datagram(&dgram(DatagramKind::Feedback, POPUP, &nack.encode()), true, 10_000);
     assert_eq!(out.datagrams, vec![sent[2].clone()]);
     let ask = Feedback { acked_frame: popup.frame, need_recovery: true, ..Feedback::default() };
@@ -118,7 +124,8 @@ fn idle_means_no_deadline_and_a_held_input_gap_means_one() {
     e.on_datagram(&dgram(DatagramKind::Feedback, 0, &ack.encode()), true, 1_000);
     assert_eq!(e.next_deadline_us(), None, "nothing pending: no wakeup");
     // Sequence 2 arrives without 1: the applier holds it until the gap timeout.
-    let packet = InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
+    let packet =
+        InputPacket { first_seq: 2, events: vec![InputEvent::Key { usage: 4, down: true }] };
     let out = e.on_datagram(&dgram(DatagramKind::Input, 0, &packet.encode()), true, 2_000);
     assert!(out.inject.is_empty());
     assert_eq!(e.next_deadline_us(), Some(2_000 + 200_000), "wake when the gap times out");

@@ -156,7 +156,8 @@ fn a_frame_too_large_halves_the_bitrate_and_restarts_from_a_keyframe() {
         .expect("ok");
     assert!(out.datagrams.is_empty());
     assert!(out.halve_bitrate);
-    let next = e.damage(0, Rect { x: 0, y: 0, width: 1, height: 1 }, 20_000).expect("gate open again");
+    let next =
+        e.damage(0, Rect { x: 0, y: 0, width: 1, height: 1 }, 20_000).expect("gate open again");
     assert!(next.force_idr);
 }
 
