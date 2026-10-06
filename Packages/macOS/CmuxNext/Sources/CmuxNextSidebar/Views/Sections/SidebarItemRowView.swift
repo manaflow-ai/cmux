@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import QuartzCore
 
 /// One item of a pinned section: a row (built-in or list look) or a tray
@@ -204,12 +205,11 @@ final class SidebarItemRowView: NSView {
         chip.cornerRadius = Metrics.space1 + 1
         CATransaction.commit()
 
-        let pointSize = isRailButton ? SidebarStyle.railGlyphSize
-            : style == .list ? Metrics.smallIconSize - Metrics.space2 : Metrics.smallIconSize - Metrics.space1
-        icon.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: pointSize, weight: isRailButton ? .medium : .regular))
-        let glyph = style == .list ? iconFrame.insetBy(dx: 2, dy: 2) : iconFrame
-        icon.frame = glyph
+        // Row size beside a title, like a workspace row's type glyph; inside a list well, the well's
+        // glyph size; a rail button's own glyph size.
+        let glyphSide = isRailButton ? SidebarStyle.railGlyphSize : style == .list ? SidebarStyle.wellGlyphSize : SidebarStyle.kindGlyphSize
+        icon.image = glyphImage(side: glyphSide)
+        icon.frame = alignedGlyphFrame(side: glyphSide, centeredIn: iconFrame)
         title.font = SidebarStyle.titleFont
         if style.isIconOnly {
             let dot = SidebarStyle.dotSize
@@ -244,10 +244,8 @@ final class SidebarItemRowView: NSView {
         chip.frame = wellFrame
         chip.cornerRadius = SidebarStyle.railTileCornerRadius
         CATransaction.commit()
-        icon.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: SidebarStyle.railGlyphSize, weight: .medium))
-        let side = SidebarStyle.railIconBox
-        icon.frame = NSRect(x: wellFrame.midX - side / 2, y: wellFrame.midY - side / 2, width: side, height: side)
+        icon.image = glyphImage(side: SidebarStyle.railGlyphSize)
+        icon.frame = alignedGlyphFrame(side: SidebarStyle.railGlyphSize, centeredIn: wellFrame)
         // The caption takes the tile's full width: a tile is narrow, and the
         // tiles' gap already separates neighboring captions.
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
@@ -255,6 +253,23 @@ final class SidebarItemRowView: NSView {
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
     }
 
+    /// The item's registry icon at `side` points; without one, its SF Symbol at the matching text size.
+    private func glyphImage(side: CGFloat) -> NSImage? {
+        if let name = info.icon { return NSImage.icon(name, size: side) }
+        let symbol = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: side * 0.8, weight: .regular))
+        return symbol ?? NSImage.icon(.appGeneric, size: side)
+    }
+
+    /// A `side` square centered in `box`, on the device pixel grid so the icon's strokes stay crisp.
+    private func alignedGlyphFrame(side: CGFloat, centeredIn box: NSRect) -> NSRect {
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        return NSRect(x: snap(box.midX - side / 2), y: snap(box.midY - side / 2), width: side, height: side)
+    }
+
+    /// The glyph drawn now (tests).
+    var glyphImage: NSImage? { icon.image }
     /// The caption's frame (tests).
     var titleFrame: CGRect { title.isHidden ? .zero : title.frame }
     /// The drawn title or caption (tests).
