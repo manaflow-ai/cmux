@@ -14,6 +14,7 @@
 //! primary key; the start reads the node sizes the core folds the view from
 //! (`nodes_size` covers them) and the largest message id.
 
+pub mod checkpoint;
 mod export;
 mod legacy;
 mod schema;
@@ -31,7 +32,8 @@ use crate::lines;
 
 pub use export::{export_text, ExportStats, Exporter};
 pub use legacy::{
-    has_legacy, import_legacy, migrate_legacy, Built, Imported, Marker, MIGRATION_KEY,
+    backup_due, has_legacy, import_legacy, migrate_legacy, retired_record, verify_backup, Built,
+    Imported, Marker, BACKUP_DAYS, MIGRATION_KEY,
 };
 pub use schema::VERSION as SCHEMA_VERSION;
 
@@ -193,9 +195,10 @@ fn open_read_only(path: &Path) -> io::Result<Connection> {
 
 impl Db {
     /// Opens (creating, 0600) the database at `path` and brings its schema
-    /// up to date. Returns the built nodes with their text sizes, for
-    /// `Memory::load`.
-    pub fn open(path: &Path) -> io::Result<(Db, Vec<(NodeId, usize)>)> {
+    /// up to date. Reads two numbers by key (the largest message id and node
+    /// rowid), nothing per row: `frontier` and `all_sizes` give the core
+    /// what it needs.
+    pub fn open(path: &Path) -> io::Result<Db> {
         if let Some(dir) = path.parent() {
             private_dir(dir)?;
         }
@@ -208,25 +211,56 @@ impl Db {
                 r.get(0)
             })
             .map_err(sql)?;
-        let built = {
-            let mut stmt = conn
-                .prepare("SELECT level, idx, bytes FROM nodes INDEXED BY nodes_size")
-                .map_err(sql)?;
-            let rows = stmt
-                .query_map([], |r| {
-                    let (l, i, bytes): (i64, i64, i64) = (r.get(0)?, r.get(1)?, r.get(2)?);
-                    Ok((NodeId::new(l as u32, i as u64), bytes as usize))
-                })
-                .map_err(sql)?;
-            rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql)?
-        };
-        let db = Db {
+        // Nodes are never deleted and a rolled-back insert gives its rowid
+        // back, so the largest rowid is the count.
+        let nodes: i64 = conn
+            .query_row("SELECT COALESCE(MAX(rowid), 0) FROM nodes", [], |r| {
+                r.get(0)
+            })
+            .map_err(sql)?;
+        Ok(Db {
             conn,
             path: path.to_owned(),
             t: t as u64,
-            node_count: built.len(),
-        };
-        Ok((db, built))
+            node_count: nodes as usize,
+        })
+    }
+
+    fn sizes_where(&self, sql_where: &str, args: &[i64]) -> io::Result<Vec<(NodeId, usize)>> {
+        let mut stmt = self
+            .conn
+            .prepare_cached(&format!(
+                "SELECT level, idx, bytes FROM nodes INDEXED BY nodes_size {sql_where}"
+            ))
+            .map_err(sql)?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(args), |r| {
+                let (l, i, bytes): (i64, i64, i64) = (r.get(0)?, r.get(1)?, r.get(2)?);
+                Ok((NodeId::new(l as u32, i as u64), bytes as usize))
+            })
+            .map_err(sql)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(sql)
+    }
+
+    /// Every built node with its size (the full `Memory::load`, O(nodes)).
+    pub fn all_sizes(&self) -> io::Result<Vec<(NodeId, usize)>> {
+        self.sizes_where("", &[])
+    }
+
+    /// The built nodes at or above `low[level]` of their level (every node
+    /// of a level past `low`'s end): what `Memory::resume` needs, read by
+    /// key range.
+    pub fn frontier(&self, low: &[u64]) -> io::Result<Vec<(NodeId, usize)>> {
+        let top: Option<i64> = self
+            .conn
+            .query_row("SELECT MAX(level) FROM nodes", [], |r| r.get(0))
+            .map_err(sql)?;
+        let mut out = Vec::new();
+        for l in 0..=top.unwrap_or(-1) {
+            let from = low.get(l as usize).copied().unwrap_or(0) as i64;
+            out.extend(self.sizes_where("WHERE level = ?1 AND idx >= ?2", &[l, from])?);
+        }
+        Ok(out)
     }
 
     pub fn path(&self) -> &Path {
@@ -252,14 +286,13 @@ impl Db {
     }
 
     /// After a bulk import: the WAL copied into the database and truncated,
-    /// then the counts again.
+    /// the counts again, and every node's size (the import's fold).
     pub(crate) fn reload_counts(&mut self) -> io::Result<Vec<(NodeId, usize)>> {
         self.conn
             .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))
             .map_err(sql)?;
-        let (db, built) = Db::open(&self.path.clone())?;
-        *self = db;
-        Ok(built)
+        *self = Db::open(&self.path.clone())?;
+        self.all_sizes()
     }
 
     /// Logs `messages` and writes the state `state` returns, in ONE
@@ -437,6 +470,20 @@ impl Store for Db {
             // crash-allow: see the comment above the impl.
             Err(e) => panic!("optchat: cannot read message {i}: {e}"),
         }
+    }
+
+    fn node_size(&self, id: NodeId) -> Option<usize> {
+        self.conn
+            .prepare_cached(
+                "SELECT bytes FROM nodes INDEXED BY nodes_size WHERE level = ?1 AND idx = ?2",
+            )
+            .and_then(|mut s| {
+                s.query_row(params![id.l as i64, id.i as i64], |r| r.get::<_, i64>(0))
+                    .optional()
+            })
+            .map(|b| b.map(|b| b as usize))
+            // crash-allow: see the comment above the impl.
+            .unwrap_or_else(|e| panic!("optchat: cannot read node {}: {e}", id.name()))
     }
 
     fn node(&self, id: NodeId) -> Option<String> {

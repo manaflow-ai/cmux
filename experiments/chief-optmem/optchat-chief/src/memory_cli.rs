@@ -12,7 +12,8 @@ use crate::paths::Paths;
 pub const USAGE: &str = "optchat-chief memory export --text DIR [--mux-home DIR]   the memory as JSONL day files (main/, tree/; the old store's format)
 optchat-chief memory import [--mux-home DIR] DIR          an old JSONL home or an export into an empty memory (host stopped)
 optchat-chief memory search [--mux-home DIR] [--limit N] QUERY  full-text search: messages and summaries holding every word
-optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size";
+optchat-chief memory stats [--mux-home DIR]               counts, schema version, migration record, file size
+optchat-chief memory check [--mux-home DIR]               opens the memory as the host does (host stopped): how it loaded and how long it took";
 
 /// Runs `memory <verb>`; returns what to print.
 pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
@@ -84,6 +85,18 @@ pub fn run(flags: &Flags, home: &Path) -> Result<String, String> {
                 paths.memory_db.display(),
                 counts.messages,
                 counts.nodes
+            ))
+        }
+        Some("check") => {
+            let started = std::time::Instant::now();
+            let chat = crate::browse::open_offline(&paths.chat, &paths.memory_db)?;
+            let ms = started.elapsed().as_secs_f64() * 1000.0;
+            let status = chat.status();
+            let loaded = chat.loaded();
+            chat.shutdown();
+            Ok(format!(
+                "opened in {ms:.1} ms ({loaded:?}): {} messages, {} nodes, {} view lines ({} unbuilt)",
+                status.messages, status.built, status.view_lines, status.unbuilt
             ))
         }
         _ => Err(USAGE.to_owned()),

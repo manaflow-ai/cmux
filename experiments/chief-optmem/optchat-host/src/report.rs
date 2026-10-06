@@ -32,6 +32,18 @@ pub enum Report {
         hash: String,
         backup: PathBuf,
     },
+    /// A migrated home's copy of its old files, a week old, imported again
+    /// with the counts and hash of the migration, and deleted.
+    BackupRetired {
+        backup: PathBuf,
+        messages: u64,
+        nodes: u64,
+    },
+    /// The week-old copy did not check out; it is kept.
+    BackupKept { backup: PathBuf, why: String },
+    /// Saving the memory's checkpoint failed: the next start folds more of
+    /// the log, nothing is lost.
+    Checkpoint { error: String },
     /// A compactor node failed; only its first failure is reported (section 4.1).
     NodeFailed { node: NodeId, error: String },
     /// A write failed (its transaction rolled back); the chat stops writing
@@ -75,6 +87,23 @@ impl fmt::Display for Report {
                 "imported the JSONL memory into SQLite: {messages} messages, {nodes} nodes, hash {hash}; the old files are kept in {}",
                 backup.display()
             ),
+            Report::BackupRetired {
+                backup,
+                messages,
+                nodes,
+            } => write!(
+                f,
+                "deleted the old JSONL files' copy {} after checking it again ({messages} messages, {nodes} nodes, same hash as the migration)",
+                backup.display()
+            ),
+            Report::BackupKept { backup, why } => write!(
+                f,
+                "kept the old JSONL files' copy {}: {why}",
+                backup.display()
+            ),
+            Report::Checkpoint { error } => {
+                write!(f, "saving the memory checkpoint failed: {error}")
+            }
             Report::NodeFailed { node, error } => {
                 write!(
                     f,

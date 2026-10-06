@@ -369,3 +369,69 @@ pub fn migrate_legacy(
     });
     Ok(Some((imported, built)))
 }
+
+/// How long a migrated home keeps the copy of its old files (decision
+/// 2026-10-06): one week, then it is checked again and deleted.
+pub const BACKUP_DAYS: i64 = 7;
+
+/// The backup folder of `record` (the `MIGRATION_KEY` value) when it is
+/// still there, not yet retired, and at least `BACKUP_DAYS` old at `now`.
+pub fn backup_due(record: &str, now: chrono::DateTime<chrono::FixedOffset>) -> Option<PathBuf> {
+    let v: serde_json::Value = serde_json::from_str(record).ok()?;
+    if v.get("backup_deleted").is_some() {
+        return None;
+    }
+    let at = chrono::DateTime::parse_from_rfc3339(v["at"].as_str()?).ok()?;
+    let backup = PathBuf::from(v["backup"].as_str()?);
+    (now.signed_duration_since(at) >= chrono::Duration::days(BACKUP_DAYS) && backup.is_dir())
+        .then_some(backup)
+}
+
+/// Imports `backup` into a scratch database at `scratch` (removed after)
+/// and checks its counts and hash against `record`: Ok when they are the
+/// ones the migration recorded, so the copy holds nothing the memory lacks.
+pub fn verify_backup(record: &str, backup: &Path, scratch: &Path) -> Result<Imported, String> {
+    let v: serde_json::Value = serde_json::from_str(record).map_err(|e| e.to_string())?;
+    let remove = |p: &Path| {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", p.display()));
+        }
+    };
+    remove(scratch);
+    let result = Db::open(scratch).and_then(|mut db| {
+        let mut reports = Vec::new();
+        import_legacy(&mut db, backup, &mut reports, None).map(|(i, _)| i)
+    });
+    remove(scratch);
+    let imported = result.map_err(|e| e.to_string())?;
+    let want = (
+        v["messages"].as_u64(),
+        v["nodes"].as_u64(),
+        v["hash"].as_str(),
+    );
+    if want
+        != (
+            Some(imported.messages),
+            Some(imported.nodes),
+            Some(imported.hash.as_str()),
+        )
+    {
+        return Err(format!(
+            "the copy has {} messages, {} nodes, hash {}; the migration recorded {:?}",
+            imported.messages, imported.nodes, imported.hash, want
+        ));
+    }
+    Ok(imported)
+}
+
+/// The migration record once its backup is gone (verified, then deleted).
+pub fn retired_record(record: &str, imported: &Imported) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(record).unwrap_or_default();
+    v["backup_deleted"] = json!({
+        "at": lines::now_iso(),
+        "verified_messages": imported.messages,
+        "verified_nodes": imported.nodes,
+        "verified_hash": imported.hash,
+    });
+    v.to_string()
+}

@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use optchat_core::{render_view, zoom, Kind, Memory, NodeId, RenderedView, Store, ZoomError};
+use optchat_core::{render_view, zoom, Kind, NodeId, RenderedView, Store, ZoomError};
 
 use crate::anthropic::AnthropicModel;
 use crate::cap::cap_tool_result;
@@ -19,6 +19,7 @@ use crate::db::{self, Appended, Db, NewMessage, StateWrite};
 use crate::lines;
 use crate::lock::{ChatLock, LockError};
 use crate::model::CompactModel;
+use crate::report::Report;
 
 #[derive(Debug)]
 pub enum Error {
@@ -78,6 +79,57 @@ pub struct Status {
     pub closed: bool,
 }
 
+/// A week after the migration, checks the copy of the old files again (a
+/// full import into a scratch database, on its own thread so the start
+/// does not wait) and deletes it when its counts and hash match the
+/// migration's; the record says so in the same write.
+fn retire_backup(shared: &Arc<Shared>, record: String, db: PathBuf) {
+    let now = chrono::Local::now().fixed_offset();
+    let Some(backup) = db::backup_due(&record, now) else {
+        return;
+    };
+    let shared = Arc::downgrade(shared);
+    let _ = std::thread::Builder::new()
+        .name("optchat-retire-backup".into())
+        .spawn(move || {
+            let scratch = db.with_file_name("memory-verify.sqlite3");
+            let checked = db::verify_backup(&record, &backup, &scratch);
+            let Some(shared) = shared.upgrade() else {
+                return;
+            };
+            let mut st = shared.lock();
+            if !st.writable() {
+                return;
+            }
+            let report = match checked {
+                Ok(imported) => {
+                    // Deleted first: a record written before a failed delete
+                    // would say the copy is gone while it is not.
+                    let deleted = std::fs::remove_dir_all(&backup).and_then(|()| {
+                        st.store.put_state(&[(
+                            db::MIGRATION_KEY.to_owned(),
+                            Some(db::retired_record(&record, &imported)),
+                        )])
+                    });
+                    match deleted {
+                        Ok(()) => Report::BackupRetired {
+                            backup,
+                            messages: imported.messages,
+                            nodes: imported.nodes,
+                        },
+                        Err(e) => Report::BackupKept {
+                            backup,
+                            why: e.to_string(),
+                        },
+                    }
+                }
+                Err(why) => Report::BackupKept { backup, why },
+            };
+            st.reports.push(report);
+            shared.unlock(st);
+        });
+}
+
 /// Stops a `settle` or `wait_idle` from another thread.
 #[derive(Clone)]
 pub struct Cancel {
@@ -108,6 +160,7 @@ pub const DB_FILE: &str = "memory.sqlite3";
 pub struct OptChat {
     shared: Arc<Shared>,
     lock: Mutex<Option<ChatLock>>,
+    loaded: db::checkpoint::Loaded,
 }
 
 impl OptChat {
@@ -154,21 +207,20 @@ impl OptChat {
         };
         let path = config.db.clone().unwrap_or_else(|| dir.join(DB_FILE));
         let mut reports = Vec::new();
-        let loaded = Db::open(&path).and_then(|(mut store, built)| {
-            match db::migrate_legacy(&mut store, dir, &mut reports)? {
-                Some((_, built)) => Ok((store, built)),
-                None => Ok((store, built)),
-            }
+        let loaded = Db::open(&path).and_then(|mut store| {
+            let built = db::migrate_legacy(&mut store, dir, &mut reports)?.map(|(_, b)| b);
+            let (memory, how) = db::checkpoint::load(&mut store, built, config.budget)?;
+            Ok((store, memory, how))
         });
         for r in &reports {
             (config.reporter)(r);
         }
-        let (store, built) = loaded?;
-        let memory = Memory::load(store.len(), built, config.budget);
+        let (store, memory, loaded) = loaded?;
         let shared = Arc::new(Shared {
             state: Mutex::new(State {
                 memory,
                 store,
+                appended: 0,
                 failing: BTreeMap::new(),
                 closed: false,
                 fatal: None,
@@ -184,11 +236,22 @@ impl OptChat {
         });
         let mut st = shared.lock();
         drive(&shared, &mut st);
+        let record = st.store.state(db::MIGRATION_KEY).ok().flatten();
         shared.unlock(st);
+        if let Some(record) = record {
+            retire_backup(&shared, record, path);
+        }
         Ok(OptChat {
             shared,
             lock: Mutex::new(Some(lock)),
+            loaded,
         })
+    }
+
+    /// How the memory was loaded at open: from its checkpoint, or folded
+    /// from message 0 (the first start after an import or an upgrade).
+    pub fn loaded(&self) -> db::checkpoint::Loaded {
+        self.loaded
     }
 
     /// Logs one message (on disk when it returns) and returns its id. Tool
@@ -263,10 +326,17 @@ impl OptChat {
                 return Err(Error::Io(e));
             }
         };
-        for (id, fresh) in done.ids.iter().zip(&done.fresh) {
-            if *fresh {
-                let in_memory = st.memory.append();
-                debug_assert_eq!(*id, in_memory);
+        {
+            let st = &mut *st;
+            for (id, fresh) in done.ids.iter().zip(&done.fresh) {
+                if *fresh {
+                    let in_memory = st.memory.append_in(&st.store);
+                    debug_assert_eq!(*id, in_memory);
+                    st.appended += 1;
+                }
+            }
+            if st.appended >= db::checkpoint::EVERY {
+                st.save_checkpoint();
             }
         }
         drive(&self.shared, &mut st);
@@ -317,9 +387,14 @@ impl OptChat {
         let result = match result {
             Ok((imported, built)) => {
                 let budget = st.memory.budget();
-                st.memory = Memory::load(st.store.len(), built, budget);
-                drive(&self.shared, &mut st);
-                Ok(imported)
+                match db::checkpoint::load(&mut st.store, Some(built), budget) {
+                    Ok((memory, _)) => {
+                        st.memory = memory;
+                        drive(&self.shared, &mut st);
+                        Ok(imported)
+                    }
+                    Err(e) => Err(Error::Io(e)),
+                }
             }
             Err(e) => Err(Error::Io(e)),
         };
@@ -465,6 +540,9 @@ impl OptChat {
     /// write can follow another process taking the chat. Idempotent.
     pub fn shutdown(&self) {
         let mut st = self.shared.lock();
+        if st.writable() && st.appended > 0 {
+            st.save_checkpoint();
+        }
         st.closed = true;
         self.shared.changed.notify_all();
         self.shared.unlock(st);

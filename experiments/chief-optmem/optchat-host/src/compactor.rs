@@ -21,6 +21,8 @@ use crate::report::{Report, Reporter};
 pub struct State {
     pub memory: Memory,
     pub store: Db,
+    /// Messages appended since the last saved checkpoint.
+    pub appended: u64,
     /// Nodes whose last call failed, with their first error.
     pub failing: BTreeMap<NodeId, String>,
     pub closed: bool,
@@ -33,6 +35,17 @@ pub struct State {
 impl State {
     pub fn writable(&self) -> bool {
         !self.closed && self.fatal.is_none()
+    }
+
+    /// Saves where the memory stands (`db::checkpoint`); a failure costs
+    /// only a longer fold at the next start, so it is reported, not fatal.
+    pub fn save_checkpoint(&mut self) {
+        match crate::db::checkpoint::save(&mut self.store, &self.memory) {
+            Ok(()) => self.appended = 0,
+            Err(e) => self.reports.push(Report::Checkpoint {
+                error: e.to_string(),
+            }),
+        }
     }
 
     /// A write failed (its transaction rolled back): writing stops here
@@ -152,7 +165,10 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
                 return shared.unlock(st);
             }
             st.failing.remove(&node);
-            st.memory.complete(node, &text);
+            {
+                let s = &mut *st;
+                s.memory.complete_in(node, &text, &s.store);
+            }
             drive(&shared, &mut st);
             return shared.unlock(st);
         }
