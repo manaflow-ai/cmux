@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// The App Store window's state (app-platform.md step 6): Discover
 /// (search, category chips, listings, detail with a live preview) and
@@ -60,7 +61,7 @@ public final class AppStoreModel {
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
     @ObservationIgnored private var search: Task<Void, Never>?
-    @ObservationIgnored private var removal: Task<Void, Never>?
+    @ObservationIgnored private let removalTimer = DemandTimer(owner: "AppStoreModel.removal")
     @ObservationIgnored private var removalWasEnabled = true
     /// How long a Remove can be undone before it is committed.
     @ObservationIgnored var removalUndoInterval: Duration = .seconds(6)
@@ -189,28 +190,28 @@ public final class AppStoreModel {
         removalWasEnabled = state(of: id)?.isEnabled ?? true
         pendingRemoval = id
         try? await setEnabled(id, false)
-        let interval = removalUndoInterval
-        removal = Task { [weak self] in
-            try? await Task.sleep(for: interval)
-            guard !Task.isCancelled else { return }
-            await self?.commitPendingRemoval()
+        removalTimer.schedule(after: removalUndoInterval) { @MainActor [weak self] in
+            await self?.commitRemoval()
         }
     }
 
     /// Takes back a pending Remove: the app runs again as it did.
     public func undoRemove() async {
         guard let id = pendingRemoval else { return }
-        removal?.cancel()
-        removal = nil
+        removalTimer.cancel()
         pendingRemoval = nil
         if removalWasEnabled { try? await setEnabled(id, true) }
     }
 
-    /// Removes the pending app now (its undo window ended).
+    /// Removes the pending app now, before its undo window ends.
     public func commitPendingRemoval() async {
+        removalTimer.cancel()
+        await commitRemoval()
+    }
+
+    /// The undo window ended (the timer's fire, which must not cancel itself).
+    private func commitRemoval() async {
         guard let id = pendingRemoval else { return }
-        removal?.cancel()
-        removal = nil
         pendingRemoval = nil
         try? await remove(id)
     }
