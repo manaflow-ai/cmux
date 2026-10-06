@@ -37,7 +37,7 @@ enum WindowInvariants {
         return .object([
             "windows": .array(value.windows.map { window in
                 let controller = manager.controller(for: window.id)
-                return .object([
+                return .object(pageFields(state: manager.states[window.id], controller: controller).merging([
                     "id": .string(window.id),
                     "open": .bool(window.isOpen),
                     "workspaces": .array(window.workspaceIDs.map(JSONValue.string)),
@@ -45,7 +45,7 @@ enum WindowInvariants {
                     "has_controller": .bool(controller != nil),
                     "visible": .bool(controller?.window?.isVisible ?? false),
                     "awaiting_content": .bool(manager.awaitingContent[window.id] != nil),
-                ])
+                ]) { _, new in new })
             }),
             "recency": .array(value.recency.map(JSONValue.string)),
             "launch_window": manager.launchWindowID.map(JSONValue.string) ?? .null,
@@ -57,8 +57,10 @@ enum WindowInvariants {
     }
 
     /// The page fields of one window in `debug.windows`.
+    /// `page` is the window state's top page, `shown_page` the one drawn.
     static func pageFields(state: WindowState?, controller: WindowController?) -> [String: JSONValue] {
-        [:]
+        ["page": state?.page.map { .string($0.rawValue) } ?? .null,
+         "shown_page": controller?.shownTopPage.map { .string($0.rawValue) } ?? .null]
     }
 
     static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.windows")

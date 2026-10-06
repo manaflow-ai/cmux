@@ -11,10 +11,9 @@ import Testing
 @MainActor
 struct DebugTopPageReportTests {
     @Test func sidebarRowsListTheLayoutItemsWithTheirState() async throws {
-        let (services, window, state, _) = try await TopPageTests.window()
-        _ = TopPages.show(.page(.appStore), services: services, in: state)
+        let (services, window, _, _) = try await TopPageTests.window()
         window.sidebar.model.itemInfo = SidebarBridge.itemInfo(for: window.sidebar.model.layout, registered: { _ in true },
-                                                              shownPage: state.page)
+                                                              shownPage: .page(.appStore))
         let items = DebugSidebarRows.items(of: window)
         let store = try #require(items.first { $0["id"]?.stringValue == "itm_app_store" })
         #expect(store["ref_kind"]?.stringValue == "app")
@@ -39,5 +38,4 @@ struct DebugTopPageReportTests {
         window.teardown()
         withExtendedLifetime(services) {}
     }
-
 }
