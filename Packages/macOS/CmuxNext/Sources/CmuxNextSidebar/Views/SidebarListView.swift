@@ -293,6 +293,15 @@ final class SidebarListView: NSView {
         let height = max(displayed.totalHeight, clipHeight)
         if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
     }
+    /// Exactly as wide as the visible clip, and as tall as the rows or the
+    /// clip, whichever is taller, on every clip resize too (nxdog56: a clip
+    /// that shrank after the rows were laid out kept the old height, so an
+    /// empty list showed a scroll bar and scrolled).
+    func fitToClip() {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        updateDocumentHeight()
+    }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width
         super.setFrameSize(newSize)

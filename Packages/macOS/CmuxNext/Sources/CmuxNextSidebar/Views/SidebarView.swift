@@ -231,19 +231,16 @@ public final class SidebarView: NSView {
     }
 
     @objc private func clipFrameChanged(_ note: Notification) {
-        syncListWidth()
+        syncListSize()
     }
 
     @objc private func scrollerStyleChanged(_ note: Notification) {
         scrollView.scrollerStyle = SystemScrollers.preferredStyle
-        syncListWidth()
+        syncListSize()
     }
 
-    /// The list is always exactly as wide as the visible clip.
-    private func syncListWidth() {
-        let width = scrollView.contentView.bounds.width
-        if list.frame.width != width { list.setFrameSize(NSSize(width: width, height: list.frame.height)) }
-    }
+    /// The list follows the visible clip (`SidebarListView.fitToClip`).
+    private func syncListSize() { list.fitToClip() }
 
     override public func layout() {
         super.layout()
@@ -284,7 +281,7 @@ public final class SidebarView: NSView {
         placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
-        syncListWidth()
+        syncListSize()
     }
 
 
