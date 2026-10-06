@@ -6587,6 +6587,58 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app show-pane",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "pane.focus",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Show Pane",
+      "title_key" : "action.pane.focus",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "app show-screen",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "screen.focus",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.screen",
+        "order" : 103,
+        "title" : "Screens",
+        "title_key" : "category.screen",
+        "title_table" : "ScreenActions"
+      },
+      "title" : "Show Screen",
+      "title_key" : "action.screen.focus",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "tab clear-name",
       "context_menu" : "offered",
       "context_menus" : [
@@ -16396,6 +16448,32 @@
       },
       "title" : "Open Agent Session in New Workspace",
       "title_key" : "action.agent.openSessionWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-toggle-chief-settings",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.toggleChiefSettings",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Toggle Chief Settings",
+      "title_key" : "action.home.toggleChiefSettings",
       "title_table" : "ActionCatalog"
     },
     {

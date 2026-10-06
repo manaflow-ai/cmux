@@ -83,7 +83,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .focusMove: [
             "history.goTo",
-            "showHideAllWindows", "goToWorkspace", "showMainWindow", "tab.focus", "nextSidebarTab", "prevSidebarTab",
+            "showHideAllWindows", "goToWorkspace", "showMainWindow", "tab.focus", "pane.focus", "screen.focus", "nextSidebarTab", "prevSidebarTab",
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",

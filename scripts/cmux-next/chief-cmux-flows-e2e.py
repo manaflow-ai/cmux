@@ -387,13 +387,37 @@ def main():
 
     @flow
     def subagent():
+        def subs():
+            try:
+                state = json.load(open(os.path.join(MUX_HOME, "optchat", "host.json")))
+            except (OSError, ValueError):
+                return []
+            return [sub for run in (state.get("spawns") or {}).values() for sub in run.get("subs", [])]
+
+        def chat_tab(sub):
+            """The agent chat tab bound to the subagent's session in its workspace (app tree)."""
+            snap = rpc("snapshot.get") or {}
+            for ws in (snap.get("topology") or {}).get("workspaces", []):
+                if ws.get("key") != sub.get("workspace"):
+                    continue
+                for screen in ws.get("screens", []):
+                    for pane in screen.get("panes", []):
+                        for tab in pane.get("tabs", []):
+                            if tab.get("kind") == "conversation" and tab.get("agent_session") == sub.get("session_id"):
+                                return ws.get("name") or ws.get("id")
+            return None
+
+        before = {sub.get("id") for sub in subs()}
+
         def verify(reply, focus):
-            got = wait(lambda: next((m for m in tail() if m["author"] == "agent_mux" and "PONG" in m["text"]
-                                     and "e2e-kid" in m["text"]), None), opts.turn_timeout, step=3)
-            names = [ws_name(w) for w in workspaces()]
-            kid_ws = any("e2e-kid" in n for n in names)
-            return (bool(got), f"report with PONG={bool(got)}; e2e-kid workspace={kid_ws}; workspaces={names}")
-        check("start a subagent", "the agent runs, reports PONG; its workspace shows in the tagged tree",
+            got = wait(lambda: next((m for m in tail() if m["author"] == "agent_mux" and "PONG" in m["text"]), None),
+                       opts.turn_timeout, step=3)
+            new = [sub for sub in subs() if sub.get("id") not in before]
+            tabs = {sub.get("id"): wait(lambda: chat_tab(sub), 30) for sub in new}
+            ok = bool(got) and bool(new) and all(tabs.values())
+            return (ok, f"report with PONG={bool(got)}; new subagents={[s.get('id') for s in new]}; "
+                        f"chat tab bound to its session in its workspace={tabs}")
+        check("start a subagent", "the agent reports PONG; its workspace holds the agent chat tab bound to its session",
               f"Start a subagent named e2e-kid in {SCRATCH} whose task is to reply with the single word PONG.", verify)
 
     @flow
