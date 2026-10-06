@@ -87,6 +87,8 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         let matches = query.isEmpty ? contacts : contacts.filter { $0.name.localizedStandardContains(query) }
         rows += matches.map(HomeRecipient.contact)
         shown = rows
+        // Nobody to pick and nothing typed: say how to reach someone.
+        emptyLabel.isHidden = !(contacts.isEmpty && rows.isEmpty)
         table.reloadData()
         refreshChosen()
     }
