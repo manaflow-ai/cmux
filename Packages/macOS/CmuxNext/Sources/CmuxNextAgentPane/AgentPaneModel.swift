@@ -45,9 +45,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
-    /// Runs a header action (``headerActions``) on this chat's tab, with the split's folder.
+    /// The chat header: runs a ``headerActions`` id on this chat's tab (with the split's folder),
+    /// and reads the tab's pin (`pane.tabState`).
     @ObservationIgnored public var onPaneAction: ((String, String?) -> Void)?
-    /// This chat's tab: whether it is pinned (`pane.tabState`).
     @ObservationIgnored public var onTabState: (() -> [String: Any])?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
