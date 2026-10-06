@@ -3,9 +3,9 @@ import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
-import { useEscapeCloses } from "./menuEscape";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
+import { useEscapeCloses } from "../../ui/escapeDismiss";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
