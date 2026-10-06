@@ -792,12 +792,31 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       }
       await tab.page.keyboard.insertText(text);
     },
-    "input.drag": async ({ targetId, path: points, button = "left", modifiers }) => {
+    // As the app's driver: `expect` binds the press to the source and
+    // `dropExpect` the release to the target (input.mouse's check); a
+    // target that changed gets no drop (the release goes back to the press
+    // point, where the drag started).
+    "input.drag": async ({ targetId, path: points, button = "left", modifiers, expect, dropExpect }) => {
       const page = tabFor(targetId).page;
+      const first = points[0];
+      const last = points[points.length - 1];
       await withModifiers(page, modifiers, async () => {
-        await page.mouse.move(points[0].x, points[0].y);
+        await page.mouse.move(first.x, first.y);
+        if (expect) await checkPress(targetId, expect, first.x, first.y);
         await page.mouse.down({ button });
         for (const p of points.slice(1)) await page.mouse.move(p.x, p.y, { steps: 5 });
+        if (dropExpect) {
+          try {
+            await checkPress(targetId, dropExpect, last.x, last.y);
+          } catch (e) {
+            await page.mouse.move(first.x, first.y, { steps: 5 });
+            await page.mouse.up({ button });
+            if (e instanceof DriverError && e.code === "stale") {
+              throw new DriverError("stale", e.message.replace(/^no press was sent: /, "no drop was made: ").replace("when the press was about to be sent", "when the drop was about to be made"));
+            }
+            throw e;
+          }
+        }
         await page.mouse.up({ button });
       });
     },

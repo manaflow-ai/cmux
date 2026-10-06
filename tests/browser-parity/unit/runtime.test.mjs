@@ -831,6 +831,7 @@ test("pointer: a locator drag starts and drops only on the elements the runtime 
           window.events.push("dragstart");
           if (mode === "drop") { const d = document.getElementById("d"); d.style.left = "250px"; d.style.top = "280px"; }
         });
+        t.addEventListener("dragenter", (e) => e.preventDefault());
         t.addEventListener("dragover", (e) => e.preventDefault());
         t.addEventListener("drop", (e) => { e.preventDefault(); window.events.push("target-drop"); });
         window.onPressWindow = mode === "start" ? () => { const d = document.getElementById("d"); d.style.left = "0px"; d.style.top = "0px"; } : null;

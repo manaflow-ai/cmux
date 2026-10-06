@@ -2136,22 +2136,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 return
             }
             if let pressTarget {
-                // The tree is read first: the checks then all start in one
-                // turn and the press follows the last answer with no other
-                // suspension (BrowserReplPressTarget.verify).
-                let frames = await BrowserReplFrameTree.frames(of: webView)
                 do {
-                    // In this session's world, where its handles live and
-                    // no other session's code runs.
-                    try await pressTarget.verify(frames: frames) { [frameGate, world = sessionWorld.agent] body, arguments, frame in
-                        try await frameGate.callAsyncJavaScript(
-                            body,
-                            arguments: arguments,
-                            in: webView,
-                            frame: frame,
-                            contentWorld: world
-                        )
-                    }
+                    try await self.verifyPress(pressTarget, in: webView)
                 } catch {
                     if !heldBefore { attachment.pointerReleased(sessionID: self.sessionID) }
                     throw error
@@ -2174,6 +2160,26 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// Checks that a press (or a drag's release) at `target`'s point still
+    /// reaches its element and each parent frame's `<iframe>`, right before
+    /// it is sent. The tree is read first: the checks then all start in one
+    /// turn and the event follows the last answer with no other suspension
+    /// (BrowserReplPressTarget.verify). They run in this session's world,
+    /// where its handles live and no other session's code runs.
+    @MainActor
+    private func verifyPress(_ target: BrowserReplPressTarget, in webView: WKWebView) async throws {
+        let frames = await BrowserReplFrameTree.frames(of: webView)
+        try await target.verify(frames: frames) { [frameGate, world = sessionWorld.agent] body, arguments, frame in
+            try await frameGate.callAsyncJavaScript(
+                body,
+                arguments: arguments,
+                in: webView,
+                frame: frame,
+                contentWorld: world
+            )
+        }
+    }
+
     /// Delivers one mouse event. A left press arms a drag capture; once
     /// WebKit starts an HTML5 drag, later moves and the release play the drop
     /// side (`draggingUpdated`, `performDragOperation`) instead of mouse
@@ -2187,7 +2193,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         flags: NSEvent.ModifierFlags,
         webView: CmuxWebView,
         window: NSWindow,
-        attachment: BrowserReplTabAttachment
+        attachment: BrowserReplTabAttachment,
+        dropAllowed: Bool = true
     ) async throws {
         func send() throws {
             guard let event = BrowserReplNativeInput.mouseEvent(
@@ -2243,7 +2250,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             if let drop = attachment.drag?.drop {
                 drop.draggingLocation = location
-                let operation = webView.draggingUpdated(drop)
+                let operation = dropAllowed ? webView.draggingUpdated(drop) : []
                 await BrowserReplNativeInput.roundTrip(webView)
                 if !operation.isEmpty, webView.prepareForDragOperation(drop) {
                     _ = webView.performDragOperation(drop)
@@ -2479,6 +2486,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             throw Self.error("invalid", "input.drag needs at least two points")
         }
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
+        // A locator drag names the source its press must reach (`expect`)
+        // and the target its release must reach (`dropExpect`), checked as
+        // a click's press is (input.mouse), right before the press and
+        // right before the drop: the page runs between the runtime's checks
+        // and here, and during the drag.
+        let pressTarget = try BrowserReplPressTarget(expect: params["expect"], press: first)
+        let dropTarget = try BrowserReplPressTarget(expect: params["dropExpect"], press: last)
         var trail: [CGPoint] = []
         for (previous, next) in zip(points, points.dropFirst()) {
             for step in 1...5 {
@@ -2494,17 +2508,36 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 attachment.mouseState.reset()
                 _ = attachment.mouseState.eventType(forType: "move", button: .left)
                 try await self.deliverMouse(.mouseMoved, button: .left, at: first, clickCount: 0, flags: flags, webView: webView, window: window, attachment: attachment)
+                if let pressTarget { try await self.verifyPress(pressTarget, in: webView) }
                 _ = attachment.mouseState.eventType(forType: "down", button: .left)
                 try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 for point in trail {
                     try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 }
                 _ = attachment.mouseState.eventType(forType: "up", button: .left)
+                if let dropTarget {
+                    do {
+                        try await self.verifyPress(dropTarget, in: webView)
+                    } catch let error as BrowserReplDriverError where error.code == "stale" {
+                        // No drop: an HTML5 drag ends without one, and a plain
+                        // mouse drag is released where it was pressed.
+                        try await self.deliverMouse(.leftMouseUp, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment, dropAllowed: false)
+                        throw BrowserReplDriverError(code: "stale", message: Self.dropRefusal(error.message))
+                    }
+                }
                 try await self.deliverMouse(.leftMouseUp, button: .left, at: last, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
             }
             attachment.mousePosition = last
         }
         return nil
+    }
+
+    /// A press check's refusal (`no press was sent: …`) worded for the
+    /// release of a drag that made no drop.
+    private static func dropRefusal(_ message: String) -> String {
+        let prefix = "no press was sent: "
+        let body = message.hasPrefix(prefix) ? String(message.dropFirst(prefix.count)) : message
+        return "no drop was made: " + body.replacingOccurrences(of: "when the press was about to be sent", with: "when the drop was about to be made")
     }
 
     /// The points an `input.drag` presses, moves through and releases at
