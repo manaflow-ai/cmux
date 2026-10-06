@@ -1,10 +1,18 @@
 import Foundation
+import Synchronization
 import Testing
 @testable import CmuxNextAgentPane
 
 /// `turn.undo` from the edited-files card: the host writes a file back to the turn's first
 /// content only while the file still holds exactly the turn's last content, never through git
 /// and never through the agent. Each test runs in its own temporary folder, the pane's only root.
+/// The files a test's Trash received.
+private final class TrashLog: Sendable {
+    private let moved = Mutex<[URL]>([])
+    nonisolated func add(_ url: URL) { moved.withLock { $0.append(url) } }
+    nonisolated var urls: [URL] { moved.withLock { $0 } }
+}
+
 @MainActor
 @Suite struct AgentPaneTurnUndoTests {
     private struct Folder {
@@ -30,14 +38,12 @@ import Testing
         let model = AgentPaneModel(host: MockAgentPaneHost())
         model.workspaceRoots = { roots }
         model.trashFile = { url in
-            trashed.urls.append(url)
+            trashed.add(url)
             try FileManager.default.removeItem(at: url)
         }
         if gesture { model.transport.gestures.record() }
         return model
     }
-
-    final class TrashLog: @unchecked Sendable { var urls: [URL] = [] }
 
     private static func undo(_ model: AgentPaneModel, _ files: [[String: Any]], apply: Bool = true) async -> [String: Any] {
         await model.respond(to: AgentPaneRequest(body: ["method": "turn.undo", "params": ["files": files, "apply": apply]] as [String: Any]))
