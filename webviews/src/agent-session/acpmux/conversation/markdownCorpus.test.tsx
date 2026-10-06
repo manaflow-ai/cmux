@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown, parseMarkdown } from "./Markdown";
+import { Markdown, footnoteOrder, parseMarkdown } from "./Markdown";
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}.md`, import.meta.url), "utf8");
 const html = (source: string, streaming = false) =>
@@ -86,5 +86,40 @@ describe("tables and lists reply", () => {
     expect(out).toContain("text-align:center");
     expect(out).toContain("text-align:right");
     expect(out.match(/<tr>/g)!.length).toBe(5);
+  });
+});
+
+describe("references reply", () => {
+  const source = fixture("references");
+  const out = html(source);
+
+  test("footnotes number by first reference and draw as notes at the end", () => {
+    expect(footnoteOrder(source)).toEqual(["bisect", "upstream"]);
+    expect(out.match(/class="cv-fnref"/g)!.length).toBe(3);
+    const notes = out.slice(out.indexOf('class="cv-footnotes"'));
+    expect(notes.indexOf("git bisect")).toBeLessThan(notes.indexOf("which also covers the Linux case"));
+    expect(out).not.toContain("[^bisect]");
+    expect(out).not.toContain("[^upstream]:");
+    // Regex classes, in code or not, stay text.
+    expect(visibleText(out)).toContain("[^a-z]");
+  });
+
+  test("h5 and h6 draw as the smallest heading", () => {
+    expect(out).toContain('<h5 class="cv-h cv-h4">Minor heading</h5>');
+    expect(out).toContain('<h6 class="cv-h cv-h4">Smallest heading</h6>');
+  });
+
+  test("a data URL image draws; a web image is a link named by its alt text", () => {
+    expect(out).toContain('<img class="cv-img" src="data:image/png;base64,');
+    expect(out).toMatch(
+      /<a class="cv-link is-image" href="https:\/\/example.com\/assets\/build-graph.png"[^>]*>.*build graph<\/a>/,
+    );
+    expect(out).not.toContain("![");
+  });
+
+  test("while it streams, a footnote reference shows as soon as it closes", () => {
+    const frame = html("Fixed in 0.64[^bisect] since", true);
+    expect(frame).toContain('class="cv-fnref"');
+    expect(visibleText(frame)).toContain(" since");
   });
 });
