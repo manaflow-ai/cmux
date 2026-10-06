@@ -1749,7 +1749,7 @@ final class SessionPersistenceTests: XCTestCase {
             includeScrollback: false,
             restorableAgentIndex: sourceIndex
         )
-        XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning)
+        XCTAssertEqual(snapshot.panels.first?.terminal?.wasAgentRunning, false)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
