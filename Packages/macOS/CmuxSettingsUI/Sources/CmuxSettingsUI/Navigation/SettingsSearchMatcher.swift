@@ -44,7 +44,7 @@ struct SettingsSearchMatcher: Sendable {
             score += tokenScore
         }
 
-        let title = normalize(entry.title)
+        let title = entry.normalizedTitle
         if title == query { score -= 1_000 }
         if title.hasPrefix(query) { score -= 800 }
         if containsAtWordBoundary(query, in: title) { score -= 700 }
