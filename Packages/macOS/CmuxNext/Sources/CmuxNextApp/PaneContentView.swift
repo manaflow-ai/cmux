@@ -44,6 +44,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     var paintHoldCounter: UInt64 = 0
     /// The hold's deadline (``PanePaintHold/limit``).
     let paintHoldDeadline = DemandTimer(owner: "pane.paint-hold")
+    /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
+    var launchImageView: NSView?
+    let launchImageDeadline = DemandTimer(owner: "pane.launch-image")
 
     /// - Parameter reveal: Holds the strip until the first tabs arrive and
     ///   the content until the first terminal frame (launch load-in).

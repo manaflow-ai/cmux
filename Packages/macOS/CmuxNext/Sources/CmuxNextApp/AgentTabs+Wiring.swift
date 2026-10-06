@@ -36,6 +36,7 @@ extension AgentTabStore {
         let tabs = AgentTabStore(tag: services.environment.tag, registry: services.registry,
                                  environment: ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, git: services.agentGit, settings: services.settings)
+        tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.
         tabs.blankChatHandler = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return nil }
