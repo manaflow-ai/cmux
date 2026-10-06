@@ -696,7 +696,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is
-  on, input and captures fail with `stale` when the main frame's document,
+  on, input, captures and script that can reach other frames (the
+  `document.domain` check above) fail with `stale` when the main frame's document,
   or that of a frame with a child WebKit could not describe, holds more
   child frames (`window.frames`, read in the driver's world) than the tree
   has under it, and a PDF when any child could not be described. A
