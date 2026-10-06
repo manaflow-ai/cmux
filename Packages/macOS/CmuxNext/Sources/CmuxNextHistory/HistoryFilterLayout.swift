@@ -67,4 +67,3 @@ struct HistoryFilterLayout: Layout {
         var height: CGFloat = 0
     }
 }
-
