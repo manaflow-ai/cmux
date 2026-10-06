@@ -648,7 +648,7 @@ checks nothing stays reserved after the session ends.
 | Source of the waiting cells (M) | 64 MiB | the cell fails at once |
 | Parsing the running cell (M) | 64 bytes for each byte of its source, reserved before it is parsed and held until it ends (Acorn's tree is about 50 bytes a byte of dense code); within the session's 512 MiB, so a cell holds at most about 8 MiB of source | the cell fails at once |
 | A cell's timeout (`--timeout`, `timeout_ms`) | 10 minutes (default 120 s) | refused before the cell runs |
-| Output a cell keeps in memory (M) | 16 MiB per cell | the rest goes to a spill file |
+| Output a cell keeps in memory (M) | 16 MiB per cell, each line counted with its level and 32 bytes for the line itself; a line's level is `log`, `info`, `warn`, `error` or `debug` (the native print turns any other value into `log`) | the rest goes to a spill file |
 | Output a cell spills | 64 MiB per cell, within the fs budget | the rest is dropped |
 | Browser calls running | 256 | later ones wait in order |
 | Browser calls waiting | 10,000 | the call fails at once |

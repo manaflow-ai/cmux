@@ -13,6 +13,29 @@ public struct BrowserReplOutputLine: Sendable, Equatable {
     }
 }
 
+extension BrowserReplOutputLine {
+    /// The levels a line may have; agent code reaches the native print
+    /// with any value, which prints as `log` unless it is one of these.
+    static let levels: Set<String> = ["log", "info", "warn", "error", "debug"]
+
+    /// `value` when it is a string of ``levels``, else `log`. A string is
+    /// measured before it is copied out of JavaScript, so a large one is
+    /// never copied.
+    static func level(of value: JSValue?) -> String {
+        guard let value, value.isString,
+              let length = value.forProperty("length")?.toInt32(), length <= 5,
+              let level = value.toString(), levels.contains(level) else { return "log" }
+        return level
+    }
+
+    /// The bytes a kept line holds: its text and level, the newline it
+    /// prints with, and the line itself, so many short lines cost what
+    /// they hold.
+    var retainedBytes: Int {
+        text.utf8.count + level.utf8.count + 1 + MemoryLayout<BrowserReplOutputLine>.stride
+    }
+}
+
 /// The outcome of one REPL evaluation.
 public struct BrowserReplEvalResult: Sendable, Equatable {
     /// Console output in order.
@@ -217,8 +240,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         private let spillName: String
         /// Where the spill file is, once it was created.
         private var spillPath: String?
+        /// Bytes of text kept in memory and spilled, as the summary counts them.
         private var retainedBytes = 0
         private var spilledBytes = 0
+        /// What the kept lines hold (``BrowserReplOutputLine/retainedBytes``),
+        /// reserved in the ledger.
+        private var chargedBytes = 0
         /// Bytes written to the spill file.
         private var writtenBytes = 0
         private var spill: FileHandle?
@@ -266,7 +293,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             lock.withLock {
                 guard !finished else { return }
                 let size = line.text.utf8.count + 1
-                if !spilling, ledger.reserve(size, of: .retainedOutputBytes) == nil {
+                let charge = line.retainedBytes
+                if !spilling, ledger.reserve(charge, of: .retainedOutputBytes) == nil {
+                    chargedBytes += charge
                     retainedBytes += size
                     lines.append(line)
                     return
@@ -345,7 +374,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.continuation = nil
             if let summary = spillSummaryLocked() { self.lines.append(summary) }
             // The lines go to the caller; the cell holds nothing any more.
-            ledger.release(retainedBytes, of: .retainedOutputBytes)
+            ledger.release(chargedBytes, of: .retainedOutputBytes)
             ledger.release(writtenBytes, of: .spilledOutputBytes)
             let lines = self.lines
             let timeoutTask = self.timeoutTask
@@ -1720,7 +1749,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in
             guard let self, let state = self.stateLock.withLock({ self.currentEval }) else { return }
             state.append(BrowserReplOutputLine(
-                level: level?.toString() ?? "log",
+                level: BrowserReplOutputLine.level(of: level),
                 text: self.boundary.egress(.text(text?.toString() ?? "")).text
             ))
         }
