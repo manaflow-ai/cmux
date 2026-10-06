@@ -675,8 +675,23 @@ fn unreadable_lines_are_refused_and_never_dispatched() {
     assert_eq!(workspaces(&mux), before, "a refused line was dispatched");
 }
 
-/// The fast path reads the raw line: a `\u` escape in the operation name
-/// must not carry an A2 operation past the gate.
+fn install(origin: Option<Value>) -> Value {
+    v2("apps.install", install_params(), Some("k1"), origin)
+}
+
+fn assert_not_forbidden(reply: &Value) {
+    assert_ne!(reply["error"]["code"], "origin.forbidden", "{reply}");
+}
+
+fn assert_a2_refusal(reply: &Value, derived: &str) {
+    assert_forbidden(reply);
+    assert_eq!(reply["error"]["message"], "needs a verified cmux app connection", "{reply}");
+    assert_eq!(reply["error"]["details"], json!({"required": "user", "derived": derived}));
+}
+
+/// A `\u` escape in the operation name must not carry an A2 operation past
+/// the gate. The gate reads the parsed line (one parse for the gate and the
+/// dispatch); this keeps the raw-line fast-path bypass from coming back.
 #[test]
 fn an_escaped_operation_name_still_meets_gate_a2() {
     let mux = mux("escaped-operation");
