@@ -188,7 +188,11 @@ on 6901. The contract (`web/services/vms/images/desktop.ts`;
 - `cmux` has passwordless sudo, so coding agents' root-refusing modes
   (`claude --dangerously-skip-permissions`) work, and the cmux-tui daemon
   runs sessions as that same account.
-- Agents are trusted everywhere. codex: `codex-managed.toml` is baked to
+- Agents start ready for unattended work and are trusted everywhere. codex:
+  the generated per-user config defaults to `approval_policy = "never"` and
+  `sandbox_mode = "danger-full-access"` on the Cloud machine boundary;
+  `--ask-for-approval` and `--sandbox` (or editing `~/.codex/config.toml`)
+  opt a session or user back down. `codex-managed.toml` is baked to
   `/etc/codex/managed_config.toml` with `trust_level = "trusted"` for `/root`
   and the work user's home, and the `codex()` function in `agent-config.sh` adds the
   launch directory's git root per invocation (codex trust is exact-path).
