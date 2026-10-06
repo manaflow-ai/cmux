@@ -665,7 +665,7 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         if let allowed {
             add(".*", "block")
             for pattern in allowed {
-                for filter in Self.filters(pattern) { add(filter, "ignore-previous-rules") }
+                for filter in Self.filters(pattern, allowing: true) { add(filter, "ignore-previous-rules") }
             }
             // A document of these takes or is written by the document that
             // loads it, which loaded under these rules; a blob of a web
@@ -674,7 +674,7 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             add("^blob:null/", "ignore-previous-rules")
         }
         for pattern in prohibited {
-            for filter in Self.filters(pattern) { add(filter, "block") }
+            for filter in Self.filters(pattern, allowing: false) { add(filter, "block") }
         }
         if blockIPAddresses {
             add("^(blob:)?[a-z][a-z0-9+.-]*://([^/@]*@)?[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+\\.?[:/]", "block")
@@ -688,8 +688,8 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     /// (``BrowserReplFileSandbox/contentRules(roots:subresourcesInsideRoots:)``)
     /// last, so no rule of the policy can undo their block of `file:` loads
     /// outside the directories, or of every `file:` subresource while a
-    /// protected file may lie inside them. The policy's filters match web
-    /// URLs only (``filters(_:)``). An allow list blocks every load it does
+    /// protected file may lie inside them. The policy's allow filters
+    /// match web URLs only (``filters(_:allowing:)``). An allow list blocks every load it does
     /// not name, files inside the directories included, so under one the
     /// directories get no exception.
     public func contentRules(fileRoots roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
@@ -709,7 +709,13 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
     /// The schemes a policy's content-rule filters may match.
     private static let webSchemes = ["http", "https", "ws", "wss"]
 
-    static func filters(_ pattern: BrowserReplDomainPattern) -> [String] {
+    /// The content-rule URL filters of `pattern`. An allow filter
+    /// (`allowing`) matches web URLs only: a wildcard scheme (`*://host`)
+    /// names ``webSchemes``, never `file:` (WebKit loads `file://host/p` as
+    /// the local file `/p`) or another scheme, and a pattern that names
+    /// none of them allows nothing. A block filter matches every scheme
+    /// the pattern names, which only refuses more.
+    static func filters(_ pattern: BrowserReplDomainPattern, allowing: Bool) -> [String] {
         let host: String
         if pattern.host == "*" {
             host = "[^/@:]+"
@@ -723,12 +729,14 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
         }
         // `blob:` URLs carry their origin: `blob:https://host/<id>`.
         func head(_ scheme: String) -> String { "^(blob:)?" + scheme + "://([^/@]*@)?" + host }
-        // Only web schemes: a wildcard scheme (`*://host`) names these, never
-        // `file:` (WebKit loads `file://host/p` as the local file `/p`) or
-        // another scheme. A pattern that names none of them adds no filter.
-        let schemes = pattern.scheme.map { scheme in
-            webSchemes.filter { BrowserReplDomainPattern.glob(scheme, matches: $0) }
-        } ?? webSchemes
+        let schemes: [String]
+        if let scheme = pattern.scheme, allowing {
+            schemes = webSchemes.filter { BrowserReplDomainPattern.glob(scheme, matches: $0) }
+        } else if let scheme = pattern.scheme {
+            schemes = [scheme.map { $0 == "*" ? "[a-z0-9+.-]*" : escape(String($0)) }.joined()]
+        } else {
+            schemes = webSchemes
+        }
         guard !schemes.isEmpty else { return [] }
         guard let port = pattern.port else { return schemes.map { head($0) + "(:[0-9]+)?/" } }
         // A URL without a port has its scheme's default one (`matches`), so

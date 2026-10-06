@@ -151,11 +151,11 @@ struct BrowserReplFileContentRuleTests {
         }
     }
 
-    /// The filters a policy pattern compiles to match web URLs only, so no
-    /// policy rule can match a local file whatever its scheme spelling.
-    @Test("A policy pattern's content-rule filters match only web schemes", arguments: ["*://localhost", "*://*", "f*://localhost", "*://localhost:443", "*://*.localhost"])
+    /// The allow filters a policy pattern compiles to match web URLs only,
+    /// so no allow rule can match a local file whatever its scheme spelling.
+    @Test("A policy pattern's content-rule allow filters match only web schemes", arguments: ["*://localhost", "*://*", "f*://localhost", "*://localhost:443", "*://*.localhost"])
     func policyFiltersMatchOnlyWebSchemes(pattern: String) throws {
-        let filters = BrowserReplDomainPolicy.filters(try BrowserReplDomainPattern.parse(pattern, title: "t"))
+        let filters = BrowserReplDomainPolicy.filters(try BrowserReplDomainPattern.parse(pattern, title: "t"), allowing: true)
         func matches(_ filter: String, _ url: String) throws -> Bool {
             let regex = try NSRegularExpression(pattern: filter, options: [.caseInsensitive])
             return regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil

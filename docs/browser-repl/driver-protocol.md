@@ -762,10 +762,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`
   content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules to the tabs the session created. A pattern's
-  rules match web URLs only (`http`, `https`, `ws`, `wss`, and `blob:` of
-  them; a wildcard scheme, `*://host`, names these four), never a `file:`
-  URL (WebKit loads `file://host/p` as the local file `/p`), and the
+  policy's content rules to the tabs the session created. An allowed
+  pattern's rules match web URLs only (`http`, `https`, `ws`, `wss`, and
+  `blob:` of them; a wildcard scheme, `*://host`, names these four), never
+  a `file:` URL (WebKit loads `file://host/p` as the local file `/p`), and the
   local-file rules come after the policy's, so no allowed pattern undoes
   their block (`BrowserReplFileContentRuleTests`). WebKit compiles
   them asynchronously while those tabs' pages keep running, so from the
