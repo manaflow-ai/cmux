@@ -58,6 +58,8 @@ struct MiscActionBindingCoverageTests {
         #expect(ActionBindingCoverageTests.run(services, "jumpToUnread") == .refused(MiscHandlerStrings.noUnread))
         services.registry.context = [.terminalFocused]
         #expect(ActionBindingCoverageTests.run(services, "palette.forkAgentConversationNewTab") == .refused(MiscHandlerStrings.noTerminal))
+        #expect(ActionBindingCoverageTests.run(services, "palette.turnOffAgentMessages") == .refused(MiscHandlerStrings.noTerminal))
+        #expect(ActionBindingCoverageTests.run(services, "palette.turnOnAgentMessages") == .refused(MiscHandlerStrings.noTerminal))
     }
 
     @Test func forkCommandOnlyForClaudeWithPlainSessionIDs() {

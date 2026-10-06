@@ -1,4 +1,5 @@
-//! `cmux agent message` and `cmux agent inbox` (plans/feat-agent-rooms).
+//! `cmux agent message`, `cmux agent inbox` and `cmux agent messages`
+//! (plans/feat-agent-rooms).
 //!
 //! A message is stored by the daemon first (`agent.message.send`), so it
 //! survives a restart. Then the CLI delivers it to every acpmux recipient as
@@ -48,6 +49,35 @@ pub(super) struct InboxPlan {
     pub state: Option<String>,
     pub limit: Option<u32>,
     pub ack: bool,
+}
+
+/// `agent messages [status]` and `agent messages on|off [<agent>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ReceivingPlan {
+    Status,
+    /// `None`: the caller's own address.
+    Set {
+        target: Option<String>,
+        enabled: bool,
+    },
+}
+
+pub(super) fn parse_receiving(words: &[&str]) -> Result<ReceivingPlan, UsageError> {
+    let enabled = match words.first() {
+        None | Some(&"status") if words.len() <= 1 => return Ok(ReceivingPlan::Status),
+        Some(&"on") => true,
+        Some(&"off") => false,
+        _ => {
+            return Err(UsageError::new(
+                "use agent messages [status], or agent messages on|off [<agent>]",
+            ));
+        }
+    };
+    match words {
+        [_] => Ok(ReceivingPlan::Set { target: None, enabled }),
+        [_, target] => Ok(ReceivingPlan::Set { target: Some((*target).to_owned()), enabled }),
+        _ => Err(UsageError::new("agent messages on|off takes at most one agent")),
+    }
 }
 
 /// `agent message <target> [--from NAME] [--thread ID] <text…|->` and
@@ -536,10 +566,11 @@ fn record_mark(marked: Result<Value, Failure>, recipient: &str, ids: &str, sent:
 }
 
 /// Deliver the queued messages of one acpmux recipient (oldest first, as
-/// listed) and record each outcome. A message an earlier send left queued
-/// goes out here too; its id is the prompt id, so acpmux runs it once even
-/// when another sender delivers it at the same time. A failed message is not
-/// retried: the sender sees the failure and decides.
+/// listed) and record each outcome. Each message is claimed (marked
+/// delivered) before it is prompted, so one that was turned off after it was
+/// listed, or that another sender took, is not prompted here; a prompt that
+/// fails marks it failed. Its id is the prompt id, so acpmux runs it once.
+/// A failed message is not retried: the sender sees the failure and decides.
 fn deliver_queued(
     queued: Vec<Value>,
     recipient: &str,
@@ -550,20 +581,37 @@ fn deliver_queued(
     let own_id = sent.message["id"].as_str().unwrap_or_default().to_owned();
     for message in queued {
         let id = message["id"].as_str().unwrap_or_default().to_owned();
-        let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
-        let mut fields = json!({"ids": [id], "recipient": recipient, "via": "acp.prompt"});
-        match deliver(&text, &id) {
-            Ok(()) => fields["state"] = json!("delivered"),
-            Err(error) => {
-                sent.problems.push(format!(
-                    "message {id} was stored but not delivered to {recipient}: {error}"
-                ));
+        let claim = mark(json!({
+            "ids": [id],
+            "recipient": recipient,
+            "state": "delivered",
+            "via": "acp.prompt",
+        }));
+        let owned = match &claim {
+            Ok(marked) => !claimed(std::slice::from_ref(&message), marked, recipient).is_empty(),
+            Err(_) => {
                 sent.failed |= id == own_id;
-                fields["state"] = json!("failed");
-                fields["error"] = Value::String(truncate(&error, 1024));
+                false
             }
+        };
+        record_mark(claim, recipient, &id, sent);
+        if !owned {
+            continue;
         }
-        record_mark(mark(fields), recipient, &id, sent);
+        let text = cmux_tui_core::agent_message_prompt::render(std::slice::from_ref(&message));
+        if let Err(error) = deliver(&text, &id) {
+            sent.problems
+                .push(format!("message {id} was stored but not delivered to {recipient}: {error}"));
+            sent.failed |= id == own_id;
+            let failed = mark(json!({
+                "ids": [id],
+                "recipient": recipient,
+                "state": "failed",
+                "via": "acp.prompt",
+                "error": truncate(&error, 1024),
+            }));
+            record_mark(failed, recipient, &id, sent);
+        }
     }
 }
 
@@ -675,6 +723,81 @@ fn inbox(global: &GlobalArgs, plan: &InboxPlan) -> Result<(Vec<Value>, Option<St
         }
     }
     Ok((messages, recipient))
+}
+
+pub(super) fn run_receiving(global: GlobalArgs, plan: ReceivingPlan) -> i32 {
+    let output = global.output;
+    match receiving(&global, &plan) {
+        Ok(value) => {
+            match output {
+                OutputMode::Human => print!("{}", receiving_text(&value)),
+                OutputMode::Quiet => {}
+                _ => println!("{value}"),
+            }
+            0
+        }
+        Err(failure) => failure.report(output),
+    }
+}
+
+fn receiving(global: &GlobalArgs, plan: &ReceivingPlan) -> Result<Value, Failure> {
+    let mut connection = Connection::open(global)?;
+    let (target, enabled) = match plan {
+        ReceivingPlan::Status => {
+            return connection.read(ResourceOperation::AgentMessageReceivingGet, json!({}));
+        }
+        ReceivingPlan::Set { target, enabled } => (target, *enabled),
+    };
+    let recipient = match target {
+        Some(target) => resolve_target(&mut connection, target)?,
+        None => own_address().ok_or_else(|| {
+            Failure::Resource(json!({
+                "code": "validation.invalid",
+                "message": "name the agent, or run this from an agent's terminal or acpmux session",
+                "details": {},
+                "retryable": false,
+            }))
+        })?,
+    };
+    connection.mutate(
+        ResourceOperation::AgentMessageReceivingSet,
+        json!({"recipient": recipient, "enabled": enabled}),
+        None,
+    )
+}
+
+/// `agent messages` output: the session switch and opted-out recipients,
+/// or the result of turning one recipient on or off.
+fn receiving_text(value: &Value) -> String {
+    if let Some(recipient) = value["recipient"].as_str() {
+        let failed = value["failed"].as_array().map_or(0, Vec::len);
+        return match (value["enabled"].as_bool(), failed) {
+            (Some(true), _) => format!("Messages to {recipient} are on.\n"),
+            (_, 0) => format!("Messages to {recipient} are off.\n"),
+            (_, 1) => format!("Messages to {recipient} are off; 1 queued message failed.\n"),
+            (_, count) => {
+                format!("Messages to {recipient} are off; {count} queued messages failed.\n")
+            }
+        };
+    }
+    let mut text = if value["enabled"].as_bool() == Some(false) {
+        String::from("Agent messages are off for this session (agents.messages.enabled).\n")
+    } else {
+        String::from("Agent messages are on.\n")
+    };
+    let disabled: Vec<&str> = value["disabled_recipients"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|row| row["recipient"].as_str())
+        .collect();
+    if !disabled.is_empty() {
+        text.push_str("Turned off by:\n");
+        for recipient in disabled {
+            text.push_str(&format!("  {recipient}\n"));
+        }
+    }
+    text
 }
 
 fn delivery_state<'a>(message: &'a Value, recipient: &str) -> Option<&'a str> {
@@ -827,7 +950,16 @@ mod tests {
     }
 
     fn queued(id: &str) -> Value {
-        json!({"id": id, "sender": "cli", "body": id, "deliveries": [{"recipient": "acp:s", "state": "queued"}]})
+        json!({"id": id, "sender": "cli", "body": id,
+               "deliveries": [{"recipient": "acp:s", "state": "queued", "attempts": "0"}]})
+    }
+
+    /// An acp mark result: the receipt moved to `fields["state"]` with one
+    /// more attempt.
+    fn acp_marked(fields: &Value) -> Value {
+        let id = fields["ids"][0].as_str().unwrap();
+        let state = fields["state"].clone();
+        json!([{"id": id, "deliveries": [{"recipient": "acp:s", "state": state, "attempts": "1"}]}])
     }
 
     #[test]
@@ -952,16 +1084,21 @@ mod tests {
             },
             |fields| {
                 marks.push(fields.clone());
-                let id = fields["ids"][0].as_str().unwrap();
-                let state = fields["state"].clone();
-                Ok(json!([{"id": id, "deliveries": [{"recipient": "acp:s", "state": state}]}]))
+                Ok(acp_marked(&fields))
             },
         );
         assert_eq!(prompts, ["msg_old", "msg_new"]);
-        assert_eq!(marks[0]["state"], "failed");
-        assert_eq!(marks[0]["error"], "rejected");
-        assert_eq!(marks[1]["state"], "delivered");
-        assert_eq!(marks[1]["via"], "acp.prompt");
+        // Each message is claimed before it is prompted.
+        let states: Vec<(&str, &str)> = marks
+            .iter()
+            .map(|mark| (mark["ids"][0].as_str().unwrap(), mark["state"].as_str().unwrap()))
+            .collect();
+        assert_eq!(
+            states,
+            [("msg_old", "delivered"), ("msg_old", "failed"), ("msg_new", "delivered")]
+        );
+        assert_eq!(marks[1]["error"], "rejected");
+        assert_eq!(marks[2]["via"], "acp.prompt");
         // An older message failing is reported but does not fail this send.
         assert!(!sent.failed);
         assert_eq!(sent.problems.len(), 1);
@@ -969,19 +1106,44 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_send_fails_and_a_receipt_another_sender_recorded_is_only_reported() {
+    fn a_message_that_cannot_be_claimed_is_not_prompted() {
+        // Turned off after it was listed: the claim is refused.
         let mut sent = Sent { message: queued("msg_new"), ..Sent::default() };
         deliver_queued(
             vec![queued("msg_new")],
             "acp:s",
             &mut sent,
-            |_, _| Err("acpmux is not running".to_owned()),
-            |_| Err(Failure::Resource(json!({"message": "already delivered"}))),
+            |_, _| panic!("a refused claim is not prompted"),
+            |_| Err(Failure::Resource(json!({"message": "acp:s has messages disabled"}))),
         );
         assert!(sent.failed);
-        assert_eq!(sent.problems.len(), 2);
-        assert!(sent.problems[1].contains("already delivered"));
+        assert_eq!(sent.problems.len(), 1);
+        assert!(sent.problems[0].contains("has messages disabled"));
         assert_eq!(sent.message["deliveries"][0]["state"], "queued");
+
+        // Another sender delivered it first: the receipt does not move.
+        let mut sent = Sent { message: queued("msg_new"), ..Sent::default() };
+        deliver_queued(
+            vec![queued("msg_old"), queued("msg_new")],
+            "acp:s",
+            &mut sent,
+            |_, id| {
+                assert_eq!(id, "msg_new", "msg_old was taken by another sender");
+                Err("acpmux is not running".to_owned())
+            },
+            |fields| {
+                if fields["ids"][0] == "msg_old" {
+                    let mut value = acp_marked(&fields);
+                    value[0]["deliveries"][0]["attempts"] = json!("0");
+                    Ok(value)
+                } else {
+                    Ok(acp_marked(&fields))
+                }
+            },
+        );
+        assert!(sent.failed);
+        assert_eq!(sent.problems.len(), 1);
+        assert_eq!(sent.message["deliveries"][0]["state"], "failed");
     }
 
     #[test]
@@ -991,6 +1153,44 @@ mod tests {
         assert!(parse_inbox(&[], Some("read".into()), None, false).is_err());
         assert!(parse_inbox(&[], None, Some("0".into()), false).is_err());
         assert_eq!(parse_inbox(&[], None, Some("5".into()), true).unwrap().limit, Some(5));
+    }
+
+    #[test]
+    fn messages_on_off_and_status_parse() {
+        assert_eq!(parse_receiving(&[]).unwrap(), ReceivingPlan::Status);
+        assert_eq!(parse_receiving(&["status"]).unwrap(), ReceivingPlan::Status);
+        assert_eq!(
+            parse_receiving(&["off"]).unwrap(),
+            ReceivingPlan::Set { target: None, enabled: false }
+        );
+        assert_eq!(
+            parse_receiving(&["on", "reviewer"]).unwrap(),
+            ReceivingPlan::Set { target: Some("reviewer".into()), enabled: true }
+        );
+        assert!(parse_receiving(&["off", "a", "b"]).is_err());
+        assert!(parse_receiving(&["status", "a"]).is_err());
+        assert!(parse_receiving(&["mute"]).is_err());
+    }
+
+    #[test]
+    fn messages_status_text_names_the_switch_and_opted_out_agents() {
+        let status = json!({
+            "enabled": false,
+            "disabled_recipients": [{"recipient": "acp:review", "updated_at_ms": "1"}],
+        });
+        assert_eq!(
+            receiving_text(&status),
+            "Agent messages are off for this session (agents.messages.enabled).\n\
+             Turned off by:\n  acp:review\n"
+        );
+        let off =
+            json!({"recipient": "acp:review", "enabled": false, "failed": ["msg_1", "msg_2"]});
+        assert_eq!(
+            receiving_text(&off),
+            "Messages to acp:review are off; 2 queued messages failed.\n"
+        );
+        let on = json!({"recipient": "acp:review", "enabled": true, "failed": []});
+        assert_eq!(receiving_text(&on), "Messages to acp:review are on.\n");
     }
 
     #[test]

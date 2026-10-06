@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "9c46578848827f5c676d07d4dabc4cbffee22e239c583ee832eee8c976b73c77",
+  "catalog_sha256": "9f5cd877a5c9bd50a434e8496f736663569e9ff7b595c04efc644ebecd13bb3f",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -8,6 +8,12 @@
       "class": "read"
     },
     "agent.message.mark": {
+      "class": "mutation"
+    },
+    "agent.message.receiving.get": {
+      "class": "read"
+    },
+    "agent.message.receiving.set": {
       "class": "mutation"
     },
     "agent.message.send": {

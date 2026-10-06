@@ -2633,6 +2633,89 @@
       },
       "extra": false
     },
+    "AgentMessageDisabledRecipient": {
+      "kind": "object",
+      "fields": {
+        "recipient": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        },
+        "updated_at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "When the recipient turned messages off."
+        }
+      },
+      "extra": false
+    },
+    "AgentMessageReceiving": {
+      "kind": "object",
+      "fields": {
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The session setting agents.messages.enabled. False refuses every send."
+        },
+        "disabled_recipients": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "AgentMessageDisabledRecipient"
+            }
+          },
+          "description": "Recipients that turned messages off for themselves."
+        }
+      },
+      "extra": false
+    },
+    "AgentMessageReceivingChange": {
+      "kind": "object",
+      "fields": {
+        "recipient": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 256
+          }
+        },
+        "enabled": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "failed": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            }
+          },
+          "description": "Messages whose queued delivery to the recipient failed because it turned messages off."
+        }
+      },
+      "extra": false
+    },
     "AgentMessageSnapshot": {
       "kind": "object",
       "fields": {
@@ -7458,6 +7541,98 @@
               "kind": "ref",
               "name": "AgentMessageSnapshot"
             }
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.receiving.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AgentMessageReceiving"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "agent.message.receiving.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "agent",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "recipient": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "A terminal agent (term_...) or an acpmux session (acp:<session id>)."
+          },
+          "enabled": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "False turns messages to the recipient off: its queued deliveries fail and later sends to it are refused."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AgentMessageReceivingChange"
           }
         ]
       },

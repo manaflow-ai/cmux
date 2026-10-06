@@ -22,6 +22,11 @@ const KEEP_SETTLED_MESSAGES: i64 = 2000;
 /// terminal nor an acpmux session.
 pub(crate) const CLI_SENDER: &str = "cli";
 
+/// Why a send fails, and queued receipts fail, while
+/// `agents.messages.enabled` is false.
+pub(crate) const TURNED_OFF: &str =
+    "agent messages are turned off (agents.messages.enabled is false)";
+
 const STATES: [&str; 4] = ["queued", "delivered", "acknowledged", "failed"];
 
 pub(super) fn create_agent_message_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -53,7 +58,11 @@ pub(super) fn create_agent_message_schema(transaction: &Transaction<'_>) -> anyh
            PRIMARY KEY(message_id, recipient)
          );
          CREATE INDEX IF NOT EXISTS agent_message_deliveries_recipient
-           ON agent_message_deliveries(recipient, state);",
+           ON agent_message_deliveries(recipient, state);
+         CREATE TABLE IF NOT EXISTS agent_message_optouts (
+           recipient TEXT PRIMARY KEY NOT NULL,
+           updated_at_ms INTEGER NOT NULL CHECK(updated_at_ms >= 0)
+         );",
     )?;
     Ok(())
 }
@@ -221,6 +230,9 @@ pub(crate) fn send(
                 "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
             )));
         }
+        if receiving_disabled(transaction, recipient)? {
+            return Err(bad_request(format!("{recipient} has messages disabled")));
+        }
         if recipient.starts_with("term_") && !terminal_exists(recipient)? {
             return Err(anyhow::Error::new(crate::resource::ResourceError::new(
                 "resource.not_found",
@@ -286,6 +298,116 @@ pub(crate) fn send(
     snapshot(transaction, session_id, message_id)?.ok_or_else(|| not_found(message_id))
 }
 
+/// Whether `recipient` turned agent messages off for itself.
+fn receiving_disabled(connection: &Connection, recipient: &str) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row("SELECT 1 FROM agent_message_optouts WHERE recipient = ?1", [recipient], |_| {
+            Ok(())
+        })
+        .optional()?
+        .is_some())
+}
+
+/// Turn receiving on or off for one recipient. Turning it off fails the
+/// recipient's queued receipts, so nothing waits for a delivery that will
+/// not come. Opt-outs of terminals that no longer exist are dropped (a
+/// terminal id is never reused), so the table stays as small as the live
+/// terminals and acpmux sessions that opted out. Returns the
+/// `AgentMessageReceivingChange` result.
+pub(crate) fn set_receiving(
+    transaction: &Transaction<'_>,
+    recipient: &str,
+    enabled: bool,
+    terminal_exists: &dyn Fn(&str) -> anyhow::Result<bool>,
+    now_ms: u64,
+) -> anyhow::Result<Value> {
+    if !is_recipient_address(recipient) {
+        return Err(bad_request(format!(
+            "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
+        )));
+    }
+    if !enabled && recipient.starts_with("term_") && !terminal_exists(recipient)? {
+        return Err(anyhow::Error::new(crate::resource::ResourceError::new(
+            "resource.not_found",
+            format!("no terminal {recipient:?} in this session"),
+            json!({"scope": "terminal", "id": recipient}),
+            false,
+        )));
+    }
+    let terminals = {
+        let mut statement = transaction.prepare(
+            "SELECT recipient FROM agent_message_optouts WHERE substr(recipient, 1, 5) = 'term_'",
+        )?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    for terminal in terminals {
+        if terminal != recipient && !terminal_exists(&terminal)? {
+            transaction
+                .execute("DELETE FROM agent_message_optouts WHERE recipient = ?1", [&terminal])?;
+        }
+    }
+    let now = i64::try_from(now_ms)?;
+    let failed = if enabled {
+        transaction
+            .execute("DELETE FROM agent_message_optouts WHERE recipient = ?1", [recipient])?;
+        Vec::new()
+    } else {
+        transaction.execute(
+            "INSERT INTO agent_message_optouts(recipient, updated_at_ms) VALUES(?1, ?2)
+             ON CONFLICT(recipient) DO UPDATE SET updated_at_ms = excluded.updated_at_ms",
+            params![recipient, now],
+        )?;
+        fail_queued(
+            transaction,
+            Some(recipient),
+            &format!("{recipient} has messages disabled"),
+            now_ms,
+        )?
+    };
+    Ok(json!({"recipient": recipient, "enabled": enabled, "failed": failed}))
+}
+
+/// Fail every queued receipt, or `recipient`'s, with `error`. Returns the
+/// ids of the messages whose receipt failed.
+pub(crate) fn fail_queued(
+    transaction: &Transaction<'_>,
+    recipient: Option<&str>,
+    error: &str,
+    now_ms: u64,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = transaction.prepare(
+        "SELECT DISTINCT message_id FROM agent_message_deliveries
+         WHERE state = 'queued' AND (?1 IS NULL OR recipient = ?1)
+         ORDER BY message_id",
+    )?;
+    let ids = statement
+        .query_map([recipient], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    transaction.execute(
+        "UPDATE agent_message_deliveries SET state = 'failed', updated_at_ms = ?2, error = ?3
+         WHERE state = 'queued' AND (?1 IS NULL OR recipient = ?1)",
+        params![recipient, i64::try_from(now_ms)?, error],
+    )?;
+    Ok(ids)
+}
+
+/// Recipients that turned agent messages off, oldest change first.
+pub(crate) fn disabled_recipients(connection: &Connection) -> anyhow::Result<Vec<Value>> {
+    let mut statement = connection.prepare(
+        "SELECT recipient, updated_at_ms FROM agent_message_optouts
+         ORDER BY updated_at_ms, recipient",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(json!({
+                "recipient": row.get::<_, String>(0)?,
+                "updated_at_ms": row.get::<_, i64>(1)?.to_string(),
+            }))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
 /// Whether a receipt may move from `from` to `to`. Receipts move forward:
 /// queued, delivered, acknowledged. A queued or failed delivery may fail
 /// (again) or be delivered, a delivery path that claimed a message before
@@ -319,6 +441,12 @@ pub(crate) fn mark(
     }
     if error.is_some() && state != "failed" {
         return Err(bad_request("an error is recorded only for a failed delivery"));
+    }
+    // A delivery path claims a message before it hands it over, so a
+    // recipient that turned messages off after the message was listed
+    // never gets it.
+    if state == "delivered" && receiving_disabled(transaction, recipient)? {
+        return Err(bad_request(format!("{recipient} has messages disabled")));
     }
     let now = i64::try_from(now_ms)?;
     let mut values = Vec::with_capacity(ids.len());
@@ -788,5 +916,111 @@ mod tests {
         let first = new_message_id().unwrap();
         assert!(first.starts_with("msg_") && first.len() == 36);
         assert_ne!(first, new_message_id().unwrap());
+    }
+
+    fn set(connection: &mut Connection, recipient: &str, enabled: bool) -> Value {
+        let transaction = connection.transaction().unwrap();
+        let value = set_receiving(&transaction, recipient, enabled, &any_terminal, 20).unwrap();
+        transaction.commit().unwrap();
+        value
+    }
+
+    #[test]
+    fn turning_receiving_off_fails_queued_messages_and_refuses_new_ones() {
+        let mut connection = connection();
+        send_one(&mut connection, "msg_1", &message(TERM_A, &[TERM_B, "acp:review"], "one"));
+        send_one(&mut connection, "msg_2", &message(TERM_A, &["acp:review"], "two"));
+        let value = set(&mut connection, TERM_B, false);
+        assert_eq!(value, json!({"recipient": TERM_B, "enabled": false, "failed": ["msg_1"]}));
+        let message_1 = snapshot(&connection, "session_x", "msg_1").unwrap().unwrap();
+        assert_eq!(message_1["deliveries"][0]["state"], "failed");
+        assert_eq!(message_1["deliveries"][0]["error"], format!("{TERM_B} has messages disabled"));
+        assert_eq!(message_1["deliveries"][1]["state"], "queued");
+        let error = send_err(&mut connection, &message(TERM_A, &["acp:review", TERM_B], "three"));
+        assert_eq!(error, format!("bad request: {TERM_B} has messages disabled"));
+        // A reply to an opted-out sender is refused too.
+        let mut reply = message("acp:review", &[], "answer");
+        reply.in_reply_to = Some("msg_2".into());
+        let transaction = connection.transaction().unwrap();
+        set_receiving(&transaction, TERM_A, false, &any_terminal, 21).unwrap();
+        let error =
+            send(&transaction, "session_x", "msg_3", &reply, &any_terminal, 22).unwrap_err();
+        assert_eq!(error.to_string(), format!("bad request: {TERM_A} has messages disabled"));
+        drop(transaction);
+        assert_eq!(
+            disabled_recipients(&connection).unwrap(),
+            json!([{"recipient": TERM_B, "updated_at_ms": "20"}]).as_array().unwrap().clone()
+        );
+        let value = set(&mut connection, TERM_B, true);
+        assert_eq!(value, json!({"recipient": TERM_B, "enabled": true, "failed": []}));
+        assert!(disabled_recipients(&connection).unwrap().is_empty());
+        send_one(&mut connection, "msg_4", &message(TERM_A, &[TERM_B], "back"));
+    }
+
+    #[test]
+    fn failing_every_queued_receipt_leaves_settled_ones() {
+        let mut connection = connection();
+        send_one(&mut connection, "msg_1", &message(TERM_A, &[TERM_B], "one"));
+        send_one(&mut connection, "msg_2", &message(TERM_B, &[TERM_A], "two"));
+        let transaction = connection.transaction().unwrap();
+        mark(&transaction, "session_x", &["msg_1".into()], TERM_B, "delivered", None, None, 15)
+            .unwrap();
+        let failed = fail_queued(&transaction, None, TURNED_OFF, 30).unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(failed, ["msg_2"]);
+        let message_1 = snapshot(&connection, "session_x", "msg_1").unwrap().unwrap();
+        assert_eq!(message_1["deliveries"][0]["state"], "delivered");
+        let message_2 = snapshot(&connection, "session_x", "msg_2").unwrap().unwrap();
+        assert_eq!(message_2["deliveries"][0]["state"], "failed");
+        assert_eq!(message_2["deliveries"][0]["error"], TURNED_OFF);
+    }
+
+    #[test]
+    fn opt_outs_of_ended_terminals_are_dropped() {
+        let mut connection = connection();
+        set(&mut connection, TERM_A, false);
+        let transaction = connection.transaction().unwrap();
+        let only_b = |terminal: &str| -> anyhow::Result<bool> { Ok(terminal == TERM_B) };
+        set_receiving(&transaction, TERM_B, false, &only_b, 30).unwrap();
+        set_receiving(&transaction, "acp:review", false, &only_b, 31).unwrap();
+        transaction.commit().unwrap();
+        let rows: Vec<Value> = disabled_recipients(&connection).unwrap();
+        let recipients: Vec<&str> =
+            rows.iter().map(|row| row["recipient"].as_str().unwrap()).collect();
+        assert_eq!(recipients, [TERM_B, "acp:review"]);
+    }
+
+    #[test]
+    fn a_recipient_that_turned_messages_off_cannot_be_delivered_to() {
+        let mut connection = connection();
+        send_one(&mut connection, "msg_1", &message(TERM_A, &[TERM_B], "one"));
+        set(&mut connection, TERM_B, false);
+        let transaction = connection.transaction().unwrap();
+        let error = mark(
+            &transaction,
+            "session_x",
+            &["msg_1".into()],
+            TERM_B,
+            "delivered",
+            Some("acp.prompt"),
+            None,
+            40,
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), format!("bad request: {TERM_B} has messages disabled"));
+        // A person may still acknowledge what reached them.
+        mark(&transaction, "session_x", &["msg_1".into()], TERM_B, "acknowledged", None, None, 41)
+            .unwrap();
+    }
+
+    #[test]
+    fn receiving_is_set_only_for_recipient_addresses() {
+        let mut connection = connection();
+        let transaction = connection.transaction().unwrap();
+        let error = set_receiving(&transaction, "cli", false, &any_terminal, 1).unwrap_err();
+        assert!(error.to_string().contains("is not a recipient"), "{error}");
+        let no_terminal = |_: &str| -> anyhow::Result<bool> { Ok(false) };
+        let error = set_receiving(&transaction, TERM_A, false, &no_terminal, 1).unwrap_err();
+        assert!(error.to_string().contains("no terminal"), "{error}");
     }
 }
