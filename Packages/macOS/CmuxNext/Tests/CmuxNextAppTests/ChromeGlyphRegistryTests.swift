@@ -24,4 +24,21 @@ import Testing
         #expect(remote.size == square(side))
         #expect(elsewhere.size == square(side))
     }
+
+    /// Narrowed by the titlebar row, the badge shows its glyph alone instead
+    /// of a clipped word, and the word returns when room does.
+    @Test func aNarrowIncognitoBadgeDropsItsWord() {
+        let badge = IncognitoBadgeView(frame: .zero)
+        let full = badge.fittingSize
+        badge.frame = NSRect(origin: .zero, size: full)
+        badge.layoutSubtreeIfNeeded()
+        #expect(badge.showsLabel)
+        badge.frame = NSRect(x: 0, y: 0, width: full.height + 6, height: full.height)
+        badge.layoutSubtreeIfNeeded()
+        #expect(!badge.showsLabel)
+        #expect(badge.fittingSize.width == full.width)
+        badge.frame = NSRect(origin: .zero, size: full)
+        badge.layoutSubtreeIfNeeded()
+        #expect(badge.showsLabel)
+    }
 }
