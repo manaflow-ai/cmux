@@ -14,17 +14,11 @@
 # inspect the committed exports rather than rewriting them and hiding drift.
 # Usage: scripts/cmux-next/check-action-surfaces.sh [package-root]
 set -euo pipefail
-# swift test builds and runs cmux-next's test host: it runs as a fleet CI step
-# (cmux-ci run sets CMUX_CI_STEP_KEY) or on a GitHub runner, never on a
-# developer Mac (two agents ran it on the laptop on 2026-10-04).
-if [[ -z "${CMUX_CI_STEP_KEY:-}" && "${GITHUB_ACTIONS:-}" != "true" ]]; then
-  cat >&2 <<'MSG'
-check-action-surfaces.sh runs swift test and runs only on the build fleet.
-Run it there:
-  cmux-ci run --class light --script scripts/cmux-next/check-action-surfaces.sh
-MSG
-  exit 2
-fi
+# swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
+# shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
+cmux_next_require_fleet check-action-surfaces.sh "swift test" "cmux-next generated files" \
+  "cmux-ci run --class light --script scripts/cmux-next/check-action-surfaces.sh"
 root="${1:-$(git rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 cd "$root"
 exec swift test -j "${CMUX_NEXT_SWIFT_JOBS:-4}" \

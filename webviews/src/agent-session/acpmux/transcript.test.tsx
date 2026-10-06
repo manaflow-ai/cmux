@@ -2155,6 +2155,43 @@ describe("acpmux turn diff", () => {
     }
   });
 
+  test("an ended turn's card never asks the agent to undo its edits", async () => {
+    // The agent could run any command (git checkout) and lose the user's later edits. Undo comes
+    // back only as a host revert that checks each file still holds the turn's bytes.
+    const { TurnActionsContext } = await import("./conversation/turnActions");
+    const asked: string[] = [];
+    const review = {
+      decisions: new Map(),
+      decide: () => {},
+      requestRevert: (_keys: string[], prompt: string) => asked.push(prompt),
+    };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const document = dom.window.document;
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            TurnActionsContext.Provider,
+            { value: { review } },
+            createElement(VirtualTranscript, {
+              rows: [{ ...editRow(["/repo/src/a.ts", "/repo/b.ts"]), ended: true }],
+              onToggleActivity: () => {},
+              onOpenDiff: () => {},
+              expanded: new Set<string>(),
+            }),
+          ),
+        ),
+      );
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe("Edited 2 files+4-2");
+      expect([...document.querySelectorAll("button")].map((button) => button.textContent)).not.toContain("Undo");
+      for (const button of document.querySelectorAll<HTMLButtonElement>(".acpmux-edited button"))
+        await act(async () => button.click());
+      expect(asked).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   test("the scope menu loads a git scope, fails with Retry, shows an empty scope, and returns to the turn", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window & {

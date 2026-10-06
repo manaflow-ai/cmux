@@ -144,6 +144,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "agent_session");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "conversation");
     try expectExplicitNullRejected(protocol.ConversationTabRecord, "owner");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "page");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "link");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "mention");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");

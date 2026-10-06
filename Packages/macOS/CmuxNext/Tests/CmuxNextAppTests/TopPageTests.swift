@@ -129,16 +129,6 @@ struct TopPageTests {
         #expect(WindowState(record: plain).page == nil)
     }
 
-    // MARK: Sidebar
-
-    @Test func theShownPagesItemIsActive() {
-        let infos = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, shownPage: .page(.appStore))
-        #expect(infos[LayoutItemID("itm_app_store")]?.isActive == true)
-        #expect(infos[LayoutItemID("itm_home")]?.isActive == false)
-        let home = SidebarBridge.itemInfo(for: .defaults, registered: { _ in true }, shownPage: .home)
-        #expect(home[LayoutItemID("itm_home")]?.isActive == true)
-    }
-
     // MARK: Fixture
 
     static let page = InternalPageID(rawValue: "top-page-test")

@@ -68,15 +68,19 @@ public struct KeyBindingLoader {
             return canonical
         }
         registry.keyBindingLayers = KeyBindingLayers(app: load(layers.app, .app), user: load(layers.user, .user), removals: removals,
-                                                     ghostty: registry.keyBindingLayers.ghostty)
+                                                     ghostty: registry.keyBindingLayers.ghostty,
+                                                     ghosttyClaims: registry.keyBindingLayers.ghosttyClaims)
         return issues
     }
 
     /// Replaces the Ghostty config's keybinds (`.ghosttyFallback` and
-    /// `.ghostty` entries; others are dropped). The App calls it on every
+    /// `.ghostty` entries; others are dropped) and claimed keys. The App calls it on every
     /// Ghostty config or keyboard layout change; app and user entries stay.
-    public func loadGhostty(_ entries: [KeyBinding]) {
+    /// `claims` are the keys the user's Ghostty config maps to an action or
+    /// unbinds: they take those keys from cmux's default entries.
+    public func loadGhostty(_ entries: [KeyBinding], claims: [Shortcut] = []) {
         registry.keyBindingLayers.ghostty = entries.filter(\.source.isGhostty)
+        registry.keyBindingLayers.ghosttyClaims = claims
     }
 
     /// `entry` with its canonical command id and its arguments converted to

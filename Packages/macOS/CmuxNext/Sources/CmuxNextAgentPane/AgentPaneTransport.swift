@@ -32,7 +32,19 @@ import Synchronization
     public var deliver: (@MainActor (AgentPaneTransportEvent, _ done: @escaping @MainActor @Sendable () -> Void) -> Void)?
     /// Counts pushes, so a late completion of a previous connection's push is ignored.
     private var deliveries = 0
-    public var pacer: any AgentPaneTransportPacer
+    private var pacerStorage: any AgentPaneTransportPacer
+    public var pacer: any AgentPaneTransportPacer {
+        get { pacerStorage }
+        set {
+            let previous = pacerStorage
+            pacerStorage = newValue
+            // An AppKit view can replace the default pacer from a synchronous callback. Keep
+            // the old actor-isolated pacer alive until its release runs on the main actor.
+            Task { @MainActor in
+                withExtendedLifetime(previous) {}
+            }
+        }
+    }
     var socket: AcpmuxPaneSocket?
     var current = 0
     /// Held from `open` until the first frame is sent, then dropped.
@@ -81,7 +93,7 @@ import Synchronization
                 gestures: AgentPaneUserGestures = AgentPaneUserGestures()) {
         self.limits = limits
         self.gestures = gestures
-        self.pacer = pacer ?? AgentPaneNextTurnPacer()
+        self.pacerStorage = pacer ?? AgentPaneNextTurnPacer()
         webModes = { [weak self] session, configId, value in
             guard let path = self?.socketPath else { return nil }
             return await AcpmuxStatusClient.webModes(socketPath: path, sessionId: session, configId: configId, value: value)

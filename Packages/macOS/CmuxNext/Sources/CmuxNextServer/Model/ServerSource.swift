@@ -10,8 +10,10 @@ public nonisolated enum ServerIntentKind: Sendable, Equatable {
     case showPairingCode
     /// Look up a pending pairing by code for the approver sheet.
     case lookupCode(String)
-    /// `server.pair.approve {code, team, name}` (origin user only).
-    case approveCode(code: String, team: String, name: String)
+    /// `server.pair.approve {code, team, name}` (origin user only). With
+    /// `placeChief` the app then places the user's Chief on the new server
+    /// (`chief.update {brain_place}`, brains/DESIGN-cmux-lawrence.md G8).
+    case approveCode(code: String, team: String, name: String, placeChief: Bool = false)
     /// `server.health.fix {check}` (origin user only).
     case fixCheck(HealthCheckID)
     /// Open the Health view (the App routes it).

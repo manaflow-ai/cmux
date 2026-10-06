@@ -76,8 +76,9 @@ snapshot never sets colors or cursor defaults; the profile wins (S2b fixes the r
 
 ## Keybinds
 
-cmux.json `shortcuts` (explicit user) > user Ghostty `keybind` lines (layers 3 and 4, focused
-terminal) > cmux default shortcuts > Ghostty default keybinds. This extends K-T1 to every chord.
+cmux.json `shortcuts` (explicit user) > user Ghostty `keybind` lines (layers 3 and 4, every
+surface; a terminal action or `unbind` frees the key from cmux defaults) > cmux default shortcuts >
+Ghostty default keybinds. This extends K-T1 to every chord.
 Every Ghostty apprt action routes to the cmux action catalog (fill the 22 undecoded and 7 nil
 routes); `global:` keybinds register a system hotkey.
 

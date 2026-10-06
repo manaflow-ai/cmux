@@ -39,6 +39,14 @@ When installed with `scripts/install-git-hooks.sh --namespace-fix`, the
 pre-push hook runs the fixer and stops so changed files can be reviewed,
 staged, and committed. CI keeps the non-mutating lint as the backstop.
 
+Claude Code and Codex also have repo-local post-edit hooks in
+`.claude/settings.json` and `.codex/hooks.json`. They pass only edited
+`Packages/**/*.swift` files to `scripts/ci/lint-swift-post-edit.sh`, which runs
+the same fixer without blocking the edit. A clean scoped check is silent; a
+repair is printed, and a fixer failure is an advisory warning. The hook is
+best-effort so an unavailable Python interpreter or an incomplete edit never
+turns an agent edit into a failed tool call.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:

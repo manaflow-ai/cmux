@@ -1011,3 +1011,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_package_input_key.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_cmux_tui_resolve.py"
+lane = "linux-guard"

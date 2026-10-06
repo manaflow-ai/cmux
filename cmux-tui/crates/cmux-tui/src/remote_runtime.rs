@@ -2173,7 +2173,7 @@ async fn run_daemon(
                     .await?;
                     crate::client_log::stderr_log!(
                         "remote",
-                        "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
+                        "{BIN}: authenticated workspace HTTP at http://{}; bearer token file {}",
                         server.local_addr(),
                         server.token_file().display()
                     );

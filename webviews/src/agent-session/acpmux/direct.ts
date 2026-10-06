@@ -16,6 +16,8 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
+import { errorMessage } from "./transportErrors";
+import { isWarmableCwd } from "./warmFolders";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -404,6 +406,8 @@ export class AcpmuxDirectClient {
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
+  /// A prompt that was not sent, by its row: what Retry sends again.
+  private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
@@ -415,6 +419,8 @@ export class AcpmuxDirectClient {
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
+  /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
+  private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -544,6 +550,8 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
+      const origin = initialized?._meta?.acpmux?.origin;
+      this.origin = origin === "local" || origin === "remote" || origin === "peer" ? origin : "unknown";
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
@@ -604,6 +612,7 @@ export class AcpmuxDirectClient {
     this.events = [];
     this.historyExhausted = false;
     this.rows.clear();
+    this.failedPrompts.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.summary = undefined;
@@ -1279,6 +1288,7 @@ export class AcpmuxDirectClient {
             title: summary.title,
             name: summary.name,
             harness: summary.harness,
+            family: typeof summary.family === "string" ? summary.family : undefined,
             model: summary.model,
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
@@ -1289,6 +1299,7 @@ export class AcpmuxDirectClient {
           }
         : undefined,
       connection,
+      origin: this.origin,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
       canFork: this.canFork,
@@ -1321,14 +1332,16 @@ export class AcpmuxDirectClient {
     return this.selectedSessionId;
   }
 
-  /// Starts one live agent child for each of the most recent project sessions.
+  /// Starts one live agent child for each of the most recent project sessions whose folder an
+  /// agent may use unasked (`isWarmableCwd`).
   /// Old daemons simply reject this extension, so warming never blocks chat.
   async warmRecentProjects(limit = 3): Promise<void> {
     const ids: string[] = [];
     const seen = new Set<string>();
     for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
       const cwd = typeof session.cwd === "string" ? session.cwd : "";
-      if (!cwd || seen.has(cwd)) continue;
+      // Never the home folder or a privacy-protected one (warmFolders.ts).
+      if (!cwd || seen.has(cwd) || !isWarmableCwd(cwd)) continue;
       seen.add(cwd);
       ids.push(session.sessionId);
       if (ids.length >= limit) break;
@@ -1373,18 +1386,41 @@ export class AcpmuxDirectClient {
         _meta: { acpmux: { promptId } },
       });
     } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      const refused = typeof code === "string" && code.startsWith("transport.");
       const row = this.rows.get(rowId);
       if (row) {
-        row.pending = false;
-        row.failed = true;
-        row.version += 1;
+        // A new row object: the transcript's rows are memoized on identity and version. The
+        // bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        this.rows.set(rowId, {
+          ...row,
+          pending: false,
+          failed: true,
+          error:
+            code === "transport.gesture_required"
+              ? translate("prompt.notSentGesture")
+              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          version: row.version + 1,
+        });
+        this.failedPrompts.set(rowId, { input, attachments });
       }
       this.optimisticPromptRows.delete(promptId);
       this.optimisticPromptTexts.delete(promptId);
-      this.emit("failed");
+      // The host refused one frame and answered it: the connection is as it was.
+      this.emit(refused ? undefined : "failed");
       throw error;
     }
     return sessionId;
+  }
+
+  /// Retry on a prompt that was not sent: its bubble goes and the same prompt is sent again.
+  async retryPrompt(rowId: string): Promise<string | undefined> {
+    const failed = this.failedPrompts.get(rowId);
+    if (!failed) return undefined;
+    this.failedPrompts.delete(rowId);
+    this.rows.delete(rowId);
+    this.emit();
+    return this.send(failed.input, failed.attachments);
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;

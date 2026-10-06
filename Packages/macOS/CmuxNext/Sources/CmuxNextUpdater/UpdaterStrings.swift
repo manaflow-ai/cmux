@@ -61,13 +61,11 @@ nonisolated enum UpdaterStrings {
 
     static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
 
-    // R114 card; restartToUpdate is the Settings row control's label.
-    static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
-    static var cardWaitingTitle: String { text("updater.card.waitingTitle", "Update Waits for Agents") }
-    static func cardWaitingDetail(_ count: Int) -> String {
-        format("updater.card.waitingDetail", "Installs when the running agents finish (%ld)", count)
+    /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):
+    /// the relaunch keeps terminals and agents (browser pages reload).
+    static var restartKeepsSessions: String {
+        text("updater.pill.restartKeepsSessions", "Restart to update. Your terminals and agents keep running.")
     }
-    static var installNow: String { text("updater.button.installNow", "Install Now") }
 
     // Details
     static func currentVersion(_ version: String, _ build: String) -> String {

@@ -21,6 +21,7 @@ parser.add_argument('--type-roots', nargs='+', required=True)
 parser.add_argument('--ratchet')
 parser.add_argument('--update-ratchet', action='store_true')
 parser.add_argument('--fix', action='store_true', help='rewrite safe namespace declarations and rerun the check')
+parser.add_argument('--files-from', help='only inspect the newline-delimited Swift paths in this file')
 args = parser.parse_args()
 if args.update_ratchet and not args.ratchet:
     parser.error('--update-ratchet needs --ratchet')
@@ -28,6 +29,13 @@ baseline_path = args.baseline
 general_baseline_path = args.general_baseline
 roots = args.type_roots
 enum_roots = [Path(root) for root in args.enum_roots]
+requested_files = None
+if args.files_from:
+    requested_files = {
+        os.path.normpath(line.strip())
+        for line in open(args.files_from, encoding="utf-8")
+        if line.strip()
+    }
 
 baseline = set()
 if os.path.exists(baseline_path):
@@ -166,6 +174,8 @@ for root in roots:
             if not fn.endswith(".swift") or fn.endswith("Tests.swift"):
                 continue
             path = os.path.join(dirpath, fn)
+            if requested_files is not None and os.path.normpath(path) not in requested_files:
+                continue
             original = open(path, encoding="utf-8", errors="replace").read()
             src = mask_swift_source(original)
             lines = original.split("\n")
@@ -276,6 +286,8 @@ if args.ratchet:
     else:
         for entry in sorted(ratchet - ratchet_seen):
             path, _, name = entry.rpartition(":")
+            if requested_files is not None and os.path.normpath(path) not in requested_files:
+                continue
             print(
                 f"ERROR   namespace-ratchet-stale      {path}:0  {name} is fixed or gone "
                 f"-> delete its line from {args.ratchet}"

@@ -305,10 +305,15 @@ keybindings.json has its owner (slice 4, cmux-config).
 (`GhosttyKeyBindingLayer`, loaded by `GhosttyKeybindSync` at launch, on every Ghostty
 config change and on a keyboard layout change). Order: `.ghosttyFallback` (every routed
 keybind, below all cmux entries) < cmux defaults < app entries < `.ghostty` (a keybind that
-differs from a config without user files, only `surfaceKind == terminal && !terminal.copyMode`)
-< cmux.json and keybindings.json. A winning Ghostty entry goes to a focused terminal, which runs
-the keybind itself; elsewhere its routed action runs, never a content action from a hook and
-never a browser chord in a browser context. Removals never take out a Ghostty entry; the
+differs from a config without user files, in every surface since PANE-FOCUS-RESIZE-KEYS-AND-
+GHOSTTY-KEYBINDS amendment 3) < cmux.json and keybindings.json. A key the user's Ghostty config
+binds to an unrouted action (terminal action) or unbinds is a claim (`GhosttyKeyClaims`, read with
+`ghostty_config_key_is_binding` against a config without user files, plus `=unbind` lines of the
+loaded files): it removes the cmux default entries on that key (`KeyBindingTable.claimedByGhostty`,
+listed on the page as "Ghostty config"). A winning Ghostty entry goes to a focused terminal, which
+runs the keybind itself (in copy mode the routed action runs); elsewhere its routed action runs,
+never a content action from a hook, and a browser chord in a browser context falls to the cmux
+entry below it. Removals never take out a Ghostty entry; the
 shortcut recorder notes Ghostty entries instead of listing them as owners; `keybinding.list`
 lists them (`source` `ghostty` / `ghostty-fallback`). The Keyboard Shortcuts page lists them read-only
 as "Ghostty" and "Ghostty default" (a user keybind once: its fallback entry is not a second row;

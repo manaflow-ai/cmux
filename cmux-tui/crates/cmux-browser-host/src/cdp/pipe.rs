@@ -64,7 +64,7 @@ pub fn launch_args(
     let url = args.pop();
     args.extend(options.extra_args.iter().cloned());
     args.extend(url);
-    Ok(args)
+    Ok(merge_disabled_features(args))
 }
 
 /// The switches that keep background tabs at full rate.
@@ -86,6 +86,9 @@ pub struct HeadlessChromium {
     connection: Arc<CdpConnection>,
     profile_dir: PathBuf,
     profile_ephemeral: bool,
+    /// Where the driver saves downloads (`CdpDriver::save_downloads_in`):
+    /// private (0700) and removed with the browser.
+    downloads_dir: PathBuf,
 }
 
 struct PipeWire(Mutex<File>);
@@ -103,11 +106,20 @@ impl HeadlessChromium {
     pub fn launch(options: &HeadlessOptions) -> io::Result<Self> {
         let (profile_dir, profile_ephemeral) = match &options.user_data_dir {
             Some(dir) => (dir.clone(), false),
-            None => (ephemeral_profile_dir()?, true),
+            None => (private_temp_dir("")?, true),
         };
         if !profile_ephemeral {
             std::fs::create_dir_all(&profile_dir)?;
         }
+        let downloads_dir = match private_temp_dir("downloads-") {
+            Ok(dir) => dir,
+            Err(error) => {
+                if profile_ephemeral {
+                    let _ = std::fs::remove_dir_all(&profile_dir);
+                }
+                return Err(error);
+            }
+        };
 
         // to_browser: host writes, Chromium reads (its fd 3).
         // from_browser: Chromium writes (its fd 4), host reads.
@@ -135,6 +147,7 @@ impl HeadlessChromium {
                 if profile_ephemeral {
                     let _ = std::fs::remove_dir_all(&profile_dir);
                 }
+                let _ = std::fs::remove_dir_all(&downloads_dir);
                 return Err(io::Error::new(
                     error.kind(),
                     format!("failed to launch Chromium at {}: {error}", options.binary.display()),
@@ -175,6 +188,7 @@ impl HeadlessChromium {
             if profile_ephemeral {
                 let _ = std::fs::remove_dir_all(&profile_dir);
             }
+            let _ = std::fs::remove_dir_all(&downloads_dir);
             return Err(error);
         }
 
@@ -183,7 +197,13 @@ impl HeadlessChromium {
             connection,
             profile_dir,
             profile_ephemeral,
+            downloads_dir,
         })
+    }
+
+    /// The browser's private downloads directory.
+    pub fn downloads_dir(&self) -> &std::path::Path {
+        &self.downloads_dir
     }
 
     pub fn connection(&self) -> &Arc<CdpConnection> {
@@ -212,6 +232,7 @@ impl Drop for HeadlessChromium {
         if self.profile_ephemeral {
             let _ = std::fs::remove_dir_all(&self.profile_dir);
         }
+        let _ = std::fs::remove_dir_all(&self.downloads_dir);
     }
 }
 
@@ -235,14 +256,40 @@ fn default_args(profile_dir: &std::path::Path) -> Vec<String> {
         // The protocol's hidden-tab size (driver-protocol.md: 1280x800).
         "--window-size=1280,800".into(),
         "--mute-audio".into(),
+        // Paint holding drops input until a navigated page's first frame;
+        // a headful page on Xvfb can take long enough that an agent's
+        // press is lost while its release lands (no click). Merged with
+        // any other `--disable-features` (Chromium keeps only the last).
+        format!("--disable-features={DISABLED_FEATURES}"),
         "about:blank".into(),
     ]
 }
 
-/// A new private profile directory (mode 0700; fails if the name exists).
-fn ephemeral_profile_dir() -> io::Result<PathBuf> {
+/// Features the host always turns off.
+const DISABLED_FEATURES: &str = "PaintHolding";
+
+/// Folds every `--disable-features=` switch into the first one (Chromium
+/// reads only the last occurrence of a switch).
+fn merge_disabled_features(args: Vec<String>) -> Vec<String> {
+    const SWITCH: &str = "--disable-features=";
+    let mut features: Vec<String> = Vec::new();
+    for value in args.iter().filter_map(|arg| arg.strip_prefix(SWITCH)) {
+        for feature in value.split(',').map(str::trim).filter(|f| !f.is_empty()) {
+            if !features.iter().any(|known| known == feature) {
+                features.push(feature.to_owned());
+            }
+        }
+    }
+    let mut merged = Some(format!("{SWITCH}{}", features.join(",")));
+    args.into_iter()
+        .filter_map(|arg| if arg.starts_with(SWITCH) { merged.take() } else { Some(arg) })
+        .collect()
+}
+
+/// A new private temporary directory (mode 0700; fails if the name exists).
+fn private_temp_dir(kind: &str) -> io::Result<PathBuf> {
     let template =
-        std::env::temp_dir().join(format!("cmux-browser-host-{}-XXXXXX", std::process::id()));
+        std::env::temp_dir().join(format!("cmux-browser-host-{kind}{}-XXXXXX", std::process::id()));
     let mut bytes = template.into_os_string().into_vec();
     bytes.push(0);
     // SAFETY: `bytes` is a NUL-terminated, writable template ending in XXXXXX.
@@ -346,6 +393,18 @@ mod launch_args_tests {
             assert!(!args.contains(&switch.to_string()), "{switch} in {args:?}");
         }
         // The page URL stays last.
+        assert_eq!(args.last().map(String::as_str), Some("about:blank"));
+    }
+
+    #[test]
+    fn disabled_features_merge_into_one_switch() {
+        let mut options = options();
+        options.extra_args =
+            vec!["--disable-features=Translate,PaintHolding".into(), "--lang=en".into()];
+        let args = launch_args(&options, std::path::Path::new("/tmp/p")).unwrap();
+        let switches: Vec<&String> =
+            args.iter().filter(|a| a.starts_with("--disable-features=")).collect();
+        assert_eq!(switches, vec!["--disable-features=PaintHolding,Translate"], "{args:?}");
         assert_eq!(args.last().map(String::as_str), Some("about:blank"));
     }
 }

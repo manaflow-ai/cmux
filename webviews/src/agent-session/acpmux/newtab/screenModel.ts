@@ -19,8 +19,7 @@ export type ScreenRow =
   | { type: "open"; url: string; text: string }
   | { type: "tab"; id: string; title: string; detail?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
-  | { type: "history"; url: string; title?: string }
-  | { type: "action"; id: string; title: string; detail?: string };
+  | { type: "history"; url: string; title?: string };
 
 /// Agents shown per query; more installed harnesses stay in the composer's picker.
 export const MAX_AGENT_ROWS = 4;
@@ -78,15 +77,6 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
       } as ScreenRow,
       score: matchScore(query, workspace.name, workspace.detail) + 0.5,
     })),
-    ...(omnibar.actions ?? []).map((action) => ({
-      row: {
-        type: "action",
-        id: action.id,
-        title: action.title,
-        ...(action.detail ? { detail: action.detail } : {}),
-      } as ScreenRow,
-      score: matchScore(query, action.title, ...(action.keywords ?? [])) + 0.4,
-    })),
     ...omnibar.history.map((entry) => ({
       row: { type: "history", url: entry.url, ...(entry.title ? { title: entry.title } : {}) } as ScreenRow,
       score: matchScore(query, entry.title, entry.url.replace(/^https?:\/\/(www\.)?/, "")) + 0.1,
@@ -100,16 +90,16 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
 }
 
 /// `!` typed into an empty field (or over a wholly selected one, a location the page put
-/// there): the tab becomes a terminal now, with the rest of the edit as its first command.
-/// Anything else stays as typed.
-export function terminalConversion(
+/// there): shell mode, with the rest of the edit as the command typed so far. Anything else
+/// stays as typed.
+export function shellEntry(
   previous: string,
   next: string,
   previousWasSelected: boolean,
 ): { command: string } | undefined {
   if (previous !== "" && !previousWasSelected) return undefined;
   if (!next.startsWith(TERMINAL_PREFIX)) return undefined;
-  return { command: next.slice(TERMINAL_PREFIX.length).trim() };
+  return { command: next.slice(TERMINAL_PREFIX.length).replace(/^\s+/, "") };
 }
 
 export type ChatCard = {

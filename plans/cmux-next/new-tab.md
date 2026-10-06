@@ -23,7 +23,7 @@ PAGE-SCHEME-CEF.
 - Choices leave by the bridge: `tab.open` (terminal or browser replaces the page,
   `PaneController.replaceNewTabPage`), `tab.jump`, `tab.setDefaultKind`; an agent choice stays and
   becomes the chat in place.
-- Cmd-T follows `tabs.newTabKind` (default `agent`; `page` opens this page). Cmd-L
+- Cmd-T follows `tabs.newTabKind` (default `page`, this page; `agent` opens a chat). Cmd-L
   (`focusLocation`) opens or focuses the page.
 - Cold cost today: every Cmd-T to the page makes a new WKWebView, a new WebContent process, parses
   the whole acpmux bundle, runs React, opens the acpmux WebSocket and then paints. No baseline is
@@ -180,7 +180,10 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 
 ## 8. Decisions (coordinator, 2026-10-04)
 
-- Q1 updated: Cmd-T and + open a direct agent chat by default (`tabs.newTabKind` default `agent`). Cmd-L opens the shared screen; `page`, `terminal` and `browser` remain explicit choices.
+- Q1 yes: Cmd-T and + open this screen by default (`tabs.newTabKind` default `page`), slice N6.
+  Restored 2026-10-06 (Lawrence, NEW-TAB-PAGE-RESTORED) after #17347 made the default `agent`; the
+  page is again the one-input screen of R86 (no project row, no Import button, Enter on an empty
+  field opens nothing). `agent`, `terminal` and `browser` remain explicit choices.
 - Q2: `!` converts on the key itself (Lawrence: "! and it instantly becomes a terminal").
 - Q3 yes: app-local memory of mode and agent, plus optional settings `newTab.defaultMode` and
   `newTab.defaultAgent` that win when set.
@@ -207,7 +210,7 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   new-tab-e2e.py` measure it on cmux-lawrence-2.
 - N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
   from the app registry, palette with an argument prompt.
-- N6: `tabs.newTabKind` defaults to `agent`; a build without the agent page falls back to a terminal.
+- N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.
 - R81(c) daemon spare host (landed 60dd1cc0868, 66704e32cee): one idle `__terminal-host` process
   per daemon, adopted by the next `new-tab`. Measured 2026-10-04 on cmux-lawrence-2 with the
   fleet daemon of nt12-v1 (`scripts/cmux-next/new-tab-daemon-bench.py`): 13 of 15 tabs adopted the

@@ -102,4 +102,63 @@ struct QuitUnsavedStepTests {
         #expect(refusal?.contains("Save or close them in the app") == true)
         #expect(QuitUnsavedStep.refusal([QuitFlushOutcome(id: "2", title: "todo.md", result: .saved)]) == nil)
     }
+    // MARK: The update relaunch (SIDEBAR-FOOTER-MINIMAL)
+
+    /// Runs `resolve` for `origin`; a question that shows is cancelled and
+    /// returned, so a wrong dialog fails the test instead of hanging it.
+    static func resolveShowingQuestion(_ origin: QuitOrigin, _ registry: QuitUnsavedRegistry,
+                                       _ center: CmuxDialogCenter) async -> (result: Bool, question: CmuxDialogSpec?) {
+        let task = Task { await QuitUnsavedStep.resolve(origin, registry: registry, scope: .app, center: center, writeDrafts: {}) }
+        for _ in 0..<500 {
+            if let record = center.records.first(where: { $0.spec.identifier == "cmux.dialog.quitUnsaved" }) {
+                let spec = record.spec
+                _ = center.press(record.id, button: "cancel")
+                return (await task.value, spec)
+            }
+            await Task.yield()
+        }
+        return (await task.value, nil)
+    }
+
+    /// The update relaunch quits as explicit keep sessions. With no document
+    /// open, or only documents without edits, no question shows and the quit
+    /// goes on: the pill's one click never meets a dialog.
+    @Test func theUpdateRelaunchAsksNothingWithoutUnsavedEdits() async {
+        let (registry, center) = Self.setup()
+        #expect(await Self.resolveShowingQuestion(.explicit(.keep), registry, center) == (true, nil))
+        let clean = Doc("file:local:/clean.md")
+        clean.hasUnsavedChanges = false
+        registry.register(clean)
+        let (result, question) = await Self.resolveShowingQuestion(.explicit(.keep), registry, center)
+        #expect(result)
+        #expect(question == nil, "a document without edits never shows the unsaved question")
+        #expect(center.records.isEmpty)
+    }
+
+    /// Data loss protection: real unsaved edits still ask before the update
+    /// relaunch, naming only the edited document.
+    @Test func theUpdateRelaunchStillAsksForRealUnsavedEdits() async {
+        let (registry, center) = Self.setup()
+        let clean = Doc("file:local:/clean.md")
+        clean.hasUnsavedChanges = false
+        let edited = Doc("file:local:/edited.md")
+        registry.register(clean)
+        registry.register(edited)
+        let (result, question) = await Self.resolveShowingQuestion(.explicit(.keep), registry, center)
+        #expect(question?.lines == ["file:local:/edited.md"])
+        #expect(result == false, "Cancel on that question stops the relaunch")
+        #expect(edited.hasUnsavedChanges)
+    }
+
+    /// The unattended origins never ask, even with edits.
+    @Test func signalAndScriptedQuitsNeverAsk() async {
+        for origin: QuitOrigin in [.signal, .powerOff, .scripted] {
+            let (registry, center) = Self.setup()
+            let edited = Doc("file:local:/edited.md")
+            registry.register(edited)
+            let (result, question) = await Self.resolveShowingQuestion(origin, registry, center)
+            #expect(result && question == nil)
+            #expect(!edited.hasUnsavedChanges, "saved unattended")
+        }
+    }
 }

@@ -1,8 +1,13 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30. */
+/* cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type ActivityChangedEvent = { event: "activity-changed" } & {
+  "activity": T.ActivitySnapshot;
+};
 
 /** Protocol v11; emission: emitted; streams: subscribe. */
 export type AgentChangedEvent = { event: "agent-changed" } & {
@@ -550,6 +555,7 @@ export interface UnknownEvent {
 
 /** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
+  | ActivityChangedEvent
   | AgentChangedEvent
   | BellEvent
   | BookmarksChangedEvent

@@ -4,6 +4,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { useUiAnchor } from "../../ui/anchor";
 
 /// The effort chip and its popover (reference prototype model-menu.png): the effort's name as a
 /// title, the model under it (a default level says "Reasoning" on the chip), and a stepped slider with one stop per level the agent offers.
@@ -27,7 +28,10 @@ export function EffortPicker({
   const t = useT();
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const id = useId();
+  const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
   const level = Math.max(
     0,
     efforts.findIndex((choice) => choice.id === current),
@@ -65,8 +69,9 @@ export function EffortPicker({
     };
   }, [open]);
   return (
-    <span ref={root} className="acpmux-picker acpmux-effort">
+    <span ref={root} className="acpmux-picker acpmux-effort" style={{ position: "relative" }}>
       <button
+        ref={trigger}
         type="button"
         className="acpmux-picker-button"
         data-menu={label}
@@ -81,7 +86,9 @@ export function EffortPicker({
       </button>
       {open && (
         <div
+          ref={menu}
           className="acpmux-menu acpmux-menu-end acpmux-effort-pop"
+          style={menuStyle}
           id={id}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="dialog"

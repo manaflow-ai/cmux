@@ -326,27 +326,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
-      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "53a8847fbe080a56d56f60c1463a0bd3b23316130e35aef998f3688250cf31f8",
-      "size": 66801184,
+      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
+      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
+      "size": 67778656,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
-      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "60c5e7de26ff01e3ed55e6d37c01f1476ab9e7bb05362e0ac142fb12732d8771",
-      "size": 3456568,
+      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
+      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
+      "size": 3567048,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
     },
     {
       "name": "coderouter",

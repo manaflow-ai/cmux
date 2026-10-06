@@ -1,3 +1,4 @@
+public import CmuxNextIcons
 public import CoreGraphics
 
 /// Leading icon of a tab.
@@ -5,6 +6,9 @@ public enum TabIcon: Hashable, Sendable {
     case none
     /// An SF Symbol name, tinted to the tab's text color.
     case symbol(String)
+    /// A cmux icon registry name (CmuxNextIcons), drawn from the active pack
+    /// at the full icon box and tinted to the tab's text color.
+    case icon(IconName)
     /// A full-color image such as a favicon. Drawn as is.
     case image(TabImage)
     /// An agent's brand mark (a CmuxAgentBrands brand id such as "claude"),

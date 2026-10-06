@@ -97,23 +97,24 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// The default layout (plans/cmux-next/sidebar-sections.md): the
     /// first-party apps Home and the App Store as plain rows on top (app
     /// items, R63/R64: apps like any other, from their manifests; Lawrence
-    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, then one bottom
-    /// row with Settings (icon and label) over 7/8 of the width and the
-    /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
-    /// R53). Pinned sections use
-    /// the built-in look and draw no header. The window rail's default
-    /// (Leo, 2026-10-03) was removed by R52; stored layouts still equal to
-    /// it move back (`sectionsMigrationOps`).
+    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, the
+    /// recent agent chats (`recentsSection`), then the footer: one line with the account avatar, then the Settings gear,
+    /// both icons only and leading (SIDEBAR-FOOTER-MINIMAL, Lawrence
+    /// 2026-10-06; the update pill trails it, drawn by the sidebar). Pinned
+    /// sections use the built-in look and draw no header. Stored layouts
+    /// still equal to an older default move to this one
+    /// (`sectionsMigrationOps`).
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home")),
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
+        recentsSection,
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
-                      arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
-                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
-                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
+                      arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
+                          LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
+                          LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false),
                       ]),
     ])
 

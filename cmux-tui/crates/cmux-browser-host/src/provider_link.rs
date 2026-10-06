@@ -49,10 +49,10 @@ pub struct ProviderDriver {
     leases: Leases,
     /// Each session's request filter and the CEF tabs it applies to
     /// (`crate::provider_engine`), by subscription id.
-    pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_engine::SessionFilter>>,
+    pub(crate) request_filters: Mutex<HashMap<u64, crate::provider_source::SessionFilter>>,
 }
 
-pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_engine::CefTab>>>>;
+pub(crate) type CefTabs = Arc<Mutex<HashMap<String, Arc<crate::provider_source::CefTab>>>>;
 
 type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 type Relays = Arc<Mutex<HashMap<String, Arc<CdpConnection>>>>;

@@ -106,18 +106,25 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
     public var index: Int
     /// Room of a personal group (`list-personal`); nil for shared groups.
     public var profile: ProfileID?
+    /// The personal row index the group shows right before
+    /// (`personal-mixed-order-v1`); nil after every loose workspace.
+    public var topIndex: Int?
 
     public init(id: WorkspaceGroupID, name: String, color: String? = nil, collapsed: Bool = false, index: Int = 0,
-                profile: ProfileID? = nil) {
+                profile: ProfileID? = nil, topIndex: Int? = nil) {
         self.id = id
         self.name = name
         self.color = color
         self.collapsed = collapsed
         self.index = index
         self.profile = profile
+        self.topIndex = topIndex
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, color, collapsed, index, profile }
+    enum CodingKeys: String, CodingKey {
+        case id, name, color, collapsed, index, profile
+        case topIndex = "top_index"
+    }
 
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -127,5 +134,6 @@ public struct WorkspaceGroupSnapshot: Sendable, Hashable, Decodable, Identifiabl
         collapsed = try c.decodeIfPresent(Bool.self, forKey: .collapsed) ?? false
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
+        topIndex = try c.decodeIfPresent(Int.self, forKey: .topIndex)
     }
 }

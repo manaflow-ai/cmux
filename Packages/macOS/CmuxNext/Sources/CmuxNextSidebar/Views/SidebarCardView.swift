@@ -5,8 +5,7 @@ import QuartzCore
 /// One card of the stack: a small rounded panel with a title, a quiet
 /// detail line, an optional progress bar and text buttons, and an x on
 /// hover when dismissible. A peeking card (behind the front one) shows
-/// only its panel. Ghostty-derived colors; the accent look uses the
-/// theme's highlight.
+/// only its panel. Ghostty-derived colors.
 final class SidebarCardView: NSView {
     static let height: CGFloat = 46
     static let tallHeight: CGFloat = 66
@@ -83,15 +82,14 @@ final class SidebarCardView: NSView {
 
     // theme-scoped: called only inside performWithTheme
     private func applyColors() {
-        let accent = card.accent
-        layer?.backgroundColor = (accent ? Palette.highlight : Palette.elevatedBackground).cgColor
+        layer?.backgroundColor = Palette.elevatedBackground.cgColor
         layer?.borderColor = (Borders.drawsLines ? Palette.separator : .clear).cgColor
         layer?.shadowColor = Palette.shadow.withAlphaComponent(0.18).cgColor
-        title.textColor = accent ? Palette.highlightText : Palette.textPrimary
-        detail.textColor = accent ? Palette.highlightText.withAlphaComponent(0.8) : Palette.textSecondary
-        track.backgroundColor = (accent ? Palette.highlightText.withAlphaComponent(0.25) : Palette.hoverFill).cgColor
-        bar.backgroundColor = (accent ? Palette.highlightText : Palette.textSecondary).cgColor
-        for button in buttons { button.contentTintColor = accent ? Palette.highlightText : Palette.textPrimary }
+        title.textColor = Palette.textPrimary
+        detail.textColor = Palette.textSecondary
+        track.backgroundColor = Palette.hoverFill.cgColor
+        bar.backgroundColor = Palette.textSecondary.cgColor
+        for button in buttons { button.contentTintColor = Palette.textPrimary }
     }
 
     override func layout() {

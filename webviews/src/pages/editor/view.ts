@@ -32,6 +32,7 @@ import {
   type EditorSettings,
 } from "./settings";
 import { cssColorToHex } from "./colors";
+import { markScrolling, onScrollerStyleChange, scrollerStyle } from "../../scrollers";
 
 declare global {
   // Monaco reads its worker factory from here.
@@ -295,6 +296,14 @@ export class MonacoView implements CodeView {
         },
       }),
       this.editor.onDidChangeCursorSelection(() => this.reportStatus()),
+      // Overlay scrollers show while the editor scrolls (scrollers.ts MONACO_SCROLLER_CSS).
+      this.editor.onDidScrollChange(() => {
+        const node = this.editor.getDomNode();
+        if (node) markScrolling(node);
+      }),
+      {
+        dispose: onScrollerStyleChange(() => this.editor.updateOptions(this.editorOptions()), document.documentElement),
+      },
     );
     this.scheme.addEventListener("change", this.onSchemeChange);
   }
@@ -323,6 +332,7 @@ export class MonacoView implements CodeView {
       large: this.large(),
       ariaLabel: this.callbacks.label("editor", info?.path ?? ""),
       readOnlyMessage: info?.readOnly ? this.callbacks.label("readOnly", info.path) : undefined,
+      scrollers: scrollerStyle(),
     }) as monaco.editor.IEditorOptions;
   }
 

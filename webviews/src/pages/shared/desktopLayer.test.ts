@@ -72,3 +72,10 @@ test("the layer CSS: nothing selects by default; fields and .selectable content 
   expect(css).toMatch(/input,\s*textarea,[^{]*\{[^}]*user-select:\s*text/);
   expect(css).toMatch(/-webkit-user-drag:\s*none/);
 });
+
+test("the agent pane's hand-built stylesheet opens with the layer CSS", () => {
+  // build-agent-pane-web.sh concatenates CSS itself, so desktop.ts's CSS import never reaches it.
+  const script = readFileSync(path.join(src, "../../scripts/cmux-next/build-agent-pane-web.sh"), "utf8");
+  const first = /^cat\s+"([^"]+)"\s*>\s*"\$WORK\/styles\.css"/m.exec(script);
+  expect(first?.[1]).toBe("$ROOT/webviews/src/pages/shared/desktop.css");
+});

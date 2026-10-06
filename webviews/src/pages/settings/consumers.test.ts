@@ -3,7 +3,7 @@ import exported from "../../../../schemas/settings/settings-schema.json";
 import { rowsByKey, rowsInSection, schema, sections } from "./schema";
 import { searchRows } from "./search";
 
-type ExportedRow = { key: string; consumers: string[] };
+type ExportedRow = { key: string; consumers: string[]; page_hidden: boolean };
 const exportedRows = (exported as unknown as { rows: ExportedRow[] }).rows;
 
 // One cmux.json, two apps: the export lists every key with the apps that read it. The cmux-next
@@ -34,5 +34,14 @@ describe("consumers", () => {
     }
     // Shared keys stay: cmux-next reads them too.
     expect(rowsByKey.has("appearance.metrics.sidebarWidth")).toBe(true);
+  });
+
+  test("page-hidden keys stay in the export but off the page", () => {
+    const hidden = exportedRows.filter((row) => row.page_hidden).map((row) => row.key);
+    expect(hidden).toContain("notifications.mutedWorkspaces");
+    expect(schema.rows.filter((row) => hidden.includes(row.key)).map((row) => row.key)).toEqual([]);
+    expect(hidden.filter((key) => rowsByKey.has(key))).toEqual([]);
+    const found = searchRows("muted workspaces", () => undefined).flatMap((group) => group.rows);
+    expect(found.filter((row) => hidden.includes(row.key)).map((row) => row.key)).toEqual([]);
   });
 });

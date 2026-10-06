@@ -847,6 +847,7 @@ mod unix {
     mod clipboard_read;
     mod control_responses;
     mod host_parser;
+    mod metric_commits;
     mod renderer_grant;
     mod standby;
     pub(crate) use clipboard_read::ClipboardReadSignal;
@@ -854,7 +855,7 @@ mod unix {
     use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
-    use host_parser::{ParserSignals, run_host_parser};
+    use host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use renderer_grant::ControlRequestUnanswered;
     pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
@@ -3138,6 +3139,8 @@ mod unix {
             token: u64,
             text: Option<Vec<u8>>,
         },
+        /// Answers once every earlier command is applied (metric_commits.rs).
+        Barrier(SyncSender<()>),
         Drain,
     }
 
@@ -3887,218 +3890,6 @@ mod unix {
             );
         }
 
-        fn set_cell_pixel_size(
-            &self,
-            width_px: u16,
-            height_px: u16,
-            request_id: u64,
-            target: &HostTap,
-        ) -> anyhow::Result<bool> {
-            let _source_order = self.source_order_lock.lock().unwrap();
-            let next = (width_px.max(1), height_px.max(1));
-            let size = self.size.lock().unwrap();
-            let mut cell_pixels = self.cell_pixels.lock().unwrap();
-            let previous = *cell_pixels;
-            let changed = previous != next;
-            let resize_sizes = if changed {
-                Some((pty_size(size.0, size.1, previous)?, pty_size(size.0, size.1, next)?))
-            } else {
-                None
-            };
-            let mut term = self.term.lock().unwrap();
-            let mut source_cursor = None;
-            if let Some((previous_size, next_size)) = resize_sizes {
-                term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES).context(
-                    "could not preflight terminal-host cell-metric replay; geometry unchanged",
-                )?;
-                let mut payload = Vec::with_capacity(8);
-                payload.extend_from_slice(&size.0.to_le_bytes());
-                payload.extend_from_slice(&size.1.to_le_bytes());
-                payload.extend_from_slice(&next.0.to_le_bytes());
-                payload.extend_from_slice(&next.1.to_le_bytes());
-                source_cursor = Some(self.smart.publish(Frame::new(MessageKind::Resized, payload)));
-                let master = self.master.lock().unwrap();
-                if let Err(error) = master.resize(next_size) {
-                    self.smart.close_failed_transition(source_cursor);
-                    return Err(error);
-                }
-                if let Err(error) =
-                    term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
-                {
-                    let rollback = master.resize(previous_size);
-                    self.smart.close_failed_transition(source_cursor);
-                    return match rollback {
-                        Ok(()) => Err(error.into()),
-                        Err(rollback_error) => Err(anyhow::anyhow!(
-                            "could not update authoritative cell metrics: {error}; \
-                             PTY rollback also failed: {rollback_error}"
-                        )),
-                    };
-                }
-                *cell_pixels = next;
-            }
-            let transition = if changed {
-                let replay = match term.vt_replay_bounded_theme_portable_with_aliases(
-                    crate::surface::VT_REPLAY_MAX_BYTES,
-                ) {
-                    Ok(replay) => replay,
-                    Err(_) => {
-                        // Preflight ruled out persistent budget failure. Keep
-                        // the canonical commit and force every client to take
-                        // a fresh snapshot instead of broadcasting partial
-                        // geometry state or destructively resizing backward.
-                        let mut taps = self.taps.lock().unwrap();
-                        for tap in taps.values() {
-                            tap.close();
-                        }
-                        taps.clear();
-                        self.smart.close_failed_transition(source_cursor);
-                        target.close();
-                        return Ok(false);
-                    }
-                };
-                let mut resized = Frame::new(
-                    MessageKind::Resized,
-                    encode_resize(
-                        size.0,
-                        size.1,
-                        &replay.self_contained_bytes(),
-                        &replay.kitty_image_aliases,
-                        next,
-                        replay.kitty_state,
-                    )?,
-                );
-                resized.flags = FLAG_COLORS_FOLLOW;
-                Some([
-                    resized,
-                    Frame::new(
-                        MessageKind::Colors,
-                        encode_terminal_color_overrides(&term.color_overrides()),
-                    ),
-                ])
-            } else {
-                None
-            };
-            let mut ack = Frame::new(MessageKind::CellPixelSizeAck, {
-                let mut payload = Vec::with_capacity(4);
-                payload.extend_from_slice(&next.0.to_le_bytes());
-                payload.extend_from_slice(&next.1.to_le_bytes());
-                payload
-            });
-            ack.request_id = request_id;
-            // Keep the parser locked through canonical publication and the
-            // targeted acknowledgement. Output parsed at the new metrics
-            // cannot overtake the complete Resized+Colors transition.
-            let acknowledgement_queued = publish_host_frames_and_targeted(
-                &self.broadcast_lock,
-                &self.sequence,
-                &self.taps,
-                transition.into_iter().flatten(),
-                Some((target, ack)),
-            );
-            if let Some(source_cursor) = source_cursor {
-                self.smart.mark_applied(source_cursor);
-            }
-            Ok(acknowledgement_queued)
-        }
-
-        fn set_kitty_graphics_limits(
-            &self,
-            limits: KittyGraphicsLimits,
-            request_id: u64,
-            target: &HostTap,
-        ) -> anyhow::Result<bool> {
-            let limits = limits
-                .validate()
-                .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-            let _source_order = self.source_order_lock.lock().unwrap();
-            let size = *self.size.lock().unwrap();
-            let cell_pixels = *self.cell_pixels.lock().unwrap();
-            let mut term = self.term.lock().unwrap();
-            term.preflight_vt_replay_bounded(crate::surface::VT_REPLAY_MAX_BYTES)
-                .context("could not preflight terminal-host Kitty limit replay")?;
-            // Kitty quota changes can evict scene state and have no raw PTY
-            // representation. Smart renderers must reopen from the committed
-            // authoritative state instead of retaining their old scene.
-            let source_cursor =
-                self.smart.publish(Frame::new(MessageKind::ResyncRequired, Vec::new()));
-            if let Err(error) = term.set_kitty_graphics_limits(limits) {
-                self.smart.mark_applied(source_cursor);
-                let mut taps = self.taps.lock().unwrap();
-                for tap in taps.values() {
-                    tap.close();
-                }
-                taps.clear();
-                target.close();
-                return Err(error.into());
-            }
-            let replay = match term
-                .vt_replay_bounded_theme_portable_with_aliases(crate::surface::VT_REPLAY_MAX_BYTES)
-            {
-                Ok(replay) => replay,
-                Err(error) => {
-                    // The authoritative limit change may already have evicted
-                    // state. Disconnect every mirror so none can continue from
-                    // the pre-eviction scene.
-                    self.smart.mark_applied(source_cursor);
-                    let mut taps = self.taps.lock().unwrap();
-                    for tap in taps.values() {
-                        tap.close();
-                    }
-                    taps.clear();
-                    target.close();
-                    return Err(error.into());
-                }
-            };
-            let resize_payload = match encode_resize(
-                size.0,
-                size.1,
-                &replay.self_contained_bytes(),
-                &replay.kitty_image_aliases,
-                cell_pixels,
-                replay.kitty_state,
-            ) {
-                Ok(payload) => payload,
-                Err(error) => {
-                    self.smart.mark_applied(source_cursor);
-                    let mut taps = self.taps.lock().unwrap();
-                    for tap in taps.values() {
-                        tap.close();
-                    }
-                    taps.clear();
-                    target.close();
-                    return Err(error);
-                }
-            };
-            let mut resized = Frame::new(MessageKind::Resized, resize_payload);
-            resized.flags = FLAG_COLORS_FOLLOW;
-            let mut ack_payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
-            if let Err(error) = encode_kitty_graphics_limits(&mut ack_payload, limits) {
-                self.smart.mark_applied(source_cursor);
-                target.close();
-                return Err(error);
-            }
-            let mut ack = Frame::new(MessageKind::KittyGraphicsLimitsAck, ack_payload);
-            ack.request_id = request_id;
-            // The parser stays locked until all mirrors receive one complete
-            // replacement and the requester receives its acknowledgement.
-            let acknowledgement_queued = publish_host_frames_and_targeted(
-                &self.broadcast_lock,
-                &self.sequence,
-                &self.taps,
-                [
-                    resized,
-                    Frame::new(
-                        MessageKind::Colors,
-                        encode_terminal_color_overrides(&term.color_overrides()),
-                    ),
-                ],
-                Some((target, ack)),
-            );
-            self.smart.mark_applied(source_cursor);
-            Ok(acknowledgement_queued)
-        }
-
         fn apply_viewer_minimum(
             &self,
             desired: Option<(u16, u16)>,
@@ -4544,7 +4335,9 @@ mod unix {
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
                 {
-                    let _term = self.term.lock().unwrap();
+                    // A parser that panicked while it held the lock poisoned
+                    // it; the exit must still be published (host_parser.rs).
+                    let _term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     self.dead.store(true, Ordering::Release);
                     self.accept_waker.wake();
                     let payload = encode_terminal_exit(&exit);
@@ -5218,7 +5011,14 @@ mod unix {
         let parser_host = shared.clone();
         let signals = ParserSignals { pending_responses, title_changed, bell };
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
+            let guarded = parser_host.clone();
+            let parse = move || {
+                run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
+            };
+            run_guarded_host_parser(&guarded, parse, || {
+                // crash-allow: the exit is published (or its bound passed); end the host.
+                std::process::exit(host_parser::PARSER_FAILURE_EXIT_CODE)
+            });
         })?;
 
         let reader_host = shared.clone();
@@ -6390,6 +6190,8 @@ mod unix {
     mod tests {
         mod clipboard_read;
         mod host_fixture;
+        mod parser_failure;
+        mod parser_order;
         use super::*;
         use cmux_pty::Child;
         use host_fixture::{test_host_shared, test_host_shared_with};

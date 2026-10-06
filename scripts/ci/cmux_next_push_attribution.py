@@ -27,6 +27,13 @@ MARKER = "<!-- cmux-next-push-attribution:{run_id} -->"
 # Jobs that report rather than check.
 IGNORED_JOBS = ("cmux-next push attribution", "cmux-next generated autofix")
 SCANNED_RUNS = 40
+# Past this many candidates a comment on each is noise (a job red for a long
+# while): the run summary lists the range instead.
+MAX_COMMENTED_PRS = 5
+
+
+def should_comment(numbers: list[int]) -> bool:
+    return 0 < len(numbers) <= MAX_COMMENTED_PRS
 
 
 def gh_api(path: str) -> object:
@@ -123,6 +130,11 @@ def main(argv: list[str]) -> int:
     run_url = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     report(f"### cmux-next push attribution\n\nFailed: {', '.join(failed)}. Last passed at {good}. "
            f"Pull requests in range: {', '.join(f'#{n}' for n in numbers) or 'none'}.")
+    if not should_comment(numbers):
+        if numbers:
+            report(f"{len(numbers)} pull requests in range: no comments (more than {MAX_COMMENTED_PRS}). "
+                   "The job has been red for a while; its owner needs the run, not each author.")
+        return 0
     body = comment_body(run_url, args.sha, failed, good, numbers, args.run_id)
     marker = MARKER.format(run_id=args.run_id)
     for number in numbers:

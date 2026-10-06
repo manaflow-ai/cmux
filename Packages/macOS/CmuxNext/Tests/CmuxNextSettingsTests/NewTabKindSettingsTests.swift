@@ -2,16 +2,16 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `tabs.newTabKind`: what Cmd-T and + open. An agent chat ("agent") unless the file says
-/// otherwise; a bad value keeps "agent" with a diagnostic. The
+/// `tabs.newTabKind`: what Cmd-T and + open. The New Tab page ("page") unless the file says
+/// otherwise; a bad value keeps "page" with a diagnostic. The
 /// Settings window and the new tab page's "default" toggle edit it.
 @Suite struct NewTabKindSettingsTests {
     func parse(_ text: String) throws -> CmuxConfigSnapshot {
         CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
     }
 
-    @Test func defaultsToAnAgentChat() throws {
-        #expect(try parse("{}").newTabKind == .agent)
+    @Test func defaultsToTheNewTabPage() throws {
+        #expect(try parse("{}").newTabKind == .page)
         #expect(try parse("{}").diagnostics.isEmpty)
     }
 
@@ -23,9 +23,9 @@ import Testing
         }
     }
 
-    @Test func badValuesKeepAnAgentChatWithADiagnostic() throws {
+    @Test func badValuesKeepTheNewTabPageWithADiagnostic() throws {
         let snapshot = try parse(#"{"tabs": {"newTabKind": "spreadsheet"}}"#)
-        #expect(snapshot.newTabKind == .agent)
+        #expect(snapshot.newTabKind == .page)
         #expect(snapshot.diagnostics.map(\.path) == ["tabs.newTabKind"])
     }
 
@@ -36,6 +36,6 @@ import Testing
             return
         }
         #expect(choices.map(\.value) == NewTabDefaultKind.allCases.map(\.rawValue))
-        #expect(descriptor.defaultValue == .string("agent"))
+        #expect(descriptor.defaultValue == .string("page"))
     }
 }

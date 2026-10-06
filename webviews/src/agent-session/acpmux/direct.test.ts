@@ -11,6 +11,7 @@ import type { EventRecord } from "./direct";
 import { AcpWireLog } from "./wire";
 import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { isNewChat } from "./EmptyState";
+import { translate } from "./i18n";
 
 describe("direct acpmux event helpers", () => {
   test("uses the permission notification envelope session id", () => {
@@ -225,6 +226,30 @@ describe("direct client session state", () => {
     await client.warmRecentProjects();
     const warm = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/warm");
     expect(warm?.params).toEqual({ sessionIds: ["a", "c"], limit: 3 });
+    client.close();
+  });
+
+  test("never warms an agent in the home folder or a privacy-protected folder", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch")
+        return {
+          sessions: [
+            { sessionId: "home", cwd: "/Users/me", updatedAt: 60 },
+            { sessionId: "docs", cwd: "/Users/me/Documents/app", updatedAt: 50 },
+            { sessionId: "photos", cwd: "/Users/me/pictures/x", updatedAt: 45 },
+            { sessionId: "drive", cwd: "/Volumes/External/x", updatedAt: 40 },
+            { sessionId: "mail", cwd: "/Users/me/Library/Mail/x", updatedAt: 35 },
+            { sessionId: "root", cwd: "/", updatedAt: 30 },
+            { sessionId: "code", cwd: "/Users/me/code/app", updatedAt: 20 },
+          ],
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId }, events: [] };
+      return {};
+    };
+    const client = await connect();
+    await client.warmRecentProjects();
+    const warm = ScriptedSocket.current.sent.find((request) => request.method === "_acpmux/warm");
+    expect(warm?.params).toEqual({ sessionIds: ["code"], limit: 3 });
     client.close();
   });
 
@@ -987,6 +1012,28 @@ describe("direct client session state", () => {
     });
   });
 
+  // acpmux names the connection's origin in initialize; the composer's remote state follows it.
+  test("the snapshot carries the origin acpmux names, and unknown when it names none", async () => {
+    const originFor = async (meta: Record<string, unknown> | undefined) => {
+      ScriptedSocket.respond = ({ method, params }) => {
+        if (method === "initialize") return meta ? { _meta: { acpmux: meta } } : {};
+        if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+        if (method === "_acpmux/attach") return attachReply(params.sessionId);
+        return {};
+      };
+      const client = await connect();
+      await settle();
+      const origin = latest().origin;
+      client.close();
+      return origin;
+    };
+    expect(await originFor({ origin: "remote" })).toBe("remote");
+    expect(await originFor({ origin: "local" })).toBe("local");
+    expect(await originFor({ origin: "peer" })).toBe("peer");
+    expect(await originFor({ origin: "elsewhere" })).toBe("unknown");
+    expect(await originFor(undefined)).toBe("unknown");
+  });
+
   test("a refused prewarm hint is ignored and never blocks", async () => {
     ScriptedSocket.respond = ({ method, params }) => {
       if (method === "initialize") return { _meta: { acpmux: { extensions: ["_acpmux/prewarm"], origin: "local" } } };
@@ -1333,6 +1380,52 @@ describe("direct client session state", () => {
     await settle();
     expect(texts()).toEqual(["a five", "a six", "a seven", "did not send"]);
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
+  });
+
+  /// The host refuses a prompt that has no user gesture (decision 27): the bubble says so on its
+  /// row and offers Retry, the connection stays up, and Retry sends the same prompt once more.
+  test("a prompt the host refuses says why on its bubble, and Retry sends it again", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("not yet").catch(() => "refused");
+    await settle();
+    const pendingRow = latest().rows.find((row) => row.text === "not yet")!;
+    expect(pendingRow.pending).toBe(true);
+    ScriptedSocket.current.fail("session/prompt", {
+      code: -32601,
+      message: "Refused by the cmux host",
+      data: { code: "transport.gesture_required", origin: "native", method: "session/prompt" },
+    });
+    expect(await sending).toBe("refused");
+    const failed = latest().rows.find((row) => row.text === "not yet")!;
+    // A new row object: MessageRow is memoized on the row's identity and version, so a row
+    // changed in place would keep drawing as a plain bubble.
+    expect(failed).not.toBe(pendingRow);
+    expect(failed.failed).toBe(true);
+    expect(failed.error).toBe(translate("prompt.notSentGesture"));
+    expect(latest().connection).toBe("connected");
+
+    const prompts = () => ScriptedSocket.current.sent.filter((request) => request.method === "session/prompt").length;
+    const before = prompts();
+    ScriptedSocket.held.delete("session/prompt");
+    await client.retryPrompt(failed.id);
+    await settle();
+    expect(prompts()).toBe(before + 1);
+    const rows = latest().rows.filter((row) => row.text === "not yet");
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.failed).toBeFalsy();
+  });
+
+  /// Any other failure names its reason on the bubble.
+  test("a prompt that fails for another reason names it on its bubble", async () => {
+    const client = await connect();
+    ScriptedSocket.held.add("session/prompt");
+    const sending = client.send("broken").catch(() => "failed");
+    await settle();
+    ScriptedSocket.current.fail("session/prompt", { code: -32000, message: "harness exited" });
+    expect(await sending).toBe("failed");
+    const failed = latest().rows.find((row) => row.text === "broken")!;
+    expect(failed.error).toBe(translate("prompt.notSent", { reason: "harness exited" }));
   });
 
   /// A row made without an event (a failed prompt) sorts after the events it saw, and live events

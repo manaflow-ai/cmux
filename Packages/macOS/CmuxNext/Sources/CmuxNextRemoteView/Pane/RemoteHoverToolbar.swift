@@ -87,7 +87,7 @@ final class RemoteHoverToolbar: NSView {
         let placeholder = NSMenuItem(title: RemoteViewStrings.displayPlaceholder, action: nil, keyEquivalent: "")
         placeholder.isEnabled = false
         menu.addItem(placeholder)
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: displayButton.bounds.height + 4), in: displayButton)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: displayButton, gap: 4), in: displayButton)
     }
 
     private func showQualityMenu() {
@@ -101,7 +101,7 @@ final class RemoteHoverToolbar: NSView {
             item.state = preset == quality ? .on : .off
             menu.addItem(item)
         }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: qualityButton.bounds.height + 4), in: qualityButton)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: qualityButton, gap: 4), in: qualityButton)
     }
 }
 

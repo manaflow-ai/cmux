@@ -39,11 +39,10 @@ ALLOWED = {
     "CC0-1.0",
 }
 
-# First-party crates that still declare GPL-3.0-or-later. Named exactly, by
-# coordinator decisions 2026-10-05 (and LICENSE-RB for cmux-remote-browser):
-# no relicense now; Lawrence's open license question (are the app-linked and
-# remote browser first-party crates MIT?) decides, and the license lane
-# removes these entries in its push.
+# First-party crates in the app closure. They declare GPL-3.0-or-later, like
+# all first-party code (Lawrence, 2026-10-06: "keep everything GPL, we do not
+# want any MIT in cmux"; scripts/cmux-next/notices/check_first_party_licenses.py).
+# Named exactly, so a third-party GPL crate still fails this gate.
 FIRST_PARTY_GPL = {
     "cmux-rd-ffi",
     "cmux-app-ffi",

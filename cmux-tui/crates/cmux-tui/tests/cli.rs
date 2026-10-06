@@ -2960,46 +2960,8 @@ fn plain_launch_attaches_to_existing_local_session() {
 }
 
 #[cfg(unix)]
-#[test]
-fn session_shutdown_exits_an_interactive_detached_owner_client() {
-    let dir = TestTempDir::create("interactive-session-shutdown");
-    let socket = dir.path().join("mux.sock");
-    let socket_arg = socket.to_str().unwrap();
-    let state = dir.path().join("state");
-    let state_arg = state.to_str().unwrap();
-    let config = dir.path().join("config.json");
-    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
-    let mut client = PtyChild::start_with_env(
-        &[
-            "--session",
-            "interactive-session-shutdown",
-            "--socket",
-            socket_arg,
-            "--state",
-            state_arg,
-        ],
-        &[("CMUX_TUI_CONFIG", config.as_os_str())],
-    );
-    wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut client);
-
-    let shutdown =
-        lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
-    assert_success(&shutdown);
-    assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
-
-    let status = client.wait_for_exit(Duration::from_secs(5));
-    let output = client.output_tail();
-    let status = status.unwrap_or_else(|| {
-        panic!(
-            "interactive client remained alive after detached owner shutdown; output:\n{output:?}"
-        )
-    });
-    assert!(
-        status.success(),
-        "interactive client exited unsuccessfully: {status}; output:\n{output:?}"
-    );
-}
+#[path = "cli/session_shutdown.rs"]
+mod session_shutdown;
 
 #[cfg(unix)]
 #[path = "cli/pty_child.rs"]

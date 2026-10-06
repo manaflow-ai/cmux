@@ -1,16 +1,13 @@
 // The card that closes a turn which edited files: "Edited App.tsx +12 -3" (or "Edited 4 files"
-// over the first three), then Undo and View changes. Undo asks the agent to revert every hunk of
-// the turn through the changes view's hunk review, so the view shows them as requested too.
-// A turn still running shows its edits without Undo.
-import { useContext, useMemo, useState } from "react";
-import { turnFiles, undoPrompt, type TurnFile } from "../diff";
+// over the first three), then View changes. No Undo: asking the agent to revert let it run any
+// command (git checkout) and lose edits made after the turn. Undo returns as a host revert that
+// checks each file still holds the turn's bytes.
+import { useMemo, useState } from "react";
+import { turnFiles, type TurnFile } from "../diff";
 import { ChevronDown, DiffFile } from "../changeIcons";
 import { Counts } from "../changes/Counts";
-import { turnHunkKeys, undoableHunks } from "../changes/hunkReview";
 import { useT } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
-import { Undo } from "./icons";
-import { TurnActionsContext } from "./turnActions";
 
 export const EDITED_FILES_SHOWN = 3;
 
@@ -24,7 +21,6 @@ export function EditedFilesCard({
 }) {
   const t = useT();
   const [showAll, setShowAll] = useState(false);
-  const { review } = useContext(TurnActionsContext);
   const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
   const files = useMemo(() => turnFiles([row]), [row]);
   // An edit whose tool call carried no diff still lists, without counts.
@@ -40,13 +36,6 @@ export function EditedFilesCard({
   const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
   const more = single ? 0 : total - shown.length;
   const reviewable = onOpenDiff && files.length > 0;
-  // Undo shows once the turn has ended. After it asks, it reads "Undo requested" for the rest of
-  // the session (the agent reverts in a later turn); a hunk the changes view already sent is
-  // left out. Patches are built only when sent.
-  const unasked =
-    review && row.ended && files.length > 0
-      ? turnHunkKeys(files).filter((key) => review.decisions.get(key) !== "requested").length
-      : undefined;
   const title = single
     ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
     : total === 1
@@ -62,24 +51,6 @@ export function EditedFilesCard({
           <div>{title}</div>
           {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
         </div>
-        {review && unasked !== undefined && (
-          <button
-            type="button"
-            className="acpmux-edited-undo"
-            disabled={unasked === 0}
-            title={unasked ? t("edited.undoLabel") : undefined}
-            onClick={() => {
-              const hunks = undoableHunks(files, review.decisions);
-              review.requestRevert(
-                hunks.map((hunk) => hunk.key),
-                undoPrompt(hunks.map((hunk) => hunk.patch)),
-              );
-            }}
-          >
-            {unasked ? t("edited.undo") : t("edited.undoRequested")}
-            {unasked > 0 && <Undo size={14} />}
-          </button>
-        )}
         {reviewable && (
           <button
             type="button"

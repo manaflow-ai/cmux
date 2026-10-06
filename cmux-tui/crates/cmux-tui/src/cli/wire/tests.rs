@@ -309,3 +309,25 @@ fn stopped_owner_reload_error_is_localized_for_human_output() {
         assert!(status.success(), "{locale} localization probe failed");
     }
 }
+
+/// `closed list` shows one short MEMBERS cell per group (kind and the first
+/// URL, folder or name); the full member JSON stays in --json.
+#[test]
+fn closed_list_summarizes_members_in_the_human_table() {
+    let tab = json!({"kind":"browser","name":null,"url":"https://example.com","cwd":null});
+    let screen =
+        json!({"index":0,"kind":"screen","name":null,"screens":[{"name":null,"tabs":[tab]}]});
+    let named = json!({"index":1,"kind":"workspace","name":"build","screens":[]});
+    let result =
+        json!([{"id":"closed_a","kind":"screen","member_count":2,"members":[screen, named]}]);
+    let shown = human_view(&plan(ResourceOperation::ClosedList), &result);
+    assert_eq!(shown[0]["members"], json!("screen https://example.com, workspace build"));
+    assert!(!human_text(&shown).contains("\"screens\""), "{}", human_text(&shown));
+    let long = json!({"kind":"tab","url":format!("https://example.com/{}", "a".repeat(200))});
+    let result = json!([{"id":"closed_b","members":[long]}]);
+    let cell = human_view(&plan(ResourceOperation::ClosedList), &result)[0]["members"].clone();
+    assert!(cell.as_str().unwrap().chars().count() <= 80, "{cell}");
+    assert!(cell.as_str().unwrap().ends_with('…'), "{cell}");
+    // JSON output is the daemon's result unchanged (human_view is human-only).
+    assert_eq!(*human_view(&plan(ResourceOperation::WorkspaceList), &result), result);
+}

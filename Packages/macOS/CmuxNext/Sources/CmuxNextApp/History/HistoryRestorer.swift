@@ -12,8 +12,10 @@ struct HistoryRestorer {
     /// Runs the entry's primary action. `newTab` opens a page beside the
     /// focused tab instead of in it.
     func open(_ entry: HistoryEntry, newTab: Bool = false) {
+        // From a top page (History on top): the entry opens in the window's workspace.
+        let leftPage = TopPages.leave(services)
         switch entry.payload {
-        case .page(let url, let profile): openPage(url, profile: profile, newTab: newTab)
+        case .page(let url, let profile): openPage(url, profile: profile, newTab: newTab || leftPage)
         case .location(let location, _):
             if !services.locationTrail.goTo(location) { services.registry.refuse(HistoryAppStrings.entryGone) }
         case .closed(let item): reopen(item)
@@ -24,7 +26,10 @@ struct HistoryRestorer {
 
     func openPage(_ text: String, profile: String?, newTab: Bool) {
         guard let url = URL(string: text) else { return }
-        let pane = services.windows.active?.focusedPane
+        let leftPage = TopPages.leave(services)
+        let newTab = newTab || leftPage
+        let window = services.windows.active
+        let pane = window?.focusedPane ?? window?.content?.panes.values.first
         if !newTab, let pane, let tab = pane.selectedTab, tab.kind == .browser,
            let page = services.cache.existingBrowser(tab.id)?.tab {
             page.load(url)

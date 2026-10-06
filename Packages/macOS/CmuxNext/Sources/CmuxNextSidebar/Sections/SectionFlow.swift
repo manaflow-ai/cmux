@@ -101,27 +101,48 @@ nonisolated enum SectionFlow {
     /// A grid with spans (R53): lines of `columns` equal columns; an item
     /// takes `span` of them (one when nil) and moves to the next line when
     /// it does not fit. A labeled item draws icon and label, others icon
-    /// only; lines are row height.
+    /// only; lines are row height. On a line with a labeled item, an
+    /// icon-only item is a row-height square, so its glyph has the same room
+    /// on all sides (Lawrence 2026-10-05, the account beside Settings); the
+    /// labeled items take up the difference.
     private static func placeSpans(_ section: LayoutSection, columns: Int, x: CGFloat, y: CGFloat, width: CGFloat, gap: CGFloat,
                                    labelWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
         let unit = max(0, (width - CGFloat(columns - 1) * gap) / CGFloat(columns))
-        var rows: [SidebarRegionRow] = []
-        var line = 0, column = 0
+        var lineItems: [[(item: LayoutItem, span: Int)]] = []
+        var column = 0
         for item in section.items {
             let span = min(max(item.span ?? 1, 1), columns)
-            if column + span > columns {
-                line += 1
+            if lineItems.isEmpty || column + span > columns {
+                lineItems.append([])
                 column = 0
             }
-            let itemX = x + CGFloat(column) * (unit + gap)
-            let itemWidth = CGFloat(span) * unit + CGFloat(span - 1) * gap
-            let kind: SidebarRegionRow.Kind = item.showsLabel && labelWidths[item.id] != nil
-                ? .chip(item.id, section: section.id) : .tile(item.id, section: section.id)
-            rows.append(SidebarRegionRow(kind: kind, frame: CGRect(x: itemX, y: y + CGFloat(line) * (m.rowHeight + gap),
-                                                                   width: itemWidth, height: m.rowHeight)))
+            lineItems[lineItems.count - 1].append((item, span))
             column += span
         }
-        let lines = section.items.isEmpty ? 0 : line + 1
+        var rows: [SidebarRegionRow] = []
+        for (line, items) in lineItems.enumerated() {
+            let labeled = items.map { $0.item.showsLabel && labelWidths[$0.item.id] != nil }
+            var widths = items.map { CGFloat($0.span) * unit + CGFloat($0.span - 1) * gap }
+            if labeled.contains(true) {
+                var grown: CGFloat = 0
+                for index in widths.indices where !labeled[index] {
+                    grown += m.rowHeight - widths[index]
+                    widths[index] = m.rowHeight
+                }
+                let labeledSpans = items.indices.filter { labeled[$0] }.map { CGFloat(items[$0].span) }.reduce(0, +)
+                for index in widths.indices where labeled[index] {
+                    widths[index] = max(0, widths[index] - grown * CGFloat(items[index].span) / labeledSpans)
+                }
+            }
+            var itemX = x
+            for (index, entry) in items.enumerated() {
+                let kind: SidebarRegionRow.Kind = labeled[index] ? .chip(entry.item.id, section: section.id) : .tile(entry.item.id, section: section.id)
+                rows.append(SidebarRegionRow(kind: kind, frame: CGRect(x: itemX, y: y + CGFloat(line) * (m.rowHeight + gap),
+                                                                       width: widths[index], height: m.rowHeight)))
+                itemX += widths[index] + gap
+            }
+        }
+        let lines = lineItems.count
         let height = CGFloat(lines) * m.rowHeight + CGFloat(max(0, lines - 1)) * gap
         return Result(rows: rows, height: height, lines: lines, lineHeight: m.rowHeight)
     }

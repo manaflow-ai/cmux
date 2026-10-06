@@ -1,11 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 
 extension PageDescriptor {
     /// The Keyboard Shortcuts editor (R59): cmux-page://cmux.keybindings/.
-    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", namespaces: ["cmux.keybindings."])
+    static let keybindings = PageDescriptor(id: "cmux.keybindings", resource: "keybindings", namespaces: ["cmux.keybindings."],
+                                            ownsSearchField: true)
 }
 
 extension InternalPageID {
@@ -34,6 +36,7 @@ final class KeybindingsPageService: InternalPageProvider {
     var page: InternalPageID { .keybindings }
     var title: String { KeybindingStrings.pageTitle }
     var symbol: String { "keyboard" }
+    var icon: IconName? { .keyboard }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let provider = KeybindingsPageProvider(services: services)

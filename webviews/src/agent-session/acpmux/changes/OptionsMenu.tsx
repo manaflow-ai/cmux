@@ -5,6 +5,7 @@
 import { More } from "../changeIcons";
 import { useMenuButton } from "./useMenuButton";
 import { useT } from "../i18n";
+import { useUiAnchor } from "../../../ui/anchor";
 
 /// A menu row, or `null` for a separator.
 export type OptionsRow = { label: string; disabled?: boolean; run: () => unknown } | null;
@@ -12,6 +13,7 @@ export type OptionsRow = { label: string; disabled?: boolean; run: () => unknown
 export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
   const t = useT();
   const { open, button, menu, onKeyDown, run, toggle } = useMenuButton();
+  const menuStyle = useUiAnchor(button, menu, open, { side: "below", align: "start" });
   return (
     <span className="acpmux-file-menu">
       <button
@@ -30,6 +32,7 @@ export function OptionsMenu({ rows }: { rows: OptionsRow[] }) {
       {open && (
         <div
           ref={menu}
+          style={menuStyle}
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list"

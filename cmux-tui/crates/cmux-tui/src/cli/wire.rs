@@ -58,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -420,11 +420,25 @@ fn run_response(
                         localize_operation_error(plan, &mut error);
                     }
                     key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
                 key_report.succeeded();
                 if !plan.stream {
+                    // Focus in a session a cmux app owns is the app's (app_focus).
+                    #[cfg(unix)]
+                    let result = match &plan.operation {
+                        WireOperation::Typed(operation) => {
+                            match super::app_focus::after_daemon(global, *operation, result) {
+                                Ok(result) => result,
+                                Err(error) => return print_operation_error(&error, global.output),
+                            }
+                        }
+                        WireOperation::Raw { .. } => result,
+                    };
                     let shown = match global.output {
                         OutputMode::Human => human_view(plan, &result),
                         _ => std::borrow::Cow::Borrowed(&result),
@@ -504,7 +518,7 @@ fn run_response(
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
@@ -532,6 +546,7 @@ pub(super) fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -582,8 +597,16 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 })
                 .collect(),
         )),
+        Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_closed_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ClosedList)
+    )
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -956,6 +979,10 @@ pub(super) fn resolve_socket_with_env(
     }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
+
+mod closed_view;
+mod hints;
+pub(super) use hints::connect_failure;
 
 #[cfg(test)]
 mod tests;

@@ -1456,3 +1456,6 @@ mod preset_args;
 
 #[path = "hub_integration/lifecycle_fixes.rs"]
 mod lifecycle_fixes;
+
+#[path = "hub_integration/quit_spawn.rs"]
+mod quit_spawn;

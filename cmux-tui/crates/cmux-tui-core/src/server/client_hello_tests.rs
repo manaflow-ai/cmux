@@ -333,13 +333,13 @@ fn no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role() {
     }
     // A legacy client may subscribe (never page_relay).
     assert_eq!(client.request(json!({"cmd": "subscribe"}))["ok"], true);
-    // And is never user: the A2 gate refuses it with derived agent.
+    // And is never user: a user claim is refused with derived agent.
     let refused = client.request(json!({
         "protocol": "cmux.protocol/2",
         "type": "request",
-        "operation": "apps.install",
-        "params": {"app": "cmux/demo"},
-        "idempotency_key": "k1",
+        "operation": "session.ping",
+        "params": {"machine": "current", "session": "current"},
+        "origin": {"claim": "user"},
     }));
     assert_eq!(refused["error"]["code"], "origin.forbidden", "{refused}");
     assert_eq!(refused["error"]["details"]["derived"], "agent", "{refused}");

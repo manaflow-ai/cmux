@@ -6,6 +6,7 @@ import CmuxNextApps
 import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextPalette
@@ -23,7 +24,7 @@ enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + HomeTunables.all
     }
 }
 
@@ -106,7 +107,8 @@ final class DebugSettingsService: InternalPageProvider {
     func close() {
         controller?.window?.performClose(nil)
         for key in services.pages.keys(of: .debugSettings) {
-            services.paneController(showingTab: key)?.close([StripTabID(key)])
+            guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { continue }
+            pane.close([id])
         }
     }
 

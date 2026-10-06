@@ -62,6 +62,17 @@ enum DebugPaneChrome {
                         "corner": rect(controller.root.cornerRegionFrameInWindow),
                     ])
                 }(),
+                // 2026-10-05: the title bar buttons' reveal (top row or sidebar hover) and what is drawn.
+                "titlebar_buttons": {
+                    let root = controller.root, reveal = root.titlebarReveal.state, band = root.toolbarBand
+                    return .object([
+                        "revealed": .bool(reveal.isRevealed), "pointer_inside": .bool(reveal.pointerInside),
+                        "holds": .number(Double(reveal.holds)), "focus_inside": .bool(reveal.focusInside),
+                        "band_alpha": .number(Double(band.alphaValue)), "toggle_alpha": .number(Double(band.sidebarToggle.alphaValue)),
+                        "back_alpha": .number(Double(band.backButton.alphaValue)),
+                        "close_alpha": .number(Double(window.standardWindowButton(.closeButton)?.alphaValue ?? -1)),
+                    ])
+                }(),
             ])
         }
         return .object(["windows": .array(windows)])

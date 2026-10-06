@@ -342,19 +342,11 @@ fn short_lived_terminal_launch_converges_to_durable_exited_result() {
 fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
     let harness = RecoveryHarness::start_with_host_ready_delay("journal-initial-output", 250);
     let marker = format!("fast-journal-marker-{}", std::process::id());
-    let created = resource_request(
+    let workspace = &create_empty_workspace(
         &harness.socket,
         "journal-initial-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Journal initial output",
-            "initial_content":"empty",
-        }),
-        Some("journal-initial-workspace"),
+        "Journal initial output",
     );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
     let run = resource_request(
         &harness.socket,
         "journal-initial-run",
@@ -465,19 +457,7 @@ fn short_lived_resource_terminal_journals_initial_output_after_its_topology() {
 fn keep_on_exit_retains_tab_and_final_screen_until_close_and_degrades_on_restart() {
     let mut harness = RecoveryHarness::start("keep-on-exit");
     let marker = format!("keep-on-exit-marker-{}", std::process::id());
-    let created = resource_request(
-        &harness.socket,
-        "keep-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Keep on exit",
-            "initial_content":"empty",
-        }),
-        Some("keep-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace = &create_empty_workspace(&harness.socket, "keep-workspace", "Keep on exit");
 
     // The catalog constrains on_exit to its supported enum values.
     let unsupported = request_response(
@@ -906,19 +886,8 @@ fn output_read(
 #[test]
 fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     let harness = RecoveryHarness::start("output-read");
-    let created = resource_request(
-        &harness.socket,
-        "output-read-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Output read",
-            "initial_content":"empty",
-        }),
-        Some("output-read-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-workspace", "Output read");
 
     // The command prints colored output, waits for one input line so the
     // live window is observable, then prints more colored output and exits
@@ -1055,6 +1024,12 @@ fn output_read_returns_plain_text_across_exit_and_resumes_by_offset() {
     assert_eq!(drained["start_offset"], stream_end.to_string());
     assert_eq!(drained["next_offset"], stream_end.to_string());
     assert_eq!(drained["complete"], true);
+
+    // The close policy took the workspace's only tab, so the workspace
+    // closed with it (LAST-TAB-CLOSES-WORKSPACE): the keep-policy run gets
+    // a new one.
+    let workspace =
+        &create_empty_workspace(&harness.socket, "output-read-kept-workspace", "Output read kept");
 
     // Keep policy: the exited terminal retains its views, and the same read
     // serves its output without escapes.
@@ -4132,9 +4107,9 @@ fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
         .as_array()
         .unwrap()
         .iter()
-        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id))
-        .expect("Ctrl-D removed the workspace identity");
-    assert!(first_tab(workspace).is_none(), "Ctrl-D left an exited terminal tab behind");
+        .find(|workspace| workspace["id"].as_u64() == Some(workspace_id));
+    // Its only tab went, so the workspace closed too (LAST-TAB-CLOSES-WORKSPACE).
+    assert!(workspace.is_none(), "Ctrl-D left an empty workspace behind: {tree}");
 }
 
 #[test]
@@ -5310,19 +5285,8 @@ fn receipted_input_is_acknowledged_behind_an_output_backlog() {
     command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
     harness.child = Some(command.spawn().unwrap());
     wait_for_socket(&harness.socket);
-    let created = resource_request(
-        &harness.socket,
-        "ack-backlog-workspace",
-        "workspace.create",
-        serde_json::json!({
-            "machine":"current",
-            "session":"current",
-            "name":"Input ack backlog",
-            "initial_content":"empty",
-        }),
-        Some("ack-backlog-workspace"),
-    );
-    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    let workspace =
+        &create_empty_workspace(&harness.socket, "ack-backlog-workspace", "Input ack backlog");
     // Twenty separate output bursts (8 s of delayed apply), then a reader.
     let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
                   echo bursts-done; read line; echo got-$line";

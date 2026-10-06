@@ -469,3 +469,26 @@ describe("activity sender, agent side (cloud-automation.md 27)", () => {
     expect(ops.at(-1)!.body.params.daemon.capabilities).toEqual(["vm-agent-v1", "activity"]);
   });
 });
+
+describe("activity probe (bake and smoke evidence on a real image)", () => {
+  test("probeActivity proves the daemon advertises vm-activity-v1 and the agent's stream connects with a snapshot", async () => {
+    const { probeActivity } = await import("../../images/cmux-vm/guest/vm-agent");
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { createServer: createUnixServer } = await import("node:net");
+    const sock = `${mkdtempSync(path.join(tmpdir(), "p-"))}/cloud.sock`;
+    let caps = ["loopback-forward-v1", "vm-activity-v1"];
+    const daemonServer = createUnixServer((s) => {
+      s.on("data", (d) => {
+        const req = JSON.parse(String(d).trim()) as { id: number; cmd: string };
+        if (req.cmd === "identify") s.end(`${JSON.stringify({ id: req.id, ok: true, data: { version: "0.1.0", capabilities: caps } })}\n`);
+        else s.write(`${JSON.stringify({ id: req.id, ok: true, data: { activity: { attached_clients: 0, live_agents: 0, last_user_input_at_ms: null, last_agent_action_at_ms: null } } })}\n`);
+      });
+    });
+    await new Promise<void>((resolve) => daemonServer.listen(sock, resolve));
+    expect(await probeActivity(sock, 5_000)).toEqual({ capability: true, connected: true, activity: { active_sessions: 0 } });
+    caps = ["loopback-forward-v1"];
+    await expect(probeActivity(sock, 5_000)).rejects.toThrow(/vm-activity-v1/);
+    await new Promise<void>((resolve) => daemonServer.close(() => resolve()));
+  });
+});

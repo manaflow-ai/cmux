@@ -27,7 +27,7 @@
    "cmux-tasks-core": 25,
    "cmux-tui": 195,
    "cmux-tui-cdp": 3,
-   "cmux-tui-core": 299,
+   "cmux-tui-core": 298,
    "cmux-unix-socket": 1,
    "cmux-wg": 15,
    "ghostty-vt": 3

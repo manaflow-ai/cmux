@@ -94,8 +94,8 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
 | equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
-| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⌘←→↑↓ or ⌃⌘H/L/K/J | PKM | KSS:171-174, RSP:117 |
-| focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ | PK | KSS:159-162 |
+| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J or ⌃⌘←→↑↓ | PKM | KSS:171-174, RSP:117 |
+| focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ or ⌃⌘H/L/K/J | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
 | triggerFlash | Flash Focused Panel | ⇧⌘H | PKC | KSS:120, GTV:9254 |
 | palette.swapWithSession | Swap With Session… | — | PC | VCP:21, GTV:9306 |

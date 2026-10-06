@@ -18,7 +18,9 @@ struct BookmarkOpener {
         open(url, profile: profile, disposition: disposition, fromTab: key)
     }
 
-    func open(_ url: URL, profile: String, disposition: BookmarkOpenDisposition, fromTab key: String? = nil) {
+    func open(_ url: URL, profile: String, disposition requested: BookmarkOpenDisposition, fromTab key: String? = nil) {
+        // From a top page (Bookmarks on top): open in the window's workspace, in a new tab.
+        let disposition = TopPages.leave(services) && requested == .currentTab ? .newTab : requested
         let pane = key.flatMap { services.paneShowing(tab: $0) } ?? services.windows.active?.focusedPane
         guard let pane else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         if disposition == .currentTab, let tab = key.flatMap({ services.cache.tabModel($0) }) ?? pane.selectedTab, tab.kind == .browser,

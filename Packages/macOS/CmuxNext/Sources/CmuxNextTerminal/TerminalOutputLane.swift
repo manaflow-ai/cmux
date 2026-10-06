@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 import Synchronization
 import os
@@ -59,6 +60,7 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
                 guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(surface, base, UInt(buffer.count))
             }
+            TypingLatencyProbe.shared.mark(.outputParsed)
         }
     }
 

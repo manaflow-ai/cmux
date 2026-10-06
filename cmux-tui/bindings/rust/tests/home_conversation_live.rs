@@ -203,6 +203,7 @@ fn home_and_conversation_results_live_daemon() {
             mutation_id: Optional::Value("live-tab".into()),
             origin: Optional::Value("sdk-live".into()),
             owner: Optional::Value("local".into()),
+            page: Optional::Missing,
             pane: Optional::Missing,
             rows: Optional::Missing,
             transaction: Optional::Missing,

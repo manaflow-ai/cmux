@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "license": "MIT",
-  "description": "Generic integration ingestion (OpenAPI 3, GraphQL introspection, MCP tools/list) per-tool policy defaults, egress pre-checks and MCP tool naming for cmux. Adapted in part from executor (MIT).",
+  "license": "GPL-3.0-or-later AND MIT",
+  "description": "Generic integration ingestion (OpenAPI 3, GraphQL introspection, MCP tools/list) per-tool policy defaults, egress pre-checks and MCP tool naming for cmux. Adapted in part from executor (MIT); the cmux code is GPL-3.0-or-later.",
   "exports": {
     ".": "./src/index.ts",
     "./types": "./src/types.ts",
@@ -20,7 +20,7 @@
     "./graphql": "./src/graphql.ts",
     "./mcp": "./src/mcp.ts"
   },
-  "files": ["src/", "LICENSE", "NOTICE", "README.md"],
+  "files": ["src/", "LICENSE", "LICENSE-executor", "NOTICE", "README.md"],
   "scripts": {
     "test": "bun test test"
   }

@@ -13,6 +13,8 @@ public struct InboxRow: Hashable, Sendable, Identifiable {
     public var previewAuthor: String?
     public var timestamp: Date
     public var unread: Int
+    /// Unread messages that mention me (zero once the conversation is read).
+    public var mentions: Int = 0
     public var isPinned: Bool
     public var isSending: Bool
     public var hasFailedSend: Bool
@@ -94,6 +96,7 @@ extension HomeMirror {
                 previewAuthor: author,
                 timestamp: timestamp,
                 unread: summary.muted ? 0 : summary.unreadCount(me: me),
+                mentions: summary.unreadCount(me: me) == 0 ? 0 : summary.mentionCount,
                 isPinned: summary.pinRank != nil,
                 isSending: pending.map { if case .failed = $0.state { false } else { true } } ?? false,
                 hasFailedSend: failed.contains(summary.id),

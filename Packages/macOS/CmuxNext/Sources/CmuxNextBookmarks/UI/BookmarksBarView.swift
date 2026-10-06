@@ -168,7 +168,7 @@ public final class BookmarksBarView: NSView {
     private func popUp(_ folderMenu: BookmarkFolderMenu, below view: NSView) {
         menus = [folderMenu]
         folderMenu.menuNeedsUpdate(folderMenu.menu)
-        folderMenu.menu.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.height + 2), in: view)
+        folderMenu.menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: view, gap: 2), in: view)
     }
 
     public override func menu(for event: NSEvent) -> NSMenu? { source?.contextMenu(for: nil) }

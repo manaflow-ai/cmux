@@ -7,7 +7,7 @@ import CmuxNextTerminal
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
 // binding table winner, before the tier check. The table holds the Ghostty
 // keybinds too (GHOSTTY-CONFIG order: cmux.json > the user's Ghostty keybinds
-// in a terminal > cmux defaults > Ghostty keybinds as a fallback).
+// > cmux defaults > Ghostty keybinds as a fallback).
 extension KeyRouter {
     /// A shortcut a key-down resolves to, before the tier check.
     nonisolated struct Candidate: Equatable, Sendable {
@@ -28,11 +28,14 @@ extension KeyRouter {
 
     /// The winning binding for a key-down in `context`: its characters, then
     /// its unshifted key ("}" or "]" for Shift-]).
-    func resolve(_ event: NSEvent, context: KeyContext) -> KeyBinding? {
+    /// `ghostty: false` leaves the Ghostty entries out (a browser chord in
+    /// a browser context, which never runs a Ghostty keybind).
+    func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? {
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
         for shortcut in ActionRegistry.shortcuts(for: event) {
-            if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }).winner {
+            if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
+                                          accepts: { ghostty || !$0.source.isGhostty }).winner {
                 return winner
             }
         }
@@ -55,8 +58,20 @@ extension KeyRouter {
         if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
         // Nor does a browser chord while a page, the address bar or the find
         // bar has the keyboard (Cmd-[ is Back there, not Ghostty's
-        // `goto_split:previous`); see BrowserChordTable.
-        if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
+        // `goto_split:previous`; Cmd-Y is Show History); see
+        // BrowserChordTable. A browser action below the user's Ghostty
+        // keybind (or any cmux.json entry) keeps the key; with no cmux entry
+        // the page gets it. A general cmux default there (Cmd-D Split Right)
+        // still loses to the user's keybind.
+        if isBrowser, BrowserChordTable.isChromeChord(event) {
+            guard let cmux = resolve(event, context: context, ghostty: false) else { return nil }
+            let isBrowserAction = registry.descriptor(for: cmux.command)?.requires.contains(.browserFocused) ?? false
+            if winner.source == .ghostty, cmux.source == .default, !isBrowserAction {
+                return Candidate(id: winner.command, tier: tier, source: .ghostty(arguments: winner.arguments))
+            }
+            return Candidate(id: cmux.command, tier: registry.keyTier(for: cmux.command), source: .registry(argument: cmux.argument),
+                             arguments: cmux.arguments)
+        }
         return Candidate(id: winner.command, tier: tier, source: .ghostty(arguments: winner.arguments))
     }
 

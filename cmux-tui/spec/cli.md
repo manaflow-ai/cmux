@@ -595,7 +595,11 @@ workspace group commands are no longer used by the CLI. `workspace group <group>
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
 (`personal-mixed-order-v1`). `workspace list --order personal` lists the
-workspaces in the sidebar order.
+workspaces in the sidebar order. `workspace list` without `--order` (or with
+`--order session`) lists the session's workspace order, the same order as
+`topology.workspaces`: creation order unless a workspace was moved, not the
+sidebar order. The app's `snapshot.get` `windows[].workspaces` lists the order
+each window shows.
 
 ## Raw access
 
