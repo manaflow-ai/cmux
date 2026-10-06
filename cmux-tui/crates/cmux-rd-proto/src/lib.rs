@@ -31,6 +31,11 @@ pub use stream::{
     encode_stream_frame,
 };
 
+/// The remote desktop service: the hello default (rd change C1).
+pub const SERVICE_DESKTOP: &str = "desktop";
+/// The remote browser tab service (`cmux.rb/1`).
+pub const SERVICE_REMOTE_BROWSER: &str = "rb/1";
+
 /// Overlay UDP port of the remote desktop service (transport.md section 12b).
 pub const OVERLAY_PORT: u16 = 4103;
 

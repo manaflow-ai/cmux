@@ -14,7 +14,8 @@ fn vectors() -> Vec<serde_json::Value> {
 fn every_vector_parses_and_round_trips() {
     for v in vectors() {
         let name = v["name"].as_str().expect("name");
-        let control: Control = serde_json::from_value(v["json"].clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let control: Control =
+            serde_json::from_value(v["json"].clone()).unwrap_or_else(|e| panic!("{name}: {e}"));
         let again = serde_json::to_value(&control).expect("encode");
         let back: Control = serde_json::from_value(again).expect("decode again");
         assert_eq!(format!("{control:?}"), format!("{back:?}"), "{name}");
@@ -24,7 +25,8 @@ fn every_vector_parses_and_round_trips() {
 #[test]
 fn a_hello_without_service_is_a_desktop_hello() {
     let v = vectors().into_iter().find(|v| v["name"] == "hello_before_c1").expect("vector");
-    let Control::Hello { service, caps, .. } = serde_json::from_value(v["json"].clone()).expect("hello")
+    let Control::Hello { service, caps, .. } =
+        serde_json::from_value(v["json"].clone()).expect("hello")
     else {
         panic!("not a hello");
     };
