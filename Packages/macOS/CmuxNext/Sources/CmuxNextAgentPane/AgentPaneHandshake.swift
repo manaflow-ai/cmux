@@ -24,7 +24,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn
+             linkScheme, sessionMustExist, revealTurn, machineName
     }
 
     public var protocolVersion: Int
@@ -69,6 +69,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// scrolls to it once its row renders, and gives up quietly after a few
     /// seconds. Handed out once.
     public var revealTurn: String?
+    /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
+    /// Pages that predate it ignore it.
+    public var machineName: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

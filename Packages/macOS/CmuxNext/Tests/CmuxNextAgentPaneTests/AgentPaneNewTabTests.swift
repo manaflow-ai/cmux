@@ -45,6 +45,18 @@ import Testing
         #expect(value["cwd"] as? String == "/tmp/worktree")
     }
 
+    /// The location row names this Mac on every pane, the new tab page included, even when the
+    /// pane handshakes before the App's read of the name finishes (tabs restored at launch).
+    @Test func theHandshakeWaitsForThisMacsName() async throws {
+        AgentPaneModel.localMachineName = Task {
+            await Task.yield()
+            return "Studio"
+        }
+        defer { AgentPaneModel.localMachineName = nil }
+        let value = try #require(await AgentPaneModel(host: MockAgentPaneHost(), newTab: page).respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["machineName"] as? String == "Studio")
+    }
+
     @Test func aPlainChatHasNoNewTabPage() async throws {
         let reply = await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .ready)
         let value = try #require(reply["value"] as? [String: Any])
