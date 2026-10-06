@@ -22,6 +22,16 @@ struct CloudUpgradePolicyTests {
         )
     }
 
+    @Test("missing storefront waits before choosing a purchase route")
+    func missingStorefrontIsPending() {
+        #expect(
+            CloudUpgradePolicy(storefrontCountryCode: nil, hasInAppBilling: true).route == .pending
+        )
+        #expect(
+            CloudUpgradePolicy(storefrontCountryCode: "  ", hasInAppBilling: true).route == .pending
+        )
+    }
+
     @Test("non-US storefront without billing has no purchase route")
     func nonUSStorefrontWithoutBillingIsUnavailable() {
         #expect(

@@ -236,6 +236,8 @@ public struct CloudSectionView: View {
             }
             components.queryItems = [URLQueryItem(name: "plan", value: planID)]
             openURL(components.url ?? Self.pricingURL)
+        case .pending:
+            break
         }
     }
 
@@ -282,6 +284,16 @@ struct CloudAccessStateView: View {
                         .foregroundStyle(.tint)
                 }
                 switch upgradeRoute {
+                case .pending:
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text(L10n.string(
+                            "mobile.cloud.access.upgradeChecking",
+                            defaultValue: "Checking upgrade availability…"
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
                 case .web:
                     Button(L10n.string(
                         "mobile.cloud.access.upgrade.web",
@@ -430,7 +442,7 @@ struct CloudCreateMachineSheet: View {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
-                            .disabled(cloudUpgradeRoute == .unavailable)
+                            .disabled(!cloudUpgradeActionAvailable)
                         }
                     } label: {
                         HStack {
@@ -462,7 +474,7 @@ struct CloudCreateMachineSheet: View {
                                 .buttonStyle(.bordered)
                                 .font(.footnote.weight(.semibold))
                                 .accessibilityIdentifier("CloudCreateMachineUpgrade")
-                                .disabled(cloudUpgradeRoute == .unavailable)
+                                .disabled(!cloudUpgradeActionAvailable)
                             }
                         }
                     }
@@ -764,6 +776,15 @@ struct CloudCreateMachineSheet: View {
         ).route
     }
 
+    private var cloudUpgradeActionAvailable: Bool {
+        switch cloudUpgradeRoute {
+        case .web, .inApp:
+            return true
+        case .pending, .unavailable:
+            return false
+        }
+    }
+
     private func resolveStorefrontCountryCode() async {
         #if DEBUG
         if let override = UITestConfig.cloudPreviewStorefront {
@@ -776,6 +797,8 @@ struct CloudCreateMachineSheet: View {
 
     private func openUpgradePage(route: CloudUpgradeRoute, planID: String?) {
         switch route {
+        case .pending:
+            break
         case .inApp:
             isPlansSheetPresented = true
         case .unavailable:

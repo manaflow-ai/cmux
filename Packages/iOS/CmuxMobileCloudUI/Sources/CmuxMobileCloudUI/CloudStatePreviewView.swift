@@ -104,6 +104,8 @@ public struct CloudStatePreviewView: View {
 
     private func handleUpgrade() {
         switch upgradeRoute {
+        case .pending:
+            break
         case .inApp:
             isPlansSheetPresented = true
         case .unavailable:

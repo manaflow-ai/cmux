@@ -107224,6 +107224,20 @@
         }
       }
     },
+    "mobile.cloud.access.upgradeChecking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checking upgrade availability…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Upgrade-Verfügbarkeit wird geprüft…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Vérification de la disponibilité de la mise à niveau…" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ التحقق من توفر الترقية…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Comprobando la disponibilidad de la mejora…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在檢查升級可用性…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在检查升级可用性…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "업그레이드 사용 가능 여부 확인 중…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アップグレードの利用可能状況を確認中…" } }
+      }
+    },
     "mobile.cloud.access.limit.bodyFormat": {
       "extractionState": "manual",
       "localizations": {

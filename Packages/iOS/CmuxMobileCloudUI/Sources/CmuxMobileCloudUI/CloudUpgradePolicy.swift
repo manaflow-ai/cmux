@@ -2,6 +2,9 @@ import Foundation
 
 /// The purchase surface the Cloud tab may present for the current storefront.
 enum CloudUpgradeRoute: Equatable, Sendable {
+    /// StoreKit has not reported the storefront yet. Suppress purchase actions
+    /// until the policy can choose the correct surface.
+    case pending
     case web
     case inApp
     case unavailable
@@ -19,7 +22,16 @@ struct CloudUpgradePolicy: Equatable, Sendable {
     let hasInAppBilling: Bool
 
     var route: CloudUpgradeRoute {
-        if storefrontCountryCode?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() == "US" {
+        guard let storefrontCountryCode else {
+            return .pending
+        }
+        let normalizedCountryCode = storefrontCountryCode
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        guard !normalizedCountryCode.isEmpty else {
+            return .pending
+        }
+        if normalizedCountryCode == "US" {
             return .web
         }
         return hasInAppBilling ? .inApp : .unavailable
