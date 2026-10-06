@@ -45,6 +45,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// Runs a header action (``headerActions``) on this chat's tab, with the split's folder.
+    @ObservationIgnored public var onPaneAction: ((String, String?) -> Void)?
+    /// This chat's tab: whether it is pinned (`pane.tabState`).
+    @ObservationIgnored public var onTabState: (() -> [String: Any])?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -266,6 +270,13 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .paneAction(let id, let cwd):
+            guard newTab == nil, Self.headerActions.contains(id), let onPaneAction else { return Self.unsupported("pane.action") }
+            onPaneAction(id, cwd)
+            return AgentPaneReply.success()
+        case .tabState:
+            guard let onTabState else { return Self.unsupported("pane.tabState") }
+            return AgentPaneReply.success(onTabState())
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -348,6 +359,13 @@ public final class AgentPaneModel {
     private static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
+
+    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
+    /// splits and the "..." menu's tab verbs.
+    public static let headerActions: Set<String> = [
+        "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
+        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "closeTab",
+    ]
 
     private static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
