@@ -104,6 +104,37 @@ class Eligibility(unittest.TestCase):
         self.assertEqual(skipped, {5: "label hold", 40: "batch is full (3); next batch"})
 
 
+class OpenPrsQuery(unittest.TestCase):
+    """One 100-PR query with files and checks times out (HTTP 504): page it."""
+
+    def node(self, number: int) -> dict:
+        return {"number": number, "title": "t", "url": "u", "isDraft": False, "headRefName": f"b{number}",
+                "headRefOid": "a" * 40, "authorAssociation": "MEMBER", "author": {"login": "teamleaderleo"},
+                "files": {"nodes": []}, "isCrossRepository": False, "labels": {"nodes": []},
+                "commits": {"nodes": []}}
+
+    def test_pages_through_every_open_pr(self):
+        gh = nb.GitHub("o/r")
+        pages = [
+            {"repository": {"pullRequests": {"nodes": [self.node(1), self.node(2)],
+                                              "pageInfo": {"hasNextPage": True, "endCursor": "c1"}}}},
+            {"repository": {"pullRequests": {"nodes": [self.node(3)],
+                                              "pageInfo": {"hasNextPage": False, "endCursor": None}}}},
+        ]
+        seen = []
+        gh.graphql = lambda query, **variables: seen.append(variables.get("after")) or pages[len(seen) - 1]
+        self.assertEqual([item.number for item in nb.open_prs(gh)], [1, 2, 3])
+        self.assertEqual(seen, [None, "c1"])
+        self.assertLessEqual(nb.PRS_PAGE, 40)
+
+    def test_a_gateway_timeout_is_retried_once(self):
+        gh = nb.GitHub("o/r")
+        replies = [subprocess.CompletedProcess([], 1, "", "gh: HTTP 504"),
+                   subprocess.CompletedProcess([], 0, '{"data": {"ok": 1}}', "")]
+        with mock.patch.object(nb.subprocess, "run", side_effect=replies), mock.patch.object(nb.time, "sleep"):
+            self.assertEqual(gh.graphql("query { x }"), {"ok": 1})
+
+
 class Debounce(unittest.TestCase):
     def test_waits_for_quiet_but_not_past_the_hard_max(self):
         self.assertEqual(nb.debounce_wait(NOW, NOW), 120)
