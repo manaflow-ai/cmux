@@ -99,7 +99,7 @@ import UniformTypeIdentifiers
                     switch variant {
                     case "preview":
                         guard let preview = record.preview else { return refused("no_preview") }
-                        piece = preview
+                        piece = (preview.sha256, preview.mime, preview.bytes)
                     case "poster":
                         return refused("no_poster")
                     default:
