@@ -87,3 +87,25 @@ mod runtime {
         assert!(au.starts_with(&[0, 0, 0, 1]));
     }
 }
+
+/// VideoToolbox (macOS hosts; hardware encoder). Runs on a fleet Mac through
+/// cmux-ci (scripts/ci/cmux-tui-rust-check.sh), never on a developer Mac.
+#[cfg(target_os = "macos")]
+#[test]
+fn videotoolbox_encodes_an_idr_on_request() {
+    use cmux_encode::H264Encoder;
+    use cmux_encode::videotoolbox::VideoToolbox;
+    let mut enc = VideoToolbox::new(256, 128, 30, 2_000, false).expect("hardware encoder");
+    let mut au = Vec::new();
+    let mut idr = false;
+    // VideoToolbox may deliver the first frame one call late.
+    for i in 0..4 {
+        idr |= enc.encode(&I420::new(256, 128), i == 0, i * 33_000, &mut au).expect("encode");
+        if !au.is_empty() {
+            break;
+        }
+    }
+    assert!(idr, "a forced IDR");
+    assert!(au.starts_with(&[0, 0, 0, 1]), "Annex-B");
+    assert!(enc.name().starts_with("videotoolbox h264"), "{}", enc.name());
+}
