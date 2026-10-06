@@ -80,7 +80,7 @@ extension SidebarView {
             return nil
         }
         let inWindow = list.convert(rect, to: nil)
-        // A refused row does not highlight (Lawrence 2026-10-07).
+        // A refused row does not highlight (Lawrence 2026-10-05).
         hideDropOutline()
         return SidebarTabDropRefusalHit(reason: reason, highlightFrame: window.convertToScreen(inWindow), text: Strings.tabDropRefusal(reason))
     }

@@ -67,7 +67,7 @@ struct TabDropPreviewTests {
         }
     }
 
-    /// Lawrence 2026-10-07: a refused zone does not highlight (no outline,
+    /// Lawrence 2026-10-05: a refused zone does not highlight (no outline,
     /// no reason, no toast on the drop); every other preview does.
     @Test func aRefusedZoneDoesNotHighlight() {
         let refused = resolve(.newSplit(paneID: "pane-a", edge: .right), context(paneTabs: 1))

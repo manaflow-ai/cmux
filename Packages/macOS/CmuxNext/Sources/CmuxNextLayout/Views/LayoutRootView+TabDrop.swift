@@ -51,6 +51,14 @@ extension LayoutRootView {
                           pointer: CGPoint(x: rect.midX, y: rect.midY), animated: canAnimate) { driver.start() }
     }
 
+    /// Hides the drop highlight `updateTabDrag` showed, for a zone the App
+    /// refuses: it draws nothing. The drag goes on, and the zone held near
+    /// its line stays for the next hit test.
+    public func hideTabDragHighlight() {
+        tabDragHighlightOnScreen = nil
+        if highlight.hide(animated: false) { driver.start() }
+    }
+
     /// Labels the current drop preview with why a drop there is refused
     /// (`refused`), or that it keeps the tabs in place. Call after
     /// `updateTabDrag`; the next update shows the target's own label again.

@@ -154,7 +154,12 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         layout.showTabDragOutline(screenRect: screenRect)
     }
 
-    /// Labels the layout's preview: the refusal reason, or the stay note.
+    /// Hides the preview of a zone the drag cannot take (it draws nothing).
+    func hideOutline() {
+        touched?.hideTabDragHighlight()
+    }
+
+    /// Labels the layout's preview: the stay note.
     func note(_ text: String, refused: Bool) {
         touched?.setTabDragNote(text, refused: refused)
     }

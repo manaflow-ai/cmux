@@ -10,9 +10,16 @@ enum TabDragOutline {
     /// `layout` returns the window's cached layout drop adapter.
     static func update(_ drag: TabDragSession.Drag, layout: (WindowController) -> LayoutTabDropTarget) {
         var outlined: LayoutTabDropTarget?
-        if drag.resolution.preview.highlights, let winner = drag.winner, let window = winner.window {
+        if let winner = drag.winner, let window = winner.window {
             let adapter = layout(window)
-            if winner.provider === adapter {
+            if !drag.resolution.preview.highlights {
+                // The layout drew the zone in its hit test: take it down,
+                // and keep the layout (its held zone) for the next one.
+                if winner.provider === adapter {
+                    adapter.hideOutline()
+                    outlined = adapter
+                }
+            } else if winner.provider === adapter {
                 outlined = adapter
             } else if winner.provider is TabStripView {
                 adapter.outline(screenRect: winner.proposal.highlightFrame)

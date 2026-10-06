@@ -7,7 +7,7 @@ public nonisolated enum TabDropPreview: Hashable, Sendable {
     case target(TabDropProposal)
     /// The outline sits on the tabs' own place; the drop changes nothing.
     case stay(TabDropProposal)
-    /// Nothing highlights (Lawrence 2026-10-07: a refused zone just does
+    /// Nothing highlights (Lawrence 2026-10-05: a refused zone just does
     /// not light up); the drop springs back.
     case refused(TabDropProposal, TabDropRefusal)
     /// Outside every app window: a new window opens under the pointer.

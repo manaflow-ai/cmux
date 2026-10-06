@@ -51,7 +51,7 @@ enum WorkspaceMerge {
     }
 
     /// Whether a workspace of `kind` never merges away (Lawrence
-    /// 2026-10-07): the sidebar's top two never disappear. Home is the only
+    /// 2026-10-05): the sidebar's top two never disappear. Home is the only
     /// one that is a workspace; the App Store is a page item, never dragged
     /// out of the sidebar. Its panes just do not highlight.
     static func staysPut(kind: String?) -> Bool {
