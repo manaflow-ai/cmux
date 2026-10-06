@@ -19,7 +19,19 @@ import Testing
 
     @Test func onlyRecentsHidesFromItsHeader() {
         #expect(!SidebarHiddenSections.headerMenuRemovals(SidebarLayoutDocument.recentsSectionID, isApp: false).contains("sidebar.section.hide"))
+        // Recents is an app section: one Hide row, not Hide Section and the app's Hide.
+        #expect(SidebarHiddenSections.headerMenuRemovals(SidebarLayoutDocument.recentsSectionID, isApp: true).contains("sidebar.item.hideApp"))
         #expect(SidebarHiddenSections.headerMenuRemovals(SidebarLayoutDocument.topSectionID, isApp: false).contains("sidebar.section.hide"))
         #expect(SidebarHiddenSections.headerMenuRemovals(SidebarLayoutDocument.topSectionID, isApp: false).contains("sidebar.item.hideApp"))
+    }
+
+    /// Live on a capture mini: the header's Hide Section did nothing when the
+    /// daemon had no sidebar layout (`sidebar-layout-v1`). The target is read
+    /// by id, not looked up in the layout; with no target it means Recents.
+    @Test func hideSectionReadsTheTargetByID() {
+        let recents = SidebarLayoutDocument.recentsSectionID
+        #expect(SidebarHiddenSections.hidesRecents(ActionTargetRef(kind: .sidebarSection, id: recents.rawValue)))
+        #expect(SidebarHiddenSections.hidesRecents(nil))
+        #expect(!SidebarHiddenSections.hidesRecents(ActionTargetRef(kind: .sidebarSection, id: SidebarLayoutDocument.topSectionID.rawValue)))
     }
 }
