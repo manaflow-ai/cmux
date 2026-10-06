@@ -68,13 +68,25 @@ class AppCrateLicenseGate(unittest.TestCase):
         self.assertFalse(gate.license_allowed("MIT AND GPL-2.0"))
         self.assertFalse(gate.license_allowed(None))
 
-    def test_the_six_first_party_gpl_crates_are_named_exactly(self):
+    def test_the_seven_first_party_gpl_crates_are_named_exactly(self):
         self.assertEqual(
             sorted(gate.FIRST_PARTY_GPL),
             sorted(
-                ["cmux-rd-ffi", "cmux-app-ffi", "cmux-rd-core", "cmux-rd-proto", "cmux-layout-reducer", "cmux-layout-reducer-ffi"]
+                [
+                    "cmux-rd-ffi",
+                    "cmux-app-ffi",
+                    "cmux-rd-core",
+                    "cmux-rd-proto",
+                    "cmux-layout-reducer",
+                    "cmux-layout-reducer-ffi",
+                    "cmux-remote-browser",
+                ]
             ),
         )
+
+    def test_the_remote_browser_is_checked_by_default(self):
+        self.assertIn("cmux-remote-browser", [root for _, root in gate.DEFAULT_ROOTS])
+        self.assertIn("cmux-app-ffi", [root for _, root in gate.DEFAULT_ROOTS])
 
 
 if __name__ == "__main__":
