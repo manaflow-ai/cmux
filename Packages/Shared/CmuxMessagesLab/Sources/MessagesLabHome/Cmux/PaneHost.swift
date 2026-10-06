@@ -273,6 +273,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.clock = { [unowned self] in self.clock }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
+        // Flight recorder (HomeFlightRecorder's policy): every engine action, as Host.swift hooks it.
+        let shared = store.onChange
+        store.onChange = { a, t, o, n in shared?(a, t, o, n); FlightRecorder.shared.action(a) }
         host.paneHeader.title = store.state.conversation.title
         demo.frame = CGRect(origin: .zero, size: host.bounds.size)
         host.install(demo)
@@ -311,6 +314,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
         guard let window, let demo else { return }
+        FlightRecorder.shared.attach(self)
         let nc = NotificationCenter.default
         if !Self.noFocus {
             observers.append(nc.addObserver(forName: NSWindow.didBecomeKeyNotification, object: window, queue: .main) { [weak self] _ in self?.demo.setInactive(false) })

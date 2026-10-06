@@ -16,7 +16,9 @@ and render-server field animation, blurred header and native scrolling.
   - appkit-port shim: UIKitNames, RoundedRect, LayerViews.
   - appkit-native: Compose, Materials, NativeScroll, HeaderBar,
     HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one).
+    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
+    FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
+    on: DEV by default, NIGHTLY by Debug Settings opt-in, never Release or RC).
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
@@ -33,6 +35,10 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
+  `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
+  people's text stays plain), `HomeFlightRecorder` (the flight recorder's
+  policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
+  unvendored MessagesLab files),
   `FixtureTheme` (cmux theme to Fixture colours), `MessagesLabHomeView`
   (the public view).
 
@@ -54,6 +60,8 @@ and render-server field animation, blurred header and native scrolling.
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
+| Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
+| FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
 
 ## Updating
 

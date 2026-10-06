@@ -65,6 +65,10 @@ extension AppActions {
                 services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
+        // Debug > Save Last 10 Seconds (DEV and NIGHTLY): MessagesLab's flight recorder dump.
+        registry.bind("home.saveFlightRecording") {
+            if HomeFlightRecording.saveLastSeconds() == nil { services.registry.refuse(RefusalStrings.homeFlightRecorderOff) }
+        }
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }

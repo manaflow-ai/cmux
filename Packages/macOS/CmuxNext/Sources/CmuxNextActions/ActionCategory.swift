@@ -74,4 +74,6 @@ public nonisolated enum ActionMainMenu: String, CaseIterable, Sendable, Hashable
     case view
     case window
     case help
+    /// DEV and NIGHTLY only (`DevTools`): debug-only actions.
+    case debug
 }

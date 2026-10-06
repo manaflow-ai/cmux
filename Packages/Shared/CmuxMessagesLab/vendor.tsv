@@ -22,6 +22,7 @@ appkit-native/Sources/HeaderBackdrop.swift	Sources/MessagesLabHome/Vendor/appkit
 appkit-native/Sources/HeaderBar.swift	Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
 appkit-native/Sources/TranscriptAccess.swift	Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift
 appkit-native/Sources/SwipeReply.swift	Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
+appkit-native/Sources/FlightRecorder.swift	Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
 catalyst/springs.json	Sources/MessagesLabHome/Resources/springs.json
 catalyst/Resources/Localizable.xcstrings	Sources/MessagesLabHome/Resources/Localizable.xcstrings
 appkit-native/Resources/AppKitNative.xcstrings	Sources/MessagesLabHome/Resources/AppKitNative.xcstrings
