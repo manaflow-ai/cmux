@@ -135,6 +135,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.minimalMode` | string | `"bottom"` | `off`, `bottom`, `top`, `both` | Minimal Mode. Hides the chosen sections until the pointer is over the sidebar. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |
+| `sidebar.numbering` | string | `"allItems"` | `allItems`, `workspacesOnly` | Command-Number Shortcuts. Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1. |
+| `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
+| `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
+| `sidebar.steppingWraps` | boolean | `true` |  | Wrap Around. Past the last item, the next item is the first again. |
 | `browser.defaultEngine` | string | `"chromium"` | `chromium`, `webkit` | Default Engine. New browser tabs open in this engine. |
 | `browser.newTabPage` | string | `""` |  | New Tab Page. An address such as https://example.com. Empty opens a blank page. |
 | `browser.showBookmarksBar` | boolean | `false` |  | Show Bookmarks Bar. A row of bookmarks under each browser toolbar. |
