@@ -180,6 +180,7 @@ download_now_seconds() {
 }
 
 download_seconds_remaining() {
+  local source_deadline="${1:-$ZIG_DOWNLOAD_DEADLINE_SECONDS}"
   local now
   now="$(download_now_seconds)"
   case "$now" in
@@ -192,6 +193,14 @@ download_seconds_remaining() {
   if [ "$remaining" -le 0 ]; then
     echo "Zig download deadline exceeded (${ZIG_DOWNLOAD_BUDGET_SECONDS}s budget)" >&2
     return 1
+  fi
+  local source_remaining=$((source_deadline - now))
+  if [ "$source_remaining" -le 0 ]; then
+    echo "Zig download source budget exhausted" >&2
+    return 1
+  fi
+  if [ "$source_remaining" -lt "$remaining" ]; then
+    remaining="$source_remaining"
   fi
   printf '%s\n' "$remaining"
 }
@@ -211,6 +220,7 @@ download_file() {
   local url="$1"
   local output="$2"
   local partial_output="${3:-${output}.part}"
+  local source_deadline="${4:-$ZIG_DOWNLOAD_DEADLINE_SECONDS}"
   local attempt=1
   local curl_status=1
   local remaining
@@ -218,10 +228,10 @@ download_file() {
   local connect_timeout
 
   # Keep retries outside curl. Each curl process receives a timeout no larger
-  # than the remaining invocation budget, while the mirror-specific partial
-  # file carries progress into the next process.
+  # than the remaining source or invocation budget, while the mirror-specific
+  # partial file carries progress into the next process.
   while [ "$attempt" -le "$ZIG_DOWNLOAD_ATTEMPTS" ]; do
-    if ! remaining="$(download_seconds_remaining)"; then
+    if ! remaining="$(download_seconds_remaining "$source_deadline")"; then
       return "$curl_status"
     fi
     attempt_timeout="$remaining"
@@ -257,7 +267,7 @@ download_file() {
       rm -f "$partial_output"
     fi
     if [ "$attempt" -lt "$ZIG_DOWNLOAD_ATTEMPTS" ] && [ "$ZIG_DOWNLOAD_RETRY_DELAY" -gt 0 ]; then
-      if ! remaining="$(download_seconds_remaining)"; then
+      if ! remaining="$(download_seconds_remaining "$source_deadline")"; then
         return "$curl_status"
       fi
       if [ "$remaining" -le "$ZIG_DOWNLOAD_RETRY_DELAY" ]; then
@@ -277,12 +287,24 @@ download_zig_artifact() {
   local mirror_name
   local mirror_url
   local partial_output
+  local mirrors_remaining=4
+  local remaining mirror_budget mirror_deadline
 
   # Each mirror gets its own resumable file. A failed transfer can therefore
   # resume from the same mirror, while a fallback starts with that mirror's
   # own bytes instead of appending to a partial response from another source.
   rm -f "$output"
   for mirror_name in primary secondary tertiary official; do
+    remaining="$(download_seconds_remaining)" || return 1
+    # Share the remaining time across untried mirrors and reserve one share
+    # for the checksum index/signature. Retries share this source deadline:
+    # a slow primary must not consume the official fallback's entire budget.
+    mirror_budget=$((remaining / (mirrors_remaining + 1)))
+    if [ "$mirror_budget" -lt 1 ]; then
+      mirror_budget=1
+    fi
+    mirror_deadline=$(($(download_now_seconds) + mirror_budget))
+    mirrors_remaining=$((mirrors_remaining - 1))
     case "$mirror_name" in
       primary) mirror_url="$ZIG_MIRROR_URL" ;;
       secondary) mirror_url="$ZIG_SECONDARY_MIRROR_URL" ;;
@@ -290,7 +312,7 @@ download_zig_artifact() {
       official) mirror_url="$ZIG_OFFICIAL_URL" ;;
     esac
     partial_output="${output}.${mirror_name}.part"
-    if download_file "${mirror_url}${suffix}" "$output" "$partial_output"; then
+    if download_file "${mirror_url}${suffix}" "$output" "$partial_output" "$mirror_deadline"; then
       return 0
     fi
     case "$mirror_name" in
