@@ -126,3 +126,22 @@ sys.exit(child.wait())
     removeTestDir(dir);
   }
 });
+
+// An explicit --workspace is a choice the caller made: one that names no
+// workspace (blank) is refused before anything is sent, never replaced by
+// the caller's or the focused workspace.
+test("repl --workspace: a blank workspace is refused and nothing is sent", { skip }, async () => {
+  const dir = makeTestDir("cmux-repl-cli-");
+  const socket = path.join(dir, "s.sock");
+  const calls = [];
+  const server = await fakeSocket(socket, calls, []);
+  try {
+    const { code, stderr } = await run(CLI, ["browser", "repl", "--workspace", " ", "--eval", "1"], cliEnv(socket));
+    assert.notEqual(code, 0);
+    assert.match(stderr, /workspace/i);
+    assert.deepEqual(calls.filter((c) => String(c.method).startsWith("browser.repl")), []);
+  } finally {
+    server.close();
+    removeTestDir(dir);
+  }
+});

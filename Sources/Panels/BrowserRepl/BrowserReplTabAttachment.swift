@@ -196,6 +196,11 @@ final class BrowserReplTabAttachment {
     private var dialogs = BrowserReplRoutedRequests<(respond: (Bool, String?) -> Void, document: BrowserReplFrameDocument)>()
     /// Each chooser's responder and the frame it opened from.
     private var fileChoosers = BrowserReplRoutedRequests<(respond: ([URL]?) -> Void, frame: WKFrameInfo)>()
+    /// Navigations sessions started in this tab that have not committed
+    /// yet, each with how to stop it: a session that leaves the tab (the
+    /// user moved it to another workspace, the session ended) stops its
+    /// own before they commit (``whileNavigating(sessionID:stop:_:)``).
+    private var navigations = BrowserReplRoutedRequests<@MainActor () -> Void>()
     private var nextID = 0
     private var resourceObserver: BrowserReplResourceLoadObserver?
     private var consoleHandler: BrowserReplConsoleMessageHandler?
@@ -384,6 +389,23 @@ final class BrowserReplTabAttachment {
         ownership.beginInput(sessionID: sessionID)
         defer { ownership.endInput(sessionID: sessionID) }
         return try await body()
+    }
+
+    /// Runs `wait`, the wait for a navigation `sessionID` started in this
+    /// tab until it commits, so that the session leaving the tab meanwhile
+    /// (``removeSink(sessionID:)``: the user moved the tab to another
+    /// workspace, the session ended) calls `stop`, which stops the
+    /// navigation before it commits and ends the wait.
+    func whileNavigating<T>(
+        sessionID: String,
+        stop: @escaping @MainActor () -> Void,
+        _ wait: () async throws -> T
+    ) async rethrows -> T {
+        nextID += 1
+        let id = "navigation-\(nextID)"
+        navigations.add(id: id, owner: sessionID, respond: stop)
+        defer { _ = navigations.take(id: id, sessionID: sessionID) }
+        return try await wait()
     }
 
     /// Like ``withInput(sessionID:_:)``, but the window closes after `limit`
@@ -675,6 +697,9 @@ final class BrowserReplTabAttachment {
         // event reaches the page.
         dropHeldInput(of: sessionID)
         pointerReleased(sessionID: sessionID)
+        // Its navigations that have not committed stop here: the tab is no
+        // longer the session's to change.
+        for stop in navigations.removeAll(ownedBy: sessionID) { stop() }
         // Dialogs and choosers routed to the leaving session are answered as
         // unhandled ones are; no other session may answer them.
         for dialog in dialogs.removeAll(ownedBy: sessionID) { dialog.respond(false, nil) }
@@ -820,6 +845,7 @@ final class BrowserReplTabAttachment {
         // is never left blocked on a dialog after its session goes away.
         for dialog in dialogs.removeAll() { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll() { chooser.respond(nil) }
+        for stop in navigations.removeAll() { stop() }
         resetHeldInput()
         uninstrument()
         for (_, agent) in agentWorlds { agent.script.release() }

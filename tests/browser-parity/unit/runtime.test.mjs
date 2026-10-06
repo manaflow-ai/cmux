@@ -1120,3 +1120,38 @@ await page.evaluate((t) => { throw new Error(t); }, ${JSON.stringify(hostile)});
     await servers.close();
   }
 });
+
+// A native input the driver refuses (a blocked frame has focus, or sits
+// under the pointer) was never delivered, so the runtime must not keep it:
+// a refused Shift down must not ride on the next key or click, and a
+// refused move must not become the point the next press is sent at.
+test("input: a refused key down or mouse move leaves no modifier or coordinate for the next event", async () => {
+  const calls = [];
+  let refuse = () => false;
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (refuse(method, params)) throw Object.assign(new Error("blocked: the focused frame is blocked by the domain policy"), { code: "blocked" });
+      if (method === "tab.info") return { url: "https://example.com/", title: "T", viewport: { width: 800, height: 600 } };
+      return null;
+    },
+    on: () => () => {},
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  await page.mouse.move(10, 20);
+  refuse = (method, params) => method === "input.key" && params.key === "Shift";
+  await assert.rejects(page.keyboard.down("Shift"));
+  refuse = (method) => method === "input.mouse" && calls.at(-1).params.type === "move";
+  await assert.rejects(page.mouse.move(300, 400));
+  refuse = () => false;
+  await page.keyboard.press("a");
+  await page.mouse.down();
+  const key = calls.filter((c) => c.method === "input.key").at(-1);
+  assert.deepEqual(key.params.modifiers, [], JSON.stringify(key.params));
+  const press = calls.filter((c) => c.method === "input.mouse").at(-1);
+  assert.equal(press.params.type, "down");
+  assert.deepEqual([press.params.x, press.params.y, press.params.modifiers], [10, 20, []], JSON.stringify(press.params));
+});

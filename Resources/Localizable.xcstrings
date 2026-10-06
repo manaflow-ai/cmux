@@ -623076,6 +623076,65 @@
         }
       }
     },
+    "cli.browser.repl.error.workspaceInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not a workspace in this cmux instance"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليست مساحة عمل في مثيل cmux هذا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Arbeitsbereich in dieser cmux-Instanz"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No es un espacio de trabajo de esta instancia de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas un espace de travail de cette instance de cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux インスタンスのワークスペースではありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux 인스턴스의 워크스페이스가 아닙니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是此 cmux 实例中的工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不是此 cmux 執行個體中的工作區"
+          }
+        }
+      }
+    },
     "cli.browser.repl.error.workspaceNotFound": {
       "extractionState": "manual",
       "localizations": {

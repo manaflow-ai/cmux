@@ -76,6 +76,12 @@ final class BrowserReplWatchdog: @unchecked Sendable {
     /// Whether ``install(on:)`` can install the check.
     private let supported: Bool
 
+    /// Asked on the JS thread at each check of a run that goes on (the
+    /// session measures its heap there, since JavaScriptCore cannot refuse
+    /// an allocation); `true` terminates the run, once the check also
+    /// called ``close()`` or ``requestTermination()``.
+    private var runCheck: (() -> Bool)?
+
     /// - Parameter supported: Whether this JavaScriptCore can stop a script
     ///   (``isSupported``; tests pass false).
     init(callbackTimeLimit: Duration, supported: Bool = BrowserReplWatchdog.isSupported) {
@@ -115,6 +121,12 @@ final class BrowserReplWatchdog: @unchecked Sendable {
 
     nonisolated(unsafe) private static var associationKey: UInt8 = 0
 
+    /// Sets the check asked at each check of a running script. Call on the
+    /// JS thread before ``install(on:)``.
+    func setRunCheck(_ check: @escaping () -> Bool) {
+        lock.withLock { runCheck = check }
+    }
+
     /// Installs the check on `context`'s group. The context retains the
     /// watchdog, so the callback's pointer stays valid as long as the context
     /// can run scripts. Returns whether it is installed: false when
@@ -135,6 +147,11 @@ final class BrowserReplWatchdog: @unchecked Sendable {
         guard let info else { return false }
         let watchdog = Unmanaged<BrowserReplWatchdog>.fromOpaque(info).takeUnretainedValue()
         if watchdog.shouldTerminate {
+            watchdog.lock.withLock { watchdog.terminatedScript = true }
+            return true
+        }
+        let check = watchdog.lock.withLock { watchdog.depth > 0 ? watchdog.runCheck : nil }
+        if let check, check(), watchdog.shouldTerminate {
             watchdog.lock.withLock { watchdog.terminatedScript = true }
             return true
         }

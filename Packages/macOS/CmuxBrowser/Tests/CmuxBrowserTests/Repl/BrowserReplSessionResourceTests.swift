@@ -952,6 +952,35 @@ struct BrowserReplSessionResourceTests {
         #expect(small?.lines.map(\.text) == ["ran"], "\(String(describing: small))")
         #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
     }
+
+    /// JavaScriptCore cannot refuse an allocation, so a cell that keeps
+    /// allocating and never returns to the session would hold the app's
+    /// memory until its timeout. The heap is also measured while a run goes
+    /// on (on the watchdog's check), so the cell ends with the heap limit
+    /// long before its timeout, and the session with it.
+    @Test("A running cell past the heap limit ends before it returns")
+    func aRunningCellPastTheHeapLimitEndsBeforeItReturns() async throws {
+        let session = BrowserReplSession(
+            id: "heap-run-\(UUID().uuidString)",
+            cwd: nil,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "heap-run.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.scriptHeapBytes, 32 << 20),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const keep = [];
+            for (let i = 0; i < 96; i++) keep.push(new Uint8Array(1 << 20).fill(i & 255));
+            for (;;) {}
+            """, timeout: .seconds(30))
+        }
+        let error = result?.error ?? ""
+        #expect(error.contains("the session's JavaScript heap"), "\(error)")
+        #expect(!error.contains("timed out"), "\(error)")
+        #expect(session.endedReason?.contains("the session's JavaScript heap") == true)
+    }
 }
 
 /// Answers `big` with a JSON string of `resultCharacters` characters once

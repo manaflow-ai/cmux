@@ -214,11 +214,17 @@ extension CMUXCLI {
     /// another cmux instance, so the app falls back to the focused
     /// workspace when it does not know the id.
     private func browserReplWorkspaceParams(_ workspaceOption: String?, client: SocketClient) throws -> [String: Any] {
-        if let workspaceOption, !workspaceOption.isEmpty {
-            if let workspace = try normalizeWorkspaceHandle(workspaceOption, client: client) {
-                return ["workspace_id": workspace]
+        if let workspaceOption {
+            // An explicit choice never falls back to the caller's or the
+            // focused workspace: one that names no workspace is refused.
+            guard let workspace = try normalizeWorkspaceHandle(workspaceOption, client: client) else {
+                let prefix = String(
+                    localized: "cli.browser.repl.error.workspaceInvalid",
+                    defaultValue: "Not a workspace in this cmux instance"
+                )
+                throw CLIError(message: "\(prefix): \(workspaceOption.debugDescription)")
             }
-            return [:]
+            return ["workspace_id": workspace]
         }
         if let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),

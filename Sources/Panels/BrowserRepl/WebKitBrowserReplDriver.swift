@@ -1355,10 +1355,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // is this session's doing; while the new page loads, it is not.
         let outcome = try await attachment(panel).withInput(sessionID: sessionID) {
             let ticket = try self.beginNavigation(panel, to: url, raw: raw)
-            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating to \"\(raw)\"") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            return try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "navigating to \"\(raw)\"")
         }
+        try checkTabUse(panel)
         do {
             try Self.check(outcome, url: raw)
         } catch {
@@ -1422,10 +1421,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
             let navigation = delta < 0 ? webView.goBack() : webView.goForward()
             panel.automationNavigationCoordinator.didStart(ticket, navigationID: navigation.map { ObjectIdentifier($0) })
-            return try await withTimeoutThrowing(milliseconds: timeout, what: "navigating history") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            return try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "navigating history")
         }
+        try checkTabUse(panel)
         // A history entry is the user's and every session's: only the tab's
         // live creator reads its credential values.
         try Self.check(outcome, url: tabAddress(panel, address: item.url.absoluteString).string(for: sessionID))
@@ -1447,11 +1445,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             guard let (ticket, target) = panel.beginAutomationReloadFromCLI() else {
                 throw Self.error("invalid", "Nothing to reload")
             }
-            let outcome = try await withTimeoutThrowing(milliseconds: timeout, what: "reloading") {
-                await panel.finishAutomationNavigation(ticket)
-            }
+            let outcome = try await self.waitForNavigation(ticket, in: panel, milliseconds: timeout, what: "reloading")
             return (outcome, target)
         }
+        try checkTabUse(panel)
         try Self.check(outcome, url: tabAddress(panel, address: target.absoluteString).string(for: sessionID))
         try await waitForLoadState(
             panel,
@@ -1461,6 +1458,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // Like goto, reload answers with the main document's HTTP status.
         if let status = attachment(panel).mainDocumentStatus { return ["status": status] }
         return nil
+    }
+
+    /// Waits for the session's navigation `ticket` of `panel` to commit,
+    /// at most `milliseconds`. When the session leaves the tab meanwhile
+    /// (the user moved it to another workspace) the navigation is stopped
+    /// before it commits (``BrowserReplTabAttachment/whileNavigating(sessionID:stop:_:)``).
+    @MainActor
+    private func waitForNavigation(
+        _ ticket: BrowserAutomationNavigationTicket,
+        in panel: BrowserPanel,
+        milliseconds: Int,
+        what: String
+    ) async throws -> BrowserAutomationNavigationOutcome {
+        try await attachment(panel).whileNavigating(sessionID: sessionID, stop: { [weak panel] in
+            guard let panel else { return }
+            panel.automationNavigationCoordinator.stop(ticket, loading: panel.webView)
+        }) {
+            try await withTimeoutThrowing(milliseconds: milliseconds, what: what) {
+                await panel.finishAutomationNavigation(ticket)
+            }
+        }
+    }
+
+    /// Throws `denied` when the session may no longer use `panel` (the
+    /// user moved it to another workspace while a navigation waited).
+    @MainActor
+    private func checkTabUse(_ panel: BrowserPanel) throws {
+        try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: .use)).check()
     }
 
     private static func check(_ outcome: BrowserAutomationNavigationOutcome, url: String) throws {
@@ -2102,19 +2127,33 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Runs `body` with the panel's web view in a window. A hidden pane's web
     /// view has none, so it borrows the offscreen render host for the call.
+    ///
+    /// The render host runs `body` in a task of its own; that task is
+    /// cancelled with the call (its cell timed out, its session was reset),
+    /// so each native step's tab check (``BrowserReplFrameGate/checkTab(in:)``)
+    /// stops a cancelled call there too.
     @MainActor
-    private func withWindow<T>(_ panel: BrowserPanel, _ body: @escaping @MainActor (CmuxWebView, NSWindow) async throws -> T) async throws -> T {
+    private func withWindow<T: Sendable>(_ panel: BrowserPanel, _ body: @escaping @MainActor (CmuxWebView, NSWindow) async throws -> T) async throws -> T {
         guard let webView = panel.webView as? CmuxWebView else {
             throw Self.error("unsupported", "This tab does not accept native input")
         }
         if let window = webView.window {
             return try await body(webView, window)
         }
-        return try await panel.withBrowserReplRenderHost {
-            guard let window = webView.window else {
-                throw Self.error("unsupported", "The tab could not be rendered for input")
+        let relay = BrowserReplCancellationRelay()
+        return try await withTaskCancellationHandler {
+            try await panel.withBrowserReplRenderHost {
+                let work = Task { @MainActor () throws -> T in
+                    guard let window = webView.window else {
+                        throw Self.error("unsupported", "The tab could not be rendered for input")
+                    }
+                    return try await body(webView, window)
+                }
+                relay.bind { work.cancel() }
+                return try await work.value
             }
-            return try await body(webView, window)
+        } onCancel: {
+            relay.cancel()
         }
     }
 
@@ -2141,56 +2180,62 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         let heldBefore = attachment.holdsPointer(sessionID: sessionID)
         if type == "down" { attachment.pointerPressed(sessionID: sessionID) }
         defer { if type == "up" { attachment.pointerReleased(sessionID: sessionID) } }
+        let positionBefore = attachment.mousePosition
         if let x, let y { attachment.mousePosition = CGPoint(x: x, y: y) }
         let css = attachment.mousePosition
-        try await withWindow(panel) { [self] webView, window in
-            // Only the modifiers this session holds: another session's held
-            // Meta must not turn this click into a chord.
-            let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
-            if type == "wheel" {
-                // The REPL is untrusted: any number reaches here, and the
-                // counts are clamped to a wheel count's range.
-                guard let delta = BrowserReplWheelDelta(
-                    validatingDeltaX: (params["deltaX"] as? NSNumber)?.doubleValue ?? 0,
-                    deltaY: (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
-                ) else {
-                    throw Self.error("invalid", "mouse.wheel: deltaX and deltaY must be finite numbers")
+        do {
+            try await withWindow(panel) { [self] webView, window in
+                // Only the modifiers this session holds: another session's held
+                // Meta must not turn this click into a chord.
+                let flags = modifiers.union(webView.browserNativeInputDeliveryOwner.activeModifierFlags(heldBy: self.sessionID))
+                if type == "wheel" {
+                    // The REPL is untrusted: any number reaches here, and the
+                    // counts are clamped to a wheel count's range.
+                    guard let delta = BrowserReplWheelDelta(
+                        validatingDeltaX: (params["deltaX"] as? NSNumber)?.doubleValue ?? 0,
+                        deltaY: (params["deltaY"] as? NSNumber)?.doubleValue ?? 0
+                    ) else {
+                        throw Self.error("invalid", "mouse.wheel: deltaX and deltaY must be finite numbers")
+                    }
+                    guard let event = BrowserReplNativeInput.wheelEvent(
+                        webView: webView,
+                        window: window,
+                        cssPoint: css,
+                        delta: delta,
+                        modifierFlags: flags
+                    ) else {
+                        throw Self.error("invalid", "Could not create a wheel event")
+                    }
+                    try self.frameGate.checkTab(in: webView)
+                    webView.deliverAutomationMouseEvent(event)
+                    await BrowserReplNativeInput.roundTrip(webView)
+                    return
                 }
-                guard let event = BrowserReplNativeInput.wheelEvent(
+                if let pressTarget {
+                    try await self.verifyPress(pressTarget, in: webView)
+                }
+                guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
+                    throw Self.error("invalid", "Unknown mouse event \(type)")
+                }
+                try await self.deliverMouse(
+                    eventType,
+                    button: button,
+                    at: css,
+                    clickCount: clickCount,
+                    flags: flags,
                     webView: webView,
                     window: window,
-                    cssPoint: css,
-                    delta: delta,
-                    modifierFlags: flags
-                ) else {
-                    throw Self.error("invalid", "Could not create a wheel event")
-                }
-                try self.frameGate.checkTab(in: webView)
-                webView.deliverAutomationMouseEvent(event)
-                await BrowserReplNativeInput.roundTrip(webView)
-                return
+                    attachment: attachment
+                )
             }
-            if let pressTarget {
-                do {
-                    try await self.verifyPress(pressTarget, in: webView)
-                } catch {
-                    if !heldBefore { attachment.pointerReleased(sessionID: self.sessionID) }
-                    throw error
-                }
-            }
-            guard let eventType = attachment.mouseState.eventType(forType: type, button: button) else {
-                throw Self.error("invalid", "Unknown mouse event \(type)")
-            }
-            try await self.deliverMouse(
-                eventType,
-                button: button,
-                at: css,
-                clickCount: clickCount,
-                flags: flags,
-                webView: webView,
-                window: window,
-                attachment: attachment
-            )
+        } catch {
+            // A refused event was not delivered: the pointer stays where
+            // the last delivered one put it, and a refused press holds
+            // nothing, so no later event (a release when the session
+            // leaves) is sent at the refused point.
+            if attachment.mousePosition == css { attachment.mousePosition = positionBefore }
+            if type == "down", !heldBefore { attachment.pointerReleased(sessionID: sessionID) }
+            throw error
         }
         return nil
     }
@@ -3070,5 +3115,33 @@ private final class BrowserReplRace<T> {
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
+    }
+}
+
+/// Hands a call's cancellation to a task it runs work in that does not
+/// inherit it (the render host's): the work is cancelled when the call is,
+/// also when the call was cancelled before the work began.
+private final class BrowserReplCancellationRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var cancelWork: (@Sendable () -> Void)?
+
+    /// Cancels through `cancel` when the call is cancelled, at once if it already is.
+    func bind(_ cancel: @escaping @Sendable () -> Void) {
+        let now: Bool = lock.withLock {
+            if cancelled { return true }
+            cancelWork = cancel
+            return false
+        }
+        if now { cancel() }
+    }
+
+    func cancel() {
+        let work: (@Sendable () -> Void)? = lock.withLock {
+            cancelled = true
+            defer { cancelWork = nil }
+            return cancelWork
+        }
+        work?()
     }
 }

@@ -378,6 +378,34 @@ struct BrowserReplFrameGateTests {
         #expect(await Self.error { try await gate.checkPointer(at: [CGPoint(x: 50, y: 50)], in: page.webView, frames: page.frames) } == nil)
     }
 
+    /// Script in a world page or agent code reaches can traverse to a
+    /// frame of its site that relaxes `document.domain`, so such a call is
+    /// refused while a blocked frame of the site is in the tab. A tree read
+    /// that lost that frame must not let the call through: it fails closed,
+    /// as input and captures do.
+    @Test func anEvaluateThatCouldReachAFrameTheTreeLostIsRefused() async throws {
+        let html = """
+            <iframe id=a src="cmux-test://a.site.test/child" style="position:absolute;left:10px;top:10px;width:100px;height:80px;border:0"></iframe>
+            <iframe id=b src="cmux-test://blocked.site.test/x" style="position:absolute;left:200px;top:10px;width:100px;height:80px;border:0"></iframe>
+            """
+        let page = try await FramePage.load(url: "cmux-test://a.site.test/", html: html) { frames in
+            frames.count >= 3 && frames.allSatisfy { !$0.url.isEmpty }
+        }
+        let gate = Self.gate(prohibiting: "cmux-test://blocked.site.test")
+        let allowed = try #require(page.frame(host: "a.site.test"))
+        let blocked = try #require(page.frame(host: "blocked.site.test"))
+        let whole = await Self.error {
+            try await gate.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        }
+        #expect(whole?.code == "blocked", "\(String(describing: whole))")
+        let partial = page.frames.filter { $0.frameID != blocked.frameID }
+        gate.frameTree = { _ in partial }
+        let lost = await Self.error {
+            try await gate.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: allowed, contentWorld: .page)
+        }
+        #expect(lost?.code == "stale", "script ran beside a blocked frame of its site the tree lost: \(String(describing: lost))")
+    }
+
     // MARK: Probes that never answer
 
     /// The gate's own probes (the focus probe, the frame boxes, a frame's
@@ -595,5 +623,39 @@ struct BrowserReplFrameGateWorkspaceTests {
         }
         #expect(inputError?.code == "denied")
         #expect(!sent, "input reached a tab moved to another workspace")
+    }
+}
+
+/// A call whose cell timed out or whose session was reset is cancelled
+/// while it may still wait in WebKit between native steps. Every native
+/// input step asks the gate's tab check first, so a cancelled call sends
+/// nothing more: the check refuses it, and so does the input guard.
+@MainActor
+@Suite("Frame gate: a cancelled call", .serialized)
+struct BrowserReplFrameGateCancellationTests {
+    @Test func aCancelledCallSendsNoMoreInput() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: WKWebViewConfiguration())
+        webView.loadHTMLString("<p>page</p>", baseURL: URL(string: "https://example.com/"))
+        let frames = try await FramePage.settle(webView) { $0.first?.url.hasPrefix("https://example.com") == true }
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        let home = UUID()
+        gate.scope = { webView in
+            .init(sessionID: "s", fileRoots: nil, tab: BrowserReplTabFacts(id: UUID(), mainFrameURL: webView.url, workspaceID: home), workspaceID: home)
+        }
+        #expect(await BrowserReplFrameGateTests.error { try gate.checkTab(in: webView) } == nil)
+
+        var sent = false
+        let call = Task { @MainActor in
+            withUnsafeCurrentTask { $0?.cancel() }
+            let step = await BrowserReplFrameGateTests.error { try gate.checkTab(in: webView) }
+            let input = await BrowserReplFrameGateTests.error {
+                try await gate.guardingInput(in: webView, frames: { frames }, checkFocusAfter: false) { sent = true }
+            }
+            return (step, input)
+        }
+        let (step, input) = await call.value
+        #expect(step?.code == "cancelled", "\(String(describing: step))")
+        #expect(input?.code == "cancelled", "\(String(describing: input))")
+        #expect(!sent, "a cancelled call sent input")
     }
 }

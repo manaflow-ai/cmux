@@ -335,7 +335,14 @@ public final class BrowserReplFrameGate {
     /// the tab to another one reads and sends nothing more. Every script
     /// the gate runs and every input it guards asks it first, and the
     /// driver asks it before each native input event.
+    ///
+    /// A call that was cancelled (its cell timed out, its session was
+    /// reset or closed) is refused too (`cancelled`), so it reads and sends
+    /// nothing more after a suspension in WebKit.
     public func checkTab(in webView: WKWebView) throws {
+        if Task.isCancelled {
+            throw BrowserReplDriverError(code: "cancelled", message: "cancelled because the cell that made the call timed out or its session ended; nothing more was sent to the tab")
+        }
         let (authority, tab) = authority(in: webView)
         guard let tab, let refusal = authority.verdict(BrowserReplAccess(in: tab, capability: .use)).refusal else { return }
         throw BrowserReplDriverError(code: refusal.code, message: refusal.message)
@@ -533,9 +540,14 @@ public final class BrowserReplFrameGate {
     /// both could set `document.domain` to (a common suffix that is not a
     /// public suffix), which makes them one origin to page script. Hosts are
     /// compared whatever their scheme and port, which relaxation ignores.
+    ///
+    /// A tree read that lost frames could hide such a frame, so it fails
+    /// closed (`stale`), as input and captures do.
     private func checkReach(from document: BrowserReplFrameDocument, frame: BrowserReplFrame, in webView: WKWebView) async throws {
         guard let host = Self.host(of: document) else { return }
-        for other in await frameTree(webView) where other.frameID != frame.frameID {
+        let frames = await frameTree(webView)
+        try await requireWholeTree(frames, in: webView)
+        for other in frames where other.frameID != frame.frameID {
             let recorded = other.info.map { BrowserReplFrameDocument(info: $0) } ?? BrowserReplFrameDocument(url: webView.url)
             guard let otherHost = Self.host(of: recorded), Self.canRelaxToOneOrigin(host, otherHost),
                   let reason = recordedBlockReason(of: other, in: webView) else { continue }
@@ -1421,7 +1433,7 @@ public final class BrowserReplFrameGate {
         let counts = documentCount.map { " (its document has \($0) child frames, the tree \(treeCount ?? 0))" } ?? ""
         return BrowserReplDriverError(
             code: "stale",
-            message: "WebKit's frame tree of this tab came back without some child frames of frame \(frame.url)\(counts), so input and captures are refused while the domain policy is on; try again"
+            message: "WebKit's frame tree of this tab came back without some child frames of frame \(frame.url)\(counts), so input, captures and scripts that could reach other frames are refused while the domain policy is on; try again"
         )
     }
 

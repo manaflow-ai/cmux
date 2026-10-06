@@ -1987,8 +1987,17 @@
     }
     async down(key) {
       const desc = describeKey(key, this._modifiers);
-      if (MODIFIERS.includes(desc.key)) this._modifiers.add(desc.key);
-      await this._send("down", desc);
+      // The modifier counts as held only once its down was delivered: a
+      // down the driver refused (a blocked frame has focus) must not ride
+      // on the next key or click.
+      const added = MODIFIERS.includes(desc.key) && !this._modifiers.has(desc.key);
+      if (added) this._modifiers.add(desc.key);
+      try {
+        await this._send("down", desc);
+      } catch (e) {
+        if (added) this._modifiers.delete(desc.key);
+        throw e;
+      }
     }
     async up(key) {
       const desc = describeKey(key, this._modifiers);
@@ -2066,15 +2075,31 @@
       const fromX = this._x;
       const fromY = this._y;
       for (let i = 1; i <= steps; i++) {
+        // The pointer is where the last delivered move put it: a move the
+        // driver refused is not the point the next press is sent at.
+        const deliveredX = this._x;
+        const deliveredY = this._y;
         this._x = fromX + ((x - fromX) * i) / steps;
         this._y = fromY + ((y - fromY) * i) / steps;
-        await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
+        try {
+          await this._event("move", options.modifiers ? { modifiers: normalizeModifiers(options.modifiers) } : {});
+        } catch (e) {
+          this._x = deliveredX;
+          this._y = deliveredY;
+          throw e;
+        }
       }
     }
     async down(options = {}) {
       const button = options.button || "left";
+      const added = !this._buttons.has(button);
       this._buttons.add(button);
-      await this._event("down", { button, clickCount: options.clickCount || 1 });
+      try {
+        await this._event("down", { button, clickCount: options.clickCount || 1 });
+      } catch (e) {
+        if (added) this._buttons.delete(button);
+        throw e;
+      }
     }
     async up(options = {}) {
       const button = options.button || "left";
