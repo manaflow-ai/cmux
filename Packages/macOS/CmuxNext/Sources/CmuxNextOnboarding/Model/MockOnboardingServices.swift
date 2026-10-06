@@ -77,6 +77,7 @@ public final class MockOnboardingServices: OnboardingServices {
     public func openProjects(_ folders: [URL]) { openedProjects.append(folders) }
     public func scanAgentChats() async -> [AgentChat] { agentChats }
     public func resumeChats(_ chats: [AgentChat]) { resumedChats.append(chats) }
+    public func scanClassicOpenChats() async -> Set<String> { classicOpenChats }
 
     public func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
         plans.append(plan)
