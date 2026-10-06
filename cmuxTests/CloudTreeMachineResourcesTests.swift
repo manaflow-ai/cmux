@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CmuxCloudMachines
 import CmuxFoundation
@@ -55,6 +56,20 @@ struct CloudTreeMachineResourcesTests {
         #expect(rows[2].detail == "3/4 GB (75%)")
         let asleep = CloudTreeMachineResourceSection(machine: machine(state: .asleep), now: Self.sampleTime).rows
         #expect(asleep[0].detail == "4 vCPU · Asleep")
+    }
+
+    // The row renders its name with SwiftUI `Text`, which AppKit does not back
+    // with an NSTextField, so the truncation mode is asserted on the value the
+    // view applies rather than by searching the hosted view tree.
+    @Test("A narrow machine row keeps the generated name's ending")
+    @MainActor func machineNameTruncatesInTheMiddle() {
+        #expect(CloudTreeMachineRowContent.nameTruncationMode == .middle)
+        let snapshot = MachineSnapshot(
+            id: "machine-id", provider: "freestyle", image: "base", isDesktop: false,
+            activity: .ready, label: "whimsical-cobalt-butte"
+        )
+        let row = CloudTreeMachineRowContent(machine: snapshot, style: .compact)
+        #expect(row.accessibilityLabel.hasPrefix("whimsical-cobalt-butte,"))
     }
 
     @Test("Resource readings cannot be selected and keyboard navigation skips them")
@@ -371,7 +386,7 @@ struct CloudTreeMachineResourcesTests {
         let snapshot = SurfaceCatalogSnapshot(machines: [info, emptyInfo], resources: [], projections: [])
         let nodes = CloudTreeNodeBuilder.nodes(
             machines: [first, second], snapshot: snapshot, localWorkspaces: [], includeLocalMachine: false, now: Self.sampleTime
-        )
+        ).withoutCoderouterSection
         #expect(nodes.count == 2)
         for node in nodes {
             let children = node.children
@@ -418,7 +433,7 @@ struct CloudTreeMachineResourcesTests {
         }
     }
 
-    @Test @MainActor func terminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
+    @Test @MainActor func portTerminalAndResourceDefaultsAreCollapsedButExplicitChoicesWin() throws {
         let snapshot = machine()
         let info = SurfaceMachineInfo(
             id: .cloud(snapshot.id), name: snapshot.displayName, status: "running", image: snapshot.image,
@@ -431,12 +446,15 @@ struct CloudTreeMachineResourcesTests {
         )
         let machineNode = try #require(nodes.first)
         let workspaces = try #require(machineNode.children.first)
+        let ports = try #require(machineNode.children.first { node in
+            if case .portsGroup = node.kind { true } else { false }
+        })
         let terminals = try #require(machineNode.children.dropFirst(3).first)
         let resources = try #require(machineNode.children.last)
         let defaults = UserDefaults(suiteName: "CloudTreeResources-\(UUID().uuidString)")!
         let store = CloudTreeExpansionStore(defaults: defaults)
         #expect(store.isExpanded(workspaces))
-        #expect(store.isExpanded(machineNode.children[1]))
+        #expect(!store.isExpanded(ports))
         #expect(!store.isExpanded(terminals))
         #expect(!store.isExpanded(resources))
         store.setExpanded(true, node: resources)

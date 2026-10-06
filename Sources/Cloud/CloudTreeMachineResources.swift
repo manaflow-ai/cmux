@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -5,17 +6,26 @@ extension CloudTreeNode.Kind {
     /// Readings describe a machine without representing a selectable pane.
     var isSelectable: Bool {
         switch self {
-        case .resource, .devicesEmpty: return false
+        case .resource, .devicesEmpty, .machineDetailTabs, .machineEndSpacer: return false
+        // Ports status rows (Discovering…, No reachable ports) are information
+        // with their own button, not a row to select.
+        case .placeholder(_, let placeholder) where placeholder.portStatus != nil: return false
         default: return true
         }
     }
 
-    /// New resources and terminal sections start closed; all other groups
-    /// remain open unless the person explicitly collapses them.
+    /// Port, resource, and terminal inventories start closed so discovery and
+    /// remote scans happen only after the person explicitly opens that group.
+    /// Workspaces and Displays start closed too, so opening a machine shows a
+    /// short summary first and each part opens on request.
     var isExpandedByDefault: Bool {
         switch self {
-        case .terminalsPool, .resourcesPool:
+        case .portsGroup, .terminalsPool, .resourcesPool, .displaysPool:
             return false
+        case .workspace(let machine, _, _, _, _):
+            // Cloud machines open to a short summary; My Devices keep their
+            // workspaces open as before.
+            return machine.cloudMachineID == nil
         default:
             return true
         }
@@ -24,12 +34,15 @@ extension CloudTreeNode.Kind {
 
 /// Builds the final Resources section for one Cloud machine.
 struct CloudTreeMachineResourceNodeBuilder {
+    var section: (MachineSnapshot, Date) -> CloudTreeMachineResourceSection = {
+        CloudTreeMachineResourceSection(machine: $0, now: $1)
+    }
     func groupNode(
         machine: SurfaceMachineID,
         snapshot: MachineSnapshot,
         now: Date
     ) -> CloudTreeNode {
-        let section = CloudTreeMachineResourceSection(machine: snapshot, now: now)
+        let section = section(snapshot, now)
         return CloudTreeNode(
             id: groupID(machine: machine),
             kind: .resourcesPool(machine: machine, count: section.rows.count),

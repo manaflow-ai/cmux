@@ -1,3 +1,5 @@
+import CmuxCloud
+
 /// Resolves organization against the actual catalog-built tree. No row is
 /// inserted, removed, renamed, reparented, or recreated by organization.
 struct CloudSidebarOrganizationTree {
@@ -15,10 +17,10 @@ struct CloudSidebarOrganizationTree {
         for node in nodes {
             let eligible = node.children.filter(\.canOrganize)
             let byID = Dictionary(eligible.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            var ordered = state.ordered(eligible.map(\.id), parent: node.id).makeIterator()
+            var ordered = state.ordered(eligible.map(\.id), parent: node.organizationGroupID).makeIterator()
             node.children = node.children.map { child in
                 guard child.canOrganize, let id = ordered.next(), let replacement = byID[id] else { return child }
-                replacement.isPinned = state.isPinned(id, parent: node.id)
+                replacement.isPinned = state.isPinned(id, parent: node.organizationGroupID)
                 return replacement
             }
             _ = CloudSidebarOrganizationTree(nodes: node.children).arrange(using: state)

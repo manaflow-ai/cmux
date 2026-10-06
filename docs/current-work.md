@@ -32,10 +32,12 @@ not grant an agent permission to act.
 ## Bounds and effects
 
 The result defaults to 100 resources and accepts a limit from 1 through 200.
-Truncation is explicit. Reads do not refresh Cloud machines, start agents,
+Truncation is explicit. Reads do not refresh remote machines, start agents,
 reopen historical sessions, or mutate focus. Find Work uses the existing focus
-path only after the user selects a displayed local projection. A Cloud resource
-without a local projection can be listed without implicitly opening one.
+path only after the user selects a displayed local projection. A remote resource
+without a local projection can be listed without implicitly opening one. Placement
+preserves the catalog machine kind (`local`, `cloud`, `ssh`, or `device`) instead of
+collapsing every remote resource into Cloud.
 
 This view is an observation, not an execution or mutation API. Existing owners
 continue to control persistence, scheduling, lifecycle, security, and focus.

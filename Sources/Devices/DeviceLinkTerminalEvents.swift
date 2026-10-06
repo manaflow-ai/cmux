@@ -1,4 +1,6 @@
 import CmuxMobileRPC
+import CmuxMobileHost
+import CmuxTerminalSizing
 import CoreFoundation
 import Foundation
 
@@ -15,6 +17,14 @@ enum DeviceTerminalEvent: Equatable, Sendable {
     case linkLost
     /// The bounded event queue overflowed; consult the current link and replay.
     case resyncRequired
+    /// The host's shared-sizing state (`mobile.terminal.size_state`).
+    case sizeState(TerminalSizingState, selfParticipantID: String?)
+    /// Someone disconnected this Mac's view (`mobile.terminal.detached`).
+    case sharingDetached(TerminalDetachReason, at: Date?)
+
+    /// The host's shared-sizing pushes this Mac subscribes to as a viewer.
+    static let sizeStateTopic = "mobile.terminal.size_state"
+    static let detachedTopic = "mobile.terminal.detached"
 
     /// Decode a `terminal.bytes` / `terminal.updated` envelope for its surface.
     /// Returns `(surfaceID, event)`; nil for payloads without a surface.
@@ -25,7 +35,7 @@ enum DeviceTerminalEvent: Equatable, Sendable {
             guard let event = MobileTerminalBytesEvent.decode(payload),
                   let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
             return (surfaceID, .bytes(sequence: event.sequence, data: event.bytes))
-        case "terminal.updated":
+        case "terminal.updated", DeviceTerminalGridPublisher.eventTopic:
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
                   let raw = object["surface_id"] as? String,
                   let surfaceID = UUID(uuidString: raw) else { return nil }
@@ -37,6 +47,14 @@ enum DeviceTerminalEvent: Equatable, Sendable {
                 columns: columns,
                 rows: rows
             ))
+        case Self.sizeStateTopic:
+            guard let event = try? MobileTerminalSizeStateEvent.decode(payload),
+                  let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
+            return (surfaceID, .sizeState(event.state, selfParticipantID: event.selfParticipantID))
+        case Self.detachedTopic:
+            guard let event = try? MobileTerminalDetachedEvent.decode(payload),
+                  let surfaceID = UUID(uuidString: event.surfaceID) else { return nil }
+            return (surfaceID, .sharingDetached(event.reason, at: event.at))
         default:
             return nil
         }
@@ -74,6 +92,13 @@ final class DeviceLinkTerminalEvents {
 
     var hasSubscribers: Bool { continuations.values.contains { !$0.isEmpty } }
 
+    /// Deliver a host envelope to the sessions attached to its surface.
+    /// Topics that `DeviceTerminalEvent` does not decode are ignored.
+    func receive(_ envelope: MobileEventEnvelope) {
+        guard let decoded = DeviceTerminalEvent.decode(envelope) else { return }
+        send(decoded.event, surfaceID: decoded.surfaceID)
+    }
+
     func send(_ event: DeviceTerminalEvent, surfaceID: UUID) {
         for (id, continuation) in continuations[surfaceID] ?? [:] {
             deliver(event, to: continuation, surfaceID: surfaceID, id: id)
@@ -91,8 +116,9 @@ final class DeviceLinkTerminalEvents {
     private func deliver(_ event: DeviceTerminalEvent, to continuation: AsyncStream<DeviceTerminalEvent>.Continuation, surfaceID: UUID, id: UUID) {
         let isControl: Bool
         switch event {
-        case .linkReconnected, .linkLost, .resyncRequired: isControl = true
-        case .bytes, .updated: isControl = false
+        // A detach must never be dropped by the bounded queue.
+        case .linkReconnected, .linkLost, .resyncRequired, .sharingDetached: isControl = true
+        case .bytes, .updated, .sizeState: isControl = false
         }
         if isControl {
             pendingControls[surfaceID, default: [:]][id, default: []].append(event)

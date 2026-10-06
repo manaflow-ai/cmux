@@ -5,7 +5,7 @@ Codex discovers hooks per configuration layer and appends them from lowest to
 highest: the user's ``hooks.json`` and ``[hooks]`` table in ``config.toml``, a
 trusted project's ``.codex/hooks.json``, and finally the session flags. The
 ``-c hooks.<event>=...`` values cmux injects only define that session-flags
-layer, so they must carry exactly one cmux handler per event and must never
+layer, so they must carry exactly one cmux group per event and must never
 re-declare the user's handlers: a copied user handler is discovered twice and
 runs twice (https://github.com/manaflow-ai/cmux/issues/12081).
 
@@ -28,6 +28,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 from claude_teams_test_utils import (
     FOCUSED_SURFACE_ID,
@@ -75,7 +77,8 @@ LIVE_EVENTS = ["SessionStart", "UserPromptSubmit", "Stop"]
 # `.codex/hooks.json`).
 LIVE_USER_MARKERS = LIVE_EVENTS + ["SessionStart:config.toml", "SessionStart:project"]
 # cmux's own handlers that a one-turn `codex exec` with no tool calls fires.
-LIVE_CMUX_SUBCOMMANDS = ["session-start", "prompt-submit", "stop"]
+# The agent message handlers run too; in `codex exec` they return `{}` at once.
+LIVE_CMUX_SUBCOMMANDS = ["session-start", "prompt-submit", "stop", "inbox-drain", "inbox-stop"]
 
 
 def user_hooks_json(commands: dict[str, str]) -> dict:
@@ -133,11 +136,21 @@ def assert_injection_shape(arguments: list[str], context: str) -> None:
         assert rest[index + 1].startswith("hooks."), f"{context}: non-hook override: {rest[index + 1]!r}"
 
 
+# Events whose cmux group also carries the direct agent message handler.
+INBOX_COMPANIONS = {"UserPromptSubmit": "inbox-drain", "Stop": "inbox-stop"}
+
+
 def assert_single_cmux_group(event: str, values: list[str], context: str) -> None:
     assert len(values) == 1, f"{context}: {event} assigned {len(values)} times: {values}"
     value = values[0]
     assert value.count("{hooks=") == 1, f"{context}: {event} carries more than one group: {value}"
-    assert value.count('type="command"') == 1, f"{context}: {event} carries more than one handler: {value}"
+    expected_handlers = 2 if event in INBOX_COMPANIONS else 1
+    handlers = value.count('type="command"')
+    assert handlers == expected_handlers, (
+        f"{context}: {event} carries {handlers} handlers, expected {expected_handlers}: {value}"
+    )
+    if event in INBOX_COMPANIONS:
+        assert INBOX_COMPANIONS[event] in value, f"{context}: {event} lacks its agent message handler: {value}"
     assert value.startswith("[{hooks=[{type=\"command\",command='''"), f"{context}: {event} shape changed: {value}"
     assert "cmux-codex-hook" in value or "hooks codex" in value, f"{context}: {event} is not cmux's handler: {value}"
 

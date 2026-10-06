@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -26,7 +27,7 @@ struct WindowOverlayChromeTests {
         defer { browser.tearDown() }
 
         for _ in 0..<3 {
-            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+            let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
             browser.bind(webView: webView, to: anchor, visibleInUI: true)
             content.layoutSubtreeIfNeeded()
             browser.synchronizeWebViewForAnchor(anchor)
@@ -85,8 +86,17 @@ struct WindowOverlayChromeTests {
         #expect(tabsFrame.height == 28)
     }
 
-    @Test("Browser content stays inside the content hierarchy without covering either chrome strip", arguments: [false, true])
-    func browserAndTerminalRespectChrome(useGlass: Bool) throws {
+    @Test("Browser content stays inside the content hierarchy without covering either chrome strip")
+    func browserAndTerminalRespectChrome() throws {
+        // Swift Testing starts parameterized cases concurrently even inside
+        // this serialized suite. Each case temporarily changes process-wide
+        // window backdrop defaults, so exercise the two settings sequentially.
+        for useGlass in [false, true] {
+            try exerciseBrowserAndTerminalRespectChrome(useGlass: useGlass)
+        }
+    }
+
+    private func exerciseBrowserAndTerminalRespectChrome(useGlass: Bool) throws {
         // A terminal surface re-applies the configured window backdrop when it
         // mounts (`GhosttyNSView.viewDidMoveToWindow` →
         // `applyWindowBackgroundIfActive`). With glass off in settings, that
@@ -110,11 +120,16 @@ struct WindowOverlayChromeTests {
         let browserAnchor = try #require(find("overlay.browser", in: content))
         let terminalAnchor = try #require(find("overlay.terminal", in: content))
         let glassEffect = WindowGlassEffect()
-        if useGlass {
+        // With the host's Reduce Transparency on, the app resolves the opaque
+        // window fill whatever the glass settings say, so the terminal mount
+        // removes any glass root. Install the root the app itself would keep.
+        let installsGlass = useGlass && !DisplayAccessibilityOptions.current.reduceTransparency
+        if installsGlass {
             glassEffect.apply(to: window)
         }
         let windowRoot = try #require(window.contentView)
-        if useGlass && glassEffect.isAvailable {
+        let backdropKeepsGlassRoot = installsGlass && glassEffect.isAvailable
+        if backdropKeepsGlassRoot {
             #expect(windowRoot !== content)
             #expect(glassEffect.originalContentView(for: window) === content)
         } else {
@@ -123,7 +138,7 @@ struct WindowOverlayChromeTests {
         let browser = WindowBrowserPortal(window: window)
         let terminal = WindowTerminalPortal(window: window)
         defer { browser.tearDown(); terminal.tearDown() }
-        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration(), host: CmuxWebViewAppHost())
         let terminalView = GhosttySurfaceScrollView(surfaceView: GhosttyNSView(frame: .zero))
         browser.bind(webView: webView, to: browserAnchor, visibleInUI: true)
         terminal.bind(hostedView: terminalView, to: terminalAnchor, visibleInUI: true)
@@ -134,7 +149,10 @@ struct WindowOverlayChromeTests {
             browser.synchronizeWebViewForAnchor(browserAnchor)
             terminal.synchronizeHostedViewForAnchor(terminalAnchor)
             let root = try #require(window.contentView)
-            #expect(root === windowRoot, "Portals must preserve the root installed before they bind.")
+            #expect(
+                root === (backdropKeepsGlassRoot ? windowRoot : content),
+                "Portals must preserve the active backdrop root while terminal content binds."
+            )
             #expect(webView.window === window)
             let browserFrame = browserAnchor.convert(browserAnchor.bounds, to: nil)
             let browserPoint = NSPoint(x: browserFrame.midX, y: browserFrame.midY)

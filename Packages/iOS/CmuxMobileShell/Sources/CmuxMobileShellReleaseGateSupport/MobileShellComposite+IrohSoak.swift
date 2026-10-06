@@ -21,13 +21,33 @@ extension MobileShellComposite {
         return await remoteClient?.transportContinuityID()
     }
 
+    /// Reconnects the current paired Mac through the same bounded retry path
+    /// used by the shell's manual reconnect action. Pairing state is retained.
+    public func recoverIrohSoakConnection() async -> Bool {
+        let identity = irohSoakUIIdentity()
+        disconnectLiveConnection()
+        guard await retryActiveMacReconnect(stackUserID: nil, force: true) else { return false }
+        if let identity {
+            await openWorkspace(.init(rawValue: identity.workspace))
+            selectTerminalFromChrome(.init(rawValue: identity.surface))
+            return selectedWorkspaceID?.rawValue == identity.workspace
+                && selectedTerminalID?.rawValue == identity.surface
+        }
+        return irohSoakUIIdentity() != nil
+    }
+
     /// Executes one deterministic usage step through the same actions as the app UI.
     /// - Parameters:
     ///   - cycle: Zero-based workload cycle; selects one of four fixed steps.
     ///   - marker: Unique terminal output marker for this cycle.
     /// - Returns: Operation names and elapsed durations whose postconditions passed.
     /// - Throws: A gate failure when navigation, terminal output or reconnection fails.
-    public func runIrohSoakUsageStep(cycle: Int, marker: String, terminalSession: MobileIrohReleaseGateTerminalSession? = nil) async throws -> [String: Double] {
+    public func runIrohSoakUsageStep(
+        cycle: Int,
+        marker: String,
+        terminalSession: MobileIrohReleaseGateTerminalSession? = nil,
+        includeForcedReconnect: Bool = true
+    ) async throws -> [String: Double] {
         guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
@@ -84,7 +104,19 @@ extension MobileShellComposite {
                 }
                 try await verifyTerminalRoundTrip(surfaceID: terminal.id.rawValue, marker: marker + "_NEW", session: terminalSession)
             } catch {
-                _ = await closeWorkspace(id: scratch.id)
+                // Restore the original target before the runner reconnects and
+                // retries this step. A failed cleanup must stop the workload.
+                let closed = await closeWorkspace(id: scratch.id)
+                guard case .success = closed,
+                      let original = irohReleaseGateCurrentWorkspace(matching: target.workspace) else {
+                    throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+                }
+                await openWorkspace(original.id)
+                selectTerminalFromChrome(target.terminalID)
+                guard selectedWorkspaceID == original.id,
+                      selectedTerminalID == target.terminalID else {
+                    throw MobileIrohReleaseGateProbeFailure.workspaceRestorationFailed
+                }
                 throw error
             }
             let switchSeconds = soakSeconds(switchStarted)
@@ -110,7 +142,7 @@ extension MobileShellComposite {
                 "terminal_after_restore": soakSeconds(terminalStarted),
             ]
         default:
-            guard cycle % 120 == 119 else {
+            guard includeForcedReconnect, cycle % 120 == 119 else {
                 let started = ContinuousClock.now
                 await refreshWorkspaces()
                 try await verifyTerminalRoundTrip(surfaceID: target.terminalID.rawValue, marker: marker + "_REFRESH", session: terminalSession)

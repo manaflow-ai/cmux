@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Deploy one isolated development Worker. A named Worker gets its own Durable
 # Object namespaces, so a branch cannot change the shared development data.
-# The shared baseline remains cmux-iroh-v2-development.
+# The shared baseline remains cmux-v2-development.
 
 cd "$(dirname "$0")/.."
 
@@ -29,7 +29,7 @@ case "$slug" in
     echo "error: '$slug' is reserved; choose a branch or developer slug" >&2; exit 1 ;;
 esac
 
-name="cmux-iroh-v2-dev-${slug}"
+name="cmux-v2-dev-${slug}"
 workers_subdomain="${CMUX_IROH_V2_WORKERS_SUBDOMAIN:-debussy}"
 required=(STACK_PROJECT_ID STACK_PUBLISHABLE_KEY STACK_SERVER_KEY API_TICKET_KEYS
   API_TICKET_CURRENT_KEY_ID RELAY_SIGNING_KEY RELAY_KEY_ID RELAY_URLS DATABASE_URL)
@@ -46,7 +46,7 @@ for key in "${required[@]}"; do
 done
 
 echo "Deploying isolated Worker: $name"
-secret_file="$(mktemp "${TMPDIR:-/tmp}/cmux-iroh-v2-dev-secrets.XXXXXX.json")"
+secret_file="$(mktemp "${TMPDIR:-/tmp}/cmux-v2-dev-secrets.XXXXXX.json")"
 trap 'rm -f "$secret_file"' EXIT
 chmod 600 "$secret_file"
 secret_pairs=()
@@ -61,7 +61,8 @@ if any(not key or not value for key, value in values.items()):
     raise SystemExit("missing deployment secret")
 pathlib.Path(sys.argv[1]).write_text(json.dumps({key.decode(): value.decode() for key, value in values.items()}))
 ' "$secret_file"
-bunx wrangler deploy --config wrangler.jsonc --env development --name "$name" --secrets-file "$secret_file"
+# shellcheck disable=SC2046
+bunx wrangler deploy --config wrangler.jsonc --env development --name "$name" --secrets-file "$secret_file" $(bash scripts/source-revision-vars.sh)
 
 echo
 echo "Isolated IROH v2 development Worker: https://${name}.${workers_subdomain}.workers.dev"

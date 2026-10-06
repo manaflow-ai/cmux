@@ -6,6 +6,9 @@ public import CmuxFoundation
 /// Wire/persistence shape: field names are encoded by `Codable`; do not rename
 /// stored properties without a migration.
 public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
+    /// Explicit persistent SSH owner; absent in legacy daemon snapshots.
+    public var sshSessionOwner: String? = nil
+
     /// The transport the workspace used when the snapshot was taken.
     public var transport: WorkspaceRemoteTransport
     /// The interactive terminal protocol, absent in snapshots written before Mosh support.
@@ -22,6 +25,10 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var identityFile: String?
     /// Durable `-o` SSH options captured from the live configuration.
     public var sshOptions: [String]
+    /// The SSH agent socket the connection authenticated with. cmux keys its
+    /// shared SSH master by this agent, so a restore needs it to reach the
+    /// master its open logged in; absent in snapshots written before it.
+    public var agentSocketPath: String? = nil
     /// Whether remote PTY sessions outlive their local terminal surface.
     public var preserveAfterTerminalExit: Bool?
     /// Whether daemon bootstrap is skipped (pre-baked Cloud VM images).
@@ -43,6 +50,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         port: Int? = nil,
         identityFile: String? = nil,
         sshOptions: [String] = [],
+        agentSocketPath: String? = nil,
         preserveAfterTerminalExit: Bool? = nil,
         skipDaemonBootstrap: Bool? = nil,
         relayPort: Int? = nil,
@@ -57,6 +65,7 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.port = port
         self.identityFile = identityFile
         self.sshOptions = sshOptions
+        self.agentSocketPath = agentSocketPath
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
         self.relayPort = relayPort

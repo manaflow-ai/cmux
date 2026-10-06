@@ -9,12 +9,13 @@ struct AgentNotificationReconcilerTests {
     private func event(_ sequence: Int64, _ kind: AgentJournalEventKind, source: String,
                        turn: String? = "turn-1", request: String? = nil, pending: Bool = false,
                        notify: Bool = true, occurredAt: Int64? = nil, nativeID: String? = nil,
-                       surfaceID: String? = nil) -> AgentJournalEvent {
+                       surfaceID: String? = nil, declaredPhase: AgentLifecyclePhase? = nil,
+                       nativeEvent: String? = nil) -> AgentJournalEvent {
         AgentJournalEvent(sequence: sequence, committedAtMs: 1000 + sequence,
             draft: AgentJournalEventDraft(eventId: "event-\(sequence)", kind: kind,
                 occurredAtMs: occurredAt ?? sequence, source: source, agentKey: source,
                 sessionId: "session", workspaceId: workspace, surfaceId: surfaceID ?? surface,
-                pendingWork: pending, attention: AgentAttentionContext(eventIdentity: nativeID,
+                pendingWork: pending, nativeEvent: nativeEvent, declaredPhase: declaredPhase, attention: AgentAttentionContext(eventIdentity: nativeID,
                     turnIdentity: turn, requestIdentity: request,
                     notification: notify ? AgentJournalNotification(title: "Agent", subtitle: "",
                         body: "Ready", category: kind == .turnCompleted ? "turn-complete" : "needs-permission") : nil)))
@@ -250,6 +251,92 @@ struct AgentNotificationReconcilerTests {
     }
 
     @Test(arguments: ["claude", "codex"])
+    func toolActivityReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: "first", notify: false))
+        let activity = event(2, .stateChanged, source: source, turn: "continuation", notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessToolActivityReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                             occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse")
+        _ = reconciler.apply(activity)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessToolResolutionReopensAContinuationWithoutPromptSubmit(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let result = event(2, .attentionResolved, source: source, turn: nil, request: "tool",
+                           pending: false, notify: false, occurredAt: 20, declaredPhase: .running,
+                           nativeEvent: "PreToolUse")
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessLateStopCannotSettleAContinuation(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                             occurredAt: 20, declaredPhase: .running, nativeEvent: "PreToolUse")
+        _ = reconciler.apply(activity)
+        let lateStop = event(3, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10)
+        #expect(reconciler.apply(lateStop).disposition == .stale)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func identitylessPostToolResultKeepsSettledCompletionIdle(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: nil, notify: false, occurredAt: 10))
+        let result = event(2, .stateChanged, source: source, turn: nil, notify: false,
+                           occurredAt: 20, declaredPhase: .running, nativeEvent: "PostToolUse")
+        _ = reconciler.apply(result)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func backgroundWorkResolutionKeepsThePaneRunning(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))
+        _ = reconciler.apply(event(2, .turnCompleted, source: source, turn: "turn-1",
+                                   pending: true, notify: false))
+        let resumed = event(3, .attentionResolved, source: source, turn: "turn-1",
+                             pending: true, notify: false, declaredPhase: .running)
+        _ = reconciler.apply(resumed)
+        #expect(reconciler.lifecycleEvent(resumed).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func idlePromptDoesNotSettleAnActiveTurn(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, turn: "turn-1", notify: false))
+        let idlePrompt = event(2, .idleObserved, source: source, turn: "turn-1", notify: false, occurredAt: 20)
+        _ = reconciler.apply(idlePrompt)
+        #expect(reconciler.lifecycleEvent(idlePrompt).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func lateStopCannotSettleAContinuationReopenedByActivity(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source, turn: "first", notify: false, occurredAt: 10))
+        let activity = event(2, .stateChanged, source: source, turn: "continuation", notify: false,
+                             occurredAt: 20, declaredPhase: .running)
+        _ = reconciler.apply(activity)
+        let lateStop = event(3, .turnCompleted, source: source, turn: "first", notify: false, occurredAt: 10)
+        #expect(reconciler.apply(lateStop).disposition == .stale)
+        #expect(reconciler.lifecycleEvent(activity).draft.declaredPhase == .running)
+    }
+
+    @Test(arguments: ["claude", "codex"])
     func anonymousReminderReusesPendingAttentionWithoutMaskingAnotherRequest(source: String) {
         var reconciler = AgentNotificationReconciler()
         let known = reconciler.apply(event(1, .approvalRequested, source: source, request: "known", occurredAt: 10))
@@ -302,6 +389,28 @@ struct AgentNotificationReconcilerTests {
         #expect(reconciler.apply(replay).invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.lifecycleEvent(replay).draft.declaredPhase == .needsInput)
         #expect(later.identity != wait.identity)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func idleAttentionResolutionProjectsIdle(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, notify: false))
+        _ = reconciler.apply(event(2, .questionRequested, source: source, request: "idle-dialog"))
+        let response = event(3, .attentionResolved, source: source, request: "idle-dialog",
+                             notify: false, declaredPhase: .idle)
+        _ = reconciler.apply(response)
+        #expect(reconciler.lifecycleEvent(response).draft.declaredPhase == .idle)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func runningToolResultKeepsASettledTurnIdle(source: String) {
+        // A same-turn result can be a late delivery from the completed turn.
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnCompleted, source: source))
+        let result = event(2, .attentionResolved, source: source, request: "ordinary-tool",
+                           notify: false, declaredPhase: .running)
+        #expect(reconciler.apply(result).invalidatedCorrelationKeys.isEmpty)
+        #expect(reconciler.lifecycleEvent(result).draft.declaredPhase == .idle)
     }
 
     @Test(arguments: ["claude", "codex"])

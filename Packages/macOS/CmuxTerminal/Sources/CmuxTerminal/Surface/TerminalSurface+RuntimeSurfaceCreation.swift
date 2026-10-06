@@ -170,9 +170,15 @@ extension TerminalSurface {
         if !spawnPolicy.codexHooksEnabled {
             setManagedEnvironmentValue("CMUX_CODEX_HOOKS_DISABLED", "1")
         }
+        if !spawnPolicy.piHooksEnabled {
+            setManagedEnvironmentValue("CMUX_PI_HOOKS_DISABLED", "1")
+        }
         if let customClaudePath = spawnPolicy.customClaudePath {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
+        // The saved setting controls automatic helper startup. An explicit
+        // `$cmux-cua` request can opt into first-use setup; MDM policy remains
+        // the hard gate in the host runtime.
         setManagedEnvironmentValue(
             spawnPolicy.subagentNotificationEnvironmentKey,
             spawnPolicy.suppressSubagentNotifications ? "1" : "0"
@@ -254,6 +260,14 @@ extension TerminalSurface {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
+            ? startupRestoreAdmissionCommandOverride
+            : initialCommand
+        spawnPolicyProvider.applyStartupCommandSecrets(
+            to: &env,
+            workspaceId: tabId,
+            startupCommand: configuredInitialCommand
+        )
         env["CMUX_SOCKET"] = ""
 
         if !env.isEmpty {
@@ -276,9 +290,6 @@ extension TerminalSurface {
             }
             return baseConfig.workingDirectory
         }()
-        let configuredInitialCommand = hasStartupRestoreAdmissionCommandOverride
-            ? startupRestoreAdmissionCommandOverride
-            : initialCommand
         let resolvedCommand = TerminalLaunchCommandPolicy().resolve(
             initialCommand: configuredInitialCommand,
             surfaceCommand: baseConfig.command,

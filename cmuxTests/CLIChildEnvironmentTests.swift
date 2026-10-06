@@ -31,7 +31,9 @@ import Darwin
 
     @Test
     func scrubbedChildStillGetsItsOwnConfigurationRoots() {
-        let normalizer = CLIChildEnvironment(appHostEnvironment: ["CMUX_APP_HOST_ISOLATION_REQUIRED": "1"])
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
         let child = normalizer.normalizing([
             "HOME": "/tmp/cli-fixture",
             "CFFIXED_USER_HOME": "/tmp/shared-app-host",
@@ -43,6 +45,18 @@ import Darwin
     }
 
     @Test
+    func anUnpinnedHostLeavesTheChildAlone() {
+        // A stray CFFIXED_USER_HOME that does not match HOME is a developer's
+        // machine, not an isolated lane: rewriting the child's roots there
+        // would move a real person's configuration.
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/Users/dev", "CFFIXED_USER_HOME": "/tmp/stray"]
+        )
+        let child = ["HOME": "/tmp/cli-fixture", "CFFIXED_USER_HOME": "/tmp/explicit"]
+        #expect(normalizer.normalizing(child) == child)
+    }
+
+    @Test
     func localRunsPreserveExplicitConfigurationRoots() {
         let child = ["HOME": "/tmp/local", "CFFIXED_USER_HOME": "/tmp/explicit"]
         #expect(CLIChildEnvironment(appHostEnvironment: [:]).normalizing(child) == child)
@@ -50,7 +64,9 @@ import Darwin
 
     @Test(arguments: ["", "  "])
     func missingChildHomeDoesNotInventAConfigurationRoot(home: String) {
-        let normalizer = CLIChildEnvironment(appHostEnvironment: ["CMUX_APP_HOST_ISOLATION_REQUIRED": "1"])
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
         let child = ["HOME": home, "CFFIXED_USER_HOME": "/tmp/app-host"]
         #expect(normalizer.normalizing(child) == child)
     }

@@ -92,4 +92,3 @@ struct AboutPanelView: View {
         .background(AboutVisualEffectBackground(material: .underWindowBackground).ignoresSafeArea())
     }
 }
-

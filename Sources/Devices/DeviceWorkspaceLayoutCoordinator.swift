@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -15,6 +16,69 @@ final class DeviceWorkspaceLayoutCoordinator {
         let panels: Set<UUID>
         let sourceIDs: Set<String>
     }
+    @MainActor
+    private final class CloseOperation {
+        let surfaceID: String
+        let workspaceID: UUID?
+        let result: Task<Void, Error>
+        private let continuation: AsyncThrowingStream<Void, Error>.Continuation
+        private var resolved = false
+
+        init(surfaceID: String, workspaceID: UUID?) {
+            self.surfaceID = surfaceID
+            self.workspaceID = workspaceID
+            let pair = AsyncThrowingStream<Void, Error>.makeStream()
+            continuation = pair.continuation
+            result = Task { for try await _ in pair.stream {} }
+        }
+
+        func succeed() {
+            guard !resolved else { return }
+            resolved = true
+            continuation.yield(())
+            continuation.finish()
+        }
+
+        func fail(_ error: any Error) {
+            guard !resolved else { return }
+            resolved = true
+            continuation.finish(throwing: error)
+        }
+    }
+
+    /// A FIFO queue with an advancing head avoids shifting every remaining
+    /// close when a workspace deletion contains many terminals.
+    private struct CloseQueue {
+        private var values: [CloseOperation] = []
+        private var head = 0
+
+        var isEmpty: Bool { head >= values.count }
+
+        mutating func append(_ operation: CloseOperation) {
+            values.append(operation)
+        }
+
+        mutating func popFirst() -> CloseOperation? {
+            guard head < values.count else { return nil }
+            let operation = values[head]
+            head += 1
+            if head == values.count {
+                values.removeAll(keepingCapacity: true)
+                head = 0
+            } else if head >= 32, head * 2 >= values.count {
+                values.removeFirst(head)
+                head = 0
+            }
+            return operation
+        }
+
+        mutating func removeAll() -> [CloseOperation] {
+            let remaining = Array(values.dropFirst(head))
+            values.removeAll(keepingCapacity: false)
+            head = 0
+            return remaining
+        }
+    }
 
     private let machine: SurfaceMachineID
     private weak var catalog: SurfaceCatalog?
@@ -30,6 +94,7 @@ final class DeviceWorkspaceLayoutCoordinator {
     private(set) var snapshots: [String: DeviceWorkspaceLayoutSnapshot] = [:]
     private var sequences: [String: UInt64] = [:]
     private var pending: [String: Intent] = [:]
+    private var pendingCloses: [String: CloseQueue] = [:]
     private var writers: [String: Task<Void, Never>] = [:]
     private var deliveries: [UUID: Delivery] = [:]
     private var metadataRefreshes: [String: String] = [:]
@@ -84,6 +149,7 @@ final class DeviceWorkspaceLayoutCoordinator {
         for task in writers.values { task.cancel() }
         writers.removeAll()
         pending.removeAll()
+        cancelPendingCloses()
         snapshots.removeAll()
         sequences.removeAll()
         deliveries.removeAll()
@@ -101,6 +167,7 @@ final class DeviceWorkspaceLayoutCoordinator {
         if !connected {
             for task in writers.values { task.cancel() }
             pending.removeAll()
+            cancelPendingCloses()
         } else {
             scheduleReconcile()
         }
@@ -118,6 +185,114 @@ final class DeviceWorkspaceLayoutCoordinator {
     }
 
     func beginMutation(_ token: UUID) { suspended.insert(token) }
+
+    /// Only an explicit close in a synchronized whole-workspace mirror edits its owner.
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        guard reason == .paneClosed, projection.resource.machine == machine,
+              !projection.isLocalWorkspaceView, let native = workspace(projection.workspaceID), let catalog,
+              let remoteID = projection.remoteWorkspaceID,
+              let delivery = deliveries[projection.workspaceID],
+              delivery.panels.contains(projection.panelID), delivery.sourceIDs.contains(projection.resource.key) else { return }
+        // A once-synchronized workspace can acquire local or unrelated panes.
+        // Its old delivery must not turn closing a preview into a source deletion.
+        // A pending or failed creation for the same workspace is not such a pane.
+        let remaining = catalog.projections.filter { $0.workspaceID == projection.workspaceID }
+        // An adopted reservation stays pending until its owner completes it,
+        // but its pane already mirrors a terminal and counts as synchronized.
+        let projectedPanels = Set(remaining.map(\.panelID))
+        let reserved = native.cloudPendingCreations.values.filter {
+            $0.machine == machine && $0.remoteWorkspaceID == remoteID && !projectedPanels.contains($0.panelID)
+        }.map(\.panelID)
+        guard remaining.allSatisfy({ $0.resource.machine == machine && $0.remoteWorkspaceID == remoteID }),
+              Set(remaining.map(\.panelID)) == Set(native.panels.keys).subtracting([projection.panelID]).subtracting(reserved) else { return }
+        let operation = enqueueClose(surfaceID: projection.resource.key, remoteID: remoteID, workspaceID: projection.workspaceID)
+        Task { @MainActor [weak self] in
+            do {
+                try await operation.result.value
+            } catch let error where !(error is CancellationError) {
+                guard let self else { return }
+                self.workspace(projection.workspaceID)?.presentDeviceLayoutFailure(error, machine: self.machine)
+            } catch {
+                // Disconnect and explicit teardown cancel an outstanding close.
+            }
+        }
+    }
+
+    /// Sidebar terminal deletion and mirrored-pane close use the same ordered host request.
+    func closeTerminal(surfaceID: String, remoteWorkspaceID: String) async throws {
+        try Task.checkCancellation()
+        let operation = enqueueClose(surfaceID: surfaceID, remoteID: remoteWorkspaceID, workspaceID: nil)
+        try await operation.result.value
+    }
+
+    private func enqueueClose(surfaceID: String, remoteID: String, workspaceID: UUID?) -> CloseOperation {
+        let operation = CloseOperation(surfaceID: surfaceID, workspaceID: workspaceID)
+        guard !stopped, isConnected() else {
+            operation.fail(DeviceLinkError.notConnected)
+            return operation
+        }
+        // An unsent arrangement containing a deleted terminal is no longer an
+        // applicable intent. In-flight edits finish before the close request.
+        pending[remoteID] = nil
+        pendingCloses[remoteID, default: CloseQueue()].append(operation)
+        startWriter(for: remoteID)
+        return operation
+    }
+
+    private func cancelPendingCloses() {
+        var abandoned: [CloseOperation] = []
+        for remoteID in pendingCloses.keys {
+            abandoned.append(contentsOf: pendingCloses[remoteID]?.removeAll() ?? [])
+        }
+        pendingCloses.removeAll()
+        for close in abandoned { close.fail(CancellationError()) }
+    }
+
+    private func dequeueClose(for remoteID: String) -> CloseOperation? {
+        // Mutate through the dictionary accessor so the backing array stays
+        // uniquely owned; copying the queue before removal would force COW.
+        guard let operation = pendingCloses[remoteID]?.popFirst() else { return nil }
+        if pendingCloses[remoteID]?.isEmpty == true { pendingCloses[remoteID] = nil }
+        return operation
+    }
+
+    private func performClose(_ close: CloseOperation, remoteID: String) async {
+        do {
+            try Task.checkCancellation()
+            // Fresh workspace membership prevents closing a terminal that was
+            // concurrently moved elsewhere; the RPC also scopes the target.
+            try await fetch(remoteID)
+            let present = try snapshots[remoteID]?.layout.validatedSurfaceIDs().contains {
+                $0.caseInsensitiveCompare(close.surfaceID) == .orderedSame
+            } == true
+            if !present, close.workspaceID == nil {
+                throw DeviceLinkError.malformedResponse("mobile.terminal.close")
+            }
+            if present {
+                let data = try await request("mobile.terminal.close", ["workspace_id": remoteID, "surface_id": close.surfaceID])
+                guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      reply["closed"] as? Bool == true,
+                      (reply["workspace_id"] as? String)?.caseInsensitiveCompare(remoteID) == .orderedSame,
+                      (reply["surface_id"] as? String)?.caseInsensitiveCompare(close.surfaceID) == .orderedSame else {
+                    throw DeviceLinkError.malformedResponse("mobile.terminal.close")
+                }
+                try Task.checkCancellation()
+                try await fetch(remoteID)
+            }
+            await refresh()
+            if let id = close.workspaceID { deliveries[id] = nil }
+            close.succeed()
+        } catch {
+            if !Task.isCancelled, !stopped {
+                try? await fetch(remoteID)
+                await refresh()
+                // Restore the source layout after a refused/failed close, instead
+                // of treating its missing local pane as a permanent detach.
+                if let id = close.workspaceID { deliveries[id] = nil }
+            }
+            close.fail(error)
+        }
+    }
 
     func refreshRequested() {
         fetchRequested.formUnion(snapshots.keys)
@@ -137,9 +312,11 @@ final class DeviceWorkspaceLayoutCoordinator {
 
     /// Consumes native layout events, never terminal bytes or typing updates.
     func nativeLayoutChanged(workspaceID: UUID, capturedLayout: DeviceWorkspaceLayoutNode? = nil, isExternal: Bool = false) {
+        // A reserved pane has no terminal on the owner yet, so it stays local.
         guard !isExternal, !stopped, let target = target(for: workspaceID),
               let native = capturedLayout ?? workspace(workspaceID)?.deviceWorkspaceLayoutSnapshot(),
-              let mapped = try? native.remappingSurfaceIDs(target.mapping),
+              let mapped = try? native.removingSurfaceIDs(Set(target.reserved.map(\.uuidString)))?
+                  .remappingSurfaceIDs(target.mapping),
               let ids = try? mapped.validatedSurfaceIDs() else { return }
         guard suspended.isEmpty else { deferredNativeChanges.insert(workspaceID); return }
         if let accepted = snapshots[target.remoteID],
@@ -160,12 +337,18 @@ final class DeviceWorkspaceLayoutCoordinator {
             guard let self else { return }
             defer {
                 self.writers[remoteID] = nil
-                if self.pending[remoteID] != nil, self.isConnected(), !self.stopped {
+                if self.pending[remoteID] != nil || self.pendingCloses[remoteID]?.isEmpty == false,
+                   self.isConnected(), !self.stopped {
                     self.startWriter(for: remoteID)
                 }
                 self.scheduleReconcile()
             }
-            while let intent = self.pending.removeValue(forKey: remoteID) {
+            while !Task.isCancelled {
+                if let close = self.dequeueClose(for: remoteID) {
+                    await self.performClose(close, remoteID: remoteID)
+                    continue
+                }
+                guard let intent = self.pending.removeValue(forKey: remoteID) else { break }
                 do {
                     try Task.checkCancellation()
                     if self.sequences[remoteID] == nil || self.fetchRequested.remove(remoteID) != nil {
@@ -173,6 +356,10 @@ final class DeviceWorkspaceLayoutCoordinator {
                     }
                     guard let accepted = self.snapshots[remoteID], !accepted.revision.isEmpty else {
                         throw DeviceLinkError.malformedResponse("device.workspace.layout")
+                    }
+                    guard Set(try intent.layout.validatedSurfaceIDs()) == Set(try accepted.layout.validatedSurfaceIDs()) else {
+                        self.deliveries[intent.workspaceID] = nil
+                        continue
                     }
                     if accepted.layout.hasSameArrangement(as: intent.layout) { continue }
                     let layout = try JSONSerialization.jsonObject(with: JSONEncoder().encode(intent.layout))
@@ -204,15 +391,38 @@ final class DeviceWorkspaceLayoutCoordinator {
         accept(snapshot)
     }
 
-    private func target(for id: UUID) -> (remoteID: String, mapping: [String: String], projections: [SurfaceProjection])? {
+    private func target(for id: UUID) -> (
+        remoteID: String, mapping: [String: String], projections: [SurfaceProjection], reserved: Set<UUID>
+    )? {
         guard let catalog, let native = workspace(id) else { return nil }
         let projections = catalog.projections.filter { $0.workspaceID == id && $0.resource.machine == machine }
-        guard !projections.isEmpty, Set(projections.map(\.panelID)) == Set(native.panels.keys) else { return nil }
+        guard !projections.isEmpty else { return nil }
+        let projectedPanelIDs = Set(projections.map(\.panelID))
+        let pending = native.cloudPendingCreations.values.filter {
+            $0.machine == machine && $0.remoteWorkspaceID != nil
+        }
+        let pendingPanelIDs = Set(pending.map(\.panelID))
+        let nativePanelIDs = Set(native.panels.keys)
+        guard projectedPanelIDs.isSubset(of: nativePanelIDs),
+              nativePanelIDs.subtracting(projectedPanelIDs).isSubset(of: pendingPanelIDs) else { return nil }
         let remoteIDs = Set(projections.compactMap(\.remoteWorkspaceID))
+            .union(pending.compactMap(\.remoteWorkspaceID))
         guard remoteIDs.count == 1, let remoteID = remoteIDs.first,
               projections.allSatisfy({ $0.remoteWorkspaceID == remoteID }) else { return nil }
         let mapping = Dictionary(projections.map { ($0.panelID.uuidString, $0.resource.key) }, uniquingKeysWith: { first, _ in first })
-        return (remoteID, mapping, Array(projections))
+        return (remoteID, mapping, Array(projections), nativePanelIDs.subtracting(projectedPanelIDs))
+    }
+
+    /// Establishes the exact terminal identity before its authoritative layout
+    /// snapshot is accepted. This closes the reservation-to-resource race.
+    func bindCreatedTerminal(requestID: UUID, remoteWorkspaceID: String, resource: SurfaceResource) -> Bool {
+        let workspaceIDs = Set(catalog?.projections.filter { $0.resource.machine == machine }.map(\.workspaceID) ?? [])
+        for workspaceID in workspaceIDs {
+            if workspace(workspaceID)?.bindPendingDeviceTerminal(
+                requestID: requestID, remoteWorkspaceID: remoteWorkspaceID, resource: resource
+            ) == true { return true }
+        }
+        return false
     }
 
     private func scheduleReconcile() {
@@ -260,14 +470,40 @@ final class DeviceWorkspaceLayoutCoordinator {
                 let wanted = sourceIDs.map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
                 guard wanted.allSatisfy({ catalog.resources[$0] != nil }) else { continue }
                 let present = Set(target.projections.map(\.resource))
+                let locations = DeviceWorkspaceProjection(machine: machine, isLive: true)
+                    .layoutLocations(snapshot.layout)
+                // Reserved panes keep their place beside the terminals already
+                // arranged here, not beside one this pass projects at a fallback.
+                let arranged = native.deviceWorkspaceLayoutSnapshot()
+                var localPanesByRemotePane: [String: UUID] = [:]
+                for (panelID, remoteSurfaceID) in target.mapping {
+                    guard let location = locations[remoteSurfaceID],
+                          let panelUUID = UUID(uuidString: panelID),
+                          let pane = native.paneId(forPanelId: panelUUID) else { continue }
+                    localPanesByRemotePane[location.paneID] = pane.id
+                }
+                let reservations = native.pendingCloudTerminalReservations(remoteWorkspaceID: target.remoteID)
                 for resourceID in wanted where !present.contains(resourceID) {
                     let view = try catalog.remoteView(for: resourceID, workspaceID: target.remoteID)
-                    _ = try await catalog.project(resourceID, into: .workspace(id: id, placement: .tab),
-                        focus: false, reuseExisting: true, reuseInWorkspace: id, remoteView: view)
+                    let location = locations[resourceID.key]
+                    // Only the reservation bound to this terminal lends its pane,
+                    // and that same reservation is the one adopted. Adoption keeps
+                    // it pending until its owner completes or cancels it.
+                    let reservation = reservations[CloudTerminalReservationKey(resource: resourceID, remoteTabID: view?.tabID)]
+                        .flatMap { native.cloudPendingCreations[$0.panelID] === $0 ? $0 : nil }
+                    let pane = location.flatMap { localPanesByRemotePane[$0.paneID] }
+                        ?? reservation.flatMap { native.paneId(forPanelId: $0.panelID)?.id }
+                    let destination: SurfaceDestination = pane.map {
+                        .tab(workspaceID: id, paneID: $0.uuidString, index: location?.tabIndex)
+                    } ?? .workspace(id: id, placement: .tab)
+                    _ = try await catalog.project(resourceID, into: destination,
+                        focus: false, reuseExisting: true, reuseInWorkspace: id,
+                        remoteView: view, adopting: reservation)
                 }
                 guard !Task.isCancelled, suspended.isEmpty, snapshots[target.remoteID] == snapshot,
                       writers[target.remoteID] == nil, pending[target.remoteID] == nil else { continue }
-                for projection in target.projections where !wanted.contains(projection.resource) {
+                let wantedSet = Set(wanted)
+                for projection in target.projections where !wantedSet.contains(projection.resource) {
                     native.performRemoteTmuxMirrorMutation {
                         SurfacePaneFactory.closeExited(panelID: projection.panelID, in: id)
                         catalog.endProjections(panelID: projection.panelID, reason: .replaced)
@@ -275,7 +511,10 @@ final class DeviceWorkspaceLayoutCoordinator {
                 }
                 guard let current = self.target(for: id) else { continue }
                 let reverse = Dictionary(current.mapping.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
-                let translated = try snapshot.layout.remappingSurfaceIDs(reverse)
+                var translated = try snapshot.layout.remappingSurfaceIDs(reverse)
+                if !current.reserved.isEmpty, let arranged {
+                    translated = translated.grafting(Set(current.reserved.map(\.uuidString)), from: arranged)
+                }
                 try native.applyDeviceWorkspaceLayout(translated)
                 deliveries[id] = Delivery(revision: snapshot.revision, panels: Set(native.panels.keys), sourceIDs: Set(sourceIDs))
             } catch {

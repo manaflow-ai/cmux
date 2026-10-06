@@ -1,0 +1,51 @@
+name: Labels sync
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/labels.json
+      - scripts/ci/sync_labels.py
+      - .github/workflows/labels-sync.yml
+  pull_request:
+    paths:
+      - .github/labels.json
+      - scripts/ci/sync_labels.py
+      - .github/workflows/labels-sync.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: labels-sync
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # read-only PR manifest validation
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Check the manifest parses and fits GitHub's limits
+        run: python3 scripts/ci/sync_labels.py --dry-run
+
+  apply:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted issue-write token
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Create or update the labels in the manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 scripts/ci/sync_labels.py

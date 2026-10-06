@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Move a nightly completion tag through GitHub's refs API and verify it.
+"""Move a channel completion tag through GitHub's refs API and verify it.
 
-A receive-pack push with the Actions token was rejected when GitHub timed out
-checking workflow-file changes across a large tag jump; the refs API is the
-narrower operation and its failures are retried or reported here. The
-operation is safe to retry because every request targets the same exact commit
-and the final read-back is the publication completion check.
+Retries are limited to bounded transient HTTP and network failures. Permission
+errors are reported immediately because replaying an unauthorized ref write
+cannot make it valid. The operation is safe to retry because every request
+targets the same exact commit and the final read-back is the completion check.
 """
 
 from __future__ import annotations
@@ -157,7 +156,8 @@ def main() -> int:
     try:
         update_tag(args.repo, args.tag, args.sha, allow_non_descendant=args.allow_non_descendant)
     except TagUpdateError as error:
-        print(f"Nightly tag update failed: {error}", file=sys.stderr)
+        status = f" (HTTP {error.status})" if error.status else ""
+        print(f"Nightly tag update failed{status}: {error}", file=sys.stderr)
         return 1
     return 0
 

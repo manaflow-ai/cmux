@@ -88,6 +88,7 @@ record(
         "force_proxy": os.environ.get("CMUX_CUA_MCP_FORCE_PROXY"),
         "external_permission_flow": os.environ.get("CMUX_CUA_EXTERNAL_PERMISSION_FLOW"),
         "auth_present": bool(os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN")),
+        "auth_matches": os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN") == "cmux-test-auth-token",
         "daemon_app": os.environ.get("CMUX_CUA_DAEMON_APP"),
         "permissions_gate": os.environ.get("CMUX_CUA_PERMISSIONS_GATE"),
     },
@@ -156,10 +157,60 @@ def record(event, payload=None):
         stream.write(json.dumps(value, sort_keys=True) + "\n")
 
 
+# Codex declares -c/--config, --enable, and --disable as clap `global`
+# arguments. Codex 0.159.3 keeps only the subcommand-level occurrences when the
+# subcommand also receives one: `codex -c a=1 exec -c b=2` sees only b=2.
+# Emulate that rule so wrapper output is checked against what Codex applies.
+GLOBAL_LIST_OPTIONS = {"-c": "config", "--config": "config", "--enable": "enable", "--disable": "disable"}
+VALUE_OPTIONS = {
+    "-m", "--model", "-p", "--profile", "-C", "--cd", "-s", "--sandbox",
+    "-a", "--ask-for-approval", "-i", "--image", "--output-last-message",
+    "--output-schema", "--add-dir", "--color", "--local-provider", "--remote",
+    "--remote-auth-token-env",
+}
+SUBCOMMANDS = {"exec", "e", "resume", "fork", "review", "mcp"}
+
+
+def effective_globals(argv):
+    root = {"config": [], "enable": [], "disable": []}
+    sub = {"config": [], "enable": [], "disable": []}
+    target = root
+    seen_subcommand = False
+    index = 0
+    while index < len(argv):
+        arg = argv[index]
+        if arg == "--":
+            break
+        if arg in GLOBAL_LIST_OPTIONS and index + 1 < len(argv):
+            target[GLOBAL_LIST_OPTIONS[arg]].append(argv[index + 1])
+            index += 2
+            continue
+        matched = False
+        for option, name in GLOBAL_LIST_OPTIONS.items():
+            if arg.startswith(option + "="):
+                target[name].append(arg.split("=", 1)[1])
+                matched = True
+                break
+        if not matched and arg.startswith("-c") and not arg.startswith("--") and len(arg) > 2:
+            target["config"].append(arg[2:])
+            matched = True
+        if matched:
+            index += 1
+            continue
+        if arg.startswith("-"):
+            index += 2 if arg in VALUE_OPTIONS else 1
+            continue
+        if not seen_subcommand and arg in SUBCOMMANDS and target is root:
+            seen_subcommand = True
+            target = sub
+        index += 1
+    return {name: (sub[name] if sub[name] else root[name]) for name in root}
+
+
 def config(prefix, args):
-    for arg in args:
-        if arg.startswith(prefix):
-            return arg.split("=", 1)[1]
+    for override in effective_globals(args)["config"]:
+        if override.startswith(prefix):
+            return override[len(prefix):]
     return None
 
 
@@ -188,10 +239,33 @@ def receive(stream):
     return json.loads(body.decode("utf-8"))
 
 
+# Codex builds a stdio MCP server environment from this allow-list, the
+# names listed in `env_vars`, and the literal `env` table. Nothing else from
+# the Codex process environment reaches the server.
+CODEX_DEFAULT_MCP_ENV_VARS = [
+    "HOME", "LOGNAME", "PATH", "SHELL", "USER", "__CF_USER_TEXT_ENCODING",
+    "LANG", "LC_ALL", "TERM", "TMPDIR", "TZ",
+]
+
 args = sys.argv[1:]
 with open(ARGS_LOG, "w", encoding="utf-8") as stream:
     for arg in args:
         stream.write(arg + "\n")
+record(
+    "codex:env",
+    {
+        "auth_matches": os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN") == "cmux-test-auth-token",
+    },
+)
+EFFECTIVE = effective_globals(args)
+record(
+    "codex:effective_globals",
+    {
+        "config_keys": [override.split("=", 1)[0] for override in EFFECTIVE["config"]],
+        "enable": EFFECTIVE["enable"],
+        "disable": EFFECTIVE["disable"],
+    },
+)
 
 if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
     command_raw = config("mcp_servers.cmux-cua.command=", args)
@@ -201,9 +275,13 @@ if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
         raise SystemExit(42)
     command = json.loads(command_raw)
     mcp_args = json.loads(mcp_args_raw)
-    child_env = os.environ.copy()
+    forwarded = list(CODEX_DEFAULT_MCP_ENV_VARS)
+    env_vars_raw = config("mcp_servers.cmux-cua.env_vars=", args)
+    if env_vars_raw:
+        forwarded.extend(json.loads(env_vars_raw))
+    child_env = {name: os.environ[name] for name in forwarded if name in os.environ}
     env_prefix = "mcp_servers.cmux-cua.env."
-    for arg in args:
+    for arg in EFFECTIVE["config"]:
         if not arg.startswith(env_prefix):
             continue
         key, value = arg[len(env_prefix) :].split("=", 1)
@@ -347,12 +425,14 @@ def expect_scrubbed_mcp_env(
     context: str,
     *,
     helper_owned: bool,
+    state_scope: str = "default",
 ) -> None:
     embedded = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EMBEDDED=")
     daemon_app = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DAEMON_APP=")
     force_proxy = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_MCP_FORCE_PROXY=")
     external_flow = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW=")
     auth_token = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=")
+    forwarded_env = arg_value(args, "mcp_servers.cmux-cua.env_vars=")
     default_session = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=")
     state_owner_pid = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_STATE_OWNER_PID=")
     permissions_gate = arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_PERMISSIONS_GATE=")
@@ -369,7 +449,22 @@ def expect_scrubbed_mcp_env(
     expect(permissions_gate is None, f"{context}: proxy must not own the daemon permission gate: {args}", failures)
     expect(force_proxy is not None, f"{context}: missing forced proxy config in {args}", failures)
     expect(external_flow is not None, f"{context}: missing proxy permission-wait config in {args}", failures)
-    expect(auth_token is not None, f"{context}: missing daemon authentication config in {args}", failures)
+    expect(
+        auth_token is None,
+        f"{context}: daemon credential must not be passed as an argv env override",
+        failures,
+    )
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        f"{context}: daemon credential value is visible in the Codex argv (ps can read it)",
+        failures,
+    )
+    expect(
+        forwarded_env is not None
+        and "CMUX_CUA_SOCKET_AUTH_TOKEN" in json.loads(forwarded_env),
+        f"{context}: MCP server must receive CMUX_CUA_SOCKET_AUTH_TOKEN through env_vars, got {forwarded_env!r}",
+        failures,
+    )
     expect(default_session is not None, f"{context}: missing CMUX_CUA_DEFAULT_SESSION config in {args}", failures)
     expect(state_owner_pid is not None, f"{context}: missing stable state owner PID in {args}", failures)
     expect(telemetry is not None, f"{context}: missing telemetry opt-out config in {args}", failures)
@@ -401,8 +496,6 @@ def expect_scrubbed_mcp_env(
             f"{context}: proxy must honor the helper's external permission flow, got {external_flow}",
             failures,
         )
-    if auth_token is not None:
-        expect(json.loads(auth_token) == "cmux-test-auth-token", f"{context}: unexpected daemon auth token", failures)
     if telemetry is not None:
         expect(json.loads(telemetry) == "false", f"{context}: expected telemetry disabled, got {telemetry}", failures)
     if update_check is not None:
@@ -415,7 +508,9 @@ def expect_scrubbed_mcp_env(
         expect(json.loads(cursor_label) == "cmux", f"{context}: unexpected cursor label {cursor_label}", failures)
     if state_dir is not None:
         expect(
-            json.loads(state_dir).endswith("/Library/Application Support/cmux/cmux-cua/runtime/default/state"),
+            json.loads(state_dir).endswith(
+                f"/Library/Application Support/cmux/cmux-cua/runtime/{state_scope}/state"
+            ),
             f"{context}: unexpected state dir {state_dir}",
             failures,
         )
@@ -455,8 +550,9 @@ def run_wrapper(
     mcp_handshake: bool = False,
     diagnostics: bool = False,
     non_cmux: bool = False,
+    dev_tag: str | None = None,
 ) -> tuple[int, list[str], str, dict[str, object]]:
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-", dir=str(Path.home())) as td:
         tmp = Path(td)
         wrapper_dir = tmp / "cmux.app" / "Contents" / "Resources" / "bin"
         real_dir = tmp / "real-bin"
@@ -548,7 +644,9 @@ exit 1
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(str(socket_path))
         try:
-            env = os.environ.copy()
+            # A test launched inside cmux must not inherit the real app's
+            # runtime paths or capabilities into this synthetic installation.
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
             sandbox_home = tmp / "home"
             sandbox_home.mkdir()
             codex_home = sandbox_home / ".codex"
@@ -564,6 +662,9 @@ exit 1
             env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "cmux-cua.sock")
             env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "cmux-cua-codex.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
+            if dev_tag is not None:
+                env["CMUX_TAG"] = dev_tag
+                env["CMUX_BUNDLE_ID"] = f"com.cmuxterm.app.debug.{dev_tag}"
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
             env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
             env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
@@ -796,6 +897,23 @@ def args_config(args: list[str]) -> str | None:
     return arg_value(args, "mcp_servers.cmux-cua.args=")
 
 
+def expect_native_computer_use_disabled(
+    args: list[str],
+    context: str,
+    failures: list[str],
+) -> None:
+    try:
+        disable_index = args.index("--disable")
+    except ValueError:
+        expect(False, f"{context}: cmux Codex must disable native computer_use, got {args}", failures)
+        return
+    expect(
+        disable_index + 1 < len(args) and args[disable_index + 1] == "computer_use",
+        f"{context}: expected --disable computer_use, got {args}",
+        failures,
+    )
+
+
 def configured_skill_path(args: list[str]) -> Path | None:
     raw = arg_value(args, "skills.config=")
     prefix = '[{path="'
@@ -885,6 +1003,7 @@ def test_codex_fresh_session_handshakes_before_first_user_turn(failures: list[st
         and helper_env.get("force_proxy") == "1"
         and helper_env.get("external_permission_flow") == "1"
         and helper_env.get("auth_present") is True
+        and helper_env.get("auth_matches") is True
         and helper_env.get("daemon_app") is None
         and helper_env.get("permissions_gate") is None,
         f"fresh helper must retain forced proxy/TCC boundary environment, got {helper_env!r}",
@@ -953,6 +1072,7 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "cmux-cua attach", failures)
     expect("skill-install=" not in stderr and "managed-link-retired" not in stderr,
            f"ordinary Codex launch must keep diagnostics quiet, got {stderr!r}", failures)
     # Codex CLI does not discover skills from skills.config session flags; the
@@ -1003,6 +1123,11 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
                 failures,
             )
     expect_scrubbed_mcp_env(args, failures, "bundled cmux-cua", helper_owned=True)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") is None,
+        f"stable launches must retain the signed Codex parent gate, got {args}",
+        failures,
+    )
 
     computer_use_command_index = args.index("-c") if "-c" in args else -1
     prompt_index = args.index("hello") if "hello" in args else -1
@@ -1010,6 +1135,23 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         0 <= computer_use_command_index < prompt_index,
         f"expected computer-use config before user argv, got {args}",
         failures,
+    )
+
+
+def test_codex_tagged_dev_build_allows_unverified_parent(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["hello"], dev_tag="fixture")
+    expect(code == 0, f"tagged dev wrapper exited {code}: {stderr}", failures)
+    expect(
+        arg_value(args, "mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT=") == '"1"',
+        f"tagged dev launches must allow the local ad-hoc Codex parent, got {args}",
+        failures,
+    )
+    expect_scrubbed_mcp_env(
+        args,
+        failures,
+        "tagged dev cmux-cua",
+        helper_owned=True,
+        state_scope="fixture",
     )
 
 
@@ -1353,14 +1495,64 @@ def test_codex_computer_use_wrapper_is_a_pure_proxy(failures: list[str]) -> None
     )
 
 
+def codex_received_credential_in_env(skill: dict[str, object]) -> bool:
+    return any(
+        event.get("event") == "codex:env"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("auth_matches") is True
+        for event in trace_events(skill)
+    )
+
+
 def test_codex_reads_private_daemon_credential_file(failures: list[str]) -> None:
-    code, args, stderr, _ = run_wrapper(
+    code, args, stderr, skill = run_wrapper(
         ["hello"],
         auth_token=False,
         auth_token_file=True,
     )
     expect(code == 0, f"auth file wrapper exited {code}: {stderr}", failures)
     expect_scrubbed_mcp_env(args, failures, "private daemon credential file", helper_owned=True)
+    expect(
+        codex_received_credential_in_env(skill),
+        "credential from the private file must reach Codex through its environment",
+        failures,
+    )
+
+
+def test_codex_credential_reaches_mcp_server_only_through_environment(
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        auth_token=False,
+        auth_token_file=True,
+        mcp_handshake=True,
+    )
+    expect(code == 0, f"env-forwarded credential handshake exited {code}: {stderr}", failures)
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        "daemon credential value is visible in the Codex argv (ps can read it)",
+        failures,
+    )
+    expect("cmux-test-auth-token" not in stderr, "stderr must not disclose the daemon credential", failures)
+    expect(
+        codex_received_credential_in_env(skill),
+        "Codex process environment must carry the daemon credential",
+        failures,
+    )
+    helper_env = next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "helper:started"
+        ),
+        None,
+    )
+    expect(
+        isinstance(helper_env, dict) and helper_env.get("auth_matches") is True,
+        f"MCP server must receive the exact credential through env_vars, got {helper_env!r}",
+        failures,
+    )
 
 
 def test_codex_rejects_proxy_only_cmux_cua_override(failures: list[str]) -> None:
@@ -1385,6 +1577,7 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("fork" in args, f"expected fork subcommand to survive, got {args}", failures)
+    expect_native_computer_use_disabled(args, "fork", failures)
     cmd = command_config(args)
     expect(cmd is not None, f"missing computer-use command config for fork in {args}", failures)
     if cmd is not None:
@@ -1398,6 +1591,109 @@ def test_codex_fork_gets_hooks_and_cmux_cua(failures: list[str]) -> None:
     expect(
         0 <= first_config_index < fork_index,
         f"expected injected config before the fork subcommand, got {args}",
+        failures,
+    )
+
+
+def effective_globals_event(skill: dict[str, object]) -> dict[str, object]:
+    return next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "codex:effective_globals"
+            and isinstance(event.get("payload"), dict)
+        ),
+        {},
+    )
+
+
+def expect_session_globals_survive(
+    argv: list[str],
+    user_config_keys: list[str],
+    user_enabled: list[str],
+    context: str,
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        argv,
+        auth_token=False,
+        auth_token_file=True,
+        mcp_handshake=True,
+    )
+    expect(code == 0, f"{context}: wrapper exited {code}: {stderr}", failures)
+    effective = effective_globals_event(skill)
+    keys = effective.get("config_keys") or []
+    for key in [
+        "mcp_servers.cmux-cua.command",
+        "mcp_servers.cmux-cua.env_vars",
+        "hooks.cmux-test",
+        *user_config_keys,
+    ]:
+        expect(key in keys, f"{context}: Codex would drop -c {key}; effective keys {keys}, argv {args}", failures)
+    enabled = effective.get("enable") or []
+    for feature in ["hooks", *user_enabled]:
+        expect(feature in enabled, f"{context}: Codex would drop --enable {feature}; effective {enabled}, argv {args}", failures)
+    expect(
+        "computer_use" in (effective.get("disable") or []),
+        f"{context}: Codex would drop --disable computer_use; effective {effective}, argv {args}",
+        failures,
+    )
+    helper_env = next(
+        (
+            event.get("payload")
+            for event in trace_events(skill)
+            if event.get("event") == "helper:started"
+        ),
+        None,
+    )
+    expect(
+        isinstance(helper_env, dict) and helper_env.get("auth_matches") is True,
+        f"{context}: cmux-cua MCP server must start with the credential, got {helper_env!r}",
+        failures,
+    )
+    expect(
+        not any("cmux-test-auth-token" in arg for arg in args),
+        f"{context}: daemon credential value is visible in the Codex argv",
+        failures,
+    )
+
+
+def test_codex_exec_with_subcommand_config_keeps_cmux_cua(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["exec", "-c", 'model="gpt-test"', "--enable", "user_feature", "hello"],
+        ["model"],
+        ["user_feature"],
+        "exec with -c after the subcommand",
+        failures,
+    )
+
+
+def test_codex_exec_keeps_root_and_subcommand_user_config(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["-c", 'user.root="1"', "exec", "--config=user.sub=\"2\"", "-m", "gpt-test-model", "hello"],
+        ["user.root", "user.sub"],
+        [],
+        "exec with root and subcommand -c",
+        failures,
+    )
+
+
+def test_codex_resume_with_subcommand_config_keeps_cmux_cua(failures: list[str]) -> None:
+    expect_session_globals_survive(
+        ["resume", "--last", "-c", 'model="gpt-test"'],
+        ["model"],
+        [],
+        "resume with -c after the subcommand",
+        failures,
+    )
+
+
+def test_codex_exec_double_dash_prompt_is_not_hoisted(failures: list[str]) -> None:
+    code, args, stderr, _ = run_wrapper(["exec", "--", "-c", "literal prompt"])
+    expect(code == 0, f"exec -- wrapper exited {code}: {stderr}", failures)
+    expect(
+        args[-4:] == ["exec", "--", "-c", "literal prompt"],
+        f"tokens after -- are prompt text and must stay in place, got {args}",
         failures,
     )
 
@@ -1443,6 +1739,7 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         f"missing broker must not emit unsupported session discovery, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "missing broker", failures)
 
 
 def test_codex_skips_when_disabled(failures: list[str]) -> None:
@@ -1457,10 +1754,11 @@ def test_codex_skips_when_live_app_setting_is_disabled(failures: list[str]) -> N
     code, args, stderr, _ = run_wrapper(["hello"], live_app_enabled=False)
     expect(code == 0, f"live-disabled wrapper exited {code}: {stderr}", failures)
     expect(
-        command_config(args) is None,
-        f"expected no injection when the live app setting is disabled, got {args}",
+        command_config(args) is not None,
+        f"explicit cmux-cua must remain attachable when the saved toggle is off, got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "disabled cmux Computer Use", failures)
 
 
 def test_codex_skips_when_daemon_credential_is_missing(failures: list[str]) -> None:
@@ -1501,6 +1799,7 @@ def test_codex_fails_closed_for_computer_use_when_socket_dead(failures: list[str
         f"expected NO computer-use attach with dead socket (fail closed), got {args}",
         failures,
     )
+    expect_native_computer_use_disabled(args, "dead cmux socket", failures)
 
 
 def test_codex_rejects_cmux_cua_override_under_group_writable_ancestor(failures: list[str]) -> None:
@@ -1566,6 +1865,7 @@ def main() -> int:
     test_codex_disabled_hooks_reports_inert_attachment(failures)
     test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
+    test_codex_tagged_dev_build_allows_unverified_parent(failures)
     test_codex_default_does_not_mutate_global_or_fake_session_discovery(failures)
     test_codex_default_skill_path_is_picker_safe(failures)
     test_codex_preserves_unverified_dangling_link_by_default(failures)
@@ -1583,6 +1883,11 @@ def main() -> int:
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
     test_codex_reads_private_daemon_credential_file(failures)
+    test_codex_credential_reaches_mcp_server_only_through_environment(failures)
+    test_codex_exec_with_subcommand_config_keeps_cmux_cua(failures)
+    test_codex_exec_keeps_root_and_subcommand_user_config(failures)
+    test_codex_resume_with_subcommand_config_keeps_cmux_cua(failures)
+    test_codex_exec_double_dash_prompt_is_not_hoisted(failures)
     test_codex_rejects_proxy_only_cmux_cua_override(failures)
     test_codex_rejects_cmux_cua_override_under_world_writable_ancestor(failures)
     test_codex_skips_when_driver_unavailable(failures)

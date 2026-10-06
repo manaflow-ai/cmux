@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 import Testing
+import CMUXAgentLaunch
+import CmuxRemoteWorkspace
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,6 +12,27 @@ import Testing
 
 @Suite(.serialized)
 struct AgentHookDeliveryQueueTests {
+    /// Relay-admitted queue parameters build a relay-backed event.
+    @Test("Relay-admitted queue parameters build a relay-backed event")
+    func relayAdmittedParametersBuildRelayEvent() throws {
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let admitted = try #require(RemoteRelayAgentHookAdmission().queueParameters(from: [
+            "agent": "claude",
+            "subcommand": "stop",
+            "payload": #"{"session_id":"sess-1","transcript_path":"/Users/dev/.ssh/id_ed25519"}"#,
+            "relay_backed": true,
+            "workspace_id": workspaceID,
+            "surface_id": surfaceID,
+        ]))
+
+        let event = try #require(AgentHookDeliveryEvent(params: admitted, deliverySocketPath: "/tmp/cmux-test.sock"))
+        #expect(event.relayBacked)
+        #expect(event.sessionID == "sess-1")
+        #expect(event.environment == ["CMUX_WORKSPACE_ID": workspaceID, "CMUX_SURFACE_ID": surfaceID])
+        #expect(!event.payload.contains("transcript_path"))
+    }
+
     @Test("Queue admission returns while downstream delivery is blocked")
     func enqueueDoesNotWaitForDelivery() async throws {
         let probe = AgentHookDeliveryTestProbe(blockedPayloads: ["first"])
@@ -86,8 +109,8 @@ struct AgentHookDeliveryQueueTests {
         #expect(await probe.completedPayloads() == [activePayload, latestPayload])
     }
 
-    @Test("Terminal lifecycle admission replaces stale actor-resident state")
-    func terminalLifecycleReplacesActorResidentState() async throws {
+    @Test("Session end replaces stale state but preserves stop completion")
+    func sessionEndReplacesStaleStateButPreservesStopCompletion() async throws {
         let activePayload = #"{"session_id":"session-a","state":"active"}"#
         let stalePrompt = #"{"session_id":"session-a","state":"stale-prompt"}"#
         let staleStop = #"{"session_id":"session-a","state":"stale-stop"}"#
@@ -124,8 +147,164 @@ struct AgentHookDeliveryQueueTests {
         )))
 
         await probe.release(payload: activePayload)
-        try await probe.waitUntilCompleted(count: 2)
-        #expect(await probe.completedPayloads() == [activePayload, latestPayload])
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, staleStop, latestPayload])
+    }
+
+    @Test("Session end preserves a buffered stop completion")
+    func sessionEndPreservesBufferedStopCompletion() async throws {
+        let activePayload = #"{"session_id":"session-a","state":"active"}"#
+        let stopPayload = #"{"session_id":"session-a","state":"stopped"}"#
+        let endPayload = #"{"session_id":"session-a","state":"ended"}"#
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 4,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: stopPayload,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: endPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, stopPayload, endPayload])
+    }
+
+    /// A later stop must not coalesce away the earlier turn boundary.
+    @Test("A second stop keeps the first turn boundary")
+    func repeatedStopsPreserveBothTurnBoundaries() async throws {
+        let activePayload = "active"
+        let firstStop = #"{"session_id":"session-a","turn_id":"turn-1"}"#
+        let secondStop = #"{"session_id":"session-a","turn_id":"turn-2"}"#
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: firstStop,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: secondStop,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, firstStop, secondStop])
+    }
+
+    /// A newer session-start must not replace a buffered stop for the same lane.
+    @Test("Session start preserves a buffered stop completion")
+    func sessionStartPreservesBufferedStopCompletion() async throws {
+        let activePayload = #"{"session_id":"session-a","state":"active"}"#
+        let stopPayload = #"{"session_id":"session-a","turn_id":"turn-1"}"#
+        let startPayload = #"{"session_id":"session-a","turn_id":"turn-2"}"#
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-a"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: stopPayload,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-start",
+            payload: startPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 3)
+        #expect(await probe.completedPayloads() == [activePayload, stopPayload, startPayload])
+    }
+
+    @Test("Session end has a reserved ingress slot when terminal ingress is full")
+    func sessionEndUsesReservedIngressSlot() async throws {
+        let activePayload = "active"
+        let firstStop = "stop-a"
+        let secondStop = "stop-b"
+        let endPayload = "session-end-a"
+        let probe = AgentHookDeliveryTestProbe(blockedPayloads: [activePayload])
+        let queue = AgentHookDeliveryQueue(
+            maximumConcurrentDeliveries: 1,
+            maximumResidentEvents: 1,
+            maximumIngressEvents: 4,
+            maximumTerminalIngressEvents: 2
+        ) { event in
+            await probe.deliver(event)
+        }
+
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "prompt-submit",
+            payload: activePayload,
+            surfaceID: "surface-active"
+        )))
+        try await probe.waitUntilStarted(count: 1)
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: firstStop,
+            surfaceID: "surface-a"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "stop",
+            payload: secondStop,
+            surfaceID: "surface-b"
+        )))
+        #expect(queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: endPayload,
+            surfaceID: "surface-a"
+        )))
+
+        await probe.release(payload: activePayload)
+        try await probe.waitUntilCompleted(count: 4)
+        #expect(await probe.completedPayloads() == [activePayload, firstStop, secondStop, endPayload])
     }
 
     @Test("Terminal lifecycle has reserved execution capacity")
@@ -295,17 +474,22 @@ struct AgentHookDeliveryQueueTests {
             payload: "session-end-d",
             surfaceID: "surface-d"
         )))
-        #expect(!queue.enqueue(try makeEvent(
+        #expect(queue.enqueue(try makeEvent(
             subcommand: "session-end",
             payload: "session-end-overflow",
             surfaceID: "surface-overflow"
         )))
+        #expect(!queue.enqueue(try makeEvent(
+            subcommand: "session-end",
+            payload: "session-end-overflow-2",
+            surfaceID: "surface-overflow-2"
+        )))
 
         await probe.release(payload: "active")
-        try await probe.waitUntilCompleted(count: 5)
+        try await probe.waitUntilCompleted(count: 6)
         #expect(await probe.completedPayloads() == [
             "active", "stop-a", "session-end-b", "session-end-c",
-            "session-end-d",
+            "session-end-d", "session-end-overflow",
         ])
     }
 
@@ -614,6 +798,26 @@ struct AgentHookDeliveryQueueTests {
         #expect(unsupportedEnvironment == nil)
     }
 
+    /// The routed launch's account pin rides the queued session-start hook to
+    /// the capture that records it; the ingress used to reject the event.
+    @Test("Queued Claude hooks carry the routed launch metadata")
+    func queuedClaudeHookCarriesRoutedLaunchMetadata() throws {
+        let environment = [
+            "CMUX_SURFACE_ID": "surface-a",
+            SubrouterClaudeResumeRouting.accountEnvironmentKey: "me@example.com",
+            SubrouterClaudeResumeRouting.environmentKey: "sr claude proxy --resume",
+            SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: "sr claude proxy --resume",
+        ]
+        let event = try #require(AgentHookDeliveryEvent(params: [
+            "agent": "claude",
+            "subcommand": "session-start",
+            "payload": "{}",
+            "socket_path": "/tmp/cmux-test.sock",
+            "environment": environment,
+        ]))
+        #expect(event.environment == environment)
+    }
+
     @Test("Every agent shares generic lifecycle queue admission")
     func allAgentsShareLifecycleAdmission() throws {
         let agents = [
@@ -723,6 +927,50 @@ struct AgentHookDeliveryQueueTests {
             executableURL: URL(fileURLWithPath: "/bin/true")
         )
         #expect(directEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == nil)
+    }
+
+    @Test("Mirrored cmux-tui session hooks replay relay-backed to the local pane")
+    func mirroredAgentHookEvent() throws {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let process = AgentHookDeliveryProcess(executableURLProvider: { nil })
+        let start = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-start",
+            payload: #"{"hook_event_name":"SessionStart","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        #expect(start.relayBacked)
+        #expect(start.sessionID == "s1")
+        #expect(start.deliveryArguments == ["hooks", "claude", "session-start"])
+        #expect(start.orderingKey == "/tmp/cmux-local.sock\0surface\0\(surfaceID.uuidString)")
+        let startEnvironment = process.deliveryEnvironment(
+            event: start,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(startEnvironment["CMUX_WORKSPACE_ID"] == workspaceID.uuidString)
+        #expect(startEnvironment["CMUX_SURFACE_ID"] == surfaceID.uuidString)
+        #expect(startEnvironment["CMUX_AGENT_HOOK_RELAY_ORIGIN"] == "1")
+        #expect(startEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == nil)
+
+        // Session end keeps the record/journal cleanup but not the visible
+        // status and notification cleanup owned by the roster projection.
+        let end = try #require(AgentHookDeliveryEvent.mirrored(
+            agent: "claude",
+            subcommand: "session-end",
+            payload: #"{"hook_event_name":"SessionEnd","session_id":"s1"}"#,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            deliverySocketPath: "/tmp/cmux-local.sock"
+        ))
+        let endEnvironment = process.deliveryEnvironment(
+            event: end,
+            executableURL: URL(fileURLWithPath: "/bin/true")
+        )
+        #expect(endEnvironment["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"] == "1")
+        #expect(end.orderingKey == start.orderingKey)
     }
 
     @Test("Oversized optional launch metadata does not discard lifecycle routing")

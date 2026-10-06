@@ -34,4 +34,3 @@ test("does not claim a workflow without command or config evidence", () => {
     which: () => undefined,
   })).toEqual([]);
 });
-

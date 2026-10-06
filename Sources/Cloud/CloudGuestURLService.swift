@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import CmuxCloudMachines
+import CmuxCloudTui
 import Foundation
 
 /// Owns one ephemeral opener subscription per connected VM. The daemon holds
@@ -110,7 +112,8 @@ final class CloudGuestURLService {
             let coordinator = TerminalLinkOpenCoordinator(externalOpen: { externalURL = $0; return true }, recordsDiagnostics: false)
             var context = current
             context = TerminalLinkOpenRequest(rawValue: request.url, sourceWorkspaceId: context.sourceWorkspaceId,
-                                              sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false)
+                                              sourcePanelId: context.sourcePanelId, workingDirectory: nil, focus: false,
+                                              isRemoteInitiated: true)
             opened = coordinator.open(context)
             if let externalURL {
                 let configuration = NSWorkspace.OpenConfiguration()

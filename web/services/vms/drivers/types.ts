@@ -2,6 +2,7 @@
 // per-provider implementations behind an interface. Callers hold a `VMProvider` and never reach
 // into specifics.
 
+import type { NetworkRulePlan } from "../networkPolicy";
 import type { GuestPromptIdentity } from "../guestPrompt";
 
 export type ProviderId = "freestyle";
@@ -77,6 +78,8 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** The image is a live machine snapshot (fork or checkpoint restore); create waits for this machine's own daemon. */
+  forked?: boolean;
   /** Provider-enforced lifetime runtime allowance for this allocation. */
   runtimeBudgetSeconds?: number;
   /** Human-facing machine label; providers may ignore this cosmetic field. */
@@ -118,11 +121,45 @@ export type CreateOptions = {
    * Providers without `privateNetworking` ignore it.
    */
   network?: ProviderNetworkRef;
+  /**
+   * Outbound rules compiled from the machine's network policy
+   * (services/vms/networkPolicy.ts). Absent: full public egress, the
+   * historical default. Providers without egress control must refuse a
+   * restricted plan rather than silently leave the machine open.
+   */
+  networkRules?: NetworkRulePlan;
 };
 
 /** Enough of a provider network to attach a machine or a tunnel to it. */
 export type ProviderNetworkRef = {
   readonly id: string;
+  readonly memberIngress?: boolean;
+};
+
+export type VMFirewallEndpoint = {
+  readonly vmId?: string;
+  readonly vpcId?: string;
+  readonly tunnelId?: string;
+  readonly cidr?: string;
+  readonly public?: true;
+  readonly port?: number;
+  readonly protocol?: "tcp" | "udp" | "icmp";
+};
+
+export type VMFirewallRule = {
+  readonly id: string;
+  readonly action: "allow";
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string | null;
+  readonly createdAt?: string;
+  readonly updatedAt?: string;
+};
+
+export type VMFirewallRuleInput = {
+  readonly source: VMFirewallEndpoint;
+  readonly destination: VMFirewallEndpoint;
+  readonly description?: string;
 };
 
 /** One edge header-injection rule; see CreateOptions.edgeRules. */
@@ -140,7 +177,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata" | "networkRules"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -313,6 +350,28 @@ export type ExecResult = {
   stderr: string;
 };
 
+export type VMFileEntry = {
+  name: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
+export type VMFileContents = {
+  path: string;
+  data: Uint8Array;
+  size: number;
+};
+
+export type VMFileStat = {
+  path: string;
+  kind: "file" | "directory" | "symlink";
+  size?: number;
+  mode?: number;
+  modifiedAt?: number;
+};
+
 export type ExecOptions = {
   readonly timeoutMs?: number;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
@@ -387,7 +446,18 @@ export type ProviderTunnel = {
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
   readonly addressV4: string | null;
   readonly addressV6: string | null;
+  readonly attachments?: readonly ProviderTunnelAttachment[];
 };
+
+export type ProviderTunnelAttachment = {
+  readonly networkId: string;
+  readonly addressV4: string | null;
+  readonly addressV6: string | null;
+};
+
+export class ProviderTunnelNetworkOverlapError extends Error {
+  readonly kind = "network_overlap" as const;
+}
 
 /** Result of enrolling a tunnel, including whether provider state was recovered or rotated. */
 export type ProviderTunnelCreateResult = {
@@ -418,9 +488,9 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
-  /** Read a network back, or null when it no longer exists at the provider. */
-  getNetwork(networkId: string): Promise<ProviderNetwork | null>;
+  ensureNetwork(options: EnsureProviderNetworkOptions): Promise<ProviderNetwork>;
+  /** Read a network back by id or slug, or null when the provider has none. */
+  getNetwork(networkIdOrSlug: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
@@ -439,7 +509,28 @@ export interface VMPrivateNetworking {
   rotateTunnelKey(tunnelId: string, clientPublicKey: string, networkId: string): Promise<ProviderTunnel>;
   /** Delete a tunnel. Must succeed when it is already gone. */
   deleteTunnel(tunnelId: string): Promise<void>;
+  attachTunnelNetwork?(tunnelId: string, networkId: string): Promise<ProviderTunnelAttachment>;
+  detachTunnelNetwork?(tunnelId: string, networkId: string): Promise<void>;
+  /** Ids of every tunnel attached to a network. */
+  listNetworkTunnelIds?(networkId: string): Promise<string[]>;
+  listFirewallRules?(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]>;
+  getFirewallRule?(ruleId: string): Promise<VMFirewallRule>;
+  createFirewallRule?(options: VMFirewallRuleInput): Promise<VMFirewallRule>;
+  deleteFirewallRule?(ruleId: string): Promise<void>;
 }
+
+export type EnsureProviderNetworkOptions = {
+  readonly slug: string;
+  readonly displayName?: string;
+  readonly heal?: boolean;
+  readonly membersRule?: boolean;
+  /**
+   * The IPv4 range for a network this call creates. Omitted means the
+   * provider's default. It never changes an existing network: a provider
+   * network's range is fixed for its life.
+   */
+  readonly cidr?: string;
+};
 
 export interface VMProvider {
   readonly id: ProviderId;
@@ -479,12 +570,22 @@ export interface VMProvider {
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
+  /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
+  applyNetworkPolicy?(vmId: string, plan: NetworkRulePlan): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;
   setRuntimeBudget?(vmId: string, remainingSeconds: number | null): Promise<void>;
 
   exec(vmId: string, command: string, opts?: ExecOptions): Promise<ExecResult>;
+
+  /** Backend-wrapped guest filesystem operations. Paths are validated by the route and driver. */
+  listFiles?(vmId: string, path: string): Promise<VMFileEntry[]>;
+  readFile?(vmId: string, path: string): Promise<VMFileContents>;
+  writeFile?(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void>;
+  makeDirectory?(vmId: string, path: string): Promise<void>;
+  removeFile?(vmId: string, path: string): Promise<void>;
+  statFile?(vmId: string, path: string): Promise<VMFileStat>;
 
   // Optional: mint a private, token-gated HTTPS preview URL for an arbitrary HTTP port on the
   // VM (the exe.dev "https://vmname.exe.xyz:3456" equivalent). openUrl embeds the token as a
@@ -568,6 +669,31 @@ export class ProviderError extends Error {
   ) {
     super(`[${provider}] ${message}`);
     this.name = "ProviderError";
+  }
+}
+
+/**
+ * A machine that can never be attached as it is: it was created before the
+ * attach contract the server now requires, and nothing on the server changes
+ * that. Routes answer with a non-retryable recreate action, never a retryable
+ * outage; see docs/cloud-guest-upgrades.md.
+ */
+export class ProviderMachineRecreateRequiredError extends ProviderError {
+  constructor(provider: ProviderId, message: string) {
+    super(provider, message);
+    this.name = "ProviderMachineRecreateRequiredError";
+  }
+}
+
+/**
+ * The owner's private network has no free address for another member. It
+ * stays full until machines are deleted or computers are revoked, so routes
+ * answer with a non-retryable cleanup action, never a retryable outage.
+ */
+export class ProviderNetworkFullError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderNetworkFullError";
   }
 }
 

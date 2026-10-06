@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type Re
 import type { Block, ChangedFile, SessionActions } from "../session";
 import { fileDiffCacheKey } from "../session";
 import { agentChatText } from "../i18n";
+import { FileDiffView } from "./FileDiffView";
 import { activityIndicatorState, activityTailKey } from "../activity";
 import { ChatMarkdown, MarkdownCodeBlock } from "../ChatMarkdown";
 import { useActivityStartedAt, useTicker } from "../hooks/useTicker";
@@ -500,11 +501,13 @@ function ChangedFilesBlock({
   files,
   revision,
   diffs,
+  errors,
   onDiff,
 }: {
   files: ChangedFile[];
   revision?: string;
   diffs: Record<string, string>;
+  errors: Record<string, string>;
   onDiff: (path: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -515,10 +518,8 @@ function ChangedFilesBlock({
   const statusSummary = useMemo(() => changedFilesSummary(files), [files]);
   const diffRevision = revision ?? "0";
   const diffKey = (path: string) => fileDiffCacheKey(diffRevision, path);
-  const hasDiff = (path: string) => Object.prototype.hasOwnProperty.call(diffs, diffKey(path));
   const openFileDiff = (path: string) => {
     setExpanded((current) => ({ ...current, [path]: true }));
-    if (!hasDiff(path)) onDiff(diffKey(path));
   };
   const firstPath = files[0]?.path;
   return (
@@ -554,7 +555,6 @@ function ChangedFilesBlock({
                 style={filesFileRowStyle}
                 onClick={() => {
                   setExpanded((m) => ({ ...m, [file.path]: !m[file.path] }));
-                  if (!isOpen && !hasDiff(file.path)) onDiff(diffKey(file.path));
                 }}
               >
                 <span className="files-file-name" style={filesPathTextStyle}>
@@ -566,7 +566,7 @@ function ChangedFilesBlock({
               <DisclosureMotion open={isOpen}>
                 {() => (
                   <div className="files-diff selectable" style={filesDiffStyle}>
-                    {hasDiff(file.path) ? <MarkdownCodeBlock code={diffs[diffKey(file.path)]} lang="diff" /> : <div className="diff-loading">Loading diff...</div>}
+                    <FileDiffView diff={diffs[diffKey(file.path)]} error={errors[diffKey(file.path)]} onRequest={() => onDiff(diffKey(file.path))} />
                   </div>
                 )}
               </DisclosureMotion>
@@ -665,6 +665,21 @@ function ActivityCaret({ open, visible }: { open: boolean; visible: boolean }) {
   );
 }
 
+/** "Message from <sender>", with the name inserted as written. */
+export function agentMessageLabel(from: string, languages?: readonly string[]): string {
+  return agentChatText("agentMessageFrom", languages).replace("{sender}", () => from);
+}
+
+/** A cmux agent message the agent received, shown with its sender. */
+export function AgentMessageRow({ message }: { message: { from: string; body: string } }) {
+  return (
+    <div className="msg agent-message">
+      <div className="agent-message-from">{agentMessageLabel(message.from)}</div>
+      <div className="body selectable">{message.body}</div>
+    </div>
+  );
+}
+
 function activityBlockHasDetail(block: Block): boolean {
   switch (block.kind) {
     case "tool":
@@ -673,6 +688,8 @@ function activityBlockHasDetail(block: Block): boolean {
       return Boolean(block.text.trim());
     case "status":
       return Boolean(block.text.trim());
+    case "plan":
+      return block.entries.length > 0;
     case "error":
       return Boolean(block.text.trim());
     case "files":
@@ -680,6 +697,20 @@ function activityBlockHasDetail(block: Block): boolean {
     default:
       return false;
   }
+}
+
+function PlanBlock({ entries }: { entries: Extract<Block, { kind: "plan" }>['entries'] }) {
+  return (
+    <div className="plan-block">
+      {entries.map((entry, index) => (
+        <div className={`plan-entry plan-entry-${entry.status}`} key={`${index}:${entry.text}`}>
+          <span className="plan-entry-status">{entry.status.replace("_", " ")}</span>
+          <span className="plan-entry-text">{entry.text}</span>
+          {entry.priority ? <span className="plan-entry-priority">{entry.priority}</span> : null}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ActivityDisclosureRow({
@@ -733,11 +764,13 @@ function ActivityDisclosureRow({
 function ActivityBlock({
   block,
   fileDiffs,
+  fileDiffErrors,
   onFileDiff,
   thinkingDefaultOpen,
 }: {
   block: Block;
   fileDiffs: Record<string, string>;
+  fileDiffErrors: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
 }) {
@@ -750,10 +783,12 @@ function ActivityBlock({
       return <div className="turn-thinking-detail">{block.text}</div>;
     case "status":
       return <div className="status-line">{block.text}</div>;
+    case "plan":
+      return <PlanBlock entries={block.entries} />;
     case "error":
       return <div className="error-block-wrap"><div className="error-block">{block.text}</div></div>;
     case "files":
-      return <ChangedFilesBlock files={block.files} revision={block.revision} diffs={fileDiffs} onDiff={onFileDiff} />;
+      return <ChangedFilesBlock files={block.files} revision={block.revision} diffs={fileDiffs} errors={fileDiffErrors} onDiff={onFileDiff} />;
     default:
       return null;
   }
@@ -766,6 +801,7 @@ function TurnActivity({
   expandedItems,
   setExpandedItems,
   fileDiffs,
+  fileDiffErrors,
   onFileDiff,
   thinkingDefaultOpen,
 }: {
@@ -775,6 +811,7 @@ function TurnActivity({
   expandedItems: Record<string, boolean>;
   setExpandedItems: (next: Record<string, boolean>) => void;
   fileDiffs: Record<string, string>;
+  fileDiffErrors: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
 }) {
@@ -798,7 +835,7 @@ function TurnActivity({
                   if (block.kind === "assistant") {
                     return (
                       <div className="turn-activity-item" key={`${group.id}:${i}`}>
-                        <ActivityBlock block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+                        <ActivityBlock block={block} fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
                       </div>
                     );
                   }
@@ -817,7 +854,7 @@ function TurnActivity({
                       <DisclosureMotion open={open && canExpand}>
                         {() => (
                           <div className="turn-activity-detail" style={activityDetailStyle}>
-                            <ActivityBlock block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+                            <ActivityBlock block={block} fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
                           </div>
                         )}
                       </DisclosureMotion>
@@ -842,6 +879,7 @@ function TurnGroupView({
   onHandoff,
   handoffPending,
   fileDiffs,
+  fileDiffErrors,
   onFileDiff,
   thinkingDefaultOpen,
   expandedTurns,
@@ -857,6 +895,7 @@ function TurnGroupView({
   onHandoff?: () => void;
   handoffPending?: boolean;
   fileDiffs: Record<string, string>;
+  fileDiffErrors: Record<string, string>;
   onFileDiff: (path: string) => void;
   thinkingDefaultOpen: boolean;
   expandedTurns: Record<string, boolean>;
@@ -868,9 +907,16 @@ function TurnGroupView({
   return (
     <div className="turn-group">
       {group.user ? <div className="msg user"><div className="body selectable">{group.user.text}</div></div> : null}
+      {group.messages?.map((message) => <AgentMessageRow key={message.id} message={message} />)}
       {live
         ? group.activity.map((block, i) => (
-          <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+          block.kind === "thinking" || block.kind === "assistant"
+            ? (
+              <div className="turn-live-activity" key={i}>
+                <ActivityBlock block={block} fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
+              </div>
+            )
+            : <ActivityBlock key={i} block={block} fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors} onFileDiff={onFileDiff} thinkingDefaultOpen={thinkingDefaultOpen} />
         ))
         : (
           <TurnActivity
@@ -879,7 +925,7 @@ function TurnGroupView({
             setExpanded={(open) => setExpandedTurns({ ...expandedTurns, [group.id]: open })}
             expandedItems={expandedItems}
             setExpandedItems={setExpandedItems}
-            fileDiffs={fileDiffs}
+            fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors}
             onFileDiff={onFileDiff}
             thinkingDefaultOpen={thinkingDefaultOpen}
           />
@@ -899,6 +945,7 @@ export function Blocks({
   onHandoff,
   handoffPending,
   fileDiffs = {},
+  fileDiffErrors = {},
   onFileDiff = () => {},
   thinkingDefaultOpen = false,
   initialExpandedTurns = {},
@@ -912,6 +959,7 @@ export function Blocks({
   onHandoff?: () => void;
   handoffPending?: boolean;
   fileDiffs?: Record<string, string>;
+  fileDiffErrors?: Record<string, string>;
   onFileDiff?: (path: string) => void;
   thinkingDefaultOpen?: boolean;
   initialExpandedTurns?: Record<string, boolean>;
@@ -943,7 +991,7 @@ export function Blocks({
               forkPending={forkPending}
               onHandoff={onHandoff}
               handoffPending={handoffPending}
-              fileDiffs={fileDiffs}
+              fileDiffs={fileDiffs} fileDiffErrors={fileDiffErrors}
               onFileDiff={onFileDiff}
               thinkingDefaultOpen={thinkingDefaultOpen}
               expandedTurns={expandedTurns}

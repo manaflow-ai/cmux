@@ -46,8 +46,10 @@ extension AgentLaunchSanitizer {
         ],
         optionalValueOptions: [
             "--debug",
-            "-d"
+            "-d",
+            "--remote-control"
         ],
+        greedyOptionalValueOptions: ["--remote-control"],
         // Claude booleans (from `claude --help`) pinned to width 1 so a following
         // one-word prompt is never inferred as the flag's value and replayed on
         // resume. Permission booleans are deliberately preserved for user-owned

@@ -23,7 +23,7 @@ extension DockSplitStore {
             : nil
         let resource = keepsCloudRoute ? (record?.resource ?? browser.cloudResourceForDuplication) : nil
         let isCloud = resource?.machine.isLocal == false
-        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId)) == nil else { return nil }
+        guard surfaceOwnershipPolicy.rejection(for: machineOwningSurface(panelId), kind: AppDelegate.shared?.surfaceResourceKind(for: browser)) == nil else { return nil }
         guard let anchorIndex = tabs.firstIndex(where: {
             $0.id == anchorTabId
         }),
@@ -50,11 +50,8 @@ extension DockSplitStore {
             catalog.restore([SurfaceProjectionRecord(panelID: duplicatedPanel.id, resource: resource,
                 remoteWorkspaceID: record?.remoteWorkspaceID)], workspaceID: workspaceId)
             if let model = browser.cloudAccess.model, let url = browser.cloudAccess.remoteURL {
-                duplicatedPanel.prepareCloudBrowserStore(machineID: resource.machine.rawValue)
                 let configuredURL = browser.cloudRestoreURL(on: url)
-                duplicatedPanel.cloudAccess.configure(model: model, url: configuredURL, resourceID: resource)
-                duplicatedPanel.showCloudAddress(configuredURL)
-                model.connect()
+                duplicatedPanel.configureCloudBrowser(model: model, url: configuredURL, resourceID: resource)
             } else {
                 duplicatedPanel.restoreCloudResource(resource, preferredURL: browser.currentURLForTabDuplication)
             }

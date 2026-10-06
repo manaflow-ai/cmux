@@ -328,12 +328,24 @@ extension Workspace {
         case .promptIdle:
             switch restoredAgentResumeStatesByPanelId[panelId] {
             case .some(.autoResumeCommandRunning), .some(.observedAgentCommandRunning):
+                if let terminal = panels[panelId] as? TerminalPanel,
+                   case .liveOwner(let kind, let processID, let attachInput, false) = terminal.restoreRecovery.state,
+                   attachInput != nil {
+                    terminal.restoreRecovery.state = .liveOwner(
+                        kind: kind,
+                        processID: processID,
+                        attachInput: attachInput,
+                        attachAvailable: true
+                    )
+                }
                 // A TUI prompt mark (OSC 133;A) is not the shell prompt
                 // returning while the agent process is still alive.
                 guard !restoredAgentHasLiveProcess(restoredAgent, panelId: panelId) else { break }
                 markRestoredAgentCompleted(panelId: panelId, snapshot: restoredAgent)
                 restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
                 retireAgentHookResumeBinding(panelId: panelId, matching: restoredAgent)
+                // Fails a pending wake check that no agent hook confirmed.
+                noteAgentWakeCommandEnded(panelId: panelId)
             case .some(.awaitingAutoResumeCommand), .some(.manualResumeAvailable),
                  .some(.completedAgentExit), nil:
                 // The terminal owns prompt-ready startup input delivery.
@@ -499,6 +511,11 @@ extension Workspace {
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
         if !AgentHibernationLifecycleStatusKeys.isManualKey(key) {
             recordAgentLifecycleChange(panelId: targetPanelId)
+            // Wake confirmation needs the report's own pane, never the
+            // focused-pane fallback.
+            if let panelId {
+                noteAgentWakeAgentReported(panelId: panelId, statusKey: key)
+            }
         }
     }
 
@@ -510,6 +527,7 @@ extension Workspace {
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
+            removePanelStatusEntry(key: key, panelId: panelId)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
@@ -530,6 +548,9 @@ extension Workspace {
 
     func clearAgentLifecycleStates(panelId: UUID) {
         guard let removed = agentLifecycleStatesByPanelId.removeValue(forKey: panelId) else { return }
+        for key in removed.keys {
+            removePanelStatusEntry(key: key, panelId: panelId)
+        }
         let manualStates = removed.filter { AgentHibernationLifecycleStatusKeys.isManualKey($0.key) }
         if !manualStates.isEmpty {
             let host: UUID? = if panels[panelId] != nil {

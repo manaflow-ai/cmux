@@ -378,6 +378,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(store.surfaceTabBarButtonSourcePath, localConfigURL.path)
         XCTAssertEqual(store.surfaceTabBarButtons.first?.terminalCommand, "codex --yolo")
         XCTAssertEqual(store.surfaceTabBarCommandSourcePaths["start-codex"], globalConfigURL.path)
+        XCTAssertEqual(store.surfaceTabBarActionReferenceIDs["start-codex"], "start-codex")
     }
 
     func testDecodeActionIconObjectsSupportAllFormats() throws {
@@ -672,6 +673,105 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.isEmpty)
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
+    func testInvalidReloadKeepsLastGoodGlobalConfigAndReportsLine() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-last-good-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path)
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo broken"
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.sourcePath, configURL.path)
+        XCTAssertEqual(issue.line, 3)
+
+        try """
+        {
+          "actions": {
+            "second": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "first"))
+        XCTAssertNotNil(store.resolvedAction(id: "second"))
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testSymlinkedConfigReloadsWhenTargetChanges() throws {
+        // Regression for the symlinked cmux.json live-reload bug: the parse cache
+        // was keyed on attributesOfItem(atPath:) (lstat), which does NOT follow
+        // symlinks. Editing the symlink target left the link's own size/mtime
+        // unchanged, so the cache never invalidated and reload-config / file
+        // watching appeared to do nothing until a full app restart.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-symlink-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // dotfiles-style real file, with cmux.json as a symlink pointing at it.
+        let realConfig = root.appendingPathComponent("dotfiles-cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: realConfig, atomically: true, encoding: .utf8)
+
+        let linkPath = root.appendingPathComponent("cmux.json").path
+        try FileManager.default.createSymbolicLink(
+            atPath: linkPath,
+            withDestinationPath: realConfig.path
+        )
+
+        let store = CmuxConfigStore(
+            globalConfigPath: linkPath,
+            localConfigPath: root.appendingPathComponent("missing-local.json").path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+
+        // Edit the symlink TARGET in place. The link's own lstat size/mtime stay
+        // constant; only the target's change. A longer action id makes the size
+        // difference alone distinguish the payloads regardless of mtime
+        // resolution, so this is a deterministic red/green.
+        try """
+        {
+          "actions": {
+            "second-longer-identifier": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: realConfig, atomically: true, encoding: .utf8)
+        store.loadAll()
+
+        // Fails before the fix (stale cache keeps "first"); passes after.
+        XCTAssertNotNil(store.resolvedAction(id: "second-longer-identifier"))
+        XCTAssertNil(store.resolvedAction(id: "first"))
     }
 
     @MainActor
@@ -1316,13 +1416,17 @@ final class CmuxConfigDecodingTests: XCTestCase {
         let configURL = root.appendingPathComponent("cmux.json")
         let json = """
         {
+          "actions": {
+            "hidden-ref": { "type": "workspaceCommand", "commandName": "Missing Environment" }
+          },
           "ui": {
             "surfaceTabBar": {
               "buttons": [
                 { "action": "newTerminal" },
                 { "id": "dev", "type": "workspaceCommand", "commandName": "Dev Environment" },
                 { "id": "typo", "type": "workspaceCommand", "commandName": "Typo" },
-                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" }
+                { "id": "simple", "type": "workspaceCommand", "commandName": "Run Tests" },
+                { "id": "hidden-ref-button", "action": "hidden-ref" }
               ]
             }
           },
@@ -1349,6 +1453,102 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertEqual(store.surfaceTabBarButtons.map(\.id), ["newTerminal", "dev"])
         XCTAssertEqual(store.surfaceTabBarButtons.last?.workspaceCommandName, "Dev Environment")
+        XCTAssertNil(store.surfaceTabBarActionReferenceIDs["hidden-ref-button"])
+    }
+
+    @MainActor
+    func testCopyBuiltInsResolveAsSurfaceTabBarButtonsAndHonorActionOverrides() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let json = """
+        {
+          "actions": {
+            "cmux.copyScreen": { "title": "Grab Screen", "palette": false }
+          },
+          "ui": {
+            "surfaceTabBar": {
+              "buttons": [
+                "cmux.copyWorkingDirectory",
+                { "action": "copyProjectRoot", "title": "Root" },
+                "cmux.copyScreen"
+              ]
+            }
+          }
+        }
+        """
+        try json.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: root.appendingPathComponent("missing-global.json").path,
+            localConfigPath: configURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(
+            store.surfaceTabBarButtons.map(\.action),
+            [
+                .builtIn(.copyWorkingDirectory),
+                .builtIn(.copyProjectRoot),
+                .builtIn(.copyScreen)
+            ]
+        )
+        let copyActions: [TerminalCopyAction] = store.surfaceTabBarButtons.compactMap { button in
+            guard case .builtIn(let builtIn) = button.action else { return nil }
+            return builtIn.terminalCopyAction
+        }
+        XCTAssertEqual(copyActions, [.workingDirectory, .projectRoot, .visibleScreen])
+        // Copy built-ins never create a Bonsplit split/tab, so the tab bar
+        // routes them to the workspace's executable-button path.
+        XCTAssertTrue(store.surfaceTabBarButtons.allSatisfy { button in
+            guard case .builtIn(let builtIn) = button.action else { return false }
+            return builtIn.bonsplitAction == nil
+        })
+
+        let copyScreen = try XCTUnwrap(store.resolvedAction(id: "cmux.copyScreen"))
+        XCTAssertEqual(copyScreen.title, "Grab Screen")
+        XCTAssertFalse(copyScreen.palette)
+        // The native palette rows look up their overrides through these ids.
+        XCTAssertEqual(
+            ContentView.commandPaletteCopyActionCommandID(.copyScreen),
+            "palette.copyScreen"
+        )
+        XCTAssertEqual(store.resolvedAction(id: "copyWorkingDirectory")?.id, "cmux.copyWorkingDirectory")
+    }
+
+    /// A copy-action shortcut pressed while a browser (or any non-terminal)
+    /// panel is focused must not claim the keystroke: returning false lets
+    /// the shortcut router pass the key through to that panel instead of
+    /// beeping and swallowing it.
+    @MainActor
+    func testCopyActionShortcutPassesThroughWhenNoTerminalIsFocused() throws {
+        let appDelegate = AppDelegate()
+        let tabManager = TabManager()
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(appDelegate.mainWindowContexts.values.first { $0.windowId == windowId })
+        let workspace = try XCTUnwrap(tabManager.selectedWorkspace)
+        let terminalId = try XCTUnwrap(workspace.focusedPanelId)
+        let browser = try XCTUnwrap(workspace.newBrowserSplit(from: terminalId, orientation: .horizontal))
+        workspace.focusPanel(browser.id)
+        XCTAssertEqual(workspace.focusedPanelId, browser.id)
+
+        for builtIn in [
+            CmuxSurfaceTabBarBuiltInAction.copyWorkingDirectory,
+            .copyProjectRoot,
+            .copyScreen,
+        ] {
+            XCTAssertFalse(
+                appDelegate.executeConfiguredCmuxAction(.builtIn(builtIn), context: context),
+                "\(builtIn.configID) claimed a shortcut with a browser panel focused"
+            )
+        }
     }
 
     func testDecodeEmptySurfaceTabBarButtons() throws {

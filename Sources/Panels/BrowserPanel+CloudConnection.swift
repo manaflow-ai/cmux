@@ -1,8 +1,35 @@
+import CmuxCloud
+import CmuxCore
 import CmuxSurfaceCatalogModel
 import Foundation
 import WebKit
 
 extension BrowserPanel {
+    /// Keeps the browser-owned readiness callback installed while a committed
+    /// WebKit document is rebound to a new same-VM route.
+    func bindCloudBrowserNavigation() {
+        cloudAccess.automaticallyNavigate { [weak self] url in
+            guard let self, !self.isClosingWebViewLifecycle else { return }
+            _ = self.navigate(to: url)
+        }
+    }
+
+    /// Activates an admitted Cloud route independently of the SwiftUI host.
+    /// Callers validate resource ownership before reaching this boundary.
+    func configureCloudBrowser(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil) {
+        guard !isClosingWebViewLifecycle else { return }
+        webView.stopLoading()
+        if let machineID = (resourceID ?? cloudAccess.resourceID)?.machine.rawValue ?? cloudBrowserMachineID {
+            prepareCloudBrowserStore(machineID: machineID)
+        }
+        showCloudAddress(url)
+        // A cached model can navigate synchronously. Its machine/profile store
+        // must be installed first, including on reconfiguration and duplication.
+        cloudAccess.configure(model: model, url: url, resourceID: resourceID)
+        bindCloudBrowserNavigation()
+        model.connect()
+    }
+
     /// Leaving a Cloud resource for a user-owned external page ends only this
     /// local projection. The `.replaced` reason keeps a navigation from
     /// editing the remote workspace layout while removing stale restore
@@ -35,10 +62,20 @@ extension BrowserPanel {
         return cloudResourceForDuplication
     }
 
+    /// The owning team persisted with ``cloudResourceForSession``: the
+    /// machine's provider team, else the restored team, else the selected team.
+    var cloudTeamIDForSession: String? {
+        guard let machineID = cloudResourceForSession?.machine.cloudMachineID else { return nil }
+        if let owner = CmuxTuiSurfaceProviderRegistry.shared.ownerTeamID(forMachineID: machineID) {
+            return owner
+        }
+        return restoredCloudTeamID ?? WorkspaceCloudVMBinding.owningTeamID(forVMID: machineID, previous: nil)
+    }
+
     /// Restore by stable resource identity before loading any saved address.
     /// A stale/unknown provider leaves an owned placeholder, never a local page.
     func restoreCloudResource(_ resource: SurfaceResourceID, preferredURL: URL? = nil,
-                             activate: Bool = true) {
+                             activate: Bool = true, automaticRetriesRemaining: Int = 2) {
         pendingCloudRestoreURL = preferredURL
         let catalog = SurfaceCatalog.shared
         let isGlobalDock = DockSplitStore.liveStore(containingPanel: id)?.scope == .global
@@ -52,9 +89,24 @@ extension BrowserPanel {
         retainTransferredSurfaceMachine(resource.machine)
         catalog.restore([SurfaceProjectionRecord(panelID: id, resource: resource)], workspaceID: workspaceId)
         guard activate else { return }
-        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider,
-              let known = catalog.resources[resource] else {
-            cloudAccess.showUnavailable(String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."))
+        guard let provider = catalog.provider(for: resource.machine) as? CmuxTuiSurfaceProvider else {
+            showCloudRestoreUnavailable(
+                resource,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
+            return
+        }
+        guard let known = catalog.resources[resource] else {
+            // The provider can be registered before its first port/display
+            // snapshot. Force that provider's metadata and graph refresh so a
+            // restored port is discovered before retrying materialization.
+            showCloudRestoreUnavailable(
+                resource,
+                provider: provider,
+                message: String(localized: "cloud.display.restoreUnavailable", defaultValue: "This Cloud display or browser is unavailable. Refresh its machine to reconnect."),
+                automaticRetriesRemaining: automaticRetriesRemaining
+            )
             return
         }
         switch CloudPortRoutePlan.plan(resource: known, privateAddress: provider.info.privateAddress) {
@@ -65,8 +117,45 @@ extension BrowserPanel {
                     resourceID: resource)
                 if configured { pendingCloudRestoreURL = nil }
             }
-        case .unsupported(let message): cloudAccess.showUnavailable(message)
+        case .unsupported(let message):
+            // The provider owns the retry because it can refresh the machine's
+            // private address before trying to materialize the saved projection.
+            // This is the same recovery path used by a live port row.
+            provider.showPortUnavailable(message, resourceID: resource, browser: self)
         }
+    }
+
+    /// Keep a restored Cloud pane recoverable while its provider is being
+    /// discovered. Session restore can run before the machine list has
+    /// registered the provider or before its first resource snapshot arrives.
+    private func showCloudRestoreUnavailable(
+        _ resource: SurfaceResourceID,
+        provider: CmuxTuiSurfaceProvider? = nil,
+        message: String,
+        automaticRetriesRemaining: Int
+    ) {
+        let preferredURL = pendingCloudRestoreURL
+        let recover: @MainActor (UInt64) async -> Void = { [weak self] request in
+            guard let self else { return }
+            if let provider {
+                provider.requestPortDiscovery()
+                try? await provider.refreshPortMetadata()
+                await provider.refresh(force: true)
+            } else {
+                _ = await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+            }
+            guard self.cloudAccess.isCurrentUnavailableRetry(request) else { return }
+            self.restoreCloudResource(
+                resource,
+                preferredURL: preferredURL,
+                automaticRetriesRemaining: max(automaticRetriesRemaining - 1, 0)
+            )
+        }
+        // The staged projection resolves on its own once the provider
+        // publishes the resource, so a miss here is still loading. The
+        // provider's settled port scan or the restore deadline ends it.
+        cloudAccess.showRestoring(retry: recover, unavailableMessage: message)
+        if automaticRetriesRemaining > 0 { cloudAccess.retryUnavailable() }
     }
 
     private static func cloudRestoredURL(_ preferred: URL?, on target: URL, isDisplay: Bool = false) -> URL {
@@ -92,12 +181,34 @@ extension BrowserPanel {
         )
     }
 
+    /// The provider whose machine serves `url` at its private address.
+    ///
+    /// SSH machines all use this Mac's loopback as their private address, so
+    /// a loopback URL routes only to the machine that owns this browser.
+    func privateAddressRouteProvider(for url: URL) -> CmuxTuiSurfaceProvider? {
+        let catalog = SurfaceCatalog.shared
+        let addresses = catalog.machines.compactMapValues(\.privateAddress)
+        let machine = PrivateAddressRouteSelector<SurfaceMachineID>().machine(
+            forHost: url.host,
+            owner: privateAddressRouteOwner,
+            addresses: addresses
+        )
+        return machine.flatMap { catalog.provider(for: $0) as? CmuxTuiSurfaceProvider }
+    }
+
+    /// The machine this browser belongs to: its current cloud route, or the
+    /// machine that owns its workspace.
+    private var privateAddressRouteOwner: SurfaceMachineID? {
+        if let machine = cloudResourceForDuplication?.machine { return machine }
+        if let machineID = cloudBrowserMachineID { return SurfaceMachineID(rawValue: machineID) }
+        return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?.tabs
+            .first { $0.id == workspaceId }?
+            .surfaceOwnershipPolicy.cloudMachine
+    }
+
     @discardableResult
     func rebindCloudRouteIfNeeded(to url: URL) -> Bool {
-        guard let provider = SurfaceCatalog.shared.machines.values.first(where: {
-            $0.privateAddress?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-                == url.host?.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        }).flatMap({ SurfaceCatalog.shared.provider(for: $0.id) as? CmuxTuiSurfaceProvider }) else {
+        guard let provider = privateAddressRouteProvider(for: url) else {
             return false
         }
         return provider.configureBrowser(self, url: url, preserveCurrentNavigation: true)

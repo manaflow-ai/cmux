@@ -201,6 +201,49 @@ struct RestorableAgentSessionIndexTests {
     }
 
     @Test
+    func testClaudeTranscriptKeepsRejectedLaunchCaptureRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-rejected-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        let transcript = root.appendingPathComponent("claude-session.jsonl", isDirectory: false)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try "{\"type\":\"user\",\"sessionId\":\"rejected-claude-session\"}\n"
+            .write(to: transcript, atomically: true, encoding: .utf8)
+
+        let sessionId = "rejected-claude-session"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": cwd.path,
+                    "transcriptPath": transcript.path,
+                    "updatedAt": 10,
+                    "launchCommand": [
+                        "launcher": "claude",
+                        "arguments": [],
+                        "source": "rejected",
+                        "rejectionReason": "argvDecodeFailed",
+                    ],
+                ],
+            ]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceId, panelId: panelId)
+        )
+        XCTAssertEqual(snapshot.sessionId, sessionId)
+    }
+
+    @Test
     func testClaudeTranscriptCreatedAfterAbsentLoadInvalidatesSharedLookup() throws {
         let fm = FileManager.default
         let sessionId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
@@ -678,6 +721,99 @@ struct RestorableAgentSessionIndexTests {
             resumeCommand.contains(driftedCwd.path),
             "resume must not cd into the drifted cwd; got: \(resumeCommand)"
         )
+    }
+
+    @Test
+    func testRejectedNonClaudeLaunchCaptureIsNotIndexedForRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-rejected-gemini-restore-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let sessionId = "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = driftedAgentHookRecord(
+            launcher: "gemini",
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedCwd: cwd.path,
+            launchCwd: cwd.path,
+            updatedAt: 10
+        )
+        record["launchCommand"] = [
+            "launcher": "gemini",
+            "executablePath": "/usr/local/bin/gemini",
+            "arguments": [],
+            "workingDirectory": cwd.path,
+            "environment": ["GEMINI_CLI_HOME": root.appendingPathComponent("gemini-home").path],
+            "capturedAt": 10,
+            "source": "rejected",
+            "rejectionReason": "argvDecodeFailed",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "gemini-hook-sessions.json",
+            sessions: [sessionId: record]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a positively rejected non-Claude launch capture must not enter the restore index"
+        )
+    }
+
+    @Test
+    func testContradictoryCodexLaunchCaptureUsesUsableArgvForRestore() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-contradictory-codex-launch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let sessionId = "ffffffff-ffff-ffff-ffff-ffffffffffff"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = driftedAgentHookRecord(
+            launcher: "codex",
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            recordedCwd: cwd.path,
+            launchCwd: cwd.path,
+            updatedAt: 10
+        )
+        // Force restore eligibility to come from the usable argv/source rule,
+        // rather than the helper's default isRestorable: true marker.
+        record["isRestorable"] = NSNull()
+        record["launchCommand"] = [
+            "launcher": "codex",
+            "executablePath": "/usr/local/bin/codex",
+            "arguments": ["/usr/local/bin/codex", "--yolo"],
+            "workingDirectory": cwd.path,
+            "capturedAt": 10,
+            "source": "rejected",
+            "rejectionReason": "sanitizerRejectedArgv",
+        ]
+        try writeHookStore(
+            root: root,
+            storeFilename: "codex-hook-sessions.json",
+            sessions: [sessionId: record]
+        )
+
+        let snapshot = try XCTUnwrap(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a contradictory record with usable argv should use the argv consistently with sessions list"
+        )
+        XCTAssertEqual(snapshot.launchCommand?.arguments, ["/usr/local/bin/codex", "--yolo"])
     }
 
     @Test
@@ -1213,6 +1349,54 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId,
             transcriptURL: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
         )
+    }
+
+    // The Sessions sidebar cwd filter skips the project-directory scan and looks up the encoded
+    // directory directly. Fixture directories are named by `expectedClaudeProjectDirName`, not the
+    // production encoder, so an encoder regression cannot move the fixture and the lookup together.
+    @Test
+    func testClaudeCandidateCwdFilterFindsDottedProjectDir() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-dot-cwd-filter-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let sessionRoot = SessionIndexStore.ClaudeSessionRoot(
+            configDir: configDir.path,
+            resumeConfigDirectory: nil
+        )
+
+        for relativeCwd in ["repo/.claude/worktrees/feat-X", "repo/.worktrees/feat-x"] {
+            let cwd = root.appendingPathComponent(relativeCwd, isDirectory: true)
+            let projectDirName = expectedClaudeProjectDirName(cwd.path)
+            // The pre-fix encoder kept ".", so a transcript there belongs to a different project dir.
+            let slashOnlyDirName = cwd.path.replacingOccurrences(of: "/", with: "-")
+            let otherProjectDirName = expectedClaudeProjectDirName(root.appendingPathComponent("other").path)
+            for (dirName, sessionId) in [
+                (projectDirName, "dotted-session"),
+                (slashOnlyDirName, "slash-only-session"),
+                (otherProjectDirName, "other-project-session"),
+            ] {
+                let projectDir = projectsDir.appendingPathComponent(dirName, isDirectory: true)
+                try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+                try writeClaudeTranscript(
+                    sessionId: sessionId,
+                    transcriptURL: projectDir.appendingPathComponent("\(sessionId).jsonl", isDirectory: false),
+                    cwd: cwd
+                )
+            }
+
+            let candidates = SessionIndexStore.enumerateClaudeJSONLCandidates(
+                root: sessionRoot,
+                cwdFilter: cwd.path,
+                prefilteredByRipgrep: false
+            )
+
+            XCTAssertEqual(candidates.map(\.url.lastPathComponent), ["dotted-session.jsonl"], relativeCwd)
+            XCTAssertEqual(candidates.map(\.dirName), [projectDirName], relativeCwd)
+            try fm.removeItem(at: projectsDir)
+        }
     }
 
     private func setDirectoryModificationDate(_ date: Date, for directory: URL) throws {

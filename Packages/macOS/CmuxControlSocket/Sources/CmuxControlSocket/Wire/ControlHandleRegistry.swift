@@ -70,6 +70,16 @@ public struct ControlHandleRegistry: Sendable {
         return ref
     }
 
+    /// Returns the ref already minted for an object, without minting one.
+    ///
+    /// - Parameters:
+    ///   - kind: The handle kind.
+    ///   - uuid: The object identity.
+    /// - Returns: The existing ref, or `nil` if none was minted or it was removed.
+    public func existingRef(kind: ControlHandleKind, uuid: UUID) -> String? {
+        refByUUID[kind]?[uuid]
+    }
+
     /// Forgets the ref minted for an object (e.g. when a surface closes).
     ///
     /// Ordinals are never reused: a later `ensureRef` for the same identity

@@ -456,6 +456,7 @@ extension CmuxEventBus {
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)
         ]
+        payload["prompt_length"] = event.submittedPromptLength
         var redactedFields: [String] = []
         if let toolInputJSON = event.toolInputJSON {
             payload["tool_input"] = NSNull()
@@ -479,7 +480,6 @@ extension CmuxEventBus {
         }
         return payload
     }
-
     private static func encodedByteCount<T: Encodable>(_ value: T) -> Int? {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601

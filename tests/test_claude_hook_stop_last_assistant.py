@@ -155,12 +155,13 @@ def main() -> int:
     payload = {
         "session_id": f"sess-{uuid.uuid4().hex}",
         "hook_event_name": "Stop",
-        "cwd": "/Users/lawrence/fun",
+        "stop_hook_active": True,
+        "cwd": "/Users/dev/fun",
         "last_assistant_message": "2",
     }
 
     with CapturingSocketServer(workspace_id=workspace_id, surface_id=surface_id) as server:
-        env = os.environ.copy()
+        env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_")}
         env["CMUX_SOCKET_PATH"] = server.socket_path
         env["CMUX_WORKSPACE_ID"] = workspace_id
         env["CMUX_SURFACE_ID"] = surface_id
@@ -171,7 +172,7 @@ def main() -> int:
         cron_payload = {
             "session_id": f"sess-{uuid.uuid4().hex}",
             "hook_event_name": "PreToolUse",
-            "cwd": "/Users/lawrence/fun",
+            "cwd": "/Users/dev/fun",
             "tool_name": "CronCreate",
             "tool_input": {
                 "cron": "7 5 1 5 *",
@@ -261,6 +262,17 @@ def main() -> int:
         }
         if notifications[0] != expected:
             print(f"FAIL: incorrect semantic completion: {notifications[0]!r}")
+            return 1
+        if not any(
+            command.startswith("set_status claude_code Idle ")
+            and f"--tab={workspace_id}" in command
+            and f"--panel={surface_id}" in command
+            for command in server.commands
+        ):
+            print(f"FAIL: re-entrant Stop with stop_hook_active=true did not settle Idle: {server.commands!r}")
+            return 1
+        if any(command.startswith("set_status claude_code Running ") for command in server.commands):
+            print(f"FAIL: re-entrant Stop with stop_hook_active=true set Running: {server.commands!r}")
             return 1
 
     print("PASS: Claude cron guard denies durable jobs and Stop notification uses final assistant text")

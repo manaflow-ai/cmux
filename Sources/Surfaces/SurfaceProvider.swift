@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -40,13 +41,23 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// Carries the user/lifecycle distinction to providers that synchronize native layouts.
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason)
     /// Called after a restore recorded projections of resources this provider has
     /// already published. Their panes are placeholders until the provider
     /// materializes them, and no later publish is guaranteed to follow.
     func projectionsRestored()
+    /// Rebind only projections that became resolvable during the latest publication.
+    /// The default keeps providers that do not maintain a targeted reprojection path compatible.
+    /// Rebinds only the restored resources that became available in a publication.
+    func projectionsRestored(resources: Set<SurfaceResourceID>)
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
+    /// End a terminal when the caller already knows its remote workspace. The
+    /// workspace identity avoids a provider-wide ownership scan during batch
+    /// workspace deletion; the default keeps legacy providers unchanged.
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
@@ -76,6 +87,10 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func projectionDidEnd(_ projection: SurfaceProjection, reason: SurfaceProjectionEndReason) {
+        projectionDidEnd(projection)
+    }
+
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
     }
@@ -94,6 +109,8 @@ extension SurfaceProvider {
 
     func projectionsRestored() {}
 
+    func projectionsRestored(resources: Set<SurfaceResourceID>) { projectionsRestored() }
+
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, at: destination, focus: focus)
     }
@@ -104,6 +121,9 @@ extension SurfaceProvider {
 
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
+    func closeTerminal(_ id: SurfaceResourceID, remoteWorkspaceID: String?) async throws {
+        try await closeTerminal(id)
     }
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")

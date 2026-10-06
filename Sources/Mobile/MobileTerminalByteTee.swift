@@ -60,6 +60,9 @@ final class MobileTerminalByteTee {
         var renderRevision: UInt64 = 0
         /// Opaque marker of the latest accepted input, not proof of output causality.
         var inputSequence: UInt64?
+        /// Mac uptime stamps (microseconds) for the latest accepted marker,
+        /// handed out once to the next captured frame for per-hop latency.
+        var pendingInputTiming: (receivedMicros: UInt64, acceptedMicros: UInt64)?
     }
 
     /// Get-or-create the mutable state box for a surface.
@@ -148,9 +151,32 @@ final class MobileTerminalByteTee {
 
     /// Echoes the client's opaque marker only after terminal input is accepted.
     /// A legacy input clears the watermark instead of inventing a correlation.
-    func recordAcceptedInput(surfaceID: UUID, sequence: UInt64?, result: TerminalSurface.InputSendResult) {
+    func recordAcceptedInput(
+        surfaceID: UUID,
+        sequence: UInt64?,
+        result: TerminalSurface.InputSendResult,
+        receivedAtMicros: UInt64? = nil
+    ) {
         guard result.accepted else { return }
-        state(for: surfaceID).inputSequence = sequence
+        let surfaceState = state(for: surfaceID)
+        surfaceState.inputSequence = sequence
+        if sequence != nil {
+            let accepted = Self.uptimeMicros()
+            surfaceState.pendingInputTiming = (min(receivedAtMicros ?? accepted, accepted), accepted)
+        }
+    }
+
+    /// The latest accepted input's received/accepted stamps, returned once so
+    /// only the first frame carrying that marker pays the wire bytes.
+    func takePendingInputTiming(surfaceID: UUID) -> (receivedMicros: UInt64, acceptedMicros: UInt64)? {
+        guard let surfaceState = statesBySurfaceID[surfaceID],
+              let timing = surfaceState.pendingInputTiming else { return nil }
+        surfaceState.pendingInputTiming = nil
+        return timing
+    }
+
+    nonisolated static func uptimeMicros() -> UInt64 {
+        DispatchTime.now().uptimeNanoseconds / 1_000
     }
 
     /// Runs one mobile input operation and records its accepted marker in the
@@ -160,10 +186,16 @@ final class MobileTerminalByteTee {
     func performMobileInput(
         surfaceID: UUID,
         sequence: UInt64?,
+        receivedAtMicros: UInt64? = nil,
         operation: () -> TerminalSurface.InputSendResult
     ) -> TerminalSurface.InputSendResult {
         let result = operation()
-        recordAcceptedInput(surfaceID: surfaceID, sequence: sequence, result: result)
+        recordAcceptedInput(
+            surfaceID: surfaceID,
+            sequence: sequence,
+            result: result,
+            receivedAtMicros: receivedAtMicros
+        )
         return result
     }
 

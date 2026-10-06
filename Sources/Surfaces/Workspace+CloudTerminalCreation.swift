@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxSurfaceCatalogModel
@@ -192,7 +193,8 @@ extension Workspace {
             machine: machine,
             at: reservationDestination,
             focus: focus,
-            sourcePlacement: source
+            sourcePlacement: source,
+            requestID: requestID
         ) else {
             // The pane may have been closed or claimed while Bonsplit was
             // delivering the split callback. Remove only an untouched pane;
@@ -273,12 +275,13 @@ extension Workspace {
             // fallback, which could create a terminal for the deleted workspace.
             return true
         }
+        let requestID = cloudPaneCreationFailureStore.beginRequest()
         let destination = SurfaceDestination.workspace(id: id, placement: .tab)
         guard let reservation = reserveCloudTerminalPane(
             machine: machine, at: destination, focus: true,
-            sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID)
+            sourcePlacement: CloudTerminalSourcePlacement(machine: machine, remoteWorkspaceID: remoteWorkspaceID),
+            requestID: requestID
         ) else { return false }
-        let requestID = cloudPaneCreationFailureStore.beginRequest()
         let request = CloudTerminalCreationRequest(id: requestID)
         var token: UUID?
         let beginLocalMutation: @MainActor () -> Void = {
@@ -340,7 +343,29 @@ extension Workspace {
                 throw CancellationError()
             }
             defer { onFinish() }
+            // The stable terminal id is available before surface attachment.
+            // Route reservation input into that PTY immediately so remote shell
+            // startup owns echo and line discipline just like a local shell.
+            if let cloudProvider = catalog.provider(for: created.machine) as? CmuxTuiSurfaceProvider {
+                _ = try await cloudProvider.bindOptimisticTerminalInput(
+                    reservation.inputRelay,
+                    terminalID: created.id.key
+                )
+            }
             let remoteView = try reservation.sourcePlacement.remoteView(of: created)
+            // The device layout can mirror the terminal here before its receipt
+            // binds this reservation: a layout event that beats the create
+            // response, or a retry after the first receipt was lost. A second
+            // pane for the same terminal would leave that layout unable to
+            // apply, so the reserved pane gives way to the mirrored one.
+            if let existing = catalog.projections.first(where: {
+                $0.workspaceID == self.id && $0.resource == created.id
+                    && (remoteView == nil || $0.remoteTabID == remoteView?.tabID)
+                    && self.panels[$0.panelID] != nil
+            }) {
+                self.completeReservedCloudTerminalPane(reservation, adoptedPanelID: existing.panelID)
+                return (existing, true)
+            }
             // Focus was granted when the pane appeared; adoption must not steal it
             // back from wherever the user has typed since.
             let result = try await CloudOperationContext.phase(.materialize) {

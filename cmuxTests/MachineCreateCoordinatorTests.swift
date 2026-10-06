@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -128,6 +129,22 @@ struct MachineCreateCoordinatorTests {
         }
         #expect(result == receipt)
         #expect(!coordinator.hasRunningOperations)
+    }
+
+    @Test func forkShowsPendingRowAndAdoptsTheForkedMachineFromItsReceipt() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        let request = MachineCreateRequest.fork(
+            sourceMachineID: "vm-source", sourceName: "Build machine", kind: .desktop, selectionWindowID: nil
+        )
+        #expect(coordinator.start(request, cancellableLaunch: launches.cancellableLaunch))
+        // The row exists before the CLI prints anything.
+        let pending = coordinator.operations.first
+        #expect(pending?.request.displayName == "Fork of Build machine")
+        #expect(pending?.isRunning == true)
+        #expect(launches.arguments.first == ["vm", "fork", "vm-source", "--focus", "false"])
+        // `cmux vm fork` output: the receipt names the copy before the attach finishes.
+        launches.progressHandlers.first?("Forked Cloud VM vm-copy\n  snapshot: sh-1\nOK machine=vm-copy\n")
+        #expect(coordinator.operations.first?.createdMachineID == "vm-copy")
     }
 
     @Test func refusedAwaitedCreateReturnsWithoutPendingRow() async {
@@ -644,7 +661,7 @@ struct MachinesPanelPendingCreateTests {
                 pendingCreates: pending,
                 snapshot: SurfaceCatalogSnapshot(machines: catalog, resources: [], projections: []),
                 localWorkspaces: []
-            )
+            ).withoutCoderouterSection
         }
         func rows(machines: [MachineSnapshot], catalog: [SurfaceMachineInfo] = [], pending: [MachineCreateOperation]) -> [String] {
             nodes(machines: machines, catalog: catalog, pending: pending).map(\.id)
@@ -728,7 +745,7 @@ struct MachinesPanelPendingCreateTests {
             pendingCreates: [running, failed],
             snapshot: .empty,
             localWorkspaces: []
-        )
+        ).withoutCoderouterSection
         #expect(nodes.map(\.id) == [
             "pending-machine:\(running.id.uuidString)",
             "pending-machine:\(failed.id.uuidString)",

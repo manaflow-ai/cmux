@@ -81,11 +81,10 @@ import UIKit
     }
 
     @Test func subMinuteActivityRestampDoesNoTableWork() {
-        // Second 0 of an epoch minute, so +2s stays inside the same rendered
-        // minute. The Mac restamps preview_at/last_activity_at from the
-        // latest notification on every list emission; a sub-minute restamp
-        // renders identically and must not touch the table.
-        let base = Date(timeIntervalSinceReferenceDate: 790_000_020)
+        // The Mac restamps preview_at/last_activity_at from the latest
+        // notification on every list emission. A restamp inside the rendered
+        // minute draws the same row and must not touch the table.
+        let base = Self.todayAtMinuteStart()
         var workspace = preview(id: "workspace-1", activityAt: base)
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
@@ -100,11 +99,8 @@ import UIKit
         #expect(coordinator.lastPayloadApplyRoute == .noChange)
     }
 
-    @Test func minuteCrossingActivityRestampReconfiguresInPlace() {
-        // One second before a minute boundary, so +2s changes the rendered
-        // timestamp label and the row must re-render — but heights are
-        // untouched, so no snapshot apply is needed.
-        let base = Date(timeIntervalSinceReferenceDate: 790_000_019)
+    @Test func minuteCrossingActivityRestampUpdatesContentInPlace() {
+        let base = Self.todayAtMinuteStart().addingTimeInterval(59)
         var workspace = preview(id: "workspace-1", activityAt: base)
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
@@ -115,13 +111,26 @@ import UIKit
         workspace.lastActivityAt = base.addingTimeInterval(2)
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(
-            coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.workspace-1"])
-        )
+        #expect(coordinator.lastPayloadApplyRoute == .contentInPlace(["workspace.workspace-1"]))
     }
 
-    @Test func previewTextChangeReconfiguresInPlaceWithoutTableReload() {
-        var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
+    @Test func undrawnWorkspaceFieldsDoNotTouchTheTable() {
+        var workspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [workspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+
+        workspace.currentDirectory = "/tmp/agent-worktree"
+        workspace.windowID = "window-2"
+        coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
+
+        #expect(coordinator.lastPayloadApplyRoute == .noChange)
+    }
+
+    @Test func previewTextChangeUpdatesContentInPlace() {
+        var workspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
         )
@@ -131,19 +140,12 @@ import UIKit
         workspace.previewText = "Agent finished: PR opened"
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(
-            coordinator.lastPayloadApplyRoute == .reconfiguredInPlace(["workspace.workspace-1"])
-        )
+        #expect(coordinator.lastPayloadApplyRoute == .contentInPlace(["workspace.workspace-1"]))
     }
 
-    @Test func concurrentAgentUpdatesWaitForScrollToFinishAndApplyTheLatestSnapshot() {
-        let initialWorkspace = preview(
-            id: "workspace-1",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
-        )
-        var firstAgentUpdate = initialWorkspace
-        firstAgentUpdate.previewText = "Agent A is still working"
-        var latestAgentUpdate = firstAgentUpdate
+    @Test func contentUpdatesReachCellsWhileTheUserScrolls() {
+        let initialWorkspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
+        var latestAgentUpdate = initialWorkspace
         latestAgentUpdate.previewText = "Agent B finished"
 
         let coordinator = WorkspaceListTableCoordinator(
@@ -151,128 +153,79 @@ import UIKit
         )
         let tableView = makeTableView()
         coordinator.attach(to: tableView)
-        let routeBeforeScrollUpdates = coordinator.lastPayloadApplyRoute
 
         coordinator.scrollViewWillBeginDragging(tableView)
-        coordinator.update(
-            configuration: configuration(workspaces: [firstAgentUpdate]),
-            in: tableView
-        )
         coordinator.update(
             configuration: configuration(workspaces: [latestAgentUpdate]),
             in: tableView
         )
 
         #expect(
-            coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates,
-            "Agent-session updates must not reconfigure cells while UIKit is tracking the pan."
+            coordinator.lastPayloadApplyRoute == .contentInPlace(["workspace.workspace-1"]),
+            "Height-neutral content needs no table layout, so a scroll must not hold it back."
         )
-
-        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: true)
-        #expect(
-            coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates,
-            "A decelerating list still owns the frame budget after the finger lifts."
-        )
-
-        coordinator.scrollViewDidEndDecelerating(tableView)
-        #expect(
-            coordinator.lastPayloadApplyRoute
-                == .reconfiguredInPlace(["workspace.workspace-1"]),
-            "The latest update from the concurrent sessions should apply once scrolling settles."
-        )
-        #expect(
-            coordinator.configuration.workspacesByID[initialWorkspace.id]?.previewText
-                == latestAgentUpdate.previewText
-        )
+        #expect(renderedPreviewLine(of: "workspace-1", in: tableView) == "Agent B finished")
     }
 
-    @Test func concurrentAgentHeightAndStructureUpdatesWaitForDeceleration() {
-        let firstWorkspace = preview(
-            id: "workspace-1",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
-        )
-        let secondWorkspace = preview(
-            id: "workspace-2",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_021)
-        )
-        var heightChangingUpdate = firstWorkspace
-        heightChangingUpdate.customDescription = "Agent A completed with durable context"
-        var latestUpdate = heightChangingUpdate
-        latestUpdate.previewText = "Agent B finished"
-        let thirdWorkspace = preview(
-            id: "workspace-3",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_022)
-        )
+    @Test func geometryWaitsForDecelerationThenAppliesTheLatestSnapshot() {
+        let firstWorkspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
+        let secondWorkspace = preview(id: "workspace-2", activityAt: Self.todayAtMinuteStart())
+        var latestUpdate = firstWorkspace
+        latestUpdate.customDescription = "Agent A completed with durable context"
+        var secondUpdate = secondWorkspace
+        secondUpdate.previewText = "Agent B finished"
+        let thirdWorkspace = preview(id: "workspace-3", activityAt: Self.todayAtMinuteStart())
 
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [firstWorkspace, secondWorkspace])
         )
         let tableView = makeTableView()
         coordinator.attach(to: tableView)
-        let routeBeforeScrollUpdates = coordinator.lastPayloadApplyRoute
 
         coordinator.scrollViewWillBeginDragging(tableView)
         coordinator.update(
-            configuration: configuration(workspaces: [heightChangingUpdate, secondWorkspace]),
-            in: tableView
-        )
-        coordinator.update(
             configuration: configuration(
-                workspaces: [latestUpdate, secondWorkspace, thirdWorkspace]
+                workspaces: [latestUpdate, secondUpdate, thirdWorkspace]
             ),
             in: tableView
         )
 
-        #expect(coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates)
+        #expect(
+            coordinator.lastPayloadApplyRoute
+                == .geometryDeferred(contentUpdatedIDs: ["workspace.workspace-2"])
+        )
         #expect(tableView.numberOfRows(inSection: 0) == 2)
+        #expect(renderedPreviewLine(of: "workspace-2", in: tableView) == "Agent B finished")
 
         coordinator.scrollViewDidEndDragging(tableView, willDecelerate: true)
-        #expect(coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates)
         #expect(tableView.numberOfRows(inSection: 0) == 2)
 
         coordinator.scrollViewDidEndDecelerating(tableView)
-        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(coordinator.lastPayloadApplyRoute == .geometryCommitted)
         #expect(tableView.numberOfRows(inSection: 0) == 3)
-        #expect(
-            coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
-                == latestUpdate.previewText
-        )
-        #expect(
-            coordinator.configuration.workspacesByID[firstWorkspace.id]?.customDescription
-                == latestUpdate.customDescription
-        )
     }
 
-    @Test func descriptionArrivalChangesRowHeightThroughInPlaceRelayout() {
-        // A durable description adds a text line, changing the row's height
-        // key: this payload change must keep riding the snapshot apply so
-        // UITableView re-queries the row height.
-        var workspace = preview(id: "workspace-1", activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020))
+    @Test func descriptionArrivalCommitsGeometry() {
+        // A description reserves two more text lines, so the row grows.
+        var workspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(workspaces: [workspace])
         )
         let tableView = makeTableView()
         coordinator.attach(to: tableView)
+        let heightBefore = tableView.rectForRow(at: IndexPath(row: 0, section: 0)).height
 
         workspace.customDescription = "Durable workspace context"
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(coordinator.lastPayloadApplyRoute == .tableRelayout)
+        #expect(coordinator.lastPayloadApplyRoute == .geometryCommitted)
+        #expect(tableView.rectForRow(at: IndexPath(row: 0, section: 0)).height > heightBefore)
     }
 
-    @Test func dragCompletionWinsOverSnapshotQueuedBeforeDrag() {
-        let firstWorkspace = preview(
-            id: "workspace-1",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
-        )
-        let secondWorkspace = preview(
-            id: "workspace-2",
-            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_021)
-        )
-        var staleScrollUpdate = firstWorkspace
-        staleScrollUpdate.previewText = "Stale scroll snapshot"
-        var latestDragUpdate = firstWorkspace
-        latestDragUpdate.previewText = "Drag completion snapshot"
+    @Test func rowDragHoldsGeometryAndCommitsTheLatestSnapshotWhenItEnds() {
+        let firstWorkspace = preview(id: "workspace-1", activityAt: Self.todayAtMinuteStart())
+        let secondWorkspace = preview(id: "workspace-2", activityAt: Self.todayAtMinuteStart())
+        let thirdWorkspace = preview(id: "workspace-3", activityAt: Self.todayAtMinuteStart())
 
         let coordinator = WorkspaceListTableCoordinator(
             configuration: configuration(
@@ -283,62 +236,66 @@ import UIKit
         let tableView = makeTableView()
         coordinator.attach(to: tableView)
         let dragItem = UIDragItem(itemProvider: NSItemProvider())
-        dragItem.localObject = WorkspaceListTableItem.workspace(
-            firstWorkspace.id,
-            indented: false
-        )
+        dragItem.localObject = WorkspaceListTableItem.workspace(firstWorkspace.id, indented: false)
         let dragSession = ScrollDragSession(dragItems: [dragItem])
 
-        coordinator.scrollViewWillBeginDragging(tableView)
-        coordinator.update(
-            configuration: configuration(
-                workspaces: [staleScrollUpdate, secondWorkspace],
-                enablesReorder: true
-            ),
-            in: tableView
-        )
         coordinator.tableView(tableView, dragSessionWillBegin: dragSession)
         coordinator.update(
             configuration: configuration(
-                workspaces: [latestDragUpdate, secondWorkspace],
+                workspaces: [firstWorkspace, secondWorkspace, thirdWorkspace],
                 enablesReorder: true
             ),
             in: tableView
         )
-        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: false)
+        #expect(tableView.numberOfRows(inSection: 0) == 2)
+
+        coordinator.update(
+            configuration: configuration(
+                workspaces: [secondWorkspace, thirdWorkspace],
+                enablesReorder: true
+            ),
+            in: tableView
+        )
         coordinator.tableView(tableView, dragSessionDidEnd: dragSession)
 
-        #expect(
-            coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
-                == latestDragUpdate.previewText,
-            "A stale scroll snapshot must not overwrite the newest drag completion payload."
-        )
+        #expect(coordinator.lastPayloadApplyRoute == .geometryCommitted)
+        #expect(tableView.numberOfRows(inSection: 0) == 2)
+        #expect(renderedWorkspaceIDs(in: tableView) == ["workspace-2", "workspace-3"])
     }
 
-    @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
-        let base = Date(timeIntervalSinceReferenceDate: 790_000_020)
-        var previous = preview(id: "workspace-1", activityAt: base)
-        var next = previous
+    @Test func rowContentIgnoresSubMinuteRestampsAndUndrawnFields() {
+        let base = Self.todayAtMinuteStart()
+        let original = preview(id: "workspace-1", activityAt: base)
+        func content(_ workspace: MobileWorkspacePreview) -> WorkspaceRowContent {
+            WorkspaceRowContent(
+                workspace: workspace,
+                connectionStatus: .connected,
+                isSelected: false,
+                changesChip: nil,
+                opensChanges: false,
+                wrapWorkspaceTitles: false,
+                previewLineLimit: 2,
+                unreadIndicatorLeftShift: 0,
+                unreadBadgeDiameter: 16
+            )
+        }
 
+        var next = original
         next.previewAt = base.addingTimeInterval(59)
         next.lastActivityAt = base.addingTimeInterval(59)
-        #expect(WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+        next.currentDirectory = "/elsewhere"
+        #expect(content(next) == content(original))
 
         next.lastActivityAt = base.addingTimeInterval(60)
-        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
+        #expect(content(next) != content(original))
 
-        // nil transitions change the label source and stay render-relevant.
-        next = previous
-        next.lastActivityAt = nil
-        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
-
-        // Any non-timestamp field still decides by full equality.
-        next = previous
+        next = original
         next.hasUnread = true
-        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, next))
-        #expect(WorkspaceListTableCoordinator.workspaceRenderEquivalent(nil, nil))
-        previous.previewAt = nil
-        #expect(!WorkspaceListTableCoordinator.workspaceRenderEquivalent(previous, nil))
+        #expect(content(next) != content(original))
+
+        next = original
+        next.previewText = nil
+        #expect(content(next) != content(original))
     }
 
     @Test func coordinatorKeepsWorkspaceRowSwipeAndContextMenuActionsAvailable() {
@@ -581,14 +538,9 @@ import UIKit
             workspaceHasUnread: true,
             groupUnreadByID: [group.id: .init(isUnread: true, count: nil)]
         )
-        let coordinator = WorkspaceListTableCoordinator(configuration: read)
-
         #expect(
-            coordinator.nativeActionPayloadChanged(
-                .groupHeader(group.id),
-                previous: read,
-                next: unread
-            )
+            read.nativeActionKey(for: .groupHeader(group.id))
+                != unread.nativeActionKey(for: .groupHeader(group.id))
         )
     }
 
@@ -603,15 +555,8 @@ import UIKit
             items: [.workspace("workspace-1", indented: false)],
             workspaceHasUnread: true
         )
-        let coordinator = WorkspaceListTableCoordinator(configuration: read)
-
-        #expect(
-            coordinator.nativeActionPayloadChanged(
-                .workspace("workspace-1", indented: false),
-                previous: read,
-                next: unread
-            )
-        )
+        let item = WorkspaceListTableItem.workspace("workspace-1", indented: false)
+        #expect(read.nativeActionKey(for: item) != unread.nativeActionKey(for: item))
     }
 
     @Test func groupHeaderDefersNativeActionReloadUntilSwipeEditingEnds() {
@@ -659,7 +604,8 @@ import UIKit
         coordinator.update(configuration: unread, in: tableView)
 
         #expect(
-            coordinator.lastPayloadApplyRoute != .tableReload,
+            coordinator.lastPayloadApplyRoute
+                == .geometryDeferred(contentUpdatedIDs: ["groupHeader.group-1"]),
             "Reloading the active group-header cell interrupts UIKit's swipe completion."
         )
 
@@ -668,8 +614,8 @@ import UIKit
             didEndEditingRowAt: indexPath
         )
         #expect(
-            coordinator.lastPayloadApplyRoute == .tableReload,
-            "The deferred reload must refresh UIKit's cached native actions after the swipe closes."
+            coordinator.lastPayloadApplyRoute == .geometryCommitted,
+            "The held reload must refresh UIKit's cached native actions after the swipe closes."
         )
     }
 
@@ -787,14 +733,11 @@ import UIKit
         coordinator.attach(to: tableView)
 
         #expect(
-            coordinator.nativeActionPayloadChanged(
-                .groupHeader(groupID),
-                previous: previous,
-                next: next
-            )
+            previous.nativeActionKey(for: .groupHeader(groupID))
+                != next.nativeActionKey(for: .groupHeader(groupID))
         )
         coordinator.update(configuration: next, in: tableView)
-        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(coordinator.lastPayloadApplyRoute == .geometryCommitted)
     }
 
     private func menuActionIdentifiers(in elements: [UIMenuElement]) -> [String] {
@@ -806,6 +749,45 @@ import UIKit
                 return menuActionIdentifiers(in: menu.children)
             }
             return []
+        }
+    }
+
+    private static func todayAtMinuteStart() -> Date {
+        // Noon today renders as a wall-clock time, never a month/day.
+        Calendar.current.date(
+            bySettingHour: 12,
+            minute: 0,
+            second: 0,
+            of: .now
+        ) ?? .now
+    }
+
+    private func renderedCell(of rawID: String, in tableView: UITableView) -> WorkspaceListTableCell? {
+        let rows = tableView.numberOfRows(inSection: 0)
+        for row in 0..<rows {
+            let indexPath = IndexPath(row: row, section: 0)
+            guard let cell = tableView.dataSource?.tableView(tableView, cellForRowAt: indexPath)
+                as? WorkspaceListTableCell,
+                cell.item?.workspaceID?.rawValue == rawID else { continue }
+            return cell
+        }
+        return nil
+    }
+
+    private func renderedPreviewLine(of rawID: String, in tableView: UITableView) -> String? {
+        guard case .workspace(let row) = renderedCell(of: rawID, in: tableView)?.renderedModel else {
+            return nil
+        }
+        return row.content.previewLine
+    }
+
+    private func renderedWorkspaceIDs(in tableView: UITableView) -> [String] {
+        (0..<tableView.numberOfRows(inSection: 0)).compactMap { row in
+            let cell = tableView.dataSource?.tableView(
+                tableView,
+                cellForRowAt: IndexPath(row: row, section: 0)
+            ) as? WorkspaceListTableCell
+            return cell?.item?.workspaceID?.rawValue
         }
     }
 

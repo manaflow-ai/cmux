@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import SwiftUI
 
@@ -19,6 +20,7 @@ struct CloudBrowserAccessView<Content: View>: View {
                             message: nil,
                             onRetry: nil
                         )
+                        .ghosttyDialogTheme()
                     } else if state.showsPage || state.failureMessage == nil {
                         VStack(spacing: 0) {
                             if state.isDesktop && !state.desktopConnected && state.failureMessage == nil {
@@ -34,15 +36,26 @@ struct CloudBrowserAccessView<Content: View>: View {
                             message: state.failureMessage ?? model.failureMessage,
                             onRetry: {
                                 _ = panel.reload()
-                                navigateIfReady()
                             }
                         )
+                        .ghosttyDialogTheme()
                     }
                 }
-                .task(id: model.phase) { navigateIfReady() }
-                .task(id: state.remoteURL) { navigateIfReady() }
+            } else if state.isRestoring {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text(String(localized: "cloud.display.restoring", defaultValue: "Reconnecting to Cloud…"))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("CloudDisplayRestoring")
+            } else if let message = state.starting {
+                ProgressView(message)
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("CloudDisplayStarting")
             } else if let message = state.unavailable {
-                CloudBrowserConnectionCard(address: "", message: message, onRetry: nil)
+                CloudBrowserConnectionCard(address: "", message: message, onRetry: state.unavailableRetryAction)
+                    .ghosttyDialogTheme()
             } else {
                 content()
             }
@@ -50,22 +63,21 @@ struct CloudBrowserAccessView<Content: View>: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: backgroundColor))
         .accessibilityIdentifier("CloudBrowserAccess")
-        .alert(
-            String(localized: "cloud.overlay.error.title", defaultValue: "Cloud session unavailable"),
-            isPresented: Binding(
-                get: { isVisibleInUI && state.showsFailureAlert },
-                set: { if !$0 { state.dismissFailure() } }
-            )
-        ) {
-            if state.model != nil {
-                Button(String(localized: "common.retry", defaultValue: "Retry")) {
-                    _ = panel.reload()
-                    navigateIfReady()
-                }
+        .overlay {
+            // An in-pane card rather than a system alert, which cannot take
+            // the Ghostty theme colors.
+            if isVisibleInUI && state.showsFailureAlert {
+                CloudFailureCard(
+                    title: String(localized: "cloud.overlay.error.title", defaultValue: "Cloud session unavailable"),
+                    detail: state.failureMessage ?? "",
+                    copyableText: state.failureMessage ?? "",
+                    style: .dialog,
+                    onRetry: state.model == nil ? nil : { _ = panel.reload() },
+                    onDismiss: { state.dismissFailure() }
+                )
+                .frame(maxWidth: 320)
+                .padding(12)
             }
-            Button(String(localized: "common.close", defaultValue: "Close"), role: .cancel) { state.dismissFailure() }
-        } message: {
-            Text(state.failureMessage ?? "")
         }
         .onChange(of: showsNativeContent, initial: true) { _, shown in
             if shown { BrowserWindowPortalRegistry.hide(webView: panel.webView, source: "cloudConnection") }
@@ -75,12 +87,9 @@ struct CloudBrowserAccessView<Content: View>: View {
     private var showsNativeContent: Bool {
         let state = panel.cloudAccess
         return state.unavailable != nil
+            || state.isRestoring
+            || state.starting != nil
             || state.failureMessage != nil
             || (state.isDesktop && !state.showsPage)
-    }
-
-    private func navigateIfReady() {
-        guard let url = panel.cloudAccess.nextURL() else { return }
-        _ = panel.navigate(to: url)
     }
 }

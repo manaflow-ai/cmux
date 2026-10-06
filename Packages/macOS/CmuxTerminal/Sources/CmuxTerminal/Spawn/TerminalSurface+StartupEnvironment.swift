@@ -11,6 +11,21 @@ internal import OSLog
 // spawn assembly and exercised directly by environment tests.
 
 extension TerminalSurface {
+    /// Stable per-surface history storage used by interactive POSIX shells.
+    /// The surface UUID survives session restoration, so history remains
+    /// available after quitting while separate terminals never share entries.
+    public static func terminalHistoryFileURL(
+        surfaceID: UUID,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("terminal-history", isDirectory: true)
+            .appendingPathComponent("surface-\(surfaceID.uuidString).history", isDirectory: false)
+    }
+
     /// The managed `TERM` value exported to spawned shells.
     public static let managedTerminalType = "xterm-256color"
 
@@ -74,6 +89,15 @@ extension TerminalSurface {
             environment[key] = value
             protectedKeys.insert(key)
         }
+
+        let historyURL = terminalHistoryFileURL(surfaceID: context.surfaceId)
+        try? FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        environment["CMUX_HISTORY_FILE"] = historyURL.path
+        protectedKeys.insert("CMUX_HISTORY_FILE")
     }
 
     /// Applies the sidebar git/PR watch flags and protects them.

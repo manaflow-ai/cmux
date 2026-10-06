@@ -1,36 +1,75 @@
+import CmuxFoundation
 import CmuxSurfaceCatalogModel
 import Foundation
 
 extension SurfaceCatalog {
-    /// Retain stale or not-yet-confirmed graphs for diagnostics without presenting their cwd as
-    /// current in the tree or CLI. A Cloud terminal's directory counts only once the machine's
-    /// accepted state is current; a requested launch directory or a stale graph is withheld.
+    /// Returns the last accepted cwd for a stale Cloud terminal, when its identity still exists.
+    ///
+    /// A stale graph is useful display state, but a resource row can also contain an optimistic
+    /// requested cwd. Read the cached value from the accepted graph so that a request, a retired
+    /// provider, or a resource whose identity disappeared cannot become a displayed path.
+    private func acceptedStaleCloudDirectory(for resource: SurfaceResource) -> String? {
+        guard resource.kind == .terminal,
+              resource.machine.tuiMachineID != nil,
+              cloudStateObservations[resource.machine]?.freshness == .stale,
+              let directory = cloudStates[resource.machine]?.lookupIndex.terminal(id: resource.id.key)?.cwd else {
+            return nil
+        }
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Retain stale graphs for diagnostics while presenting a previously accepted cwd as a
+    /// cached value. A requested launch directory or a stale graph with no accepted cwd remains
+    /// unavailable.
     func resourceForPresentation(_ resource: SurfaceResource) -> SurfaceResource {
         // Cloud VM freshness is tracked in `cloudStateObservations`; device
         // mirrors receive their directory from the synced workspace record and
         // intentionally have no CloudVM observation to consult.
-        guard resource.kind == .terminal, resource.machine.cloudMachineID != nil,
-              cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
+        guard resource.kind == .terminal, resource.machine.tuiMachineID != nil else { return resource }
+        guard cloudStateObservations[resource.machine]?.freshness != .current else { return resource }
         var result = resource
-        result.detail = nil
+        result.detail = acceptedStaleCloudDirectory(for: resource)
         return result
     }
 
     /// Projects accepted directory and machine metadata independently from name reconciliation.
     /// The catalog remains authoritative; Workspace owns only the UI-facing projection.
     func updateCloudDirectoryMetadata(on machine: SurfaceMachineID, affectedResourceIDs: Set<SurfaceResourceID>? = nil) {
-        let projectedWorkspaceIDs = Set(projections.filter {
+        guard !machine.isLocal else { return }
+        let machineProjections = projections.filter {
             $0.resource.machine == machine && (affectedResourceIDs?.contains($0.resource) ?? true)
-        }.map(\.workspaceID))
+        }
+        let projectedWorkspaceIDs = Set(machineProjections.map(\.workspaceID))
         if let affectedResourceIDs {
+            // Group the complete projection set once. The workspace updater
+            // needs all of a workspace's rows to preserve existing bindings,
+            // but an incremental resource update must not rescan and sort the
+            // global projection list once per affected workspace.
+            let recordsByWorkspace = Dictionary(grouping: projections.filter { !$0.resource.machine.isLocal }) {
+                $0.workspaceID
+            }.mapValues { projections in
+                projections.map {
+                    SurfaceProjectionRecord(
+                        panelID: $0.panelID,
+                        resource: $0.resource,
+                        remoteWorkspaceID: $0.remoteWorkspaceID,
+                        remoteTabID: $0.remoteTabID
+                    )
+                }
+            }
             for id in projectedWorkspaceIDs {
                 guard let workspace = cloudWorkspaceRenameService.environment.workspace(id) else { continue }
-                updateCloudDirectoryMetadata(in: workspace, affectedResourceIDs: affectedResourceIDs)
+                updateCloudDirectoryMetadata(
+                    in: workspace,
+                    affectedResourceIDs: affectedResourceIDs,
+                    projected: recordsByWorkspace[id] ?? []
+                )
             }
             return
         }
         for workspace in cloudWorkspaceRenameService.environment.workspaces()
-            where (machine.cloudMachineID != nil && workspace.cloudVMID == machine.cloudMachineID) || projectedWorkspaceIDs.contains(workspace.id)
+            where (machine.tuiMachineID != nil && workspace.cloudVMBinding?.vmID == machine.tuiMachineID) || projectedWorkspaceIDs.contains(workspace.id)
                 || workspace.cloudBindingState.projectedResources.values.contains(where: { $0.machine == machine }) {
             updateCloudDirectoryMetadata(in: workspace)
         }
@@ -41,9 +80,14 @@ extension SurfaceCatalog {
         updateCloudDirectoryMetadata(in: workspace)
     }
 
-    private func updateCloudDirectoryMetadata(in workspace: Workspace, affectedResourceIDs: Set<SurfaceResourceID>? = nil) {
+    private func updateCloudDirectoryMetadata(
+        in workspace: Workspace,
+        affectedResourceIDs: Set<SurfaceResourceID>? = nil,
+        projected suppliedProjections: [SurfaceProjectionRecord]? = nil
+    ) {
         // Saved projections establish ownership even before their provider rediscovers the resource.
-        let projected = projectionRecords(forWorkspace: workspace.id).filter { !$0.resource.machine.isLocal }
+        let projected = (suppliedProjections ?? projectionRecords(forWorkspace: workspace.id))
+            .filter { !$0.resource.machine.isLocal }
         let resourcesByPanel = Dictionary(projected.map { ($0.panelID, $0.resource) }, uniquingKeysWith: { first, _ in first })
         var machineIDs = Set(projected.map { $0.resource.machine.rawValue })
         if let id = workspace.cloudVMID { machineIDs.insert(id) }
@@ -51,7 +95,20 @@ extension SurfaceCatalog {
             (id, machines[SurfaceMachineID(rawValue: id)]?.name ?? id)
         })
         let previous = workspace.cloudBindingState.projectedResources
-        workspace.cloudBindingState.updateCatalogMetadata(resources: resourcesByPanel, machineNames: names)
+        let previousHostLabel = workspace.hostLabel
+        // The sidebar hides a panel whose terminal row is missing or still launching, so the row's
+        // arrival and readiness are presentation inputs even when the projection, names and cwd
+        // stay the same. Without them the workspace row stays blank until an unrelated change.
+        let terminalLifecycles = Dictionary(projected.compactMap { projection -> (UUID, SurfaceLifecycle)? in
+            guard let resource = resources[projection.resource], resource.kind == .terminal else { return nil }
+            return (projection.panelID, resource.lifecycle)
+        }, uniquingKeysWith: { first, _ in first })
+        workspace.cloudBindingState.updateCatalogMetadata(
+            resources: resourcesByPanel, machineNames: names, terminalLifecycles: terminalLifecycles
+        )
+        if workspace.hostLabel != previousHostLabel {
+            workspace.owningTabManager?.workspaceHostLabelDidChange(workspace)
+        }
         for panelID in previous.keys where resourcesByPanel[panelID] == nil && workspace.panels[panelID] != nil {
             workspace.clearRemotePanelDirectory(panelId: panelID)
         }
@@ -63,9 +120,12 @@ extension SurfaceCatalog {
             let directory: String?
             if machine.deviceInstance != nil {
                 directory = resource?.kind == .terminal ? resource?.detail : nil
+            } else if let resource, resource.kind == .terminal {
+                directory = current
+                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd
+                    : acceptedStaleCloudDirectory(for: resource)
             } else {
-                directory = current && resource?.kind == .terminal
-                    ? cloudStates[machine]?.lookupIndex.terminal(id: projection.resource.key)?.cwd : nil
+                directory = nil
             }
             if let directory, workspace.reportedPanelDirectory(panelId: projection.panelID) == directory { continue }
             workspace.updateCloudPanelDirectory(panelId: projection.panelID, directory: directory)

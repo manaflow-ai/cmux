@@ -29,4 +29,3 @@ struct AboutVisualEffectBackground: NSViewRepresentable {
         return visualEffect
     }
 }
-

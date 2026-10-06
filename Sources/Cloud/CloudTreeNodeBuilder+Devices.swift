@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -40,13 +41,11 @@ extension CloudTreeNodeBuilder {
         guard grouped else { return rows }
         var header = section
         header.count = rows.count
+        let controls = [CloudTreeNode(id: "devices-section/empty", kind: .devicesEmpty(header))]
         return [CloudTreeNode(
             id: devicesSectionNodeID,
             kind: .devicesSection(header),
-            children: rows.isEmpty ? [CloudTreeNode(
-                id: "devices-section/empty",
-                kind: .devicesEmpty(header)
-            )] : rows
+            children: rows + controls
         )]
     }
 

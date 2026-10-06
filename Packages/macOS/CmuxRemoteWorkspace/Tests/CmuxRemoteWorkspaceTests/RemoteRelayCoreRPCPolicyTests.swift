@@ -27,15 +27,42 @@ struct RemoteRelayCoreRPCPolicyTests {
     @Test("capabilities filter exact method names without adding unsupported grants")
     func capabilityDiscovery() {
         let methods = RemoteRelayCommandPolicy().permittedMethods(from: [
-            "system.ping", "workspace.list", "surface.send_text", "system.capabilities",
+            "system.ping", "workspace.list", "surface.send_text", "terminal.paste", "system.capabilities",
             "system.exec", "system.command_spec", "workspace.create", "surface.respawn", "browser.open",
             "workspace.list.future", "ping", "capabilities"
         ])
-        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "system.capabilities"])
+        #expect(methods == ["system.ping", "workspace.list", "surface.send_text", "terminal.paste", "system.capabilities"])
         #expect(decision("surface.send_text", [:]) != .allowed)
         #expect(decision("surface.send_text", [
             "workspace_id": owner.uuidString, "surface_id": UUID().uuidString, "text": "id\n"
         ]) != .allowed)
+    }
+
+    @Test("terminal paste syntax is narrower than generic terminal input")
+    func terminalPasteSyntax() throws {
+        let valid: [String: Any] = [
+            "workspace_id": owner.uuidString,
+            "surface_id": surface.uuidString,
+            "text": "hello\nworld",
+            "submit_key": "return",
+        ]
+        #expect(decision("terminal.paste", valid) == .allowed)
+        let request = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": valid])
+        #expect(RemoteRelayCommandPolicy().evaluate(
+            commandLine: request, workspaceAliases: [owner: owner], surfaceAliases: [surface: surface]
+        ) == .allow)
+
+        for params in [
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": "hello", "submit_key": "enter"],
+            ["workspace_id": owner.uuidString, "surface_id": surface.uuidString, "text": 7, "submit_key": "none"],
+        ] as [[String: Any]] {
+            #expect(decision("terminal.paste", params) != .allowed)
+            let invalid = try JSONSerialization.data(withJSONObject: ["method": "terminal.paste", "params": params])
+            #expect(RemoteRelayCommandPolicy().evaluate(
+                commandLine: invalid, workspaceAliases: [:], surfaceAliases: [:]
+            ) != .allow)
+        }
     }
 
     @Test("workspace discovery defaults only to authenticated provenance")
@@ -84,6 +111,21 @@ struct RemoteRelayCoreRPCPolicyTests {
     ])
     func unsupportedMethods(method: String) {
         #expect(decision(method, [:]) != .allowed)
+    }
+
+    @Test("window capture is never reachable from a relay", arguments: [
+        "window.record.start", "window.record.stop", "window.record.status",
+        "window.record.note", "window.record.list", "window.screenshot"
+    ])
+    func windowCaptureIsDenied(method: String) {
+        // Recording films the local screen and a still photographs it. A relay
+        // peer is authorized for the objects of one workspace, not for whatever
+        // the local user has on display, so these verbs stay off the allowlist
+        // entirely.
+        #expect(decision(method, [:]) == .denied(code: "remote_relay_method_denied",
+            message: "Relay method is not permitted"))
+        #expect(decision(method, ["workspace_id": owner.uuidString]) != .allowed)
+        #expect(RemoteRelayCommandPolicy().permittedMethods(from: [method]).isEmpty)
     }
 
     @Test("remote reconnect remains withheld until its surface execution is scoped")

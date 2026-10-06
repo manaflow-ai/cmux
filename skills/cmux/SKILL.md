@@ -19,7 +19,7 @@ cmux identify --json                              # current caller context
 cmux list-windows / list-workspaces / list-panes
 cmux list-pane-surfaces --pane pane:1
 cmux new-workspace
-cmux new-split right --panel pane:1
+cmux new-split right --surface surface:1
 cmux new-split down --command "npm run dev"       # new terminal runs the command in a live shell
 cmux move-surface --surface surface:7 --pane pane:2 --focus true
 cmux split-off --surface surface:7 right
@@ -72,3 +72,4 @@ details.
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits and validation |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser automation on surface-backed webviews |
 | [../cmux-markdown/SKILL.md](../cmux-markdown/SKILL.md) | Markdown viewer panel with live file watching |
+| [../cmux-capture/SKILL.md](../cmux-capture/SKILL.md) | Screenshots and clips of a cmux window for evidence |

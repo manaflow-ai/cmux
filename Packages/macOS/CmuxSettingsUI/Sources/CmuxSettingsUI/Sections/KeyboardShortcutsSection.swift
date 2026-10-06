@@ -3,14 +3,17 @@ import CmuxSettings
 import SwiftUI
 
 /// **Keyboard Shortcuts** section — mirrors the legacy in-app
-/// section: one `SettingsCard` containing the chord docs link,
-/// the Reset Defaults action, and a per-action recorder row for
-/// every `ShortcutAction` (using the new package recorder).
+/// section: one `SettingsCard` containing the base keymap picker,
+/// the chord docs link, the Reset Defaults action, a search row (text plus a
+/// press-the-keys detector), and a per-action recorder row for every matching
+/// `ShortcutAction` (using the new package recorder).
 @MainActor
 public struct KeyboardShortcutsSection: View {
     private let hostActions: SettingsHostActions
+    private let keymapProposals: ShortcutKeymapProposalInbox?
     @State private var model: ShortcutListModel
     @State private var paneResizeStep: DefaultsValueModel<Int>
+    @State private var searchQuery = ShortcutListSearchQuery()
 
     /// Creates the keyboard shortcut editor with both current and compatibility stores.
     ///
@@ -22,15 +25,18 @@ public struct KeyboardShortcutsSection: View {
     ///   - errorLog: The error sink for failed JSON writes.
     ///   - hostActions: Host callbacks for opening the external configuration editor.
     ///   - defaultShortcutResolver: Host-scoped factory defaults for dynamic actions.
+    ///   - keymapProposals: Base keymap choices from outside Settings to preview here.
     public init(
         jsonStore: JSONConfigStore,
         userDefaultsStore: UserDefaultsSettingsStore? = nil,
         catalog: SettingCatalog,
         errorLog: SettingsErrorLog,
         hostActions: SettingsHostActions,
-        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn,
+        keymapProposals: ShortcutKeymapProposalInbox? = nil
     ) {
         self.hostActions = hostActions
+        self.keymapProposals = keymapProposals
         _model = State(initialValue: ShortcutListModel(
             jsonStore: jsonStore,
             userDefaultsStore: userDefaultsStore,
@@ -53,6 +59,8 @@ public struct KeyboardShortcutsSection: View {
             SettingsSectionHeader(String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"), section: .keyboardShortcuts)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsSection")
             SettingsCard {
+                ShortcutKeymapPresetRow(model: model, proposals: keymapProposals)
+                SettingsCardDivider()
                 chordsRow
                 SettingsCardDivider()
                 ModifierHoldHintsSettingsRow()
@@ -61,7 +69,9 @@ public struct KeyboardShortcutsSection: View {
                 SettingsCardDivider()
                 resetDefaultsRow
                 SettingsCardDivider()
-                ShortcutListStableLazyView(model: model)
+                ShortcutListSearchBar(query: $searchQuery, hasChord: { model.hasChord(startingWith: $0) })
+                SettingsCardDivider()
+                ShortcutListStableLazyView(model: model, query: searchQuery)
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))

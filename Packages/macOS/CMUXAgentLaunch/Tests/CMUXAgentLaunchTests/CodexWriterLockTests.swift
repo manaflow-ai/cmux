@@ -4,6 +4,23 @@ import Testing
 @testable import CMUXAgentLaunch
 
 @Suite struct CodexWriterLockTests {
+    @Test func simultaneousReadOnlyProbesDoNotReportEachOtherAsWriters() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let writer = try fixture.hold()
+        defer { close(writer) }
+        #expect(flock(writer, LOCK_UN) == 0)
+        // A second cmux probe is compatible with this read-only observation.
+        #expect(flock(writer, LOCK_SH | LOCK_NB) == 0)
+        #expect(fixture.inspect().state == .available)
+        let coordination = open(fixture.locks.appendingPathComponent(".coordination.lock").path,
+                                O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        try #require(coordination >= 0)
+        defer { close(coordination) }
+        #expect(flock(coordination, LOCK_SH | LOCK_NB) == 0)
+        #expect(fixture.inspect().state == .available)
+    }
+
     private struct Fixture {
         let session = UUID().uuidString.lowercased()
         let home: URL

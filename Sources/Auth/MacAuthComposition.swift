@@ -1,7 +1,9 @@
+import CmuxCloud
 import CMUXAuthCore
 import CmuxAuthRuntime
 import AppKit
 import Foundation
+import Network
 import StackAuth
 
 /// The macOS auth composition root.
@@ -28,6 +30,7 @@ struct MacAuthComposition {
     let accountFlow: HostAccountFlow
     /// Reconciles Cloud transports with the coordinator's selected team.
     let cloudTeamScopeObserver: CloudTeamScopeObserver
+    let teamScopeRecoveryTriggers: MacAuthTeamScopeRecoveryTriggers
 
     /// Build the auth graph.
     /// - Parameters:
@@ -133,7 +136,7 @@ struct MacAuthComposition {
         let anchor = AuthPresentationContextProvider()
         let browserAppSessionSignInRelay = BrowserAppSessionSignInRelay()
         let coordinator = AuthCoordinator(
-            client: client,
+            client: Self.uiTestAuthClient(wrapping: client, environment: resolvedEnvironment),
             sessionCache: sessionCache,
             userCache: userCache,
             teamSelection: CMUXAuthTeamSelectionStore(
@@ -179,6 +182,7 @@ struct MacAuthComposition {
             makeSignInURL: { AuthEnvironment.signInURL(callbackState: $0) },
             callbackScheme: { AuthEnvironment.callbackScheme },
             openExternalURL: { NSWorkspace.shared.open($0) },
+            approveUnsolicitedCallback: { await UnsolicitedAuthCallbackApprovalPrompt.present($0) },
             beginSignOut: {
                 // Tear down local Cloud VM workspaces before the coordinator
                 // clears auth. This closes live WebSockets, removes persisted
@@ -216,8 +220,9 @@ struct MacAuthComposition {
             coordinator: coordinator,
             browserSignIn: browserSignIn
         )
-        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) {
-            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch()
+        self.teamScopeRecoveryTriggers = MacAuthTeamScopeRecoveryTriggers(coordinator: coordinator)
+        self.cloudTeamScopeObserver = CloudTeamScopeObserver(auth: coordinator) { isSameAccount in
+            AppDelegate.shared?.prepareCloudVMAccessForTeamSwitch(isSameAccount: isSameAccount)
         }
     }
 
@@ -225,6 +230,7 @@ struct MacAuthComposition {
     /// the composition root.
     func start() {
         cloudTeamScopeObserver.start()
+        teamScopeRecoveryTriggers.start()
         coordinator.start()
     }
 
@@ -245,6 +251,18 @@ struct MacAuthComposition {
         true
         #else
         false
+        #endif
+    }
+
+    /// DEBUG UI tests can serve fixture team membership around the live client.
+    private static func uiTestAuthClient(
+        wrapping client: any AuthClient,
+        environment: [String: String]
+    ) -> any AuthClient {
+        #if DEBUG
+        UITestFixtureTeamsAuthClient.wrapping(client, environment: environment)
+        #else
+        client
         #endif
     }
 
@@ -348,4 +366,102 @@ struct MacAuthComposition {
         environment
     }
     #endif
+}
+
+/// Retries a missing team scope when a retry is likely to succeed.
+///
+/// macOS has no foreground revalidation like iOS, and a login-item launch
+/// often runs before the network is up. The coordinator's backoff loop is the
+/// guarantee; these signals (network path restored, system wake, app
+/// activation) only shorten the wait. Each call is a no-op for a healthy
+/// session.
+@MainActor
+final class MacAuthTeamScopeRecoveryTriggers {
+    private let coordinator: AuthCoordinator
+    private let pathMonitor = NWPathMonitor()
+    private var tasks: [Task<Void, Never>] = []
+
+    init(coordinator: AuthCoordinator) {
+        self.coordinator = coordinator
+    }
+
+    func start() {
+        guard tasks.isEmpty else { return }
+        let notifications: [(NotificationCenter, Notification.Name)] = [
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+            (NotificationCenter.default, NSApplication.didBecomeActiveNotification),
+        ]
+        for (center, name) in notifications {
+            tasks.append(Task { @MainActor [weak self] in
+                for await _ in center.notifications(named: name) {
+                    await self?.coordinator.recoverTeamScopeIfNeeded()
+                }
+            })
+        }
+        let (pathSatisfied, continuation) = AsyncStream<Bool>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        pathMonitor.pathUpdateHandler = { path in
+            continuation.yield(path.status == .satisfied)
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "com.cmux.auth.team-scope-path"))
+        tasks.append(Task { @MainActor [weak self] in
+            var wasSatisfied = false
+            for await satisfied in pathSatisfied {
+                defer { wasSatisfied = satisfied }
+                guard satisfied, !wasSatisfied else { continue }
+                await self?.coordinator.recoverTeamScopeIfNeeded()
+            }
+        })
+    }
+}
+
+/// Native confirmation shown before a stateless auth callback that cmux did
+/// not request (for example a `cmux://auth-callback` link opened by a web
+/// page) may sign the app in. Declining is the default action.
+@MainActor
+enum UnsolicitedAuthCallbackApprovalPrompt {
+    static func present(_ request: UnsolicitedAuthCallbackApprovalRequest) async -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = request.replacesSignedInSession ? .critical : .warning
+        alert.messageText = title(for: request)
+        alert.informativeText = message(for: request)
+        // The first button is the default (Return) action, so declining is the
+        // path of least resistance.
+        alert.addButton(withTitle: String(
+            localized: "account.callbackApproval.cancel",
+            defaultValue: "Don\u{2019}t Sign In"
+        ))
+        alert.addButton(withTitle: request.replacesSignedInSession
+            ? String(localized: "account.callbackApproval.replace.confirm", defaultValue: "Switch Account")
+            : String(localized: "account.callbackApproval.confirm", defaultValue: "Sign In"))
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    private static func title(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        if request.replacesSignedInSession {
+            return String(
+                localized: "account.callbackApproval.replace.title",
+                defaultValue: "Switch cmux to another account?"
+            )
+        }
+        return String(
+            localized: "account.callbackApproval.title",
+            defaultValue: "Sign in to cmux from a link?"
+        )
+    }
+
+    private static func message(for request: UnsolicitedAuthCallbackApprovalRequest) -> String {
+        let account = String(
+            localized: "account.callbackApproval.message.unknown",
+            defaultValue: "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+        )
+        guard request.replacesSignedInSession else { return account }
+        let warning = String(
+            localized: "account.callbackApproval.replace.generic",
+            defaultValue: "You\u{2019}re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn\u{2019}t just choose this account yourself, click Don\u{2019}t Sign In."
+        )
+        return "\(account)\n\n\(warning)"
+    }
 }

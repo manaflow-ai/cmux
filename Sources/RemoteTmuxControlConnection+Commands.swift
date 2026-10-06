@@ -12,6 +12,51 @@ extension RemoteTmuxControlConnection {
         sendInternal(command, kind: .other)
     }
 
+    func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {
+        paneColors[paneId] = colors
+        sendPaneColorReport(paneId: paneId)
+    }
+
+    func removePaneColors(paneId: Int) {
+        paneColors.removeValue(forKey: paneId)
+        sentPaneColors.removeValue(forKey: paneId)
+    }
+
+    func sendPaneColorReport(paneId: Int) {
+        guard canSendPaneColorReports,
+              let colors = paneColors[paneId],
+              sentPaneColors[paneId] != colors else { return }
+        let commands = colors.reportCommands(paneId: paneId)
+        if sendBatchInternal(commands, kinds: commands.map { _ in .paneColorReport(paneId, colors) }) {
+            sentPaneColors[paneId] = colors
+        }
+    }
+
+    func replayPaneColorReports() {
+        sentPaneColors.removeAll()
+        for paneId in paneColors.keys.sorted() {
+            sendPaneColorReport(paneId: paneId)
+        }
+    }
+
+    func rejectPaneColorReport(paneId: Int, colors: RemoteTmuxPaneColors, lines: [String]) {
+        if sentPaneColors[paneId] == colors {
+            sentPaneColors.removeValue(forKey: paneId)
+        }
+        let error = lines.joined(separator: " / ")
+        // refresh-client -r was added in tmux 3.5. Older supported servers
+        // still mirror normally, without repeatedly sending an unknown flag.
+        if error.localizedCaseInsensitiveContains("flag")
+            && error.contains("-r") {
+            if supportsPaneColorReports {
+                supportsPaneColorReports = false
+                record("pane-color-reports-unsupported \(error)")
+            }
+        } else {
+            record("pane-color-report-failed %\(paneId) \(error)")
+        }
+    }
+
     // MARK: - Mirror session environment (issue #833)
 
     /// Marker signalling to remote shell integration that this tmux session is
@@ -395,6 +440,7 @@ extension RemoteTmuxControlConnection {
     /// hits the conservative no-reflow default on a slow link.
     @discardableResult
     func seedPane(paneId: Int, clearScrollback: Bool = true) -> UUID? {
+        sendPaneColorReport(paneId: paneId)
         requestPaneReflow(paneId: paneId)
         let seedID = capturePane(paneId: paneId, clearScrollback: clearScrollback)
         requestPanePath(paneId: paneId)

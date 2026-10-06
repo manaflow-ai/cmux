@@ -1,3 +1,4 @@
+import CmuxBrowser
 import AppKit
 import Bonsplit
 import CmuxFoundation
@@ -413,6 +414,20 @@ private extension TabManager {
 @Suite(.serialized)
 @MainActor
 final class AppDelegateEqualizeSplitsShortcutTests {
+    private static let splitFixtureContentSize = CGSize(width: 1_000, height: 700)
+
+    /// `createMainWindow` inherits the current main window's size. Earlier
+    /// app-host tests can leave a 320-point window behind, which is too narrow
+    /// for the minimum-width split admission check. Keep split fixtures at a
+    /// realistic size so these tests exercise the shortcut behavior itself.
+    private static func prepareSplitFixture(window: NSWindow, workspace: Workspace) {
+        window.setContentSize(splitFixtureContentSize)
+        window.contentView?.layoutSubtreeIfNeeded()
+        workspace.bonsplitController.setContainerFrame(
+            CGRect(x: 0, y: 0, width: splitFixtureContentSize.width, height: 1_000)
+        )
+    }
+
     @Test
     func testCmdShiftReturnFocusedBrowserTogglesSplitZoom() {
         withTemporaryShortcut(action: .toggleSplitZoom) {
@@ -426,8 +441,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
             guard let window = window(withId: windowId),
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
-                  let workspace = manager.selectedWorkspace,
-                  let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+                  let workspace = manager.selectedWorkspace else {
+                XCTFail("Expected a main window and workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
                   let browserPanel = workspace.browserPanel(for: browserPanelId),
                   let event = makeKeyDownEvent(key: "\r", modifiers: [.command, .shift], keyCode: 36, windowNumber: window.windowNumber) else {
                 XCTFail("Expected focused browser panel and Cmd+Shift+Return event")
@@ -489,8 +509,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         guard let window = window(withId: windowId),
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
-              let leftPanelId = workspace.focusedPanelId,
-              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
+              let leftPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected a workspace with a focused terminal")
+            return
+        }
+        Self.prepareSplitFixture(window: window, workspace: workspace)
+
+        guard let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal),
               workspace.newTerminalSplit(from: rightPanel.id, orientation: .horizontal) != nil else {
             XCTFail("Expected asymmetric horizontal split setup")
             return
@@ -498,10 +523,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
         let seededSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertGreaterThanOrEqual(seededSplits.count, 2, "Expected nested splits")
-
         var seededTargetsBySplitId: [String: Double] = [:]
         for (index, split) in seededSplits.enumerated() {
             guard let splitId = UUID(uuidString: split.id) else {
@@ -512,7 +535,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             seededTargetsBySplitId[split.id] = Double(targetPosition)
             XCTAssertTrue(workspace.bonsplitController.setDividerPosition(targetPosition, forSplit: splitId))
         }
-
         let postSeedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(postSeedSplits.count, seededSplits.count)
         for split in postSeedSplits {
@@ -523,7 +545,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(split.dividerPosition, targetPosition, accuracy: 0.000_1)
             XCTAssertNotEqual(split.dividerPosition, 0.5, accuracy: 0.000_1)
         }
-
         workspace.splitTabBar(workspace.bonsplitController, didChangeGeometry: workspace.bonsplitController.layoutSnapshot())
         guard let seededLayoutSnapshot = await shortcutRoutingAwaitPublishedLayout(workspace, until: {
             $0.panes == workspace.bonsplitController.layoutSnapshot().panes
@@ -534,12 +555,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let expectedEqualizedPositions = shortcutRoutingExpectedEqualizedDividerPositions(
             in: workspace.bonsplitController.treeSnapshot()
         )
-
         guard let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control, .shift], keyCode: 24, windowNumber: window.windowNumber) else {
             XCTFail("Failed to construct Cmd+Ctrl+Shift+= event")
             return
         }
-
 #if DEBUG
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
@@ -547,7 +566,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         return
 #endif
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.35))
-
         let equalizedSplits = shortcutRoutingSplitNodes(in: workspace.bonsplitController.treeSnapshot())
         XCTAssertEqual(equalizedSplits.count, seededSplits.count)
         let equalizedLeafCount = shortcutRoutingAssertProportionalEqualizedTree(
@@ -561,7 +579,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
             XCTAssertEqual(split.dividerPosition, expectedPosition, accuracy: 0.000_1)
         }
-
         // Wait for the equalize to be published rather than for the cache to
         // match the live tree: waiting on equality would make the frame
         // comparison below true by construction. Waiting for the cache to
@@ -596,8 +613,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
                   let workspace = manager.selectedWorkspace,
                   let firstPanelId = workspace.focusedPanelId,
-                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                  let secondPanel = workspace.newTerminalSplit(
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                XCTFail("Expected a focused terminal workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let secondPanel = workspace.newTerminalSplit(
                     from: firstPanelId,
                     orientation: .horizontal
                   ),
@@ -687,6 +709,14 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
+            // Keep this window's right sidebar hidden; app-host processes share
+            // persisted Dock state with other tests.
+            let defaults = UserDefaults.standard
+            let previousRightSidebarMode = defaults.object(forKey: "rightSidebar.mode"); let previousRightSidebarVisibility = defaults.object(forKey: "fileExplorer.isVisible")
+            defaults.set(RightSidebarMode.files.rawValue, forKey: "rightSidebar.mode"); defaults.set(false, forKey: "fileExplorer.isVisible")
+            defer {
+                defaults.set(previousRightSidebarMode, forKey: "rightSidebar.mode"); defaults.set(previousRightSidebarVisibility, forKey: "fileExplorer.isVisible")
+            }
             let windowId = appDelegate.createMainWindow()
             defer { closeWindow(withId: windowId) }
 
@@ -703,7 +733,7 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return
             }
 
-            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId))
+            XCTAssertNil(appDelegate.existingWindowDock(forWindowId: windowId), "A new window with a hidden right sidebar must not have a Dock yet")
             window.makeKeyAndOrderFront(nil)
             window.displayIfNeeded()
 
@@ -7677,8 +7707,13 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                   let manager = appDelegate.tabManagerFor(windowId: windowId),
                   let workspace = manager.selectedWorkspace,
                   let firstPanelId = workspace.focusedPanelId,
-                  let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                  let secondPanel = workspace.newTerminalSplit(
+                  let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                XCTFail("Expected a focused terminal workspace")
+                return
+            }
+            Self.prepareSplitFixture(window: window, workspace: workspace)
+
+            guard let secondPanel = workspace.newTerminalSplit(
                     from: firstPanelId,
                     orientation: .horizontal
                   ),
@@ -7727,14 +7762,12 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                     "Expected every terminal to own the shrunken size before reset"
                 )
             }
-
 #if DEBUG
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
             XCTFail("debugHandleCustomShortcut is only available in DEBUG")
             return
 #endif
-
             let configuredRuntimePoints = Float32(
                 GhosttyConfig.load(
                     globalFontMagnificationPercent: GlobalFontMagnification.storedPercent
@@ -7755,7 +7788,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-
     @Test
     func testPersistedLegacyEqualizeShortcutWinsOverNewFontSizeDefault() {
         withIsolatedShortcutFileStore {
@@ -7774,16 +7806,18 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         XCTFail("Expected AppDelegate.shared")
                         return
                     }
-
                     let windowId = appDelegate.createMainWindow()
                     defer { closeWindow(withId: windowId) }
-
                     guard let window = window(withId: windowId),
                           let manager = appDelegate.tabManagerFor(windowId: windowId),
                           let workspace = manager.selectedWorkspace,
                           let firstPanelId = workspace.focusedPanelId,
-                          let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                          let secondPanel = workspace.newTerminalSplit(
+                          let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                        XCTFail("Expected a focused terminal workspace")
+                        return
+                    }
+                    Self.prepareSplitFixture(window: window, workspace: workspace)
+                    guard let secondPanel = workspace.newTerminalSplit(
                             from: firstPanelId,
                             orientation: .horizontal
                           ),
@@ -7800,13 +7834,11 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         XCTFail("Expected a split and legacy Cmd+Ctrl+= event")
                         return
                     }
-
                     XCTAssertNil(firstPanel.surface.fontSizeLineageSnapshot())
                     XCTAssertNil(secondPanel.surface.fontSizeLineageSnapshot())
                     XCTAssertTrue(
                         workspace.bonsplitController.setDividerPosition(0.2, forSplit: splitId)
                     )
-
                     window.makeKeyAndOrderFront(nil)
 #if DEBUG
                     XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
@@ -7814,7 +7846,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                     XCTFail("debugHandleCustomShortcut is only available in DEBUG")
                     return
 #endif
-
                     guard let updatedSplit = shortcutRoutingSplitNodes(
                         in: workspace.bonsplitController.treeSnapshot()
                     ).first(where: { $0.id == split.id }) else {
@@ -7832,7 +7863,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-
     @Test
     func testPersistedSplitShortcutWinsOverNewFontSizeDefaults() {
         withIsolatedShortcutFileStore {
@@ -7846,7 +7876,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 (.decreaseWorkspaceTerminalFontSize, "-", 27),
                 (.resetWorkspaceTerminalFontSize, "0", 29),
             ]
-
             for testCase in cases {
                 withDefaultShortcutFallback(action: testCase.action) {
                     withTemporaryShortcut(
@@ -7863,16 +7892,18 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                             XCTFail("Expected AppDelegate.shared")
                             return
                         }
-
                         let windowId = appDelegate.createMainWindow()
                         defer { closeWindow(withId: windowId) }
-
                         guard let window = window(withId: windowId),
                               let manager = appDelegate.tabManagerFor(windowId: windowId),
                               let workspace = manager.selectedWorkspace,
                               let firstPanelId = workspace.focusedPanelId,
-                              let firstPanel = workspace.terminalPanel(for: firstPanelId),
-                              let event = makeKeyDownEvent(
+                              let firstPanel = workspace.terminalPanel(for: firstPanelId) else {
+                            XCTFail("Expected a focused terminal workspace")
+                            return
+                        }
+                        Self.prepareSplitFixture(window: window, workspace: workspace)
+                        guard let event = makeKeyDownEvent(
                                 key: testCase.key,
                                 modifiers: [.command, .control],
                                 keyCode: testCase.keyCode,
@@ -7882,7 +7913,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                             return
                         }
                         let panelCountBefore = workspace.panels.count
-
                         window.makeKeyAndOrderFront(nil)
 #if DEBUG
                         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
@@ -7890,7 +7920,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
                         return
 #endif
-
                         XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
                         XCTAssertEqual(
                             shortcutRoutingSplitNodes(
@@ -7906,7 +7935,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-
     @Test
     func testPersistedSplitShortcutWinsOverNewEqualizeDefault() {
         withIsolatedShortcutFileStore {
@@ -7925,14 +7953,16 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         XCTFail("Expected AppDelegate.shared")
                         return
                     }
-
                     let windowId = appDelegate.createMainWindow()
                     defer { closeWindow(withId: windowId) }
-
                     guard let window = window(withId: windowId),
                           let manager = appDelegate.tabManagerFor(windowId: windowId),
-                          let workspace = manager.selectedWorkspace,
-                          let event = makeKeyDownEvent(
+                          let workspace = manager.selectedWorkspace else {
+                        XCTFail("Expected a workspace")
+                        return
+                    }
+                    Self.prepareSplitFixture(window: window, workspace: workspace)
+                    guard let event = makeKeyDownEvent(
                             key: "=",
                             modifiers: [.command, .control, .shift],
                             keyCode: 24,
@@ -7942,7 +7972,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                         return
                     }
                     let panelCountBefore = workspace.panels.count
-
                     window.makeKeyAndOrderFront(nil)
 #if DEBUG
                     XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
@@ -7950,7 +7979,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                     XCTFail("debugHandleCustomShortcut is only available in DEBUG")
                     return
 #endif
-
                     XCTAssertEqual(workspace.panels.count, panelCountBefore + 1)
                     XCTAssertEqual(
                         shortcutRoutingSplitNodes(
@@ -7962,7 +7990,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-
     @Test
     func testWorkspaceFontSizeDefaultsAreNotSuppressedAfterRebinding() {
         withIsolatedShortcutFileStore {
@@ -7977,7 +8004,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 (.decreaseWorkspaceTerminalFontSize, "-", 27),
                 (.resetWorkspaceTerminalFontSize, "0", 29),
             ]
-
             for testCase in cases {
                 guard let event = makeKeyDownEvent(
                     key: testCase.key,
@@ -7997,7 +8023,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             }
         }
     }
-
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
@@ -8006,7 +8031,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             return [split] + shortcutRoutingSplitNodes(in: split.first) + shortcutRoutingSplitNodes(in: split.second)
         }
     }
-
     @discardableResult
     private func shortcutRoutingAssertProportionalEqualizedTree(
         _ node: ExternalTreeNode,
@@ -8030,10 +8054,8 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             return totalLeafCount
         }
     }
-
     private func shortcutRoutingExpectedEqualizedDividerPositions(in node: ExternalTreeNode) -> [String: Double] {
         var positionsBySplitId: [String: Double] = [:]
-
         @discardableResult
         func collectLeafCount(_ node: ExternalTreeNode) -> Int {
             switch node {
@@ -8047,11 +8069,9 @@ final class AppDelegateEqualizeSplitsShortcutTests {
                 return totalLeafCount
             }
         }
-
         collectLeafCount(node)
         return positionsBySplitId
     }
-
     private func storedFloatCount(in value: Any) -> Int {
         if value is Float32 {
             return 1
@@ -8060,7 +8080,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             $0 += storedFloatCount(in: $1.value)
         }
     }
-
     private func mirroredCollectionCount(
         named label: String,
         in value: Any
@@ -8071,7 +8090,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         return Mirror(reflecting: collection).children.count
     }
-
     private func makeDormantTerminalTransfer(
         panel: TerminalPanel,
         sourceWorkspaceId: UUID
@@ -8110,12 +8128,10 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             remoteCleanupConfiguration: nil
         )
     }
-
     private func shortcutRoutingPaneFramesById(in snapshot: LayoutSnapshot) -> [String: PixelRect] {
         Dictionary(uniqueKeysWithValues: snapshot.panes.map { ($0.paneId, $0.frame) })
     }
-
-    /// The published `tmuxLayoutSnapshot` once it satisfies `predicate`.
+    /// The recorded `tmuxLayoutSnapshot` once it satisfies `predicate`.
     ///
     /// Since a27969a38b the geometry callback hands its work to
     /// `geometryNotificationScheduler.schedule(zeroDelayPolicy: .yieldOnce)`,
@@ -8142,7 +8158,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         return settled ? published : nil
     }
-
     private func shortcutRoutingAssertPaneFramesMatch(
         _ lhs: LayoutSnapshot,
         _ rhs: LayoutSnapshot,
@@ -8152,7 +8167,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         let lhsFrames = shortcutRoutingPaneFramesById(in: lhs)
         let rhsFrames = shortcutRoutingPaneFramesById(in: rhs)
         XCTAssertEqual(Set(lhsFrames.keys), Set(rhsFrames.keys), file: file, line: line)
-
         for paneId in lhsFrames.keys {
             guard let lhsFrame = lhsFrames[paneId], let rhsFrame = rhsFrames[paneId] else {
                 XCTFail("Expected pane \(paneId) in both layout snapshots", file: file, line: line)
@@ -8164,7 +8178,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             XCTAssertEqual(lhsFrame.height, rhsFrame.height, accuracy: 0.000_1, file: file, line: line)
         }
     }
-
     private func makeKeyDownEvent(
         key: String,
         modifiers: NSEvent.ModifierFlags,
@@ -8185,7 +8198,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
             keyCode: keyCode
         )
     }
-
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut? = nil,
@@ -8203,7 +8215,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
         body()
     }
-
     private func withDefaultShortcutFallback(
         action: KeyboardShortcutSettings.Action,
         _ body: () -> Void
@@ -8220,7 +8231,6 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         body()
     }
-
     private func withIsolatedShortcutFileStore(_ body: () -> Void) {
         let originalStore = KeyboardShortcutSettings.settingsFileStore
         let settingsFileURL = FileManager.default.temporaryDirectory
@@ -8236,29 +8246,24 @@ final class AppDelegateEqualizeSplitsShortcutTests {
         }
         body()
     }
-
     private func window(withId windowId: UUID) -> NSWindow? {
         let identifier = "cmux.main.\(windowId.uuidString)"
         return NSApp.windows.first(where: { $0.identifier?.rawValue == identifier })
     }
-
     private func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 }
-
 @MainActor
 private final class ManualWorkspaceFontSizeDrainScheduler {
     private struct ScheduledDrain {
         var isCancelled = false
         let action: @MainActor () -> Void
     }
-
     private var scheduledDrains: [ScheduledDrain] = []
     private(set) var delays: [TimeInterval] = []
-
     func schedule(
         delay: TimeInterval,
         action: @escaping @MainActor () -> Void
@@ -8270,7 +8275,6 @@ private final class ManualWorkspaceFontSizeDrainScheduler {
             self?.scheduledDrains[index].isCancelled = true
         }
     }
-
     func fire(at index: Int) {
         guard scheduledDrains.indices.contains(index),
               !scheduledDrains[index].isCancelled else {
@@ -8279,17 +8283,14 @@ private final class ManualWorkspaceFontSizeDrainScheduler {
         scheduledDrains[index].action()
     }
 }
-
 @MainActor
 private final class ManualTerminalFontConfigurationReloadScheduler {
     private var actions: [@MainActor @Sendable () -> Void] = []
-
     func schedule(
         action: @escaping @MainActor @Sendable () -> Void
     ) {
         actions.append(action)
     }
-
     func fire(at index: Int) {
         guard actions.indices.contains(index) else { return }
         actions[index]()

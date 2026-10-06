@@ -1,47 +1,7 @@
+import CmuxAppKitSupportUI
+import CmuxCloud
 import AppKit
 import SwiftUI
-
-/// "2 of 3" plan meter. Turns into the upgrade hint when a free plan hits its
-/// machine ceiling — the moment of intent, and the only place we mention it.
-struct MachinePlanMeter: View {
-    let plan: MachinePlanSnapshot
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(meterText)
-                .cmuxFont(size: 11, monospacedDigit: true)
-                .foregroundColor(plan.isAtLimit ? Color.orange : .secondary)
-            if plan.isAtLimit && !plan.isPaidPlan {
-                Text(String(localized: "machines.meter.upgrade", defaultValue: "Upgrade for more"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.orange)
-            }
-        }
-        .help(meterHelp)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var meterText: String { plan.countLabel }
-
-    private var meterHelp: String {
-        if plan.isAtLimit && !plan.isPaidPlan, let maxActiveVms = plan.maxActiveVms {
-            if plan.isSingleMachinePlan {
-                return String(
-                    localized: "machines.meter.help.atLimit.single",
-                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
-                )
-            }
-            return String(
-                localized: "machines.meter.help.atLimit",
-                defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
-        }
-        return String(
-            localized: "machines.meter.help",
-            defaultValue: "Machines on your plan. Sleeping machines cost nothing."
-        )
-    }
-}
 
 /// One line under the header on free plans: how long the fleet stays
 /// reachable, counting down to the earliest machine's expiry, and the way out
@@ -79,8 +39,8 @@ struct MachinesFreeAccessBanner: View {
             .layoutPriority(1)
             CloudBannerDismissButton(action: onDismiss)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.horizontal, RightSidebarChromeMetrics.barHorizontalPadding)
+        .padding(.vertical, RightSidebarChromeMetrics.barVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .foregroundColor(isExpired ? Color.orange : .secondary)
         .contentShape(Rectangle())
@@ -115,12 +75,19 @@ struct MachinesChromeIconButton: View {
                     ProgressView()
                         .controlSize(.mini)
                 } else {
-                    CmuxSystemSymbolImage(
-                        systemName: symbolName,
-                        pointSize: 11,
-                        weight: .medium,
-                        tint: Color(nsColor: isHovered ? .labelColor : .secondaryLabelColor)
-                    )
+                    // The glyph draws into the whole button canvas, centered
+                    // by its visible pixels. Centering its layout box instead
+                    // leaves glyphs like `trash` a point low.
+                    CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                        source: symbolSource,
+                        size: NSSize(width: 22, height: 20),
+                        tintColor: isHovered ? .labelColor : .secondaryLabelColor,
+                        symbolWeight: .medium,
+                        fallbackSource: symbolSource,
+                        symbolPointSize: 11,
+                        centersVisibleContent: true
+                    ))
+                    .accessibilityHidden(true)
                 }
             }
             .frame(width: 22, height: 20)
@@ -129,11 +96,51 @@ struct MachinesChromeIconButton: View {
         .buttonStyle(.plain)
         .foregroundColor(isHovered ? .primary : .secondary)
         .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
+            RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.buttonCornerRadius, style: .continuous)
                 .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
         )
         .onHover { isHovered = $0 }
         .help(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var symbolSource: CmuxResolvedIconSource {
+        .systemSymbol(name: symbolName, accessibilityDescription: nil)
+    }
+}
+
+/// A short labeled chrome button for the one action the header must sell
+/// (Invite). Same height and tint rules as ``MachinesChromeIconButton``.
+struct MachinesChromeLabelButton: View {
+    let symbolName: String
+    let title: String
+    let accessibilityLabel: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: symbolName)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .cmuxFont(size: 11, weight: .medium)
+            }
+            // Same grey and hover rule as the tab bar's mode labels above.
+            .foregroundColor(RightSidebarChromeControlStyle.pillForegroundColor(isSelected: false, isHovered: isHovered))
+            .padding(.leading, 7)
+            // The text ends under the tab bar's close glyph (12 pt from the edge).
+            .padding(.trailing, 4)
+            .frame(height: 20)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .safeHelp(accessibilityLabel)
         .accessibilityLabel(accessibilityLabel)
     }
 }

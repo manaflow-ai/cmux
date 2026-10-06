@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 
@@ -8,7 +9,8 @@ extension SurfaceCatalog {
             input = SurfaceCatalogSnapshot(
                 machines: machines[machine].map { [$0] } ?? [],
                 resources: (resourceIDsByMachine[machine] ?? []).compactMap { resources[$0] }.sorted { $0.catalogPrecedes($1) },
-                projections: projections.filter { $0.resource.machine == machine }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+                projections: projections.filter { $0.resource.machine == machine }.sorted { $0.panelID.uuidString < $1.panelID.uuidString },
+                displayCreationMachines: (provider(for: machine) as? CmuxTuiSurfaceProvider)?.supportsDisplayCreation == true ? [machine] : nil
             )
         } else {
             input = snapshot

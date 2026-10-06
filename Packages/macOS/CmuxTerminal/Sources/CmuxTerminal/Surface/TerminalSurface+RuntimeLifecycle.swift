@@ -189,6 +189,7 @@ extension TerminalSurface {
             )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
+            paneHost.terminalSurfaceRuntimeDidRelease()
             activePortalHostLease = nil
             portalHostAuthority = nil
             byteTee.dropSurface(surfaceID: id)
@@ -238,6 +239,17 @@ extension TerminalSurface {
     /// complete instead of retaining a hidden mount slot for them forever.
     public var canCreateRuntimeSurface: Bool {
         allowsRuntimeSurfaceCreation()
+    }
+
+    /// Why this surface has no live runtime right now.
+    ///
+    /// Only meaningful while the surface has no live runtime. Closing wins
+    /// over the other states because a closing surface never starts again.
+    public var runtimeUnavailableReason: TerminalSurfaceRuntimeUnavailableReason {
+        if portalLifecycleState != .live { return .closing }
+        if runtimeSurfaceSuspendedForAgentHibernation { return .hibernated }
+        if startupRestoreAdmissionPhase == .awaitingAdmission { return .awaitingRestore }
+        return .starting
     }
 
     private var hasDeferredStartupWork: Bool {
@@ -297,6 +309,9 @@ extension TerminalSurface {
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        // A close during the agent-hibernation signal/wait window leaves the
+        // reservation unconsumed; give the bounded slot back (#15652).
+        cancelAgentHibernationRuntimeTeardownReservation()
         retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
@@ -315,6 +330,9 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        if surfaceToFree != nil {
+            paneHost.terminalSurfaceRuntimeDidRelease()
+        }
         guard let surfaceToFree else {
             callbackContext?.release()
             manualIOContext?.release()
@@ -410,6 +428,9 @@ extension TerminalSurface {
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
+        if surfaceToFree != nil {
+            paneHost.terminalSurfaceRuntimeDidRelease()
+        }
         activePortalHostLease = nil
         portalHostAuthority = nil
         clearPortalHostVacancyRetries()
@@ -524,19 +545,6 @@ extension TerminalSurface {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
         return true
-    }
-
-    /// Sets the transport-only command used when a deferred restore is cancelled.
-    ///
-    /// Persistent SSH restores keep their PTY attached after cancellation, but
-    /// must omit the embedded agent-resume payload. The value is captured when
-    /// admission is cancelled and remains in force for later runtime retries.
-    ///
-    /// - Parameter command: The transport-only command to run after cancellation.
-    @MainActor
-    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
-        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
-        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
     }
 
     /// Primes the initial input for the next runtime spawn only.

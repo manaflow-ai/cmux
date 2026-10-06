@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxBrowser
 import CmuxCore
 import CmuxRemoteWorkspace
@@ -325,7 +326,9 @@ struct ManagedCapabilityPolicyGateTests {
             if refused { break }
             try await ContinuousClock().sleep(for: .milliseconds(20))
         }
-        #expect(refused)
+        // Without a "started" entry the event never reached the engine; with one,
+        // the refusal never finished. Main's batch 5 fails here only in sequence.
+        #expect(refused, "logs=\(engine.logsPayload(limit: 32))")
         #expect(calls.count == 0)
     }
 
@@ -464,6 +467,33 @@ struct ManagedCapabilityPolicyGateTests {
             ), pairingEnabled: { true }
         )
         #expect(runtime.isNetworkingAllowed)
+    }
+
+    @Test("Mac discovery and incoming hosting capabilities stay independent of iOS pairing")
+    func macOnlyCapabilitiesAreIndependent() {
+        #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: false, incomingAccessEnabled: false).isEmpty)
+        #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: true, incomingAccessEnabled: false)
+            == ["cmux.mac-devices.v1"])
+        #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: false, incomingAccessEnabled: true)
+            == ["cmux.mac-host.v1"])
+        #expect(MobileHostIrxRuntime.macDeviceCapabilities(discoveryEnabled: true, incomingAccessEnabled: true)
+            == ["cmux.mac-devices.v1", "cmux.mac-host.v1"])
+    }
+
+    @Test("Mac-only hosting admits Mac peers while keeping iOS pairing disabled")
+    func macOnlyAdmissionIsPeerSpecific() {
+        #expect(MobileHostIrxRuntime.allowsInboundPeer(
+            isMac: true, pairingEnabled: false, incomingAccessEnabled: true
+        ))
+        #expect(!MobileHostIrxRuntime.allowsInboundPeer(
+            isMac: false, pairingEnabled: false, incomingAccessEnabled: true
+        ))
+        #expect(MobileHostIrxRuntime.allowsInboundPeer(
+            isMac: false, pairingEnabled: true, incomingAccessEnabled: false
+        ))
+        #expect(!MobileHostIrxRuntime.allowsInboundPeer(
+            isMac: true, pairingEnabled: true, incomingAccessEnabled: false
+        ))
     }
 
     /// `MobileHostService.stop()` and `syncToSettings()` both fire IRX policy

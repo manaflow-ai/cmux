@@ -13,6 +13,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 spec = importlib.util.spec_from_file_location("verify_local", ROOT / "scripts/verify-local.py")
@@ -368,7 +370,7 @@ class AffectedChecksTests(unittest.TestCase):
             (repo / "Resources").mkdir()
             (repo / "Resources" / "odd name\nstrings.xcstrings").write_text("{}")
             selected, evidence = verify.affected_checks(repo, "HEAD")
-            self.assertEqual(selected, ["xcstrings", "localization", "feature-flags"])
+            self.assertEqual(selected, ["xcstrings", "localization", "localization-defaults", "feature-flags"])
             self.assertEqual(evidence["paths"], ["Resources/odd name\nstrings.xcstrings"])
             self.assertIn("time_sensitive", evidence["reasons"]["feature-flags"])
 

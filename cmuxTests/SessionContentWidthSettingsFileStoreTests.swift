@@ -45,6 +45,134 @@ struct SessionContentWidthSettingsFileStoreTests {
         }
     }
 
+    @Test
+    func settingsFileStoreReloadAppliesCanonicalTerminalGuardrailSetting() throws {
+        let suiteName = "cmux-session-content-width-guardrail-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":false,"thresholdGB":8}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+        let terminal = TerminalCatalogSection()
+        #expect(defaults.bool(forKey: terminal.runawayMemoryGuardrailEnabled.userDefaultsKey) == false)
+
+        try #"{"terminal":{"runawayMemoryGuardrail":{"enabled":true,"thresholdGB":12}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        store.reload()
+
+        #expect(defaults.bool(forKey: terminal.runawayMemoryGuardrailEnabled.userDefaultsKey))
+        #expect(defaults.double(forKey: terminal.runawayMemoryGuardrailThresholdGB.userDefaultsKey) == 12)
+    }
+
+    /// Runs off the main actor on purpose: Swift Testing's cooperative threads
+    /// have 512 KB stacks, which the integrations parser overflowed in -Onone
+    /// builds while it built a `SettingCatalog()` per key (#17446).
+    @Test
+    func settingsFileStoreAppliesCanonicalIntegrationHooks() throws {
+        let suiteName = "cmux-session-content-width-integrations-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try #"{"integrations":{"claudeCode":{"hooksEnabled":false,"customClaudePath":"/opt/claude"},"kiro":{"notificationLevel":"verbose"}}}"#
+            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: false
+        )
+
+        let integrations = IntegrationsCatalogSection()
+        #expect(defaults.bool(forKey: integrations.claudeCodeHooksEnabled.userDefaultsKey) == false)
+        #expect(defaults.string(forKey: integrations.claudeCodeCustomClaudePath.userDefaultsKey) == "/opt/claude")
+        #expect(defaults.string(forKey: integrations.kiroNotificationLevel.userDefaultsKey) == "verbose")
+    }
+
+    @Test
+    func settingsFileStoreAppliesCanonicalBetaAndSidebarSettings() throws {
+        let defaults = UserDefaults.standard
+        let catalog = SettingCatalog()
+        let keys = [
+            catalog.betaFeatures.remoteTmux.userDefaultsKey,
+            catalog.sidebar.branchVerticalLayout.userDefaultsKey,
+            catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey,
+            catalog.sidebar.selectionColorHex.userDefaultsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+        try preservingDefaults(keys: keys) {
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try ###"{"remoteTmux":{"beta":{"enabled":true}},"sidebar":{"branchVerticalLayout":false,"activeTabIndicatorStyle":"solidFill","selectionColor":"#123456"}}"###
+                .write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            #expect(defaults.bool(forKey: catalog.betaFeatures.remoteTmux.userDefaultsKey))
+            #expect(defaults.bool(forKey: catalog.sidebar.branchVerticalLayout.userDefaultsKey) == false)
+            #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "solidFill")
+            #expect(defaults.string(forKey: catalog.sidebar.selectionColorHex.userDefaultsKey) == "#123456")
+        }
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func canonicalSidebarAndIntegrationEditsApplyThroughWatcher() async throws {
+        let suite = "cmux-catalog-live-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("cmux.json")
+        let catalog = SettingCatalog()
+        try #"{"sidebar":{"activeTabIndicatorStyle":"leftRail"},"integrations":{"codex":{"hooksEnabled":true}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        let indicatorKey = catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey
+        let hooksKey = catalog.integrations.codexHooksEnabled.userDefaultsKey
+        let (updates, continuation) = AsyncStream<(String?, Bool)>.makeStream()
+        defer { continuation.finish() }
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: file.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            userDefaults: defaults,
+            startWatching: true,
+            onWatchedFileReload: { _ in
+                continuation.yield((defaults.string(forKey: indicatorKey), defaults.bool(forKey: hooksKey)))
+            }
+        )
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "leftRail")
+        try #"{"workspaceColors":{"indicatorStyle":"leftRail"},"sidebar":{"activeTabIndicatorStyle":"solidFill"},"automation":{"codexIntegration":true},"integrations":{"codex":{"hooksEnabled":false}}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        var iterator = updates.makeAsyncIterator()
+        let update = await iterator.next()
+        #expect(update?.0 == "solidFill")
+        #expect(update?.1 == false)
+        #expect(defaults.string(forKey: catalog.sidebar.activeTabIndicatorStyle.userDefaultsKey) == "solidFill")
+        #expect(store.configurationIssues.isEmpty)
+        withExtendedLifetime(store) {}
+    }
+
     private func loadSettings(
         maxWidthJSON: String,
         alignmentJSON: String,

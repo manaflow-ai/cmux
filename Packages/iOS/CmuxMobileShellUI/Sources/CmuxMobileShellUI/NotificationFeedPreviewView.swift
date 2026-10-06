@@ -49,6 +49,9 @@ public struct NotificationFeedPreviewView: View {
                 NavigationStack {
                     NotificationFeedPreviewWorkspacesView()
                 }
+            } feed: {
+                Text(verbatim: "Agent feed fixture")
+                    .foregroundStyle(.secondary)
             } notifications: {
                 NavigationStack {
                     ScrollViewReader { proxy in
@@ -61,6 +64,9 @@ public struct NotificationFeedPreviewView: View {
                 .onChange(of: pendingSearchNotificationNavigationID) { _, _ in
                     consumePendingSearchNavigation(for: .notifications)
                 }
+            } cloud: {
+            Text(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
+                    .foregroundStyle(.secondary)
             } search: {
                 MobilePrimarySearchNavigationStack(
                     path: $searchNavigationPath,
@@ -68,6 +74,8 @@ public struct NotificationFeedPreviewView: View {
                     searchCoordinator: primarySearchCoordinator
                 ) {
                     switch primarySearchCoordinator.scope {
+                    case .feed:
+                        Text(verbatim: "Agent feed fixture")
                     case .workspaces:
                         NotificationFeedPreviewWorkspacesView()
                     case .notifications:

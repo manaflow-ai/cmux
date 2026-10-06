@@ -32,6 +32,20 @@ pub mod transport {
         imp::connect(path)
     }
 
+    /// Connect and refuse a listener that runs as another user before the
+    /// caller writes anything. Windows sockets report no peer credentials, so
+    /// there this is a plain connect.
+    pub fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+        imp::connect_same_user(path)
+    }
+
+    /// A listener serves its owner and root. Root can already open any
+    /// socket file, so refusing it would only get in the way of an admin.
+    #[cfg(unix)]
+    pub(crate) fn peer_may_connect(peer_uid: u32, owner_uid: u32) -> bool {
+        peer_uid == owner_uid || peer_uid == 0
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -59,9 +73,22 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            let stream = UnixStream::connect(path)?;
+            crate::platform::require_unix_peer_uid(&stream, crate::platform::effective_uid())?;
+            Ok(Box::new(stream))
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
+                let peer_uid = crate::platform::unix_peer_uid(&stream)?;
+                if !super::peer_may_connect(peer_uid, crate::platform::effective_uid()) {
+                    return Err(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        format!("refused a socket client running as uid {peer_uid}"),
+                    ));
+                }
                 Ok(Box::new(stream))
             }
         }
@@ -106,6 +133,10 @@ pub mod transport {
             Ok(Box::new(UnixStream::connect(path)?))
         }
 
+        pub(super) fn connect_same_user(path: &Path) -> io::Result<Box<dyn Stream>> {
+            connect(path)
+        }
+
         impl Listener {
             pub(super) fn accept(&self) -> io::Result<Box<dyn Stream>> {
                 let (stream, _) = self.inner.accept()?;
@@ -131,6 +162,99 @@ pub mod transport {
             }
         }
     }
+}
+
+/// The effective uid that owns this process's private sockets.
+#[cfg(unix)]
+pub fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and does not dereference pointers.
+    unsafe { libc::geteuid() }
+}
+
+/// The uid the kernel reports for the process on the other end of a
+/// connected Unix socket.
+#[cfg(unix)]
+pub fn unix_peer_uid(socket: &impl std::os::fd::AsRawFd) -> io::Result<u32> {
+    peer_uid_of(socket.as_raw_fd())
+}
+
+/// Refuses a connected Unix socket whose peer is not `expected_uid`. Call it
+/// before writing anything to a socket found at a path the caller derived.
+#[cfg(unix)]
+pub fn require_unix_peer_uid(
+    socket: &impl std::os::fd::AsRawFd,
+    expected_uid: u32,
+) -> io::Result<()> {
+    let peer_uid = unix_peer_uid(socket)?;
+    if peer_uid != expected_uid {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket peer uid {peer_uid} does not match the expected uid {expected_uid}"),
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    use std::mem::{size_of, zeroed};
+
+    // SAFETY: ucred is plain data and all-zero is a valid value.
+    let mut credentials = unsafe { zeroed::<libc::ucred>() };
+    let mut length = size_of::<libc::ucred>() as libc::socklen_t;
+    // SAFETY: both out-pointers are valid for writes of the lengths passed.
+    let result = unsafe {
+        libc::getsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            (&raw mut credentials).cast(),
+            &raw mut length,
+        )
+    };
+    if result != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if length as usize != size_of::<libc::ucred>() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid peer credentials"));
+    }
+    Ok(credentials.uid)
+}
+
+#[cfg(any(
+    target_vendor = "apple",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+fn peer_uid_of(fd: std::os::fd::RawFd) -> io::Result<u32> {
+    let mut uid: libc::uid_t = 0;
+    let mut gid: libc::gid_t = 0;
+    // SAFETY: both out-pointers are valid for writes of one id each.
+    if unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(uid)
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_vendor = "apple",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))
+))]
+fn peer_uid_of(_fd: std::os::fd::RawFd) -> io::Result<u32> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "socket peer credentials are not available on this platform",
+    ))
 }
 
 /// The path to exec THIS running build again (terminal hosts, headless
@@ -1295,7 +1419,7 @@ fn terminal_pwd_host_is_local(host: &str) -> bool {
 }
 
 #[cfg(unix)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     let mut hostname = [0_u8; 256];
     if unsafe { libc::gethostname(hostname.as_mut_ptr().cast(), hostname.len()) } != 0 {
         return None;
@@ -1311,7 +1435,7 @@ fn decode_local_hostname(bytes: &[u8]) -> Option<String> {
 }
 
 #[cfg(windows)]
-fn local_hostname() -> Option<String> {
+pub(crate) fn local_hostname() -> Option<String> {
     std::env::var("COMPUTERNAME").ok().filter(|value| !value.is_empty())
 }
 
@@ -1394,6 +1518,30 @@ mod tests {
         let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
 
         assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_peer_uid_must_match_the_expected_user() {
+        let (client, server) = std::os::unix::net::UnixStream::pair().unwrap();
+        let owner = effective_uid();
+
+        assert_eq!(unix_peer_uid(&client).unwrap(), owner);
+        assert_eq!(unix_peer_uid(&server).unwrap(), owner);
+        require_unix_peer_uid(&client, owner).unwrap();
+        let error = require_unix_peer_uid(&client, owner.wrapping_add(1))
+            .expect_err("a peer running as another user must be refused");
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_socket_listener_admits_only_the_owner_and_root() {
+        assert!(transport::peer_may_connect(501, 501));
+        assert!(transport::peer_may_connect(0, 501));
+        assert!(transport::peer_may_connect(0, 0));
+        assert!(!transport::peer_may_connect(502, 501));
+        assert!(!transport::peer_may_connect(501, 0));
     }
 
     #[test]
@@ -1934,6 +2082,33 @@ mod tests {
         // remote shell can emit one and otherwise redirect a local spawn.
         assert_eq!(terminal_pwd_to_local_path("/tmp/plain"), None);
         assert_eq!(terminal_pwd_to_local_path("file://remote.invalid/tmp/nope"), None);
+    }
+
+    /// Ghostty's bash integration reports `kitty-shell-cwd://$HOSTNAME$PWD`
+    /// after the Cloud prompt's `file://` report on a shell's first prompt and
+    /// after every `cd`, so that report is the one a hosted terminal keeps.
+    #[cfg(unix)]
+    #[test]
+    fn terminal_pwd_accepts_local_kitty_shell_cwd_reports() {
+        let hostname = local_hostname().expect("hostname");
+
+        assert_eq!(
+            terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/home/cmux")),
+            Some(PathBuf::from("/home/cmux"))
+        );
+        // kitty-shell-cwd carries the raw path; `%20` is three literal bytes.
+        assert_eq!(
+            terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/a b%20c"),
+            Some(PathBuf::from("/tmp/a b%20c"))
+        );
+        assert_eq!(
+            local_terminal_pwd_to_local_path(&format!("kitty-shell-cwd://{hostname}/srv")),
+            Some(PathBuf::from("/srv"))
+        );
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://remote.invalid/tmp/nope"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd:///tmp/hostless"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost"), None);
+        assert_eq!(terminal_pwd_to_local_path("kitty-shell-cwd://localhost/tmp/\0nul"), None);
     }
 
     #[cfg(unix)]

@@ -17,7 +17,8 @@ extension BrowserPanel {
     static let mediaPlaybackContentWorld = WKContentWorld.world(name: mediaPlaybackMessageHandlerName)
 
     /// Injected document-start hook that reports whether the current frame has
-    /// actively-playing and audible `<video>`/`<audio>` elements.
+    /// actively-playing and audible `<video>`/`<audio>` elements, and whether one
+    /// of its videos is in Picture in Picture.
     ///
     /// Runs in every frame (main frame and cross-origin iframes) so an embedded
     /// player (a news site embedding a YouTube/Vimeo/Twitch iframe, etc.) keeps
@@ -31,6 +32,8 @@ extension BrowserPanel {
     /// keeps a hidden pane alive. The narrower `audible` state additionally
     /// requires an unmuted element with non-zero volume and a detectable audio
     /// source, so the speaker glyph is not shown for muted or video-only media.
+    /// A paused Picture in Picture window still keeps the pane alive: the page
+    /// owns the floating window, so discarding it would close the window.
     ///
     /// The script is purely passive (capture-phase listeners only; no console,
     /// prototype, or enumerable-global tampering) so it does not trip the
@@ -52,7 +55,7 @@ extension BrowserPanel {
           return Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
         })();
 
-        let lastReported = { playing: null, audible: null };
+        let lastReported = { playing: null, audible: null, pip: null };
         let lastElementState = new WeakMap();
         let mediaObserver = null;
 
@@ -97,8 +100,28 @@ extension BrowserPanel {
           }
         };
 
+        const isElementInPictureInPicture = (el) => {
+          try {
+            return document.pictureInPictureElement === el
+              || el.webkitPresentationMode === "picture-in-picture";
+          } catch (_) {
+            return false;
+          }
+        };
+
+        const isPictureInPictureActive = () => {
+          try {
+            if (document.pictureInPictureElement) return true;
+            const videos = document.querySelectorAll("video");
+            for (let i = 0; i < videos.length; i++) {
+              if (isElementInPictureInPicture(videos[i])) return true;
+            }
+          } catch (_) {}
+          return false;
+        };
+
         const currentPlaybackState = () => {
-          const state = { playing: false, audible: false };
+          const state = { playing: false, audible: false, pip: isPictureInPictureActive() };
           try {
             const media = document.querySelectorAll("video, audio");
             for (let i = 0; i < media.length; i++) {
@@ -114,12 +137,13 @@ extension BrowserPanel {
           return state;
         };
 
-        const post = (playing, audible) => {
+        const post = (playing, audible, pip) => {
           try {
             window.webkit.messageHandlers["\(mediaPlaybackMessageHandlerName)"].postMessage({
               frameID: frameID,
               playing: playing,
-              audible: audible
+              audible: audible,
+              pip: pip
             });
           } catch (_) {}
         };
@@ -177,11 +201,12 @@ extension BrowserPanel {
 
         function report() {
           const state = currentPlaybackState();
-          syncObserver(state.playing);
-          if (state.playing === lastReported.playing && state.audible === lastReported.audible) return;
-          lastReported.playing = state.playing;
-          lastReported.audible = state.audible;
-          post(state.playing, state.audible);
+          syncObserver(state.playing || state.pip);
+          if (state.playing === lastReported.playing
+            && state.audible === lastReported.audible
+            && state.pip === lastReported.pip) return;
+          lastReported = state;
+          post(state.playing, state.audible, state.pip);
         }
 
         function reportIfTargetStateChanged(event) {
@@ -193,10 +218,14 @@ extension BrowserPanel {
             }
             const next = {
               playing: isElementPlaying(el),
-              audible: isElementAudible(el)
+              audible: isElementAudible(el),
+              pip: isElementInPictureInPicture(el)
             };
             const previous = lastElementState.get(el);
-            if (previous && previous.playing === next.playing && previous.audible === next.audible) return;
+            if (previous
+              && previous.playing === next.playing
+              && previous.audible === next.audible
+              && previous.pip === next.pip) return;
             lastElementState.set(el, next);
             report();
           } catch (_) {
@@ -209,7 +238,8 @@ extension BrowserPanel {
         const events = [
           "play", "playing", "pause", "ended", "emptied",
           "waiting", "stalled", "suspend", "abort", "loadeddata",
-          "volumechange", "timeupdate"
+          "volumechange", "timeupdate", "enterpictureinpicture",
+          "leavepictureinpicture", "webkitpresentationmodechanged"
         ];
         for (let i = 0; i < events.length; i++) {
           document.addEventListener(events[i], reportIfTargetStateChanged, true);
@@ -217,10 +247,11 @@ extension BrowserPanel {
 
         window.addEventListener("pagehide", () => {
           disconnectObserver();
-          if (lastReported.playing === false && lastReported.audible === false) return;
-          lastReported.playing = false;
-          lastReported.audible = false;
-          post(false, false);
+          if (lastReported.playing === false
+            && lastReported.audible === false
+            && lastReported.pip === false) return;
+          lastReported = { playing: false, audible: false, pip: false };
+          post(false, false, false);
         }, true);
 
         document.addEventListener("DOMContentLoaded", report, true);
@@ -230,19 +261,38 @@ extension BrowserPanel {
     })();
     """
 
+    /// Reports `<video>`/`<audio>` playback so a hidden pane with actively-playing
+    /// media is exempted from memory discard
+    /// (https://github.com/manaflow-ai/cmux/issues/5409). Injected into every
+    /// frame so embedded players in cross-origin iframes keep the pane alive
+    /// too. Runs in an isolated content world (shared DOM, separate JS scope)
+    /// so the handler is hidden from page JavaScript that could otherwise post
+    /// a fake playing report; this also keeps it clear of CAPTCHA fingerprint
+    /// checks in those iframes.
+    static func installMediaPlaybackUserScript(into configuration: WKWebViewConfiguration) {
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: mediaPlaybackTrackingBootstrapScriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: mediaPlaybackContentWorld
+            )
+        )
+    }
+
     /// Installs the media-playback message handler on `webView`.
     ///
     /// Each `BrowserPanel` webview is created with a fresh `WKWebViewConfiguration`
     /// (`makeWebView`), so the handler name is never registered twice on one
-    /// content controller. Reset `isPlayingMedia` for the freshly bound webview.
+    /// content controller. Reset media tracking for the freshly bound webview.
     func setupMediaPlaybackMessageHandler(for webView: WKWebView) {
         resetMediaPlaybackTracking()
         // Bind the handler to this webview generation. The handler stays alive on
         // the old content controller until the old webview deallocates, so a late
         // report from a replaced document must be ignored or it would repopulate
-        // playingMediaFrameIDs for a page that is gone and block discard forever.
+        // mediaPlaybackFrames for a page that is gone and block discard forever.
         let boundWebViewInstanceID = webViewInstanceID
-        let handler = BrowserMediaPlaybackMessageHandler { [weak self] report in
+        let handler = BrowserMediaPlaybackMessageHandler(webView: webView) { [weak self] report in
             self?.handleMediaPlaybackReport(report, fromWebViewInstanceID: boundWebViewInstanceID)
         }
         mediaPlaybackMessageHandler = handler
@@ -270,12 +320,13 @@ extension BrowserPanel {
         fromWebViewInstanceID instanceID: UUID
     ) {
         guard instanceID == webViewInstanceID else { return }
-        applyMediaPlaybackReport(frameID: report.frameID, isPlaying: report.isPlaying, isAudible: report.isAudible)
+        applyMediaPlaybackReport(report)
 #if DEBUG
         cmuxDebugLog(
             "browser.media.playback panel=\(id.uuidString.prefix(5)) " +
             "frame=\(report.frameID.prefix(5)) playing=\(report.isPlaying ? 1 : 0) " +
-            "audible=\(report.isAudible ? 1 : 0) anyPlaying=\(isPlayingMedia ? 1 : 0) " +
+            "audible=\(report.isAudible ? 1 : 0) pip=\(report.isPictureInPicture ? 1 : 0) " +
+            "anyPlaying=\(isPlayingMedia ? 1 : 0) " +
             "anyAudible=\(isPlayingAudio ? 1 : 0)"
         )
 #endif

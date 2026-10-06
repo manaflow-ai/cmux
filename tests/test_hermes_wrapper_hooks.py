@@ -21,6 +21,12 @@ SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-agent-wrapper"
 SOURCE_TUI_PYTHON_WRAPPER = ROOT / "Resources" / "bin" / "cmux-hermes-python-wrapper"
 SOURCE_TUI_SITECUSTOMIZE = ROOT / "Resources" / "bin" / "cmux-hermes-sitecustomize.py"
 SESSION_ID = "01JZ123456789ABCDEFGHJKMNP"
+# How long the wrapper may wait for its hook installer in launch-path checks.
+INSTALLER_BUDGET_SECONDS = 10
+# How long run_wrapper lets the wrapper run before it reports a hang. It must
+# outlast the installer budget plus the launch, or a slow installer on a busy
+# runner is killed with the wrapper before the wrapper can launch Hermes.
+WRAPPER_HANG_GUARD_SECONDS = INSTALLER_BUDGET_SECONDS + 15
 
 
 @dataclass
@@ -46,9 +52,42 @@ class WrapperResult:
     profile_homes: dict[str, str]
 
 
-def make_executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
+# Set only while priming a fixture's first exec; every fixture exits at once.
+PRIME_ENVIRONMENT_KEY = "CMUX_HERMES_TEST_PRIME_EXEC"
+
+
+def make_executable(fixtures: list[Path], path: Path, content: str) -> None:
+    """Write a fixture that exits at once while priming, and record it in `fixtures`."""
+    shebang, body = content.split("\n", 1)
+    path.write_text(
+        f'{shebang}\nif [ -n "${{{PRIME_ENVIRONMENT_KEY}:-}}" ]; then exit 0; fi\n{body}',
+        encoding="utf-8",
+    )
     path.chmod(0o755)
+    fixtures.append(path)
+
+
+def prime_first_exec(paths: list[Path]) -> None:
+    """Run each fresh executable once before a timed launch.
+
+    macOS assesses a newly written executable on its first exec, one file at a
+    time across the whole machine. On a runner where parallel tests keep
+    writing fixtures, the queue alone can outlast the hang guard. Installed
+    Hermes and the bundled wrapper and CLI were run before, so priming keeps
+    the timed launch to the wrapper's own work.
+    """
+    # Without CMUX_SURFACE_ID or a Hermes on PATH, the wrapper exits 127 at once.
+    environment = {"PATH": "/usr/bin:/bin", PRIME_ENVIRONMENT_KEY: "1"}
+    for path in paths:
+        subprocess.run(
+            [str(path)],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=120,
+            check=False,
+        )
 
 
 def read_nul_values(path: Path) -> list[str]:
@@ -103,7 +142,8 @@ def run_wrapper(
     hooks_disabled: bool = False,
     installer_exit_code: int = 0,
     installer_blocks: bool = False,
-    installer_timeout_seconds: float = 1,
+    installer_timeout_seconds: float | None = None,
+    installer_start_delay_seconds: float = 0,
     cli_available: bool = True,
     active_profile: str | None = None,
     profile_names: tuple[str, ...] = (),
@@ -118,6 +158,8 @@ def run_wrapper(
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-hermes-wrapper-test-") as td:
         tmp = Path(td)
+        # Every fixture executable written below, primed before the timed launch.
+        fixtures: list[Path] = []
         wrapper_dir = tmp / "wrapper-bin"
         shim_dir = tmp / "cmux-cli-shims" / "surface-test"
         real_dir = tmp / "real-bin"
@@ -139,7 +181,7 @@ def run_wrapper(
             directory.mkdir(parents=True)
 
         if shadow_path_bash:
-            make_executable(shadow_dir / "bash", "#!/bin/sh\nexit 97\n")
+            make_executable(fixtures, shadow_dir / "bash", "#!/bin/sh\nexit 97\n")
 
         profile_homes = {
             name: hermes_home / "profiles" / name
@@ -189,6 +231,7 @@ def run_wrapper(
         if stale_tui_python_wrapper:
             stale_tui_python.parent.mkdir(parents=True)
             make_executable(
+                fixtures,
                 stale_tui_python,
                 "#!/bin/sh\n"
                 f"printf 'invoked\\n' > {str(stale_tui_python_log)!r}\n"
@@ -245,6 +288,7 @@ def run_wrapper(
         real_hermes = real_dir / "hermes"
         real_hermes_shebang = "#!/bin/bash" if shadow_path_bash else "#!/usr/bin/env bash"
         make_executable(
+            fixtures,
             real_hermes,
             real_hermes_shebang
             + """
@@ -326,9 +370,15 @@ fi
         bundled_cli = bundled_dir / "cmux"
         if cli_available:
             make_executable(
+                fixtures,
                 bundled_cli,
                 """#!/usr/bin/env bash
 set -euo pipefail
+# Stand-in for a cold start on a loaded runner: nothing is recorded until the
+# installer process gets going.
+if [[ -n "${FAKE_INSTALLER_START_DELAY:-}" ]]; then
+  /bin/sleep "$FAKE_INSTALLER_START_DELAY"
+fi
 printf '\\036' >> "$FAKE_CMUX_CALLS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_CMUX_CALLS_LOG"
 fake_cmux_payload_b64="$(/usr/bin/base64 | tr -d '\\n')"
@@ -351,6 +401,7 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
             # tempting fallback on PATH so the test does not depend on the
             # developer or CI machine having another cmux installation.
             make_executable(
+                fixtures,
                 real_dir / "cmux",
                 """#!/usr/bin/env bash
 set -euo pipefail
@@ -383,7 +434,17 @@ exit 0
             env["FAKE_INSTALLER_GATE"] = str(installer_gate)
         else:
             env.pop("FAKE_INSTALLER_GATE", None)
+        # The wrapper kills its installer at this deadline and launches Hermes
+        # anyway. Only the deadline tests pass one; every other run gives the
+        # installer the full budget, so a check waits for the installer to
+        # finish instead of racing its start on a busy runner.
+        if installer_timeout_seconds is None:
+            installer_timeout_seconds = INSTALLER_BUDGET_SECONDS
         env["CMUX_HERMES_AGENT_HOOK_INSTALL_TIMEOUT_SECONDS"] = str(installer_timeout_seconds)
+        if installer_start_delay_seconds:
+            env["FAKE_INSTALLER_START_DELAY"] = str(installer_start_delay_seconds)
+        else:
+            env.pop("FAKE_INSTALLER_START_DELAY", None)
         if tui_session_ids:
             env["FAKE_TUI_SESSION_IDS"] = ",".join(tui_session_ids)
         else:
@@ -412,6 +473,7 @@ exit 0
         else:
             env.pop("CMUX_HERMES_AGENT_HOOKS_DISABLED", None)
 
+        prime_first_exec([wrapper, *fixtures])
         proc = subprocess.Popen(
             [str(wrapper), *argv],
             cwd=tmp,
@@ -421,7 +483,7 @@ exit 0
             text=True,
             start_new_session=True,
         )
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + WRAPPER_HANG_GUARD_SECONDS
         launch_observed = not installer_blocks
         if installer_blocks:
             while time.monotonic() < deadline:
@@ -502,8 +564,13 @@ def decoded_launch_argv(environment: dict[str, str]) -> list[str]:
     return [part.decode("utf-8") for part in raw.split(b"\0") if part]
 
 
-def assert_instrumented(argv: list[str], label: str, failures: list[str]) -> None:
-    result = run_wrapper(argv)
+def assert_instrumented(
+    argv: list[str],
+    label: str,
+    failures: list[str],
+    **run_options: object,
+) -> None:
+    result = run_wrapper(argv, **run_options)
     expected_call = [
         "--socket",
         result.socket_path,
@@ -550,6 +617,18 @@ def test_session_entrypoints(failures: list[str]) -> None:
     )
     for label, argv in entrypoints:
         assert_instrumented(argv, label, failures)
+
+
+def test_slow_starting_installer_is_still_observed(failures: list[str]) -> None:
+    # A busy CI runner can take over a second just to start the installer.
+    # Launch-path checks must see the installer's call however long it takes
+    # to start; only test_stalled_installer_is_bounded exercises the deadline.
+    assert_instrumented(
+        ["--continue"],
+        "slow installer start",
+        failures,
+        installer_start_delay_seconds=1.5,
+    )
 
 
 def test_tui_active_session_file_bridges_lifecycle(failures: list[str]) -> None:
@@ -966,6 +1045,7 @@ def main() -> int:
         failures.append(f"missing Hermes launch wrapper: {SOURCE_WRAPPER}")
     else:
         test_session_entrypoints(failures)
+        test_slow_starting_installer_is_still_observed(failures)
         test_tui_active_session_file_bridges_lifecycle(failures)
         test_tui_bridge_fails_closed_on_untrusted_session_files(failures)
         test_tui_gateway_registers_hooks_for_every_turn(failures)

@@ -16,6 +16,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MODULE_PATH = REPO_ROOT / "scripts" / "lint-errno-in-test-assertions.py"
@@ -252,6 +254,15 @@ class CommandLine(unittest.TestCase):
         )
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
+
+    def test_scans_the_host_free_cli_test_sources(self) -> None:
+        for path in ("cmuxCLITests/ProbeTests.swift", "cmuxCLITestSupport/ProbeSupport.swift"):
+            with self.subTest(path=path):
+                status, _, stderr = self.run_lint(
+                    {path: "#expect(read(fd, &byte, 1) == -1)\n#expect(errno == EAGAIN)\n"}
+                )
+                self.assertEqual(status, 1)
+                self.assertIn(f"{path}:2", stderr)
 
 
 if __name__ == "__main__":

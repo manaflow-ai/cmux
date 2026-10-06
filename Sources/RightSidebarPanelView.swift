@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -73,6 +74,8 @@ struct RightSidebarPanelView: View {
     let onOpenFilePreview: (String) -> Void
     let onOpenAsPane: (RightSidebarMode) -> Void
     let onClose: () -> Void
+    let cloudActivationCoordinator: CloudActivationCoordinator = AppDelegate.shared?.cloudActivationCoordinator
+        ?? CloudActivationCoordinator.unconfigured()
     /// Live data context for the Custom mode's JS/Swift sidebar (built by the
     /// window's ContentView, which owns the unread model this view never sees).
     let customSidebarDataContext: (Date) -> [String: SwiftValue]
@@ -84,7 +87,9 @@ struct RightSidebarPanelView: View {
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var hasMountedRightSidebarContent = false
-    @State private var draggingModeBarMode: RightSidebarMode?
+    @State private var modeBarDrag = RightSidebarModeBarDragController()
+    @State private var modeBarWidthReport = RightSidebarModeBarWidthReport()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
     private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
@@ -94,10 +99,6 @@ struct RightSidebarPanelView: View {
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
     private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -115,8 +116,7 @@ struct RightSidebarPanelView: View {
         _ = managedPolicyRevision
         return RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
-            dockEnabled: dockEnabled,
-            machinesEnabled: CloudMachinesFeature.isEnabled
+            machinesEnabled: CloudMachinesFeature.isAvailable
         )
     }
 
@@ -147,10 +147,6 @@ struct RightSidebarPanelView: View {
         availableModes.map { RightSidebarModeBarItem(kind: .mode($0)) }
     }
 
-    private var focusShortcutHintAnimationValue: Bool {
-        alwaysShowShortcutHints || (showModifierHoldHints && focusShortcutHintMonitor.isModifierPressed)
-    }
-
     private func startShortcutHintMonitorsIfNeeded() {
         guard showModifierHoldHints else {
             stopShortcutHintMonitors()
@@ -176,7 +172,7 @@ struct RightSidebarPanelView: View {
             contentForMode
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .shortcutHintVisibilityAnimation(value: focusShortcutHintAnimationValue)
+        .rightSidebarButtonBorderShape()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Keep every mode (including Dock and AppKit-backed file rows) on the
         // same resolved cmux scheme as the window and left sidebar.
@@ -194,24 +190,23 @@ struct RightSidebarPanelView: View {
             }
             .frame(width: 0, height: 0)
         )
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
+            modeBarWidthReport.onChange = { [fileExplorerState] in fileExplorerState.modeBarMinimumWidth = $0 }
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
         }
-        .onDisappear {
-            stopShortcutHintMonitors()
-        }
+        .onDisappear { stopShortcutHintMonitors() }
         .onChange(of: showModifierHoldHints) { _, _ in
             startShortcutHintMonitorsIfNeeded()
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in
             if visible { hasMountedRightSidebarContent = true }
+            else { fileExplorerState.cloudTeamPickerPresentation.isPresented = false }
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
@@ -229,44 +224,49 @@ struct RightSidebarPanelView: View {
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 let displayedModes = availableModes
-                ForEach(modeBarItems) { item in
-                    let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
-                    ModeBarButton(
-                        item: item,
-                        isSelected: item.isSelected(
-                            mode: fileExplorerState.mode
-                        ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: shortcut,
-                        showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
-                            shortcut: shortcut,
-                            alwaysShowShortcutHints: alwaysShowShortcutHints,
-                            modifierPressed: modeShortcutHintMonitor.isModifierPressed,
-                            modifierHoldHintsEnabled: showModifierHoldHints
-                        )
-                    ) {
-                        let mode = item.mode
-                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
-                            mode: mode,
-                            focusFirstItem: true,
-                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                        ) != true {
-                            selectMode(mode)
+                RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing, widthReport: modeBarWidthReport) {
+                    ForEach(modeBarItems) { item in
+                        let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
+                        ModeBarButton(
+                            item: item,
+                            isSelected: item.isSelected(
+                                mode: fileExplorerState.mode
+                            ),
+                            isDragged: modeBarDrag.isLifted(item.mode),
+                            badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                            shortcutHint: shortcut,
+                            showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
+                                shortcut: shortcut,
+                                alwaysShowShortcutHints: alwaysShowShortcutHints,
+                                modifierPressed: modeShortcutHintMonitor.isModifierPressed,
+                                modifierHoldHintsEnabled: showModifierHoldHints
+                            )
+                        ) {
+                            let mode = item.mode
+                            if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                                mode: mode,
+                                focusFirstItem: true,
+                                preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                            ) != true {
+                                selectMode(mode)
+                            }
                         }
-                    }
-                    .onDrag {
-                        draggingModeBarMode = item.mode
-                        return RightSidebarModeDragPayload.provider(for: item.mode)
-                    }
-                    .onDrop(
-                        of: [RightSidebarModeDragPayload.dropContentType],
-                        delegate: RightSidebarModeBarDropDelegate(
-                            targetMode: item.mode,
-                            displayedModes: displayedModes,
-                            draggingMode: $draggingModeBarMode
+                        .modifier(RightSidebarModeBarTabDrag(
+                            mode: item.mode, displayedModes: displayedModes,
+                            barHeight: titlebarHeight, controller: modeBarDrag
+                        ))
+                        .layoutValue(
+                            key: RightSidebarModeBarTabSelectedKey.self,
+                            // Give the dragged tab the same full-label slot as
+                            // the focused tab, even when it started unfocused.
+                            value: item.isSelected(mode: fileExplorerState.mode) || modeBarDrag.isLifted(item.mode)
                         )
-                    )
+                    }
                 }
+                .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: fileExplorerState.mode)
+                .background(RightSidebarModeBarDragAnchorView(anchor: modeBarDrag.anchor))
+                .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))
+                .layoutPriority(1)
                 Spacer(minLength: 0)
                 if fileExplorerState.mode.canOpenAsPane, fileExplorerState.mode.isAvailable() {
                     openAsPaneButton(mode: fileExplorerState.mode)
@@ -393,7 +393,9 @@ struct RightSidebarPanelView: View {
         .titlebarInteractiveControl()
     }
 
-    @ViewBuilder
+    /// The fade is scoped to the pill. Placing it on the whole panel made
+    /// any mode bar or content change that shared an update with a held
+    /// modifier flip animate along with the hint.
     private var focusShortcutHintOverlay: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
@@ -403,23 +405,27 @@ struct RightSidebarPanelView: View {
             modifierPressed: focusShortcutHintMonitor.isModifierPressed,
             modifierHoldHintsEnabled: showModifierHoldHints
         )
-        if showsFocusShortcutHint {
-            ShortcutHintPill(
-                shortcut: shortcut,
-                fontSize: 9,
-                emphasis: 1.05
-            )
-                .padding(.leading, 6)
-                .padding(.top, 5)
-                .offset(
-                    x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
-                    y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+        return ZStack(alignment: .topLeading) {
+            if showsFocusShortcutHint {
+                ShortcutHintPill(
+                    shortcut: shortcut,
+                    fontSize: 9,
+                    emphasis: 1.05
                 )
-                .shortcutHintTransition()
-                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
-                .allowsHitTesting(false)
-                .zIndex(10)
+                    .padding(.leading, 6)
+                    .padding(.top, 5)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+                    )
+                    .shortcutHintTransition()
+                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                    .allowsHitTesting(false)
+                    .zIndex(10)
+            }
         }
+        .allowsHitTesting(false)
+        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
     }
 
     @ViewBuilder
@@ -451,7 +457,7 @@ struct RightSidebarPanelView: View {
                     }
                 )
                     .onAppear {
-                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
                     }
             case .feed:
                 FeedPanelView(
@@ -464,7 +470,9 @@ struct RightSidebarPanelView: View {
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor,
                     machinePinStore: AppDelegate.shared?.cloudMachinePinStore,
                     devicesModel: devicesModel,
-                    tabManager: tabManager
+                    tabManager: tabManager,
+                    teamPickerPresentation: fileExplorerState.cloudTeamPickerPresentation,
+                    activationCoordinator: cloudActivationCoordinator
                 )
             case .customSidebar:
                 customSidebarPanel
@@ -524,10 +532,6 @@ struct RightSidebarPanelView: View {
         Task { await client.shutdown() }
     }
 
-    private var sessionIndexDirectory: String? {
-        sessionIndexStore.currentDirectory
-    }
-
     /// Renders this window's own Dock (created lazily on first show); no
     /// window ever defers to a Dock rendered elsewhere.
     @ViewBuilder
@@ -551,7 +555,7 @@ struct RightSidebarPanelView: View {
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
         if fileExplorerState.mode == .sessions {
-            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
+            sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexStore.currentDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()
             }
@@ -664,63 +668,6 @@ extension NSView {
             }
             view = current.superview
         }
-        return true
-    }
-}
-
-/// Pure hover-reorder math for the mode bar, kept UI-free so unit tests cover
-/// the move without a drag session.
-enum RightSidebarModeBarReorderPolicy {
-    /// The displayed order after dragging `dragged` over `target`, or nil when
-    /// the hover changes nothing (same pill, or either mode absent).
-    static func displayedOrder(
-        moving dragged: RightSidebarMode,
-        over target: RightSidebarMode,
-        in displayed: [RightSidebarMode]
-    ) -> [RightSidebarMode]? {
-        guard dragged != target,
-              let from = displayed.firstIndex(of: dragged),
-              let to = displayed.firstIndex(of: target),
-              from != to else {
-            return nil
-        }
-        var next = displayed
-        next.remove(at: from)
-        next.insert(dragged, at: to)
-        return next
-    }
-}
-
-/// Reorders the mode bar while a pill drags across its siblings. Like the
-/// workspace-tab reorder, the order commits live on every hover step
-/// (`RightSidebarTabPreferences` is the single mutation path and its change
-/// notification re-renders the bar), so there is no separate cancel state to
-/// reconcile.
-struct RightSidebarModeBarDropDelegate: DropDelegate {
-    let targetMode: RightSidebarMode
-    let displayedModes: [RightSidebarMode]
-    @Binding var draggingMode: RightSidebarMode?
-
-    func dropEntered(info: DropInfo) {
-        guard let dragging = draggingMode,
-              let next = RightSidebarModeBarReorderPolicy.displayedOrder(
-                moving: dragging,
-                over: targetMode,
-                in: displayedModes
-              ) else {
-            return
-        }
-        withAnimation(.easeInOut(duration: 0.15)) {
-            RightSidebarTabPreferences.setDisplayedOrder(next)
-        }
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        DropProposal(operation: .move)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        draggingMode = nil
         return true
     }
 }

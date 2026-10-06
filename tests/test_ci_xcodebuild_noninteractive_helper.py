@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import re
+import json
+import signal
 import subprocess
 import sys
 import textwrap
@@ -23,6 +25,96 @@ RESTART = (
     "summary will include totals from previous launches."
 )
 RESTART_BUDGET_EXIT_CODE = 123
+STARTUP_HANG_EXIT_CODE = 122
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _wait_for_exit(pid: int, seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not _pid_alive(pid):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_startup_deadline() -> None:
+    """A runner that never connects ends at the startup deadline, not xcodebuild's ~700s."""
+    env = dict(os.environ, CMUX_XCODEBUILD_NONINTERACTIVE_STARTUP_TIMEOUT_SECONDS="0.5")
+    # App-host log noise after "Testing started" must not count as a connected runner.
+    hung = (
+        "import time;print('Testing started',flush=True);"
+        "print('2026-09-25 15:57:32.533062-0700 cmux DEV[1:2] [Connection] noise',flush=True);"
+        "time.sleep(30)"
+    )
+    result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", hung],
+                            env=env, capture_output=True, text=True, timeout=12)
+    assert result.returncode == STARTUP_HANG_EXIT_CODE, (result.returncode, result.stderr)
+    assert "Startup hang: no test started within 0.5s" in result.stderr, result.stderr
+    # Once a suite starts, a slow test is the idle timeout's business, not this one.
+    connected = (
+        "import time;print('Testing started',flush=True);"
+        "print(\"Test Suite 'Selected tests' started at 2026-09-25\",flush=True);"
+        "time.sleep(1.2);print('done',flush=True)"
+    )
+    result = subprocess.run([sys.executable, str(HELPER), sys.executable, "-c", connected],
+                            env=env, capture_output=True, text=True, timeout=12)
+    assert result.returncode == 0, (result.returncode, result.stderr)
+
+
+def test_sigterm_cleans_up_detached_test_descendant() -> None:
+    """Cancellation must stop app-host descendants outside xcodebuild's group."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        record = root / "tree.json"
+        child = root / "fake_xcodebuild.py"
+        child.write_text(
+            textwrap.dedent(
+                f"""
+                import json, os, signal, subprocess, sys, time
+                helper = subprocess.Popen(
+                    [sys.executable, "-c", "import pathlib,signal; signal.signal(signal.SIGTERM,signal.SIG_IGN); pathlib.Path({str(record) + '.ready'!r}).touch(); signal.pause()"],
+                    start_new_session=True,
+                )
+                while not os.path.exists({str(record) + '.ready'!r}): time.sleep(0.01)
+                with open({str(record)!r} + ".tmp", "w") as handle:
+                    json.dump({{"helper": helper.pid}}, handle)
+                os.rename({str(record)!r} + ".tmp", {str(record)!r})
+                signal.pause()
+                """
+            ),
+            encoding="utf-8",
+        )
+        wrapper = subprocess.Popen(
+            [sys.executable, str(HELPER), sys.executable, str(child)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        helper = None
+        try:
+            deadline = time.monotonic() + 5
+            while not record.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            assert record.exists(), "fake xcodebuild did not start"
+            helper = int(json.loads(record.read_text())["helper"])
+            os.kill(wrapper.pid, signal.SIGTERM)
+            assert wrapper.wait(timeout=10) == 124
+            assert _wait_for_exit(helper), "SIGTERM orphaned the detached test helper"
+        finally:
+            if wrapper.poll() is None:
+                wrapper.kill()
+                wrapper.wait()
+            if helper is not None and _pid_alive(helper):
+                os.kill(helper, signal.SIGKILL)
 
 
 def test_compiler_timeout_evidence() -> None:
@@ -67,7 +159,9 @@ def test_compiler_timeout_evidence() -> None:
 
 
 def main() -> int:
+    test_sigterm_cleans_up_detached_test_descendant()
     test_compiler_timeout_evidence()
+    test_startup_deadline()
     child = textwrap.dedent(
         f"""
         import sys
@@ -498,6 +592,47 @@ def main() -> int:
             f"got {failing_post_test_result.returncode}"
         )
         return 1
+
+    # xcodebuild's own verdict line means it is writing the result bundle;
+    # the post-test deadline restarts once there instead of cutting the write.
+    with tempfile.TemporaryDirectory() as finalize_dir:
+        finalized = Path(finalize_dir) / "Info.plist"
+        finalizing_child = textwrap.dedent(
+            f"""
+            import time
+            from pathlib import Path
+
+            print("Test Suite 'Selected tests' passed at now", flush=True)
+            time.sleep(1.4)
+            print("** TEST EXECUTE SUCCEEDED **", flush=True)
+            time.sleep(1.4)
+            Path({str(finalized)!r}).write_text("finalized")
+            """
+        )
+        finalizing_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", finalizing_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "2",
+            },
+        )
+        if (
+            finalizing_result.returncode != 0
+            or not finalized.exists()
+            or "printed its verdict" not in finalizing_result.stdout
+        ):
+            print(finalizing_result.stdout, end="")
+            print(finalizing_result.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: post-test timeout stopped xcodebuild while it finalized the result bundle "
+                f"(exit {finalizing_result.returncode})"
+            )
+            return 1
 
     mixed_framework_child = textwrap.dedent(
         """

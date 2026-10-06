@@ -67,6 +67,10 @@ struct CmuxTopProcessScope: Sendable, Equatable {
 
 // All stored indexes and records are immutable after construction.
 final class CmuxTopProcessSnapshot: @unchecked Sendable {
+    /// Keeps process-tree construction and downstream JSON encoding within the
+    /// stack available to control-socket worker threads.
+    private static let maximumProcessTreeDepth = 32
+
     let sampledAt: Date
     let captureIsAvailable: Bool
     let enumerationIsComplete: Bool
@@ -192,6 +196,46 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
+    }
+
+    /// Splits a surface's TTY population into processes cmux can prove it owns and
+    /// processes that merely share the TTY device.
+    ///
+    /// Sharing a TTY is not ownership: a process reparented to launchd keeps the
+    /// controlling TTY of the terminal it was launched from, so a detached REPL or dev
+    /// server would otherwise be summed into the surface's memory.
+    /// See https://github.com/manaflow-ai/cmux/issues/11004.
+    ///
+    /// - Parameters:
+    ///   - ttyPIDs: every PID sharing the surface's TTY device.
+    ///   - surfaceID: the surface being annotated, when it has an identifier.
+    ///   - cmuxOwnedPIDs: the window's app processes and their descendants, used as launch
+    ///     evidence for a process whose parent sits off the TTY.
+    ///   - provenPIDs: PIDs already proven through the cmux-scoped process tree.
+    /// - Returns: the proven set, the unattributed set, and the reason for each PID.
+    func ttyOwnership(
+        ttyPIDs: Set<Int>,
+        surfaceID: UUID?,
+        cmuxOwnedPIDs: Set<Int>,
+        provenPIDs: Set<Int> = []
+    ) -> CmuxTopTTYOwnership {
+        var ownershipProcesses: [Int: CmuxTopTTYOwnershipProcess] = [:]
+        ownershipProcesses.reserveCapacity(ttyPIDs.count)
+        for pid in ttyPIDs {
+            guard let process = processesByPID[pid] else { continue }
+            ownershipProcesses[pid] = CmuxTopTTYOwnershipProcess(
+                pid: process.pid,
+                parentPID: process.parentPID,
+                processGroupID: process.processGroupID,
+                cmuxSurfaceID: process.cmuxSurfaceID
+            )
+        }
+        return CmuxTopTTYOwnershipResolver(cmuxOwnedPIDs: cmuxOwnedPIDs).resolve(
+            candidates: ttyPIDs,
+            processes: ownershipProcesses,
+            surfaceID: surfaceID,
+            provenPIDs: provenPIDs
+        )
     }
 
     func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {
@@ -421,10 +465,15 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let hasCompleteProcessGroups = processGroupIDs.allSatisfy { processGroupID in
             processesByPID[processGroupID]?.processGroupID == processGroupID
         }
+        let hasLiveBackgroundWork = !agentBackgroundWorkProcessIDs(
+            agentRootPIDs: boundedAgentRoots,
+            descendantProcessIDs: descendantProcessIDs
+        ).isEmpty
         return (
             observedPanelProcessIDs,
             terminationProcessIDs,
-            !hasCompleteAgentRoots ||
+            hasLiveBackgroundWork ||
+                !hasCompleteAgentRoots ||
                 !hasTerminalEvidence ||
                 !hasCompleteTerminationTTYEvidence ||
                 processGroupIDs.isEmpty ||
@@ -558,15 +607,38 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             roots = Array(orphaned).sorted { processSortKey($0) < processSortKey($1) }
         }
 
+        var pendingRootPIDs = roots
+        if pendingRootPIDs.isEmpty {
+            pendingRootPIDs = allowedPIDs.sorted { processSortKey($0) < processSortKey($1) }
+        }
+
         var visited: Set<Int> = []
-        return roots.compactMap {
-            processTreeNode(
-                pid: $0,
+        var rootNodes: [[String: Any]] = []
+        var pendingRootIndex = 0
+        while visited.count < allowedPIDs.count {
+            if pendingRootIndex == pendingRootPIDs.count {
+                guard let nextRootPID = allowedPIDs
+                    .filter({ !visited.contains($0) })
+                    .min(by: { processSortKey($0) < processSortKey($1) }) else {
+                    break
+                }
+                pendingRootPIDs.append(nextRootPID)
+            }
+
+            let pid = pendingRootPIDs[pendingRootIndex]
+            pendingRootIndex += 1
+            if let node = processTreeNode(
+                pid: pid,
                 allowedPIDs: allowedPIDs,
                 rootPIDs: explicitRootPIDs,
+                depth: 1,
+                pendingRootPIDs: &pendingRootPIDs,
                 visited: &visited
-            )
+            ) {
+                rootNodes.append(node)
+            }
         }
+        return rootNodes
     }
 
     func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
@@ -728,6 +800,8 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         pid: Int,
         allowedPIDs: Set<Int>,
         rootPIDs: Set<Int>,
+        depth: Int,
+        pendingRootPIDs: inout [Int],
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -735,17 +809,26 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return nil
         }
 
-        let childNodes = (childrenByParentPID[pid] ?? [])
+        let childPIDs = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap {
+
+        let childNodes: [[String: Any]]
+        if depth < Self.maximumProcessTreeDepth {
+            childNodes = childPIDs.compactMap {
                 processTreeNode(
                     pid: $0,
                     allowedPIDs: allowedPIDs,
                     rootPIDs: rootPIDs,
+                    depth: depth + 1,
+                    pendingRootPIDs: &pendingRootPIDs,
                     visited: &visited
                 )
             }
+        } else {
+            pendingRootPIDs.append(contentsOf: childPIDs.filter { !visited.contains($0) })
+            childNodes = []
+        }
 
         var payload: [String: Any] = [
             "kind": "process",

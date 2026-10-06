@@ -11,11 +11,16 @@ mod agent_browser_provider;
 mod agent_hook_install;
 mod app;
 mod browser_input;
+#[cfg(unix)]
+mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+// The agent hook helper, also built as the standalone `cmux-tui-hook`.
+#[path = "bin/cmux-tui-hook.rs"]
+mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
@@ -206,6 +211,49 @@ pub(crate) fn wait_for_shutdown_signal() {
         }
         return;
     }
+}
+
+/// Blocks until a termination signal arrives, without consuming the wake
+/// byte, so every other shutdown waiter still sees it. Returns at once when
+/// no signal handler is installed.
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal_peek() {
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    while reader >= 0 && !shutdown_requested() {
+        let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `reader` is the process-lifetime wake descriptor.
+        let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if polled > 0 {
+            return;
+        }
+        if polled < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// Async `wait_for_shutdown_signal_peek`: waits for the wake descriptor to
+/// become readable without reading it.
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "shutdown wake reader unavailable",
+        ));
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    let stream = tokio::net::UnixStream::from_std(stream)?;
+    stream.readable().await?;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -1524,15 +1572,67 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() {
+fn main() -> std::process::ExitCode {
+    // Hook helper mode for hosts that received only this binary (see
+    // `agent_hook_install::HOOK_MODE_ARG`). It runs inside a provider's hook,
+    // so it touches no daemon, log, or config state.
+    let mut arguments = std::env::args().skip(1);
+    if arguments.next().as_deref() == Some(agent_hook_install::HOOK_MODE_ARG) {
+        return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
+    }
     run_main();
     // Reached only by the normal return paths, which never call
     // client_log::exit; flush so the last queued records (final status,
     // shutdown diagnostics) reach the client log on every platform.
     client_log::flush_for_exit();
+    std::process::ExitCode::SUCCESS
 }
 
+/// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
+/// this daemon only (see SurfaceOptions::adopt_template_terminal).
+struct CloudTemplateEnv {
+    adopt: bool,
+    bound_file: Option<PathBuf>,
+    workspace_name: Option<String>,
+}
+
+static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
+
+/// Read the Cloud template settings and remove them from this process's
+/// environment, so no terminal host, shell, agent, or plugin it spawns
+/// inherits them. Must run before any thread starts.
+fn take_cloud_template_env() {
+    const KEYS: [&str; 3] = [
+        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
+        "CMUX_TUI_TEMPLATE_BOUND_FILE",
+        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
+    ];
+    let settings = CloudTemplateEnv {
+        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
+        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
+        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
+    };
+    for key in KEYS {
+        // SAFETY: called first in run_main, before this process starts any
+        // thread, so no other thread can read the environment concurrently.
+        unsafe { std::env::remove_var(key) };
+    }
+    let _ = CLOUD_TEMPLATE_ENV.set(settings);
+}
+
+/// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
+    take_cloud_template_env();
+    // The pane's `claude` shim lands here. Dispatch before the signal
+    // handlers and argv decoding: the wrapper execs Claude with arguments
+    // that need not be UTF-8 or valid cmux-tui flags.
+    #[cfg(unix)]
+    {
+        let args = std::env::args_os().skip(1).collect::<Vec<_>>();
+        if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
+            client_log::exit(claude_wrapper::run(wrapper_args));
+        }
+    }
     // Pin the launch directory before any subsystem can move the process:
     // new terminals default to it (not $HOME) for the daemon's lifetime.
     cmux_tui_core::platform::capture_launch_cwd();
@@ -1691,9 +1791,9 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
 }
 
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
-    let socket_path = match args.socket {
-        Some(path) => path,
-        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    let (socket_path, socket_is_derived) = match args.socket {
+        Some(path) => (path, false),
+        None => (cmux_tui_core::server::try_default_socket_path(&args.session)?, true),
     };
     let messages = &localization::catalog().attach;
     let terminal = args
@@ -1705,9 +1805,9 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        RemoteSession::connect_session_for_terminal_attach(&socket_path, socket_is_derived)?
     } else {
-        RemoteSession::connect(&socket_path)?
+        RemoteSession::connect_session(&socket_path, socket_is_derived)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
         let tree = remote.refresh_tree()?;
@@ -1784,13 +1884,17 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     if args.provider_cli_requested() {
         anyhow::bail!("relay cannot also select a machine provider");
     }
-    let socket_path = match args.socket {
-        Some(path) => path,
-        None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
+    let (socket_path, socket_is_derived) = match args.socket {
+        Some(path) => (path, false),
+        None => (cmux_tui_core::server::try_default_socket_path(&args.session)?, true),
     };
-    let stream = cmux_tui_core::platform::transport::connect(&socket_path).map_err(|error| {
-        anyhow::anyhow!("cannot connect relay to session socket {}: {error}", socket_path.display())
-    })?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket_path, socket_is_derived)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "cannot connect relay to session socket {}: {error}",
+                socket_path.display()
+            )
+        })?;
     let mut reader = stream.try_clone_box()?;
     let mut writer = stream;
 
@@ -1945,6 +2049,7 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -1973,9 +2078,10 @@ fn run_server(
         Some(path) => path,
         None => cmux_tui_core::server::try_default_socket_path(&args.session)?,
     };
+    let socket_is_derived = args.socket.is_none();
     if args.should_attach_existing(&ws_addr, &ws_token)
         && socket_path.exists()
-        && let Ok(remote) = RemoteSession::connect(&socket_path)
+        && let Ok(remote) = RemoteSession::connect_session(&socket_path, socket_is_derived)
     {
         return run_connected_session_client(
             socket_path,
@@ -2045,6 +2151,12 @@ fn run_server(
             .extra_env
             .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
     }
+    // `claude` resolves to a shim that adds the session's agent hooks, even
+    // under launchers with their own settings and config directory.
+    #[cfg(unix)]
+    if let Some(path) = claude_wrapper::pane_path() {
+        surface_options.extra_env.push(("PATH".into(), path));
+    }
 
     let state_root = if args.ephemeral {
         None
@@ -2059,6 +2171,13 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        // Set by the Cloud VM boot supervisor on a snapshot clone; see
+        // SurfaceOptions::adopt_template_terminal.
+        if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
+            surface_options.adopt_template_terminal = template.adopt;
+            surface_options.template_bound_file = template.bound_file.clone();
+            surface_options.template_workspace_name = template.workspace_name.clone();
+        }
     }
     let provider_management_pending = provider_management_listener.is_some();
     let mux =
@@ -2224,6 +2343,21 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
+    // has elapsed with no attached view.
+    let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
+        Arc::downgrade(&mux),
+        cmux_tui_core::IDLE_CLOSE_REAP_INTERVAL,
+    ) {
+        Ok(reaper) => Some(reaper),
+        Err(error) => {
+            crate::client_log::stderr_log!(
+                "startup",
+                "cmux-tui: idle terminal reaper unavailable: {error}"
+            );
+            None
+        }
+    };
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2252,7 +2386,7 @@ fn run_server(
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
     } else {
-        match RemoteSession::connect(&socket_path)
+        match RemoteSession::connect_session(&socket_path, socket_is_derived)
             .context("connect the interactive client to its session server")
         {
             Ok(remote) => run_tui_with_owner(
@@ -2266,6 +2400,9 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
     #[cfg(unix)]
     if let Some(poller) = machine_usage_poller {
         poller.stop();
@@ -2532,7 +2669,7 @@ fn start_detached_owner_session(
             }
         }
     }
-    let remote = RemoteSession::connect(&socket_path)
+    let remote = RemoteSession::connect_session(&socket_path, spec.socket_is_derived)
         .context("connect the interactive client to its detached session owner")?;
     run_connected_session_client(
         socket_path,
@@ -2898,23 +3035,38 @@ where
         socket_path.display()
     );
     // Keep the process alive; the control socket drives everything and
-    // the mux reaps exited surfaces itself.
-    let events = mux.subscribe();
-    loop {
-        if shutdown_requested() || mux.daemon_shutdown_requested() {
-            break;
-        }
-        if remote_runtime_finished() {
-            break;
-        }
-        match events.recv_timeout(std::time::Duration::from_millis(250)) {
-            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250));
-            }
-        }
+    // the mux reaps exited surfaces itself. The loop blocks until a signal,
+    // a daemon shutdown request or the end of the remote runtime wakes it;
+    // it used to wake every 250 ms (and on every terminal output event) to
+    // re-check these flags.
+    mux.set_daemon_shutdown_waker(wake_headless);
+    #[cfg(unix)]
+    {
+        // Peek, not read: other shutdown waiters (remote runtime, browser
+        // proxy) consume the same wake byte.
+        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(|| {
+            wait_for_shutdown_signal_peek();
+            wake_headless();
+        });
+    }
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
+        generation = wake.wait(generation).unwrap();
     }
     Ok(())
+}
+
+/// Wakes `run_headless`. Callers set their flag first; the wait re-checks
+/// every flag under this lock, so no wake is lost.
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+pub(crate) fn wake_headless() {
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    *generation = generation.wrapping_add(1);
+    wake.notify_all();
 }
 
 fn usage_exit(msg: &str) -> ! {

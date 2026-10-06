@@ -3,10 +3,11 @@
 
 The driver must merge disjoint key additions (the common case) and must refuse
 to resolve a key that both sides changed differently, so a real disagreement
-still reaches the author as a normal git conflict.
+reaches the author as a visible diff3 conflict.
 """
 
 import json
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -16,8 +17,24 @@ ROOT = Path(__file__).resolve().parents[1]
 DRIVER = ROOT / "scripts" / "merge-xcstrings.py"
 
 
+def load_driver():
+    spec = importlib.util.spec_from_file_location("merge_xcstrings", DRIVER)
+    driver = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(driver)
+    return driver
+
+
 def unit(value):
     return {"localizations": {"en": {"stringUnit": {"state": "translated", "value": value}}}}
+
+
+def localized_unit(values):
+    return {
+        "localizations": {
+            language: {"stringUnit": {"state": "translated", "value": value}}
+            for language, value in values.items()
+        }
+    }
 
 
 def catalog(strings):
@@ -28,20 +45,74 @@ def render(document):
     return json.dumps(document, ensure_ascii=False, indent=2) + "\n"
 
 
-def run(base, ours, theirs):
+def run(base, ours, theirs, marker_size=None):
     with tempfile.TemporaryDirectory() as directory:
         paths = {}
         for name, document in (("O", base), ("A", ours), ("B", theirs)):
             path = Path(directory) / f"{name}.json"
             path.write_text(document if isinstance(document, str) else render(document), encoding="utf-8")
             paths[name] = path
+        command = [
+            sys.executable,
+            str(DRIVER),
+            str(paths["O"]),
+            str(paths["A"]),
+            str(paths["B"]),
+            "Localizable.xcstrings",
+        ]
+        if marker_size is not None:
+            command.append(str(marker_size))
         result = subprocess.run(
-            [sys.executable, str(DRIVER), str(paths["O"]), str(paths["A"]), str(paths["B"]), "Localizable.xcstrings"],
+            command,
             capture_output=True,
             text=True,
         )
         merged = paths["A"].read_text(encoding="utf-8")
         return result.returncode, merged, result.stderr
+
+
+def assert_conflict_preserves(merged, *values, marker_size=7):
+    assert f"{'<' * marker_size} ours" in merged
+    assert f"{'|' * marker_size} base" in merged
+    assert f"{'=' * marker_size}\n" in merged
+    assert f"{'>' * marker_size} theirs" in merged
+    for value in values:
+        assert value in merged, value
+
+
+def conflict_regions(text):
+    lines = text.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("<<<<<<<")]
+    ends = [index for index, line in enumerate(lines) if line.startswith(">>>>>>>")]
+    assert len(starts) == len(ends), (starts, ends)
+    return ["\n".join(lines[start : end + 1]) for start, end in zip(starts, ends)]
+
+
+def run_with_patched_merge(result):
+    driver = load_driver()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path = root / "O"
+        ours_path = root / "A"
+        theirs_path = root / "B"
+        base_path.write_text(render(catalog({})), encoding="utf-8")
+        ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+        theirs_path.write_text(render(catalog({"a": unit("theirs")})), encoding="utf-8")
+        original = driver.merge_catalog_text
+        driver.merge_catalog_text = lambda *_: result
+        try:
+            code = driver.main(
+                [
+                    str(DRIVER),
+                    str(base_path),
+                    str(ours_path),
+                    str(theirs_path),
+                    "Localizable.xcstrings",
+                ]
+            )
+        finally:
+            driver.merge_catalog_text = original
+        return code, ours_path.read_text(encoding="utf-8")
 
 
 def test_disjoint_additions_merge():
@@ -50,8 +121,33 @@ def test_disjoint_additions_merge():
     theirs = catalog({"a": unit("A"), "c": unit("C")})
     code, merged, _ = run(base, ours, theirs)
     assert code == 0, "disjoint additions must merge"
-    strings = json.loads(merged)["strings"]
-    assert set(strings) == {"a", "b", "c"}, strings.keys()
+    document = json.loads(merged)
+    assert list(document["strings"]) == ["a", "b", "c"]
+
+
+def test_theirs_only_top_level_keys_are_appended():
+    base = catalog({"a": unit("A")})
+    ours = catalog({"a": unit("A")})
+    theirs = catalog({"a": unit("A")})
+    theirs["metadata"] = {"owner": "theirs"}
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    document = json.loads(merged)
+    assert list(document) == ["sourceLanguage", "strings", "version", "metadata"]
+    assert document["metadata"] == {"owner": "theirs"}
+
+
+def test_top_level_divergence_is_reported():
+    base = catalog({"a": unit("A")})
+    ours = catalog({"a": unit("A")})
+    ours["version"] = "2.0"
+    theirs = catalog({"a": unit("A")})
+    theirs["version"] = "3.0"
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "catalog.version" in stderr, stderr
+    assert_conflict_preserves(merged, '"version": "2.0"', '"version": "3.0"')
+    assert any('"version"' in region for region in conflict_regions(merged))
 
 
 def test_same_key_same_value_is_not_a_conflict():
@@ -63,14 +159,136 @@ def test_same_key_same_value_is_not_a_conflict():
     assert json.loads(merged)["strings"]["a"] == unit("new")
 
 
-def test_same_key_diverging_falls_back_to_git():
+def test_same_key_diverging_materializes_a_conflict():
     base = catalog({"a": unit("old")})
     ours = catalog({"a": unit("ours")})
     theirs = catalog({"a": unit("theirs")})
     code, merged, stderr = run(base, ours, theirs)
     assert code == 1, "a real disagreement must not be resolved silently"
     assert "strings.a" in stderr, stderr
-    assert json.loads(merged)["strings"]["a"] == unit("ours"), "ours must be left untouched for git"
+    assert_conflict_preserves(merged, '"value": "ours"', '"value": "theirs"')
+
+
+def test_multiple_conflict_hunks_keep_untouched_keys_outside_conflicts():
+    base = catalog({"k1": unit("base-1"), "k2": unit("untouched"), "k3": unit("base-3")})
+    ours = catalog({"k1": unit("ours-1"), "k2": unit("untouched"), "k3": unit("ours-3")})
+    theirs = catalog({"k1": unit("theirs-1"), "k2": unit("untouched"), "k3": unit("theirs-3")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    lines = merged.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("<<<<<<<")]
+    ends = [index for index, line in enumerate(lines) if line.startswith(">>>>>>>")]
+    assert len(starts) == len(ends) == 2
+    for start, end in zip(starts, ends):
+        assert '"value": "untouched"' not in "\n".join(lines[start : end + 1])
+    assert merged.count('"value": "untouched"') == 1
+
+
+def test_each_reported_key_is_inside_a_conflict_region():
+    base = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "base-en",
+                    "ru": "base-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            )
+        }
+    )
+    ours = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "ours-en",
+                    "ru": "base-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            ),
+            "ours-only": unit("ours"),
+        }
+    )
+    theirs = catalog(
+        {
+            "shared": localized_unit(
+                {
+                    "en": "base-en",
+                    "ru": "theirs-ru",
+                    "fr": "base-fr",
+                    "de": "base-de",
+                    "es": "base-es",
+                    "it": "base-it",
+                    "ja": "base-ja",
+                    "ko": "base-ko",
+                    "pt": "base-pt",
+                    "zh": "base-zh",
+                }
+            ),
+            "theirs-only": unit("theirs"),
+        }
+    )
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    report = stderr.split("materializing a conflict: ", 1)[1].strip()
+    regions = conflict_regions(merged)
+    for name in report.split(", "):
+        key = name.split(".", 1)[1]
+        assert any(f'"{key}"' in region for region in regions), (name, merged)
+
+
+def test_key_conflicts_preserve_clean_key_merges_and_formatting():
+    base = catalog({"shared": unit("base"), "untouched": unit("keep")})
+    ours = render(catalog({"shared": unit("ours"), "untouched": unit("keep"), "ours-only": unit("ours-new")}))
+    theirs = json.dumps(
+        catalog({"shared": unit("theirs"), "untouched": unit("keep"), "theirs-only": unit("theirs-new")}),
+        indent=4,
+    )
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1, stderr
+    regions = conflict_regions(merged)
+    assert len(regions) == 1
+    for key in ("untouched", "ours-only", "theirs-only"):
+        assert all(json.dumps(key) not in region for region in regions)
+        assert merged.count(json.dumps(key) + ":") == 1
+    driver = load_driver()
+    for source, key in ((ours, "untouched"), (ours, "ours-only"), (theirs, "theirs-only")):
+        top = driver.Layout(source, source.index("{"))
+        strings = driver.Layout(source, top.spans["strings"][1])
+        assert strings.blocks[key] in merged
+
+
+def test_pure_catalog_merge_never_materializes_conflicts():
+    driver = load_driver()
+    base = render(catalog({"shared": unit("base")}))
+    ours = render(catalog({"shared": unit("ours"), "ours-only": unit("ours-new")}))
+    theirs = render(catalog({"shared": unit("theirs"), "theirs-only": unit("theirs-new")}))
+    merged, conflicts, planned = driver.merge_catalog_text(base, ours, theirs)
+    assert conflicts == ["strings.shared"]
+    assert list(json.loads(merged)["strings"]) == planned
+    assert not conflict_regions(merged)
+
+
+def test_git_marker_size_is_used_for_materialized_conflicts():
+    base = catalog({"a": unit("old")})
+    ours = catalog({"a": unit("ours")})
+    theirs = catalog({"a": unit("theirs")})
+    code, merged, _ = run(base, ours, theirs, marker_size=11)
+    assert code == 1
+    assert_conflict_preserves(merged, '"value": "ours"', '"value": "theirs"', marker_size=11)
 
 
 def test_one_sided_delete_applies():
@@ -86,8 +304,10 @@ def test_delete_versus_modify_conflicts():
     base = catalog({"a": unit("A")})
     ours = catalog({"a": unit("changed")})
     theirs = catalog({})
-    code, _, stderr = run(base, ours, theirs)
+    code, merged, stderr = run(base, ours, theirs)
     assert code == 1, stderr
+    assert_conflict_preserves(merged, '"value": "changed"')
+    assert '"a"' in merged
 
 
 def test_non_canonical_input_merges_without_reformatting():
@@ -100,7 +320,6 @@ def test_non_canonical_input_merges_without_reformatting():
     assert code == 0, stderr
     assert set(json.loads(merged)["strings"]) == {"a", "b", "c"}
     assert '\n        "a"' in merged, "our four-space layout must survive"
-    assert "canonically serialized" not in stderr
 
 
 def test_xcode_spaced_style_is_preserved():
@@ -126,10 +345,259 @@ def test_key_text_comes_verbatim_from_the_side_that_supplied_it():
     assert strings["b"] == unit("ours-b"), "our change to b must win"
 
 
+def test_bool_and_int_are_different_edits():
+    # Python treats True == 1, so a type change must still count as an edit.
+    base = catalog({"a": {"shouldTranslate": 1}})
+    ours = catalog({"a": {"shouldTranslate": True}})
+    theirs = catalog({"a": {"shouldTranslate": 0}})
+    code, _, stderr = run(base, ours, theirs)
+    assert code == 1, "both sides changed a; the driver must defer"
+    assert "strings.a" in stderr, stderr
+    code, merged, _ = run(base, ours, base)
+    assert code == 0
+    assert json.loads(merged)["strings"]["a"] == {"shouldTranslate": True}
+
+
 def test_unparseable_input_falls_back():
-    code, _, stderr = run(catalog({}), "{not json", catalog({}))
+    code, merged, stderr = run(catalog({}), "{not json", catalog({"a": unit("theirs")}))
     assert code == 1
     assert "cannot parse" in stderr, stderr
+    assert_conflict_preserves(merged, "{not json", '"value": "theirs"')
+
+
+def test_existing_markers_use_a_longer_outer_conflict_marker():
+    base = catalog({})
+    ours = "<<<<<<< embedded\n{not json\n"
+    theirs = catalog({"a": unit("theirs")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "cannot parse" in stderr, stderr
+    assert merged.startswith("<<<<<<<< ours\n")
+    assert "<<<<<<< embedded\n" in merged
+    marker_runs = [
+        len(line) - len(line.lstrip("<"))
+        for line in merged.splitlines()
+        if line.startswith("<")
+    ]
+    assert max(marker_runs) > 7
+
+
+def test_non_utf8_input_materializes_a_byte_conflict():
+    driver = load_driver()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path = root / "O"
+        ours_path = root / "A"
+        theirs_path = root / "B"
+        base_path.write_bytes(render(catalog({})).encode())
+        ours_path.write_bytes(b"{\xff\n")
+        theirs_path.write_bytes(render(catalog({"a": unit("theirs")})).encode())
+        code = driver.main(
+            [
+                str(DRIVER),
+                str(base_path),
+                str(ours_path),
+                str(theirs_path),
+                "Localizable.xcstrings",
+            ]
+        )
+        merged = ours_path.read_bytes()
+    assert code == 1
+    assert merged.startswith(b"<<<<<<< ours\n")
+    assert b"\xff" in merged
+    assert b'"value": "theirs"' in merged
+
+
+def test_explicit_text_conflict_contains_all_sections():
+    driver = load_driver()
+    merged = driver.explicit_conflict("BASE section", "OURS section", "THEIRS section", 9)
+    assert merged.startswith("<<<<<<<<< ours\n")
+    assert merged.split("||||||||| base\n", 1)[0].endswith("OURS section\n")
+    assert merged.split("||||||||| base\n", 1)[1].split("=========\n", 1)[0] == "BASE section\n"
+    assert merged.split("=========\n", 1)[1].split(">>>>>>>>> theirs\n", 1)[0] == "THEIRS section\n"
+
+
+def test_explicit_byte_conflict_contains_all_sections():
+    driver = load_driver()
+    merged = driver.explicit_conflict_bytes(b"BASE \xfe", b"OURS \xff", b"THEIRS \xfd", 9)
+    assert merged.split(b"||||||||| base\n", 1)[0].endswith(b"OURS \xff\n")
+    assert merged.split(b"||||||||| base\n", 1)[1].split(b"=========\n", 1)[0] == b"BASE \xfe\n"
+    assert merged.split(b"=========\n", 1)[1].split(b">>>>>>>>> theirs\n", 1)[0] == b"THEIRS \xfd\n"
+
+
+def test_invalid_catalog_shape_materializes_a_conflict():
+    base = catalog({})
+    ours = catalog({"a": unit("ours")})
+    theirs = render({"sourceLanguage": "en", "strings": [], "version": "1.0"})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 1
+    assert "cannot merge" in stderr, stderr
+    assert_conflict_preserves(merged, '"value": "ours"', '"strings": []')
+
+
+def test_invalid_assembled_json_materializes_a_conflict():
+    code, merged = run_with_patched_merge(("{not json", [], ["a"]))
+    assert code == 1
+    assert_conflict_preserves(merged, '"value": "ours"', '"value": "theirs"')
+
+
+def test_unexpected_merged_key_set_materializes_a_conflict():
+    merged = render(catalog({"a": unit("merged")}))
+    code, output = run_with_patched_merge((merged, [], ["not-a"]))
+    assert code == 1
+    assert_conflict_preserves(output, '"value": "ours"', '"value": "theirs"')
+
+
+def test_every_refusal_preserves_theirs_in_the_output():
+    cases = [
+        (
+            catalog({"a": unit("old")}),
+            catalog({"a": unit("ours")}),
+            catalog({"a": unit("theirs")}),
+            '"value": "theirs"',
+        ),
+        (catalog({}), "{not json", catalog({"a": unit("theirs")}), '"value": "theirs"'),
+        (
+            catalog({}),
+            catalog({"a": unit("ours")}),
+            render({"sourceLanguage": "en", "strings": [], "version": "1.0"}),
+            '"strings": []',
+        ),
+    ]
+    for base, ours, theirs, expected in cases:
+        code, merged, _ = run(base, ours, theirs)
+        assert code == 1
+        assert expected in merged
+        assert "<<<<<<<" in merged
+
+    for result in (("{not json", [], ["a"]), (render(catalog({})), [], ["not-a"])):
+        code, merged = run_with_patched_merge(result)
+        assert code == 1
+        assert '"value": "theirs"' in merged
+        assert "<<<<<<<" in merged
+
+
+def test_utf8_bom_falls_back_to_a_conflict():
+    for bom_side in ("A", "B"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = {name: root / name for name in ("O", "A", "B")}
+            for name, value in (("O", "old"), ("A", "ours"), ("B", "theirs")):
+                prefix = b"\xef\xbb\xbf" if name == bom_side else b""
+                paths[name].write_bytes(prefix + render(catalog({"a": unit(value)})).encode())
+            result = subprocess.run(
+                [sys.executable, str(DRIVER), *(str(paths[name]) for name in ("O", "A", "B")), "Localizable.xcstrings"],
+                capture_output=True,
+            )
+            merged = paths["A"].read_bytes()
+        assert result.returncode == 1
+        assert b"\xef\xbb\xbf" in merged
+        assert b'"value": "old"' in merged
+        assert b'"value": "ours"' in merged
+        assert b'"value": "theirs"' in merged
+
+
+def test_a_refusal_that_cannot_render_blanks_the_result():
+    """The one fail-open left: exit 1 with %A byte-identical to ours.
+
+    git marks the path unmerged either way, but a file with no markers reads as
+    "no disagreement here" and gets staged, which is the bug this driver exists
+    to kill. If the conflict cannot be rendered at all, %A must still stop
+    being ours.
+    """
+    driver = load_driver()
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path, ours_path, theirs_path = (root / "O", root / "A", root / "B")
+        base_path.write_text(render(catalog({"a": unit("old")})), encoding="utf-8")
+        ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+        theirs_path.write_text(render(catalog({"a": unit("theirs")})), encoding="utf-8")
+        before = ours_path.read_text(encoding="utf-8")
+
+        def explode(*_args, **_kwargs):
+            raise RuntimeError("no git here")
+
+        original = driver.conflict_text
+        driver.conflict_text = explode
+        try:
+            code = driver.main(
+                [str(DRIVER), str(base_path), str(ours_path), str(theirs_path), "Localizable.xcstrings"]
+            )
+        finally:
+            driver.conflict_text = original
+        after = ours_path.read_text(encoding="utf-8")
+
+    assert code == 1
+    assert after != before, "a refusal left ours in place with no markers"
+    assert after == ""
+
+
+def test_an_unwritable_result_says_it_is_still_ours():
+    """When even a blank write fails there is nothing left but to be loud.
+
+    A driver cannot make git abort, so the only honest outcome is a message
+    naming the file and saying it is not a merge of theirs.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        base_path, ours_path, theirs_path = (root / "O", root / "A", root / "B")
+        base_path.write_text(render(catalog({"a": unit("old")})), encoding="utf-8")
+        ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+        theirs_path.write_text(render(catalog({"a": unit("theirs")})), encoding="utf-8")
+        ours_path.chmod(0o444)
+        try:
+            ours_path.write_text("probe", encoding="utf-8")
+        except OSError:
+            pass
+        else:
+            ours_path.chmod(0o644)
+            ours_path.write_text(render(catalog({"a": unit("ours")})), encoding="utf-8")
+            print("ok (skipped: this user can write a read-only file)")
+            return
+        result = subprocess.run(
+            [sys.executable, str(DRIVER), str(base_path), str(ours_path), str(theirs_path), "Localizable.xcstrings"],
+            capture_output=True,
+            text=True,
+        )
+        ours_path.chmod(0o644)
+
+    assert result.returncode == 1
+    assert "must not be committed" in result.stderr, result.stderr
+
+
+def test_a_conflict_key_sharing_a_line_keeps_every_side_intact():
+    """A compacted catalog must not lose the text around the conflicting key."""
+    base = '{"sourceLanguage":"en","strings":{"a":{"v":"BASE"},"b":{"v":"KEEP"}},"version":"1.0"}'
+    ours = base.replace("BASE", "OURS")
+    theirs = base.replace("BASE", "THEIRS")
+    code, merged, _ = run(base, ours, theirs)
+
+    assert code == 1
+    # Per-key replacement would have eaten the '{"sourceLanguage":...,"strings":{'
+    # prefix, leaving it in neither side of the conflict.
+    assert merged.count('"sourceLanguage"') == 3, merged
+    assert_conflict_preserves(merged, "OURS", "THEIRS", "BASE", "KEEP")
+    assert len(conflict_regions(merged)) == 1, merged
+
+
+def test_two_conflict_keys_on_one_line_stay_balanced_and_lossless():
+    """Overlapping per-key ranges must not clobber one another's text."""
+    base = (
+        '{\n  "sourceLanguage" : "en",\n  "strings" : {\n'
+        '    "a": { "v": "B1" }, "b": { "v": "B2" }\n'
+        '  },\n  "version" : "1.0"\n}\n'
+    )
+    ours = base.replace("B1", "O1").replace("B2", "O2")
+    theirs = base.replace("B1", "T1").replace("B2", "T2")
+    code, merged, _ = run(base, ours, theirs)
+
+    assert code == 1
+    # conflict_regions() asserts the markers balance; an overlapping
+    # replacement produced a stray '||||||| base' with no opening marker.
+    assert len(conflict_regions(merged)) == 1, merged
+    # Ours' value for the second key was truncated to ',: "O2" }'.
+    assert '"b": { "v": "O2" }' in merged, merged
+    assert_conflict_preserves(merged, "O1", "O2", "T1", "T2", "B1", "B2")
 
 
 def main():

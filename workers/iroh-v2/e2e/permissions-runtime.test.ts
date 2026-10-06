@@ -83,7 +83,7 @@ test("a discover-only Mac may enter a same-account opted-in host, but grants no 
   const outgoingOnly = (await post("/directory", { device: "mac-alice-peer" })).body.directory;
   expect(outgoingOnly.inboundPeers).toEqual([]);
   await post("/pairing", { enabled: false });
-  expect((await post("/directory")).body.directory.inboundPeers).toEqual([]);
+  expect(names((await post("/directory")).body.directory.inboundPeers.map((p: any) => p.device))).toEqual(["mac-alice-peer"]);
 });
 
 
@@ -94,4 +94,33 @@ test("Mac permissions reject a different account, tag or app namespace", async (
     const result = (await post("/directory")).body.directory;
     expect(names(result.inboundPeers.map((p: any) => p.device))).not.toContain("mac-alice-peer");
   }
+});
+
+test("two nightly Macs on one account: the opted-in host admits the discovering Mac and the directory names the rule it applied", async () => {
+  const post = client("nightly-pair");
+  expect((await post("/nightly-pair")).status).toBe(200);
+  const host = (await post("/directory", { device: "nightly-host" })).body.directory;
+  expect(names(host.devices)).toContain("nightly-dialer");
+  const grant = host.inboundPeers.find((p: any) => p.device.descriptor.identity.deviceId === "nightly-dialer");
+  expect(grant).toBeDefined();
+  expect(grant.permissionExpiresAt).toBe(4800);
+  expect(names(host.inboundPeers.map((p: any) => p.device))).not.toContain("mac-alice");
+  // A Mac client that depends on this rule reads it from the directory instead
+  // of assuming the deployed Worker implements it (#13458).
+  expect(host.rules).toContain("cmux.mac-peer-inbound.v1");
+  const dialer = (await post("/directory", { device: "nightly-dialer" })).body.directory;
+  expect(names(dialer.devices)).toContain("nightly-host");
+  // Discovery alone grants nothing inbound from another Mac; the account's phones keep entering as before.
+  expect(names(dialer.inboundPeers.map((p: any) => p.device))).toEqual(["phone-alice"]);
+  expect(dialer.rules).toContain("cmux.mac-peer-inbound.v1");
+});
+
+test("the iOS directory path never receives Mac-to-Mac inbound grants", async () => {
+  const post = client("ios-isolation");
+  expect((await post("/nightly-pair")).status).toBe(200);
+  const mac = (await post("/directory", { device: "nightly-host" })).body.directory;
+  expect(names(mac.inboundPeers.map((p: any) => p.device))).toContain("nightly-dialer");
+  const ios = (await post("/directory", { device: "phone-alice" })).body.directory;
+  expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-host");
+  expect(names(ios.inboundPeers.map((p: any) => p.device))).not.toContain("nightly-dialer");
 });

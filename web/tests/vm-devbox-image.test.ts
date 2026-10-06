@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 declare const Bun: {
   readonly TOML: { parse(input: string): unknown };
 };
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { runChild } from "./helpers/run-child";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -117,6 +118,7 @@ describe("devbox image template", () => {
       "cmux-opencode",
       "cmux-prompt-sync",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -134,6 +136,7 @@ describe("devbox image template", () => {
       "cmux-motd",
       "cmux-opencode",
       "cmux-prompt.bash",
+      "cmux-python-completion.bash",
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "codex-managed.toml",
@@ -147,12 +150,11 @@ describe("devbox image template", () => {
     expect(() => devboxGhosttyVersion("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=https://x/ghostty.deb\n")).toThrow(/ghostty_<x.y.z>/);
   });
 
-  test("agent-config.sh carries the cmux workspace and terminal ids as usage headers", () => {
+  test("agent-config.sh carries the cmux workspace and terminal ids as usage headers", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-agent-config-origin-"));
     try {
       const run = (extraEnv: Record<string, string>) =>
-        spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
-          encoding: "utf8",
+        runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${ANTHROPIC_CUSTOM_HEADERS-}"`], {
           env: {
             NODE_ENV: "test",
             PATH: process.env.PATH ?? "/usr/bin:/bin",
@@ -163,12 +165,12 @@ describe("devbox image template", () => {
             ...extraEnv,
           },
         });
-      expect(run({}).stdout).toBe("");
-      expect(run({ CMUX_WORKSPACE_ID: "ws_abc" }).stdout).toBe("x-cmux-workspace-id: ws_abc");
-      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", CMUX_SURFACE_ID: "sf_1" }).stdout).toBe(
+      expect((await run({})).stdout).toBe("");
+      expect((await run({ CMUX_WORKSPACE_ID: "ws_abc" })).stdout).toBe("x-cmux-workspace-id: ws_abc");
+      expect((await run({ CMUX_WORKSPACE_ID: "ws_abc", CMUX_SURFACE_ID: "sf_1" })).stdout).toBe(
         "x-cmux-workspace-id: ws_abc\nx-cmux-surface-id: sf_1",
       );
-      expect(run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" }).stdout).toBe("x-mine: 1");
+      expect((await run({ CMUX_WORKSPACE_ID: "ws_abc", ANTHROPIC_CUSTOM_HEADERS: "x-mine: 1" })).stdout).toBe("x-mine: 1");
       const codexConfig = readFileSync(path.join(home, ".codex", "config.toml"), "utf8");
       expect(codexConfig).toContain("[model_providers.cmux.env_http_headers]");
       expect(codexConfig).toContain('"x-cmux-workspace-id" = "CMUX_WORKSPACE_ID"');
@@ -179,13 +181,13 @@ describe("devbox image template", () => {
     }
   });
 
-  test("every shell file parses", () => {
+  test("every shell file parses", async () => {
     for (const name of ["cmux-bashrc", "cmux-prompt.bash", "agent-config.sh", "cmux-terminfo.sh"]) {
-      const result = spawnSync("/bin/bash", ["-n", path.join(templateDir, name)]);
+      const result = await runChild("/bin/bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
     for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
-      const result = spawnSync("sh", ["-n", path.join(templateDir, name)]);
+      const result = await runChild("sh", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
   });
@@ -263,7 +265,7 @@ describe("devbox image template", () => {
     expect(verify).toContain("test ! -e /opt/mise");
   });
 
-  test("ble.sh runtime files do not follow a transient XDG runtime directory", () => {
+  test("ble.sh runtime files do not follow a transient XDG runtime directory", async () => {
     const directory = mkdtempSync(path.join(tmpdir(), "cmux-blesh-runtime-"));
     const blesh = path.join(directory, "blesh");
     const transientRuntime = path.join(directory, "transient-runtime");
@@ -290,8 +292,7 @@ describe("devbox image template", () => {
         .replaceAll("/usr/local/share/blesh", blesh),
     );
     try {
-      const result = spawnSync("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
-        encoding: "utf8",
+      const result = await runChild("bash", ["--noprofile", "--norc", "-ic", `. '${rc}'; rm -rf '${bootRuntime}/blesh'; bleopt; test -f '${bootRuntime}/blesh/live'; printf '%s' \"$XDG_RUNTIME_DIR\"`], {
         env: {
           NODE_ENV: "test",
           PATH: process.env.PATH!,
@@ -306,6 +307,62 @@ describe("devbox image template", () => {
         bootRuntime,
       );
       expect(result.stdout).toBe(transientRuntime);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("dotted python -m completion lists one package's submodules without importing others", async () => {
+    // ble.sh ghost text runs programmable completion after every keystroke.
+    // Ubuntu's stock helper walks (imports) every installed package once the
+    // word has a dot, which stalled typing `python -m http.` for ~5 s.
+    const python = (await runChild("bash", ["-c", "command -v python3"])).stdout.trim();
+    expect(python).not.toBe("");
+    const directory = mkdtempSync(path.join(tmpdir(), "cmux-python-completion-"));
+    const marker = path.join(directory, "imported");
+    mkdirSync(path.join(directory, "noisy"));
+    writeFileSync(path.join(directory, "noisy", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    mkdirSync(path.join(directory, "target", "beta"), { recursive: true });
+    // Resolving `target.` must not execute the package itself either.
+    writeFileSync(path.join(directory, "target", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    // A checkout in the shell's cwd must not shadow the helper's imports.
+    const checkout = path.join(directory, "checkout");
+    mkdirSync(path.join(checkout, "evil"), { recursive: true });
+    writeFileSync(path.join(checkout, "pkgutil.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(checkout, "evil", "__init__.py"), `open(${JSON.stringify(marker)}, "w").close()\n`);
+    writeFileSync(path.join(directory, "target", "alpha.py"), "");
+    writeFileSync(path.join(directory, "target", "beta", "__init__.py"), "");
+    // Namespace levels (no __init__.py) under a regular and a namespace parent.
+    mkdirSync(path.join(directory, "target", "spaced", "leaf"), { recursive: true });
+    writeFileSync(path.join(directory, "target", "spaced", "leaf", "__init__.py"), "");
+    mkdirSync(path.join(directory, "nsroot", "nsmid"), { recursive: true });
+    writeFileSync(path.join(directory, "nsroot", "nsmid", "tip.py"), "");
+    const stock = path.join(directory, "stock-python-completion");
+    writeFileSync(stock, "");
+    const completion = path.join(directory, "python-completion");
+    writeFileSync(
+      completion,
+      readFileSync(path.join(templateDir, "cmux-python-completion.bash"), "utf8")
+        .replaceAll("/usr/share/bash-completion/completions/python", stock),
+    );
+    try {
+      const complete = async (cur: string) => {
+        const result = await runChild("bash", ["--noprofile", "--norc", "-c", `. '${completion}'; cur='${cur}'; COMPREPLY=(); _python_modules '${python}'; printf '%s\\n' "\${COMPREPLY[@]}" | sort`], {
+          cwd: checkout,
+          // The leading empty entry is how `PYTHONPATH=$PYTHONPATH:/x` adds the cwd.
+          env: { PATH: process.env.PATH!, HOME: directory, PYTHONPATH: `:${directory}` },
+        });
+        expect(result.status).toBe(0);
+        return result.stdout.trim().split("\n");
+      };
+      expect(await complete("target.")).toEqual(["target.alpha", "target.beta"]);
+      expect(await complete("target.spaced.")).toEqual(["target.spaced.leaf"]);
+      expect(await complete("nsroot.nsmid.")).toEqual(["nsroot.nsmid.tip"]);
+      expect(await complete("target.al")).toEqual(["target.alpha"]);
+      expect(await complete("targ")).toEqual(["target"]);
+      await complete("evil.x.");
+      await complete("ht");
+      expect(existsSync(marker)).toBe(false);
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -384,12 +441,12 @@ describe("devbox image template", () => {
     expect(derive).toContain("if (name === smokeSize) {");
   });
 
-  test("the readiness wait fails closed when it cannot identify the machine", () => {
+  test("the readiness wait fails closed when it cannot identify the machine", async () => {
     // Runs the generated shell for real on a host with no metadata service and
     // no marker file: the honest answer is "not ready", not an instant pass.
     const script = path.join(mkdtempSync(path.join(tmpdir(), "cmux-ready-")), "wait.sh");
     writeFileSync(script, devboxWaitForDaemonCommand(1));
-    const result = spawnSync("/bin/sh", [script], { encoding: "utf8", timeout: 20_000 });
+    const result = await runChild("/bin/sh", [script], { timeout: 20_000 });
     expect(result.status).toBe(1);
     expect(`${result.stderr}`).toContain("not ready");
   });
@@ -485,8 +542,9 @@ describe("devbox image template", () => {
     expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // A Freestyle snapshot is a memory image: the supervisor keys the daemon
-    // identity on the platform instance id, rotating auth/connection state on
-    // a clone while preserving the warm journal, and holds the daemon on the builder.
+    // identity on the platform instance id and holds the daemon on the
+    // builder. A fork or checkpoint of a running machine carries its parent's
+    // remote identity, so a clone drops auth and connection state.
     expect(devboxBoot).toContain('REMOTE_STATE_DIR="$CMUX_TUI_HOME/.local/state/cmux/remote"');
     expect(devboxBoot).toContain("/latest/meta-data/instance-id");
     expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
@@ -691,9 +749,9 @@ describe("devbox image template", () => {
     expect(verify).toContain("...AGENT_LAUNCH_CHECKS,");
   });
 
-  test("agent PTY readiness handles output, gates, exit, timeout and cancellation", () => {
-    const result = spawnSync("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
-      encoding: "utf8", timeout: 30_000,
+  test("agent PTY readiness handles output, gates, exit, timeout and cancellation", async () => {
+    const result = await runChild("python3", [fileURLToPath(new URL("./devbox-agent-launch-test.py", import.meta.url))], {
+      timeout: 30_000,
     });
     expect({ status: result.status, output: result.stderr }).toEqual({ status: 0, output: expect.stringContaining("OK") });
   }, 35_000);
@@ -772,7 +830,7 @@ describe("devbox image template", () => {
     expect(dockerfile).not.toContain("crt_persisted");
   });
 
-  test("agent config exports the platform CA to Node only when the file exists", () => {
+  test("agent config exports the platform CA to Node only when the file exists", async () => {
     const agentConfig = read("agent-config.sh");
     expect(agentConfig).toContain(
       "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/freestyle-tls.crt",
@@ -781,7 +839,7 @@ describe("devbox image template", () => {
     // user's own setting; on this host the file is absent, so nothing leaks.
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-ca-"));
     try {
-      const result = spawnSync(
+      const result = await runChild(
         "sh",
         ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${NODE_EXTRA_CA_CERTS-unset}"`],
         { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: undefined } },
@@ -792,7 +850,7 @@ describe("devbox image template", () => {
           ? "/usr/local/share/ca-certificates/freestyle-tls.crt"
           : "unset",
       );
-      const kept = spawnSync(
+      const kept = await runChild(
         "sh",
         ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "$NODE_EXTRA_CA_CERTS"`],
         { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: "/tmp/mine.crt" } },
@@ -803,7 +861,7 @@ describe("devbox image template", () => {
     }
   });
 
-  test("agent config generator adds the codex provider around hook trust state another writer left first", () => {
+  test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
     // seen a boot env, so ~/.codex/config.toml already exists with only the
     // hook trust table. The provider block goes in around it: bare key on
@@ -826,7 +884,7 @@ describe("devbox image template", () => {
         OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: "https://example.invalid",
       };
-      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
       const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
       const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
       expect(parsed.model_provider).toBe("cmux");
@@ -850,7 +908,7 @@ describe("devbox image template", () => {
       expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
       expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
       // Idempotent: a second login sees the provider and rewrites nothing.
-      expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+      expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
       // A config that already names a provider is the user's, even without
       // ours, however the key is spaced (TOML allows none around "=").
@@ -872,7 +930,7 @@ describe("devbox image template", () => {
         'model_provider = "unterminated\n',
       ]) {
         writeFileSync(path.join(home, ".codex/config.toml"), theirs);
-        expect(spawnSync("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env }).status).toBe(0);
+        expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
         expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(theirs);
       }
     } finally {
@@ -880,10 +938,10 @@ describe("devbox image template", () => {
     }
   });
 
-  test("agent config generator materializes the coderouter plane from boot env", () => {
+  test("agent config generator materializes the coderouter plane from boot env", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-"));
     try {
-      const result = spawnSync(
+      const result = await runChild(
         "bash",
         ["-c", `. ${path.join(templateDir, "agent-config.sh")}`],
         {
@@ -1116,8 +1174,8 @@ describe("model-plane env reaches provider creates", () => {
 // the xterm-256color name cmux exports, bright colors as indexed 38;5;n) as
 // infocmp source, because Linux tic cannot read the app's compiled files.
 // Compiled here with the local tic and queried like a guest program would.
+const hasNcurses = (await runChild("tic", ["-V"])).status === 0 && (await runChild("infocmp", ["-V"])).status === 0;
 describe("devbox terminfo overlay", () => {
-  const hasNcurses = spawnSync("tic", ["-V"]).status === 0 && spawnSync("infocmp", ["-V"]).status === 0;
   let compiled: string | undefined;
   beforeEach(() => {
     compiled = mkdtempSync(path.join(tmpdir(), "cmux-terminfo-"));
@@ -1126,31 +1184,33 @@ describe("devbox terminfo overlay", () => {
     if (compiled) rmSync(compiled, { recursive: true, force: true });
     compiled = undefined;
   });
-  const tput = (term: string, ...args: string[]) => {
-    const result = spawnSync("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled!, TERMINFO_DIRS: compiled! } });
+  /** Queries the compiled overlay with tput and returns its raw output. */
+  const tput = async (term: string, ...args: string[]) => {
+    const result = await runChild("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled!, TERMINFO_DIRS: compiled! } });
     expect({ term, args, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, args, status: 0 });
-    return result.stdout.toString("latin1");
+    return result.stdout;
   };
-  const infocmp = (term: string) => {
-    const result = spawnSync("infocmp", ["-x", "-A", compiled!, term]);
+  /** Dumps a compiled overlay entry with infocmp. */
+  const infocmp = async (term: string) => {
+    const result = await runChild("infocmp", ["-x", "-A", compiled!, term]);
     expect({ term, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, status: 0 });
     return result.stdout.toString();
   };
 
-  (hasNcurses ? test : test.skip)("compiles with tic and serves cmux's capabilities under every exported name", () => {
-    const tic = spawnSync("tic", ["-x", "-o", compiled!, path.join(templateDir, "cmux-terminfo.src")]);
+  (hasNcurses ? test : test.skip)("compiles with tic and serves cmux's capabilities under every exported name", async () => {
+    const tic = await runChild("tic", ["-x", "-o", compiled!, path.join(templateDir, "cmux-terminfo.src")]);
     expect({ status: tic.status, stderr: tic.stderr.toString() }).toMatchObject({ status: 0 });
     for (const term of ["xterm-ghostty", "ghostty", "xterm-256color"]) {
-      expect(tput(term, "colors").trim()).toBe("256");
-      const caps = infocmp(term);
+      expect((await tput(term, "colors")).trim()).toBe("256");
+      const caps = await infocmp(term);
       expect(caps).toMatch(/\bTc\b/);
       expect(caps).toMatch(/\bSu\b/);
       expect(caps).toMatch(/\bfullkbd\b/);
       // Bright black is the indexed sequence, not SGR 90 (invisible ghost text).
-      expect(tput(term, "setaf", "8")).toBe("\x1b[38;5;8m");
-      expect(tput(term, "setab", "8")).toBe("\x1b[48;5;8m");
-      expect(tput(term, "setaf", "7")).toBe("\x1b[37m");
-      expect(tput(term, "setaf", "16")).toBe("\x1b[38;5;16m");
+      expect(await tput(term, "setaf", "8")).toBe("\x1b[38;5;8m");
+      expect(await tput(term, "setab", "8")).toBe("\x1b[48;5;8m");
+      expect(await tput(term, "setaf", "7")).toBe("\x1b[37m");
+      expect(await tput(term, "setaf", "16")).toBe("\x1b[38;5;16m");
     }
   });
 

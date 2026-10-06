@@ -361,7 +361,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func sendRequestAndAuthenticatedHostStatus(
         _ requestData: Data,
         timeoutNanoseconds: UInt64? = nil,
-        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil }
+        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil },
+        acceptCombinedHostStatus: Bool = false
     ) async throws -> (response: Data, hostStatusResponse: Data) {
         guard let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
               Self.requestRequiresAuth(request) else {
@@ -371,6 +372,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             timeoutNanoseconds: timeoutNanoseconds
         )
+        if acceptCombinedHostStatus,
+           let combinedHostStatus = Self.combinedHostStatusResponse(
+               in: authorized.response
+           ) {
+            return (authorized.response, combinedHostStatus)
+        }
         let hostStatusTimeout = hostStatusTimeoutNanoseconds()
         if hostStatusTimeout == 0 {
             throw MobileShellConnectionError.requestTimedOut
@@ -381,6 +388,22 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             hostStatusStackToken: authorized.stackAccessToken
         )
         return (authorized.response, hostStatus.response)
+    }
+
+    /// Extracts the authenticated host proof included in a v2 workspace-list
+    /// response. Older Macs omit this field, so callers continue with the
+    /// separate host-status request.
+    private static func combinedHostStatusResponse(in data: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hostStatus = object["host_status"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(hostStatus) else {
+            return nil
+        }
+        guard let encoded = try? JSONSerialization.data(withJSONObject: hostStatus),
+              (try? MobileHostStatusResponse.decode(encoded)) != nil else {
+            return nil
+        }
+        return encoded
     }
 
     private func sendRequestOperation(
@@ -430,6 +453,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
+    /// Wire opt-in for one server->client stream per terminal surface (see
+    /// `IrxSurfaceEventLaneProtocol` on the host).
+    static let surfaceEventLanesParameterKey = "surface_event_lanes"
+    static let surfaceEventLanesParameterValue = "v1"
+
     /// Adds the rolling-compatible opt-in only after the Iroh accept owner is
     /// installed. Older hosts ignore the field and continue control delivery.
     private func requestAdvertisingIndependentEvents(
@@ -455,6 +483,11 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             return requestData
         }
         params["event_transport"] = "iroh_server_events_v1"
+        if runtime.independentEventsMergeSurfaceLanes {
+            // Older hosts ignore the field and keep render-grid output on the
+            // shared events lane; newer hosts echo it when they granted lanes.
+            params[Self.surfaceEventLanesParameterKey] = Self.surfaceEventLanesParameterValue
+        }
         request["params"] = params
         return (try? JSONSerialization.data(withJSONObject: request)) ?? requestData
     }
@@ -734,6 +767,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.reattach",
+             "mobile.terminal.size_policy.set",
+             "mobile.terminal.participant.disconnect",
              "mobile.terminal.artifact.scan",
              "mobile.terminal.artifact.stat",
              "mobile.terminal.artifact.fetch",
@@ -747,7 +783,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.events.probe":
             return false
         case "notification.feed.list", "notification.feed.mark_read", "notification.feed.mark_unread",
-             "notification.feed.mark_all_read":
+             "notification.feed.mark_all_read",
+             "feed.list", "feed.text", "feed.permission.reply", "feed.question.reply",
+             "feed.exit_plan.reply":
             // Feed authority is the authenticated account/peer connection, not
             // a workspace-selection ticket. Omit an irrelevant scoped attach
             // token so legacy pairings cannot accidentally narrow the global

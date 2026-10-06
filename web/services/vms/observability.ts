@@ -42,11 +42,32 @@ const EXPECTED_5XX_VM_ERROR_CODES: ReadonlySet<string> = new Set([
   "vm_operation_unsupported",
 ]);
 
+/**
+ * Permanent client-state errors: the caller addresses a machine, snapshot,
+ * tunnel or grant that does not exist, was revoked, or cannot serve the
+ * requested shape. Retrying the same request can never succeed and no
+ * operator action fixes it, so these are never operator faults, whatever
+ * status a route answers them with. A client that loops on one of them shows
+ * up as one `vm_id` and one distinct id with a high count (see the README).
+ */
+const CLIENT_STATE_VM_ERROR_CODES: ReadonlySet<string> = new Set([
+  "vm_not_found",
+  "vm_snapshot_not_found",
+  "vm_file_not_found",
+  "vm_firewall_rule_not_found",
+  "vm_tunnel_not_found",
+  "vm_access_revoked",
+  "vm_access_grant_not_found",
+  "vm_attach_transport_unsupported",
+  "vm_memory_size_unknown",
+]);
+
 export function isOperatorFaultVmError(input: {
   readonly error: string;
   readonly status: number;
 }): boolean {
   if (EXPECTED_5XX_VM_ERROR_CODES.has(input.error)) return false;
+  if (CLIENT_STATE_VM_ERROR_CODES.has(input.error)) return false;
   return input.status >= 500 || OPERATOR_FAULT_VM_ERROR_CODES.has(input.error);
 }
 
@@ -100,11 +121,7 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
       phase: input.phase ?? "unknown",
       operator_fault: operatorFault,
       reason: input.reason ?? input.message,
-      operation: context?.operation,
-      route: context?.route,
-      user_id: context?.userId,
-      client: context?.client,
-      vercel_request_id: context?.vercelRequestId,
+      ...vmErrorRequestContext(context),
       ...(input.details ?? {}),
       ...diagnostics,
     },
@@ -116,15 +133,40 @@ export function reportVmErrorResponse(input: VmErrorResponseInput): void {
         "vm.phase": input.phase ?? "unknown",
         "vm.status": input.status,
         "vm.operator_fault": operatorFault,
-        "vm.operation": context?.operation,
         "vm.provider": provider,
-        "client.name": context?.client.name,
-        "client.version": context?.client.version,
-        "client.channel": context?.client.channel,
-        user_id: context?.userId,
+        ...vmErrorRequestTags(context),
       },
     },
   );
+}
+
+function vmErrorRequestContext(context: VmRequestContext | undefined): Record<string, unknown> {
+  if (!context) return {};
+  return {
+    operation: context.operation,
+    route: context.route,
+    vm_id: context.vmId,
+    user_id: context.userId,
+    client: context.client,
+    vercel_request_id: context.vercelRequestId,
+  };
+}
+
+/**
+ * Searchable request tags. `vm_id` and `client.request_id` separate one
+ * client retrying a permanent error from many machines failing at once.
+ */
+function vmErrorRequestTags(context: VmRequestContext | undefined): Record<string, string | undefined> {
+  if (!context) return {};
+  return {
+    "vm.operation": context.operation,
+    "client.name": context.client.name,
+    "client.version": context.client.version,
+    "client.channel": context.client.channel,
+    "client.request_id": context.client.requestId,
+    vm_id: context.vmId,
+    user_id: context.userId,
+  };
 }
 
 /**
@@ -264,6 +306,7 @@ export function captureVmRequestOutcome(
       "cmux.vm.request_duration_ms": durationMs,
       "cmux.vm.request_error_code": code,
       "cmux.user_id": context.userId,
+      "cmux.vm.id": context.vmId,
       "cmux.client.name": context.client.name,
       "cmux.client.version": context.client.version,
       "cmux.client.build": context.client.build,

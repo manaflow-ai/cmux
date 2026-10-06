@@ -19,6 +19,16 @@
 # would break the user's `codex`. Each helper handles its own failures and the
 # script always reaches an `exec "$REAL_CODEX"`.
 
+# The effective uid, read once from the kernel. Bash's $EUID is not usable here:
+# macOS /bin/bash 3.2 takes EUID from the environment, and the uid decides which
+# owner the cmux-cua trust check and auth-token check accept. Cleared at startup
+# so the environment cannot seed it.
+cmux_codex_wrapper_uid=""
+cmux_codex_wrapper_effective_uid() {
+    [[ -n "$cmux_codex_wrapper_uid" ]] || cmux_codex_wrapper_uid="$(/usr/bin/id -u 2>/dev/null || true)"
+    [[ "$cmux_codex_wrapper_uid" =~ ^[0-9]+$ ]]
+}
+
 cmux_codex_wrapper_is_self_or_shim() {
     local candidate="$1"
     [[ -n "$candidate" ]] || return 1
@@ -44,6 +54,42 @@ cmux_codex_wrapper_is_self_or_shim() {
             ;;
     esac
     return 1
+}
+
+codex_launch_has_subrouter_provider() {
+    local argument assignment compact provider=""
+    local expects_config_value=0
+    for argument in "$@"; do
+        [[ "$argument" == "--" ]] && break
+        assignment=""
+        if (( expects_config_value )); then
+            assignment="$argument"
+            expects_config_value=0
+        else
+            case "$argument" in
+                -c|--config)
+                    expects_config_value=1
+                    continue
+                    ;;
+                -c=*|--config=*)
+                    assignment="${argument#*=}"
+                    ;;
+                *)
+                    continue
+                    ;;
+            esac
+        fi
+        compact="${assignment//[[:space:]]/}"
+        case "$compact" in
+            model_provider=subrouter|model_provider=\"subrouter\"|model_provider=\'subrouter\')
+                provider="subrouter"
+                ;;
+            model_provider=*)
+                provider="other"
+                ;;
+        esac
+    done
+    [[ "$provider" == "subrouter" ]]
 }
 
 # Find the real codex binary, skipping this wrapper and cmux's shell shims.
@@ -126,72 +172,59 @@ cmux_computer_use_json_escape() {
     printf '%s' "$value"
 }
 
-cmux_computer_use_group_or_world_writable_dir() {
-    # Group write is as disqualifying as world write on the OVERRIDE path:
-    # write permission on a directory allows renaming the driver away and
-    # dropping a replacement, regardless of the file's own permissions. The
-    # bundled path never runs this check, so macOS's root:admin 775 dirs
-    # (/Applications) do not affect normal installs.
-    local dir="$1"
+# Print "<owner uid> <octal permissions>" for each path, one line per path, in
+# a single stat process. The launch path used to spawn two stat processes (plus
+# two subshells) per ancestor directory; under load each spawn costs tens of
+# milliseconds of wall time before Codex starts.
+cmux_computer_use_stat_owner_modes() {
     local stat_bin=/usr/bin/stat
     [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
     [[ -x "$stat_bin" ]] || return 1
-    local mode
-    mode="$("$stat_bin" -f %Lp "$dir" 2>/dev/null || "$stat_bin" -c %a "$dir" 2>/dev/null)" || return 1
-    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
-    local group=$(( (mode / 10) % 10 ))
-    local other=$((mode % 10))
-    (( (group & 2) != 0 || (other & 2) != 0 ))
+    "$stat_bin" -f '%u %Lp' "$@" 2>/dev/null || "$stat_bin" -c '%u %a' "$@" 2>/dev/null
 }
 
-cmux_computer_use_dir_owner() {
-    local dir="$1"
-    local stat_bin=/usr/bin/stat
-    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
-    [[ -x "$stat_bin" ]] || return 1
-    "$stat_bin" -f %u "$dir" 2>/dev/null || "$stat_bin" -c %u "$dir" 2>/dev/null
+# Succeed only when every "<owner> <mode>" line is owned by root or the current
+# user, is neither group- nor world-writable, and the line count matches.
+# Group write is as disqualifying as world write on the OVERRIDE path: write
+# permission on a directory allows renaming the driver away and dropping a
+# replacement, regardless of the file's own permissions. The bundled path never
+# runs this check, so macOS's root:admin 775 dirs (/Applications) do not affect
+# normal installs.
+cmux_computer_use_owner_modes_are_trusted() {
+    local output="$1"
+    local expected_count="$2"
+    local current_uid owner mode extra count=0
+    cmux_codex_wrapper_effective_uid || return 1
+    current_uid="$cmux_codex_wrapper_uid"
+    while read -r owner mode extra; do
+        [[ -z "$extra" && "$owner" =~ ^[0-9]+$ && "$mode" =~ ^[0-9]+$ ]] || return 1
+        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
+        (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 )) || return 1
+        count=$((count + 1))
+    done <<< "$output"
+    (( count == expected_count ))
 }
 
-cmux_computer_use_trusted_path_ancestors() {
+# The client binary must be a regular file (canonicalization has already
+# resolved symlinks) and it and every ancestor directory must be owned by root
+# or the current user and be neither group- nor world-writable: with write
+# access another local user could swap the binary that runs under cmux's TCC
+# identity. One stat process covers the file and all of its ancestors.
+cmux_computer_use_trusted_client_path() {
     local path="$1"
-    local id_bin=/usr/bin/id
-    [[ -x "$id_bin" ]] || id_bin=/bin/id
-    [[ -x "$id_bin" ]] || return 1
-    local current_uid
-    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
+    [[ -f "$path" && ! -L "$path" ]] || return 1
     local dir="${path%/*}"
     [[ "$dir" = /* ]] || return 1
+    local -a paths=("$path")
     while :; do
-        local owner
-        owner="$(cmux_computer_use_dir_owner "$dir")" || return 1
-        [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-        cmux_computer_use_group_or_world_writable_dir "$dir" && return 1
+        paths+=("$dir")
         [[ "$dir" == "/" ]] && break
         dir="${dir%/*}"
         [[ -n "$dir" ]] || dir="/"
     done
-}
-
-cmux_computer_use_trusted_executable_file() {
-    # The override binary itself must be a regular file (canonicalization has
-    # already resolved symlinks), owned by root or the current user, and not
-    # group- or other-writable: with group/other write, another local user
-    # could swap the binary that runs under cmux's TCC identity.
-    local path="$1"
-    local stat_bin=/usr/bin/stat
-    [[ -x "$stat_bin" ]] || stat_bin=/bin/stat
-    [[ -x "$stat_bin" ]] || return 1
-    local id_bin=/usr/bin/id
-    [[ -x "$id_bin" ]] || id_bin=/bin/id
-    [[ -x "$id_bin" ]] || return 1
-    [[ -f "$path" && ! -L "$path" ]] || return 1
-    local current_uid owner mode
-    current_uid="$("$id_bin" -u 2>/dev/null)" || return 1
-    owner="$("$stat_bin" -f %u "$path" 2>/dev/null || "$stat_bin" -c %u "$path" 2>/dev/null)" || return 1
-    [[ "$owner" == "0" || "$owner" == "$current_uid" ]] || return 1
-    mode="$("$stat_bin" -f %Lp "$path" 2>/dev/null || "$stat_bin" -c %a "$path" 2>/dev/null)" || return 1
-    [[ "$mode" =~ ^[0-9]+$ ]] || return 1
-    (( ((mode / 10) % 10 & 2) == 0 && (mode % 10 & 2) == 0 ))
+    local output
+    output="$(cmux_computer_use_stat_owner_modes "${paths[@]}")" || return 1
+    cmux_computer_use_owner_modes_are_trusted "$output" "${#paths[@]}"
 }
 
 cmux_computer_use_canonical_executable() {
@@ -228,10 +261,17 @@ cmux_computer_use_resolve_client() {
     # unless it is the exact app-installed cmux-cua helper selected by cmux.
     local installed_client client_real
     installed_client="${CMUX_CUA_CLIENT_PATH:-}"
+    # Older app launches and CI-hosted wrapper invocations may not inherit the
+    # app's exported client path. Reconstruct the same app-owned location from
+    # the runtime scope, then apply the identical canonicalization and trust
+    # checks below. Never fall back to an untrusted PATH lookup.
+    if [[ -z "$installed_client" && "${HOME:-}" = /* ]]; then
+        local runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+        installed_client="${HOME}/Library/Application Support/cmux/cmux-cua/helper/${runtime_scope}/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+    fi
     [[ -n "$installed_client" ]] || return 1
     client_real="$(cmux_computer_use_canonical_executable "$installed_client")" || return 1
-    cmux_computer_use_trusted_path_ancestors "$client_real" || return 1
-    cmux_computer_use_trusted_executable_file "$client_real" || return 1
+    cmux_computer_use_trusted_client_path "$client_real" || return 1
     printf '%s' "$client_real"
 }
 
@@ -241,7 +281,7 @@ cmux_computer_use_auth_token() {
     if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
         metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
         read -r owner mode <<< "$metadata"
-        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+        if cmux_codex_wrapper_effective_uid && [[ "$owner" == "$cmux_codex_wrapper_uid" && "$mode" == "600" ]]; then
             IFS= read -r token < "$auth_file" || true
             if [[ -n "$token" ]]; then
                 printf '%s' "$token"
@@ -327,8 +367,7 @@ cmux_codex_cua_attachment_present() {
 # do not launch a helper or probe the daemon.
 cmux_codex_cua_attachment_reason() {
     if ! cmux_codex_computer_use_enabled_for_invocation "$@"; then
-        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] ||
-           ! cmux_codex_computer_use_app_enabled; then
+        if [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]]; then
             printf '%s' 'computer-use-disabled'
         else
             printf '%s' 'strict-mcp-config'
@@ -350,9 +389,17 @@ cmux_codex_cua_attachment_reason() {
     printf '%s' 'attachment-unavailable'
 }
 
+# Local/tagged builds often run Codex through an ad-hoc-signed wrapper (for
+# example the developer's `sr` launcher), so the helper cannot verify the
+# production OpenAI parent requirement. Keep the helper's escape hatch scoped
+# to the two identity values baked into a reload.sh tagged app; stable builds
+# retain the signed-parent gate.
+cmux_codex_is_tagged_dev_build() {
+    [[ -n "${CMUX_TAG:-}" && "${CMUX_BUNDLE_ID:-}" == com.cmuxterm.app.debug.* ]]
+}
+
 cmux_codex_computer_use_enabled_for_invocation() {
     [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
-    cmux_codex_computer_use_app_enabled || return 1
     local arg
     for arg in "$@"; do
         case "$arg" in
@@ -372,15 +419,23 @@ cmux_codex_emit_computer_use_args() {
     # reconciled above. The MCP attachment remains fail-closed on cmux
     # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
-    local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
+    local client default_session runtime_scope runtime_uid cua_socket state_dir
+    # Read the uid in this shell first: the helpers below run in command
+    # substitutions, so a uid they cache would not survive back here.
+    cmux_codex_wrapper_effective_uid || return 1
     client="$(cmux_computer_use_resolve_client)" || return 1
-    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    # Gate on the credential here; the parent shell exports its value.
+    cmux_computer_use_auth_token >/dev/null || return 1
     # Stable per-terminal session id so the branded cursor survives helper restarts.
     default_session="cmux-${CMUX_SURFACE_ID:-$$}"
     runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
-    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    # The common scope (a bundle id or tag) is already a clean slug; only
+    # sanitize through the three-process pipeline when it is not.
+    if [[ ! "$runtime_scope" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}[A-Za-z0-9_]$ ]]; then
+        runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    fi
     [[ -n "$runtime_scope" ]] || runtime_scope="default"
-    runtime_uid="$(/usr/bin/id -u)"
+    runtime_uid="$cmux_codex_wrapper_uid"
     cua_socket="${CMUX_CUA_CODEX_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua-codex.sock}"
     state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
     # The helper owns external onboarding. Mark that contract explicitly so
@@ -395,7 +450,7 @@ cmux_codex_emit_computer_use_args() {
         "-c" \
         'mcp_servers.cmux-cua.env.CMUX_CUA_EXTERNAL_PERMISSION_FLOW="1"' \
         "-c" \
-        "mcp_servers.cmux-cua.env.CMUX_CUA_SOCKET_AUTH_TOKEN=\"$(cmux_computer_use_json_escape "$auth_token")\"" \
+        'mcp_servers.cmux-cua.env_vars=["CMUX_CUA_SOCKET_AUTH_TOKEN"]' \
         "-c" \
         "mcp_servers.cmux-cua.env.CMUX_CUA_DEFAULT_SESSION=\"$(cmux_computer_use_json_escape "$default_session")\"" \
         "-c" \
@@ -416,6 +471,12 @@ cmux_codex_emit_computer_use_args() {
         "mcp_servers.cmux-cua.env.NODE_OPTIONS=\"\"" \
         "-c" \
         "mcp_servers.cmux-cua.env.BUN_OPTIONS=\"\""
+
+    if cmux_codex_is_tagged_dev_build; then
+        printf '%s\0' \
+            "-c" \
+            'mcp_servers.cmux-cua.env.CMUX_CUA_CODEX_ALLOW_UNVERIFIED_CLIENT="1"'
+    fi
 }
 
 # The interactive session, `exec`/`e`, `resume`, and `fork` entrypoints all START
@@ -460,7 +521,8 @@ codex_known_subcommand() {
 codex_option_consumes_value() {
     case "$1" in
         -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
-        -s|--sandbox|--output-last-message|--enable|--disable)
+        -s|--sandbox|--output-last-message|--enable|--disable|--add-dir|-i|--image|\
+        --local-provider|--remote-auth-token-env|--output-schema|--color)
             return 0
             ;;
     esac
@@ -519,6 +581,114 @@ should_inject_codex_hooks() {
     return 0
 }
 
+# Codex declares -c/--config, --enable, and --disable as clap `global`
+# arguments. When a subcommand also receives one of them, Codex keeps only the
+# subcommand-level values: on codex-cli 0.159.3, `codex -c a=1 mcp -c b=2 list`
+# sees only b. The wrapper places its own overrides before the user's argv, so
+# `codex exec -c model=x` or `codex resume --last -c ...` silently dropped the
+# cmux-cua MCP server, the hook config, and `--disable computer_use`. A global
+# argument means the same thing at either position, so move the user's
+# subcommand-level occurrences, in order, in front of the subcommand. Codex then
+# sees one root-level list: wrapper values, user root values, user subcommand
+# values, with later values winning as before. Tokens after `--` are prompt
+# text and stay in place. Without a subcommand nothing moves.
+cmux_codex_session_args=()
+cmux_codex_hoist_session_global_args() {
+    local -a head=() hoisted=() tail=()
+    local arg
+    cmux_codex_session_args=()
+    while (( $# > 0 )); do
+        arg="$1"
+        case "$arg" in
+            --)
+                head+=("$@")
+                break
+                ;;
+            -*)
+                head+=("$arg")
+                shift
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                    head+=("$1")
+                    shift
+                fi
+                continue
+                ;;
+        esac
+        if ! codex_known_subcommand "$arg"; then
+            # First bare token is a prompt: an interactive session has no
+            # subcommand scope, so every option is already root-level.
+            head+=("$@")
+            break
+        fi
+        tail+=("$arg")
+        shift
+        while (( $# > 0 )); do
+            arg="$1"
+            case "$arg" in
+                --)
+                    tail+=("$@")
+                    break
+                    ;;
+                -c|--config|--enable|--disable)
+                    if (( $# >= 2 )); then
+                        hoisted+=("$arg" "$2")
+                        shift 2
+                    else
+                        tail+=("$arg")
+                        shift
+                    fi
+                    ;;
+                -c=*|--config=*|--enable=*|--disable=*|-c?*)
+                    hoisted+=("$arg")
+                    shift
+                    ;;
+                -*)
+                    tail+=("$arg")
+                    shift
+                    if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg" && (( $# > 0 )); then
+                        tail+=("$1")
+                        shift
+                    fi
+                    ;;
+                *)
+                    tail+=("$arg")
+                    shift
+                    ;;
+            esac
+        done
+        break
+    done
+    (( ${#head[@]} > 0 )) && cmux_codex_session_args+=("${head[@]}")
+    (( ${#hoisted[@]} > 0 )) && cmux_codex_session_args+=("${hoisted[@]}")
+    (( ${#tail[@]} > 0 )) && cmux_codex_session_args+=("${tail[@]}")
+    return 0
+}
+
+# `codex exec` runs headless. It shares the pane's surface with any
+# interactive Codex there, so the agent message hooks skip it.
+codex_launch_is_headless() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 1 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            exec|e) return 0 ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
 # Codex does not emit its own SessionStart hook for an explicit `resume <id>`
 # launch. The wrapper is the only layer that knows both the resumed session id
 # and the new live process, so replay that lifecycle event after exporting the
@@ -537,6 +707,30 @@ cmux_codex_resume_session_id() {
         fi
     done
     return 1
+}
+
+# A direct `codex fork` creates its child rollout before the first prompt but
+# does not reliably emit SessionStart at that point. The app marks cmux-owned
+# fork launches with the parent id; keep a bounded monitor alive beside Codex
+# so the rollout's forked_from_id can become the destination pane's identity.
+cmux_codex_start_fork_session_watch() {
+    local parent_session_id="${CMUX_AGENT_FORK_PARENT_SESSION_ID:-}"
+    [[ -n "$parent_session_id" ]] || return 0
+    [[ -n "${CMUX_CODEX_HOOK_CMUX_BIN:-}" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]] || return 0
+    local launch_at="${CMUX_AGENT_FORK_LAUNCH_AT:-}"
+    local launch_id="${CMUX_AGENT_FORK_LAUNCH_ID:-}"
+    local owner_pid="${CMUX_CODEX_PID:-}"
+    local -a monitor_args=(hooks codex monitor --fork-parent "$parent_session_id")
+    [[ -n "$launch_at" ]] && monitor_args+=(--fork-launch-at "$launch_at")
+    [[ -n "$launch_id" ]] && monitor_args+=(--fork-launch-id "$launch_id")
+    [[ -n "$owner_pid" ]] && monitor_args+=(--fork-owner-pid "$owner_pid")
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    else
+        nohup "$CMUX_CODEX_HOOK_CMUX_BIN" "${monitor_args[@]}" \
+            </dev/null >/dev/null 2>&1 &
+    fi
 }
 
 IN_CMUX=0
@@ -566,11 +760,24 @@ exec_real_codex_passthrough() {
 
 cmux_codex_computer_use_args=()
 cmux_codex_read_computer_use_args() {
-    local arg
+    local arg auth_token
     while IFS= read -r -d '' arg; do
         cmux_codex_computer_use_args+=("$arg")
     done < <(cmux_codex_emit_computer_use_args "$@" 2>/dev/null)
     (( ${#cmux_codex_computer_use_args[@]} > 0 )) || return 1
+    # Codex's -c overrides are argv, and any local user can read argv with ps.
+    # Keep the socket credential in the Codex process environment instead; the
+    # emitted `env_vars` entry tells Codex to forward it by name to the MCP
+    # server. Codex's default shell_environment_policy excludes *TOKEN* names
+    # from agent shell commands. The emitter runs in a process substitution, so
+    # the export must happen here in the parent shell. Fail closed: without a
+    # credential, attach nothing.
+    if ! cmux_codex_wrapper_effective_uid ||
+       ! auth_token="$(cmux_computer_use_auth_token)"; then
+        cmux_codex_computer_use_args=()
+        return 1
+    fi
+    export CMUX_CUA_SOCKET_AUTH_TOKEN="$auth_token"
     return 0
 }
 
@@ -594,6 +801,16 @@ if ! should_inject_codex_hooks "$@"; then
     cmux_codex_cua_diagnostic "not-session"
     exec_real_codex_passthrough "$@"
 fi
+
+# cmux owns the Computer Use provider for every Codex session it launches.
+# Codex also exposes a native `computer` tool behind the `computer_use` feature;
+# leaving that feature enabled lets the model silently bypass the explicitly
+# requested `cmux-cua` MCP server. Disable the competing provider before any
+# session arguments are forwarded. If cmux-cua cannot attach, the session has
+# no Computer Use provider rather than falling back to Codex Computer Use.
+# This policy is intentionally scoped to cmux-launched sessions. Plain Codex
+# outside cmux keeps its normal native Computer Use behavior.
+cmux_codex_native_computer_use_args=(--disable computer_use)
 
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
@@ -619,10 +836,23 @@ else
     unset CMUX_CODEX_PARENT_INVOCATION_ID
 fi
 export CMUX_CODEX_PID=$$
+if codex_launch_is_headless "$@"; then
+    export CMUX_CODEX_HEADLESS=1
+else
+    export CMUX_CODEX_HEADLESS=0
+fi
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
 export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
 export CMUX_AGENT_LAUNCH_CWD="$PWD"
+unset CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND
+if codex_launch_has_subrouter_provider "$@"; then
+    case "${SUBROUTER_CODEX_RESUME_COMMAND:-}" in
+        "sr codex resume"|"subrouter codex resume"|"cx codex resume")
+            export CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND="$SUBROUTER_CODEX_RESUME_COMMAND"
+            ;;
+    esac
+fi
 {
     cmux_codex_argv_b64="$(
         {
@@ -634,6 +864,13 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     )"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
+
+cmux_codex_start_fork_session_watch
+# The monitor received a private copy of these launch markers in its argv.
+# Do not let a nested Codex wrapper inherit the parent fork transaction.
+unset CMUX_AGENT_FORK_PARENT_SESSION_ID
+unset CMUX_AGENT_FORK_LAUNCH_AT
+unset CMUX_AGENT_FORK_LAUNCH_ID
 
 # Fresh launches deliberately wait for Codex's real SessionStart payload so no
 # fallback identity is created. Explicit resumes do not emit that event, so
@@ -714,12 +951,19 @@ if [[ "${CMUX_CUA_DIAGNOSTICS:-0}" == "1" ]]; then
     fi
 fi
 
+cmux_codex_hoist_session_global_args "$@"
+
 if cmux_codex_read_inject_args; then
-    exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "${cmux_codex_injected_args[@]}" "$@"
+    exec "$REAL_CODEX" \
+        "${cmux_codex_native_computer_use_args[@]}" \
+        "${cmux_codex_computer_use_args[@]}" \
+        "${cmux_codex_injected_args[@]}" "${cmux_codex_session_args[@]}"
 fi
 
 # A reconciled persistent channel intentionally emits no overrides; an emitter
 # failure also returns nothing. In both cases preserve the cmux surface context
 # and Computer Use attachment so persistent, native, or future hooks can still
 # bind this session.
-exec "$REAL_CODEX" "${cmux_codex_computer_use_args[@]}" "$@"
+exec "$REAL_CODEX" \
+    "${cmux_codex_native_computer_use_args[@]}" \
+    "${cmux_codex_computer_use_args[@]}" "${cmux_codex_session_args[@]}"

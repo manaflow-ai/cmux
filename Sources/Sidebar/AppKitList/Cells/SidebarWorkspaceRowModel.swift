@@ -1,3 +1,4 @@
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CoreGraphics
@@ -42,6 +43,9 @@ struct SidebarWorkspaceRowModel: Equatable {
     let shortcutHintText: String?
     let showsShortcutHints: Bool
     let colorSchemeIsDark: Bool
+    /// Hex of the opaque terminal-matched backdrop (secondary text holds a
+    /// contrast floor over it), or `nil` over the sidebar material.
+    var readabilityBackdropHex: String? = nil
     let globalFontMagnificationPercent: Int
     let isChecklistExpanded: Bool
     let checklistAddFieldActivationToken: Int
@@ -65,6 +69,10 @@ struct SidebarWorkspaceRowModel: Equatable {
     /// apply pass.
     let isMetadataExpanded: Bool
     let isMarkdownExpanded: Bool
+    /// macOS Display accessibility settings (Differentiate Without Color,
+    /// Increase Contrast) the row paints with. Part of equality so a
+    /// System Settings change repaints visible rows.
+    var displayAccessibility: DisplayAccessibilityOptions = .standard
 
     var fontScale: CGFloat { settings.sidebarFontScale }
 
@@ -130,33 +138,4 @@ struct SidebarAppKitRowActions {
     /// Opts this row's workspace out of the status feature (None).
     let hideTodoStatus: () -> Void
     let commitRename: (String) -> Void
-}
-
-
-/// Per-sidebar memo of workspace snapshots so container re-renders (divider
-/// drags re-render every frame) reuse cached snapshots; only pump events and
-/// settings changes recompute. Plain box, never observed.
-@MainActor
-final class SidebarRowSnapshotCache {
-    private var snapshotsById: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
-    private var settingsFingerprint: SidebarTabItemSettingsSnapshot?
-
-    func resetIfSettingsChanged(_ settings: SidebarTabItemSettingsSnapshot) {
-        guard settingsFingerprint != settings else { return }
-        settingsFingerprint = settings
-        snapshotsById.removeAll(keepingCapacity: true)
-    }
-
-    func value(for id: UUID) -> SidebarWorkspaceSnapshotBuilder.Snapshot? {
-        snapshotsById[id]
-    }
-
-    func store(_ snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot, for id: UUID) {
-        snapshotsById[id] = snapshot
-    }
-
-    func prune(keeping ids: Set<UUID>) {
-        guard snapshotsById.count > ids.count else { return }
-        snapshotsById = snapshotsById.filter { ids.contains($0.key) }
-    }
 }

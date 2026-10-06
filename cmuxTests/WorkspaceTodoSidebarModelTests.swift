@@ -16,7 +16,7 @@ import Testing
 /// (`SidebarWorkspaceChecklistDisplayPolicy`).
 struct WorkspaceTodoSidebarModelTests {
     private static var repoRoot: URL {
-        URL(fileURLWithPath: #filePath)
+        SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent() // cmuxTests
             .deletingLastPathComponent() // repo root
     }
@@ -56,6 +56,41 @@ struct WorkspaceTodoSidebarModelTests {
         }
     }
 
+
+    @Test
+    func workingAndNeedsAttentionShareAShapeByDefault() {
+        let working = SidebarWorkspaceTaskStatusGlyphModel(status: .working)
+        let attention = SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention)
+        #expect(working.fillFraction == attention.fillFraction)
+        #expect(working.mark == attention.mark)
+    }
+
+    @Test
+    func differentiateWithoutColorGivesEveryLaneADistinctShape() {
+        struct GlyphShape: Hashable {
+            let fillFraction: Double
+            let mark: String
+        }
+        let shapes = WorkspaceTaskStatus.allCases.map { status in
+            let model = SidebarWorkspaceTaskStatusGlyphModel(status: status, differentiateWithoutColor: true)
+            return GlyphShape(fillFraction: model.fillFraction, mark: String(describing: model.mark))
+        }
+        #expect(Set(shapes).count == WorkspaceTaskStatus.allCases.count)
+
+        let attention = SidebarWorkspaceTaskStatusGlyphModel(status: .needsAttention, differentiateWithoutColor: true)
+        #expect(attention.mark == .exclamation)
+        #expect(attention.colorRole == .attention)
+    }
+
+    @Test
+    func differentiateWithoutColorOnlyChangesNeedsAttention() {
+        for status in WorkspaceTaskStatus.allCases where status != .needsAttention {
+            #expect(
+                SidebarWorkspaceTaskStatusGlyphModel(status: status, differentiateWithoutColor: true)
+                    == SidebarWorkspaceTaskStatusGlyphModel(status: status)
+            )
+        }
+    }
 
     @Test
     func tooltipDistinguishesManualFromInferred() {

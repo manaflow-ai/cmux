@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import CmuxCloudMachines
@@ -44,6 +45,12 @@ struct MachineCreateOperation: Identifiable, Equatable {
     var failureOutput: String? {
         if case .failed(let output) = phase { return output }
         return nil
+    }
+
+    /// The create failed because the plan's active-machine limit is reached
+    /// (the service's `vm_active_limit_exceeded`), so upgrading would let it through.
+    var hitMachineLimit: Bool {
+        failureOutput?.contains("vm_active_limit_exceeded") == true
     }
 
     /// The one-line status beside the name: the sheet's progress wording

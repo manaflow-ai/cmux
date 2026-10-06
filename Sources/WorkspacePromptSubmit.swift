@@ -1,3 +1,4 @@
+import Bonsplit
 import CMUXAgentLaunch
 import Foundation
 
@@ -72,7 +73,7 @@ extension WorkstreamEvent {
             ?? Self.messageText(fromJSON: extraFieldsJSON, keys: Self.promptMessageKeys)
     }
 
-    /// The length of the prompt as submitted, when the producer reported it.
+    /// Original Unicode extended grapheme cluster count (Swift `String.count`).
     ///
     /// `submittedPromptMessage` is capped at 240 characters by the CLI before
     /// it reaches us, so counting it measures the cap rather than the prompt.
@@ -80,8 +81,12 @@ extension WorkstreamEvent {
     /// this resolves it with the same precedence the message itself uses.
     var submittedPromptLength: Int? {
         guard hookEventName == .userPromptSubmit else { return nil }
-        return Self.messageLength(fromJSON: toolInputJSON, keys: Self.promptMessageKeys)
-            ?? Self.messageLength(fromJSON: extraFieldsJSON, keys: Self.promptMessageKeys)
+        if let candidate = Self.messageLength(fromJSON: toolInputJSON) { return candidate.length }
+        if Self.messageText(fromJSON: toolInputJSON, keys: Self.promptMessageKeys) != nil { return nil }
+        // A context-only message has no original-size evidence. Do not borrow
+        // a different message's count from the lower-priority extra fields.
+        if context?.lastUserMessage.flatMap(Self.normalizedPromptText) != nil { return nil }
+        return Self.messageLength(fromJSON: extraFieldsJSON)?.length
     }
 
     var assistantFinalMessage: String? {
@@ -102,18 +107,36 @@ extension WorkstreamEvent {
         "lastAgentMessage",
     ]
 
-    /// Reads `<key>_length` for the first of `keys` that carries one.
-    private static func messageLength(fromJSON jsonString: String?, keys: [String]) -> Int? {
+    private struct PromptLengthCandidate { let length: Int? }
+
+    /// A present message without valid metadata stops fallback to another message.
+    private static func messageLength(fromJSON jsonString: String?) -> PromptLengthCandidate? {
         guard let jsonString,
               let data = jsonString.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         else { return nil }
-        for key in keys {
-            guard let value = dict["\(key)_length"] else { continue }
-            if let number = value as? Int { return number }
-            if let number = value as? NSNumber { return number.intValue }
+        let containers = [dict] + ["notification", "data"].compactMap { dict[$0] as? [String: Any] }
+        for container in containers {
+            for key in promptMessageKeys where (container[key] as? String).flatMap(normalizedPromptText) != nil {
+                return PromptLengthCandidate(length: validatedPromptLength(container["\(key)_length"]))
+            }
+        }
+        for container in containers {
+            for key in promptMessageKeys where container[key] is String || container["\(key)_length"] != nil {
+                return PromptLengthCandidate(length: validatedPromptLength(container["\(key)_length"]))
+            }
         }
         return nil
+    }
+
+    private static func validatedPromptLength(_ value: Any?) -> Int? {
+        // Match the CLI's 1 MiB stdin ceiling. Reject Boolean NSNumber bridging,
+        // fractional values, strings, negatives, and unsafe/out-of-range numbers.
+        guard let number = value as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let length = Int(exactly: number.doubleValue),
+              (0...1_048_576).contains(length) else { return nil }
+        return length
     }
 
     private static func messageText(fromJSON jsonString: String?, keys: [String]) -> String? {
@@ -173,7 +196,8 @@ extension TabManager {
         workspaceId: UUID,
         message: String?,
         submittedLength: Int? = nil,
-        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
+        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled(),
+        surfaceId: String? = nil
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
@@ -181,7 +205,8 @@ extension TabManager {
             submittedLength: submittedLength,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
-            reorderWithoutMessage: true
+            reorderWithoutMessage: true,
+            surfaceId: surfaceId
         )
     }
 
@@ -196,7 +221,8 @@ extension TabManager {
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .assistantFinal,
-            reorderWithoutMessage: false
+            reorderWithoutMessage: false,
+            surfaceId: nil
         )
     }
 
@@ -206,7 +232,8 @@ extension TabManager {
         submittedLength: Int? = nil,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
-        reorderWithoutMessage: Bool
+        reorderWithoutMessage: Bool,
+        surfaceId: String?
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         guard let originalIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else {
             return nil
@@ -217,7 +244,10 @@ extension TabManager {
         let messageRecorded: Bool
         switch kind {
         case .promptSubmission:
-            messageRecorded = workspace.recordSubmittedMessage(message)
+            messageRecorded = workspace.recordSubmittedMessage(
+                message,
+                panelId: Self.panelId(in: workspace, forSurfaceId: surfaceId)
+            )
             if messageRecorded {
                 CmuxEventBus.shared.publishWorkspacePromptSubmitted(
                     workspaceId: workspaceId,
@@ -241,6 +271,19 @@ extension TabManager {
         moveTabToTop(workspaceId)
         let newIndex = tabs.firstIndex(where: { $0.id == workspaceId }) ?? originalIndex
         return (messageRecorded, newIndex != originalIndex, newIndex)
+    }
+
+    /// Resolves a hook-reported surface id to the panel it belongs to.
+    ///
+    /// Hook payloads carry `CMUX_SURFACE_ID`, which is a surface id for split
+    /// panes but already a panel id for the simple case, so both shapes are
+    /// accepted the same way the focused-notification seam accepts them.
+    private static func panelId(in workspace: Workspace, forSurfaceId surfaceId: String?) -> UUID? {
+        guard let surfaceId,
+              let uuid = UUID(uuidString: surfaceId.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return nil }
+        if workspace.panels[uuid] != nil { return uuid }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: uuid))
     }
 }
 

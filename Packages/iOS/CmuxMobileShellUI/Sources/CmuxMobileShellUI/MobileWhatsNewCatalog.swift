@@ -48,6 +48,10 @@ struct MobileWhatsNewPage: Identifiable {
     /// binary change. Only meaningful for binary catalog entries; resolved
     /// announcements are channel-filtered before page construction.
     var channels: [String]? = nil
+    /// Optional inclusive app-version bounds for binary pages. The 1.0.6
+    /// pairing setup page is deliberately version-pinned.
+    var minVersion: String? = nil
+    var maxVersion: String? = nil
     /// One quiet line under the feature rows (compatibility notes and other
     /// fine print that must not compete with the features). `nil` hides it.
     var footnote: String? = nil
@@ -58,6 +62,10 @@ struct MobileWhatsNewPage: Identifiable {
     /// as remotely hidden ones that are later re-enabled).
     var listID: String {
         (isAnnouncement ? "announcement:" : "entry:") + id
+    }
+
+    func supports(appVersion: String) -> Bool {
+        MobileAppVersionCompare().version(appVersion, isWithinMin: minVersion ?? "0", max: maxVersion)
     }
 }
 
@@ -73,7 +81,7 @@ struct MobileWhatsNewCatalog: Sendable {
     /// Newest first. The one-time sheet shows every visible entry newer than
     /// the acknowledgement marker.
     var entries: [MobileWhatsNewPage] {
-        [pairingOptInUpdate, connectionsUpdate]
+        [ios106PairingUpdate, pairingOptInUpdate, connectionsUpdate]
     }
 
     func entry(withID id: String) -> MobileWhatsNewPage? {
@@ -86,10 +94,11 @@ struct MobileWhatsNewCatalog: Sendable {
     /// use it, so an official App Store build renders NO What's New surface
     /// before its first fetch, while team builds keep the full catalog.
     func channelVisibleEntries(
-        buildType: MobileBuildType = .current()
+        buildType: MobileBuildType = .current(),
+        appVersion: String = AppVersionInfo.current().marketingVersion
     ) -> [MobileWhatsNewPage] {
         entries.filter { page in
-            MobileWhatsNewChannelPolicy().isVisible(
+            page.supports(appVersion: appVersion) && MobileWhatsNewChannelPolicy().isVisible(
                 channelTokens: page.channels,
                 buildType: buildType
             )
@@ -107,10 +116,29 @@ struct MobileWhatsNewCatalog: Sendable {
         // sits between the current pairing page and the older connection page.
         switch id {
         case "pairing-opt-in.v1":
-            return 1
+            return entries.firstIndex(where: { $0.id == "connections.v1" })
         default:
             return nil
         }
+    }
+
+    var ios106PairingUpdate: MobileWhatsNewPage {
+        MobileWhatsNewPage(
+            id: "pairing.1.0.6",
+            releaseLabel: L10n.string(
+                "mobile.ios106PairingUpdate.releaseLabel",
+                defaultValue: "1.0.6 · September 2026"
+            ),
+            title: L10n.string(
+                "mobile.whatsNew.pairing.pageTitle",
+                defaultValue: "Action Required: Enable iOS pairing on your Mac"
+            ),
+            body: .pairingSetup([]),
+            isAnnouncement: false,
+            channels: ["beta", "internal"],
+            minVersion: "1.0.6",
+            maxVersion: "1.0.6"
+        )
     }
 
     var pairingOptInUpdate: MobileWhatsNewPage {
@@ -125,7 +153,8 @@ struct MobileWhatsNewCatalog: Sendable {
                 defaultValue: "Action Required: Enable iOS pairing on your Mac"
             ),
             body: .pairingSetup([]),
-            isAnnouncement: false
+            isAnnouncement: false,
+            maxVersion: "1.0.5"
         )
     }
 
@@ -232,7 +261,7 @@ struct MobileWhatsNewCatalog: Sendable {
             return String(
                 format: L10n.string(
                     "mobile.connectionsUpdate.macUpdate.detail",
-                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.4 (20260817224846)."
+                    defaultValue: "Use cmux %@ or later. Older Macs: use BETA 1.0.5 (20260914204800)."
                 ),
                 version
             )

@@ -1,8 +1,8 @@
 import CmuxCommandPalette
+import CmuxFoundation
 import Foundation
 import CmuxSettings
 import CmuxSettingsUI
-
 extension MenuBarOnlySettings {
     static let legacyCommandPaletteUsageKey = "commandPalette.commandUsage.v1"
     static let legacyCommandPaletteMenuBarOnlyCommandId = "palette.toggleSetting.menuBarOnly"
@@ -195,6 +195,22 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().app.workspaceInheritWorkingDirectory.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "systemAccentColor",
+                settingsKey: "app.accentColor",
+                title: {
+                    String(localized: "settings.app.accentColor.systemToggle", defaultValue: "System Accent Color")
+                },
+                sectionTitle: app,
+                keywords: ["app.accentColor", "accent", "color", "system", "macOS", "highlight", "tint", "blue"],
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults).value(for: SettingCatalog().app.accentColor) == .system
+                },
+                setOn: { newValue, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(newValue ? .system : .cmux, for: SettingCatalog().app.accentColor)
+                }
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "keepWorkspaceOpenWhenClosingLastSurface",
                 settingsKey: "app.keepWorkspaceOpenWhenClosingLastSurface",
                 title: {
@@ -355,9 +371,18 @@ enum CommandPaletteSettingsToggleCommands {
                     String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification")
                 },
                 sectionTitle: app,
-                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort"],
-                defaultValue: SettingCatalog().app.reorderOnNotification.defaultValue,
-                defaultsKey: SettingCatalog().app.reorderOnNotification.userDefaultsKey
+                keywords: ["app.reorderOnNotification", "notification", "reorder", "workspace", "unread", "sort", "agent", "activity"],
+                // A mode, not a Bool: on means any mode but off. Turning it on
+                // restores the notification mode; turning it off from either
+                // mode stores off.
+                isOn: { defaults in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .value(for: SettingCatalog().app.reorderOnNotification).isEnabled
+                },
+                setOn: { isOn, defaults, _ in
+                    UserDefaultsSettingsClient(defaults: defaults)
+                        .set(isOn ? .notifications : .off, for: SettingCatalog().app.reorderOnNotification)
+                }
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "dockBadge",
@@ -405,6 +430,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashOnTyping",
+                settingsKey: "notifications.paneFlashOnTyping",
+                title: {
+                    String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashOnTyping", "pane", "flash", "typing", "notification"],
+                defaultValue: NotificationPaneFlashSettings.defaultOnTyping,
+                defaultsKey: NotificationPaneFlashSettings.onTypingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {
@@ -432,6 +479,9 @@ enum CommandPaletteSettingsToggleCommands {
                 userFacing: SettingCatalog().app.warnBeforeClosingTab
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingAgentSession
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
                 settingsKey: "app.warnBeforeClosingTabXButton",
                 title: {
@@ -452,6 +502,12 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 defaultValue: AppCatalogSection().warnBeforeClosingTabXButton.defaultValue,
                 defaultsKey: AppCatalogSection().warnBeforeClosingTabXButton.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingWorkspace
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingWindow
             ),
             CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.hideTabCloseButton
@@ -791,20 +847,6 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey,
-                didSet: { _, _, notificationCenter in
-                    notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
-                }
-            ),
-            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
                 title: {
@@ -815,6 +857,7 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultValue: IntegrationsCatalogSection().claudeCodeHooksEnabled.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().claudeCodeHooksEnabled.userDefaultsKey
             ),
+            CommandPaletteSettingToggleDescriptor(commandId: commandIdPrefix + "piIntegration", settingsKey: "automation.piIntegration", title: { String(localized: "settings.automation.pi", defaultValue: "Pi Integration") }, sectionTitle: automation, keywords: ["automation.piIntegration", "pi", "hooks", "agent", "integration"], defaultValue: IntegrationsCatalogSection().piHooksEnabled.defaultValue, defaultsKey: IntegrationsCatalogSection().piHooksEnabled.userDefaultsKey),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "suppressSubagentNotifications",
                 settingsKey: "automation.suppressSubagentNotifications",
@@ -837,6 +880,17 @@ enum CommandPaletteSettingsToggleCommands {
                 ],
                 defaultValue: IntegrationsCatalogSection().suppressSubagentNotifications.defaultValue,
                 defaultsKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "agentAutoResume",
+                settingsKey: "automation.agentAutoResume",
+                title: {
+                    String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors")
+                },
+                sectionTitle: automation,
+                keywords: ["automation.agentAutoResume", "auto", "resume", "continue", "retry", "capacity", "overloaded", "agent", "error"],
+                defaultValue: AutomationCatalogSection().agentAutoResume.defaultValue,
+                defaultsKey: AutomationCatalogSection().agentAutoResume.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
@@ -973,7 +1027,7 @@ enum CommandPaletteSettingsToggleCommands {
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)
                 }
             ),
-        ]
+        ] + [sidebarAgentUsageDescriptor(sectionTitle: sidebar, isAvailable: sidebarDetailsAvailable)]
     }()
 }
 

@@ -1,3 +1,5 @@
+import CmuxCloudBannerCore
+import CmuxCloud
 import CmuxSettings
 import CmuxSurfaceCatalogModel
 import Foundation
@@ -188,6 +190,38 @@ struct CloudDesktopAccessTests {
         await model.retire()
     }
 
+    @Test("A restored display's failed first connection retries instead of stopping at Connect")
+    func initialDesktopFailureRetries() async throws {
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 6902), coordinator: nil,
+            wake: {}, startForward: { _ in 46_902 }, stopForward: {}, route: .loopback)
+        let state = CloudBrowserAccessState()
+        var navigations: [URL] = []
+        // An additional display is a desktop through its resource identity,
+        // not through the primary desktop port.
+        state.configure(model: model, url: URL(string: "http://10.0.0.7:6902/vnc.html?path=websockify")!,
+            resourceID: SurfaceResourceID(machine: .cloud("display-test"), kind: .display, key: "display:2"))
+        state.automaticallyNavigate { navigations.append($0) }
+        model.connect()
+        #expect(await wait { navigations.count == 1 })
+        let url = try #require(navigations.first)
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: false)
+        #expect(!state.showsFailureAlert)
+        try #require(await wait(timeout: 10) { navigations.count == 2 })
+        #expect(navigations[1] == url, "The retry reloads the same display")
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: true)
+        #expect(state.desktopConnected && !state.showsFailureAlert)
+        // An explicit Retry is a new first connection with its own quiet retries.
+        state.retry()
+        #expect(await wait { navigations.count == 3 })
+        state.didCommit(url: url)
+        state.desktopConnectionDidChange(url: url, isConnected: false)
+        #expect(!state.showsFailureAlert)
+        state.leave()
+        await model.retire()
+    }
+
     @Test("The noVNC status bridge observes failures after the HTTP document loads")
     func desktopStatusBridge() async throws {
         let failed = CloudLinkFirstValue<Bool>()
@@ -289,6 +323,54 @@ struct CloudDesktopAccessTests {
         #expect(state.retainsCloudResourceForDuplication)
         state.leave()
         #expect(state.resourceID == nil)
+    }
+
+    @Test("A restoring Cloud pane keeps loading until its deadline, then offers Reload that loads again")
+    func restoringCloudPaneLoadsUntilDeadline() async {
+        let clock = CloudCommandDeadlineClock()
+        let state = CloudBrowserAccessState(clock: clock)
+        var retries = 0
+        state.showRestoring(retry: { _ in retries += 1 }, unavailableMessage: "unavailable", deadline: .seconds(30))
+        // A retry that finds the restore still pending keeps the first deadline.
+        state.showRestoring(retry: { _ in retries += 1 }, unavailableMessage: "unavailable", deadline: .seconds(30))
+        #expect(state.isRestoring)
+        #expect(state.unavailable == nil)
+        await clock.waitUntilSleeping()
+        clock.advance(by: .seconds(31))
+        #expect(await wait { state.unavailable == "unavailable" })
+        #expect(!state.isRestoring)
+        guard let reload = state.unavailableRetryAction else {
+            Issue.record("A failed restore must offer Reload")
+            return
+        }
+        reload()
+        #expect(state.isRestoring)
+        #expect(state.unavailable == nil)
+        #expect(await wait { retries == 1 })
+        state.leave()
+    }
+
+    @Test("A settled restore miss shows Reload immediately, and a configured route cancels the deadline")
+    func restoringCloudPaneSettles() async {
+        let clock = CloudCommandDeadlineClock()
+        let state = CloudBrowserAccessState(clock: clock)
+        state.showRestoring(retry: { _ in }, unavailableMessage: "unavailable")
+        state.failRestore("not listening")
+        #expect(state.unavailable == "not listening")
+        #expect(state.unavailableRetryAction != nil)
+
+        let restored = CloudBrowserAccessState(clock: clock)
+        restored.showRestoring(retry: { _ in }, unavailableMessage: "unavailable")
+        let model = CloudPortAccessModel(target: .init(host: "10.0.0.7", port: 3400), coordinator: nil,
+            wake: {}, startForward: { _ in 43400 }, stopForward: {}, route: .loopback)
+        restored.configure(model: model, url: URL(string: "http://10.0.0.7:3400/")!)
+        #expect(!restored.isRestoring)
+        clock.advance(by: .seconds(31))
+        await Task.yield()
+        #expect(restored.unavailable == nil)
+        state.leave()
+        restored.leave()
+        await model.retire()
     }
 
     @Test("Leaving Cloud for an external page drops stale session provenance")
@@ -477,8 +559,8 @@ struct CloudDesktopAccessTests {
         )
     }
 
-    private func wait(_ predicate: @MainActor () -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+    private func wait(timeout: Int = 5, _ predicate: @MainActor () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(timeout))
         while !predicate(), ContinuousClock.now < deadline { await Task.yield() }
         return predicate()
     }

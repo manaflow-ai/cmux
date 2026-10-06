@@ -7,6 +7,7 @@ export const MAX_MOBILE_NETWORK_OUTCOME_BATCH_EVENTS = 100;
 
 const EVENT_NAME = "ios_connectivity_latency";
 const IROH_PATH_EVENT_NAME = "ios_iroh_path_event";
+const IROH_PATH_INVENTORY_EVENT_NAME = "ios_iroh_path_inventory";
 const TASK_MODEL_EVENT_NAME = "ios_task_model_discovery";
 const TASK_MODEL_RESULT_EVENT_NAME = "ios_task_model_result";
 const TERMINAL_WINDOW_EVENT_NAME = "ios_terminal_latency_window";
@@ -14,6 +15,7 @@ const TERMINAL_ANOMALY_EVENT_NAME = "ios_terminal_latency_anomaly";
 const RUNTIME_ROLE = "mobileClient";
 const MAX_STRING_LENGTH = 120;
 const MAX_SAFE_UNSIGNED_INTEGER = 0xffff_ffff;
+const MAX_IROH_PATH_COUNT = 64;
 
 const phases = new Set([
   "endpoint_start", "pairing", "transport_dial", "host_auth",
@@ -39,6 +41,7 @@ const eventCodes = new Set([
   "recoverySucceeded", "recoveryFailed", "endpointActive", "endpointFailed",
   "relayPolicyRefreshSucceeded", "relayPolicyRefreshFailed",
   "discoverySucceeded", "discoveryFailed", "selectedPathChanged", "transportPathEvent",
+  "transportPathInventory",
 ]);
 const cancellationReasons = new Set([
   "unknown", "requestCancelled", "requestTimedOut", "sessionTeardown", "sessionDeinitialized",
@@ -57,7 +60,24 @@ const metadataOperations = new Set(["replay", "artifactScan", "artifactList", "m
 const irohPathPropertyKeys = new Set(["path"]);
 const noAdditionalPropertyKeys = new Set<string>();
 
+// Per-hop stages and pacer state the phone adds to a latency window only when
+// that window measured them (Macs that stamp frames with host timing).
+const optionalTerminalStageNames = [
+  "host_accept", "host_capture", "host_dispatch",
+  "network_round_trip", "uplink", "downlink", "pacer_period",
+] as const;
+const optionalTerminalCountKeys = [
+  "pacer_sample_count", "pacer_emitted_count", "pacer_coalesced_count",
+  "pacer_shed_count", "pacer_period_max_ms",
+] as const;
+const optionalTerminalNumericKeys = [
+  ...optionalTerminalCountKeys,
+  ...optionalTerminalStageNames.flatMap((name) => [`${name}_p50_ms`, `${name}_p95_ms`, `${name}_p99_ms`]),
+];
+
 const allowedPropertyKeys = new Set([
+  ...optionalTerminalNumericKeys,
+  ...optionalTerminalStageNames.map((name) => `${name}_histogram`),
   "phase", "outcome", "duration_ms", "runtime_role", "user_usable",
   "failure", "transport", "platform", "client_channel", "app_version", "build_number",
   "bundle_identifier", "os_version", "device_model",
@@ -75,6 +95,7 @@ const allowedPropertyKeys = new Set([
   "replay_trigger", "surface_blank", "barrier_active", "replay_attempt", "app_foreground",
   "model_count", "phase", "attempt", "retry_delay_ms", "stop_reason", "correlation_id",
   "provider", "source", "effort_count",
+  "relay_path_count", "non_relay_path_count", "path_count",
 ]);
 
 export type MobileNetworkOutcome = {
@@ -143,11 +164,35 @@ export type MobileIrohPathEvent = {
   readonly deviceModel?: string;
 };
 
+export type MobileIrohPathInventory = {
+  readonly timestamp: string;
+  readonly operation: "inventory";
+  readonly transport: "iroh";
+  readonly relayPathCount: number;
+  readonly nonRelayPathCount: number;
+  readonly pathCount: number;
+  readonly eventCode: "transportPathInventory";
+  readonly eventCodeRaw: number;
+  readonly eventSurface?: number;
+  readonly eventA?: number;
+  readonly eventB?: number;
+  readonly eventC?: number;
+  readonly platform?: "ios";
+  readonly clientChannel?: "dev" | "nightly" | "production" | "unknown";
+  readonly appVersion?: string;
+  readonly buildNumber?: string;
+  readonly bundleIdentifier?: string;
+  readonly osVersion?: string;
+  readonly deviceModel?: string;
+};
+
 export type MobileTerminalLatencyWindow = {
   readonly timestamp: string;
   readonly windowMs: number;
   readonly inputFailedCount?: number;
   readonly histograms?: Readonly<Record<string, string>>;
+  /** Per-hop stage percentiles and pacer counters, present only when measured. */
+  readonly stageMetrics?: Readonly<Record<string, number>>;
   readonly inputCount: number;
   readonly outputCount: number;
   readonly presentedCount: number;
@@ -222,7 +267,7 @@ export type MobileTaskModelResult = {
   readonly deviceModel?: string;
 };
 
-export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery | MobileTaskModelResult;
+export type MobileObservabilityEvent = MobileNetworkOutcome | MobileIrohPathEvent | MobileIrohPathInventory | MobileTerminalLatencyWindow | MobileTerminalLatencyAnomaly | MobileTaskModelDiscovery | MobileTaskModelResult;
 
 export function parseMobileNetworkOutcome(candidate: unknown): MobileNetworkOutcome | null {
   if (!isRecord(candidate) || candidate.event !== EVENT_NAME || !isRecord(candidate.properties)) return null;
@@ -266,6 +311,58 @@ export function parseMobileIrohPathEvent(candidate: unknown): MobileIrohPathEven
   };
 }
 
+export function parseMobileIrohPathInventory(candidate: unknown): MobileIrohPathInventory | null {
+  if (!isRecord(candidate) || candidate.event !== IROH_PATH_INVENTORY_EVENT_NAME || !isRecord(candidate.properties)) return null;
+  if (!validTimestamp(candidate.timestamp) || !validProperties(candidate.properties)) return null;
+  const properties = candidate.properties;
+  const operation = optionalExact(properties.operation, "inventory");
+  const transport = optionalSetValue(properties.transport, new Set(["iroh"]));
+  const counts = parseIrohPathInventoryCounts(properties);
+  const diagnostics = parseDiagnosticFields(properties);
+  const metadata = parseMetadata(properties, new Set(["inventory"]));
+  if (operation !== "inventory" || transport !== "iroh"
+    || !counts || !diagnostics || !metadata
+    || !consistentIrohPathInventoryFields(diagnostics, counts)) return null;
+  return {
+    timestamp: candidate.timestamp,
+    operation,
+    transport,
+    ...counts,
+    eventCode: "transportPathInventory",
+    eventCodeRaw: 83,
+    ...(typeof diagnostics.eventSurface === "number" ? { eventSurface: diagnostics.eventSurface } : {}),
+    ...(typeof diagnostics.eventA === "number" ? { eventA: diagnostics.eventA } : {}),
+    ...(typeof diagnostics.eventB === "number" ? { eventB: diagnostics.eventB } : {}),
+    ...(typeof diagnostics.eventC === "number" ? { eventC: diagnostics.eventC } : {}),
+    ...pathInventoryMetadataFields(metadata),
+  };
+}
+
+type IrohPathInventoryCounts = Pick<MobileIrohPathInventory, "relayPathCount" | "nonRelayPathCount" | "pathCount">;
+
+function parseIrohPathInventoryCounts(
+  properties: Record<string, unknown>,
+): IrohPathInventoryCounts | null {
+  const relayPathCount = unsignedInteger(properties.relay_path_count);
+  const nonRelayPathCount = unsignedInteger(properties.non_relay_path_count);
+  const pathCount = unsignedInteger(properties.path_count);
+  if (relayPathCount === null || nonRelayPathCount === null || pathCount === null) return null;
+  if (relayPathCount > MAX_IROH_PATH_COUNT || nonRelayPathCount > MAX_IROH_PATH_COUNT
+    || pathCount > MAX_IROH_PATH_COUNT
+    || pathCount !== relayPathCount + nonRelayPathCount) return null;
+  return { relayPathCount, nonRelayPathCount, pathCount };
+}
+
+function consistentIrohPathInventoryFields(
+  diagnostics: Pick<CoreObservation, "eventCode" | "eventCodeRaw" | "eventA" | "eventB">,
+  counts: IrohPathInventoryCounts,
+): boolean {
+  return diagnostics.eventCode === "transportPathInventory"
+    && diagnostics.eventCodeRaw === 83
+    && (diagnostics.eventA === undefined || diagnostics.eventA === counts.relayPathCount)
+    && (diagnostics.eventB === undefined || diagnostics.eventB === counts.nonRelayPathCount);
+}
+
 function consistentIrohPathFields(
   diagnostics: Pick<CoreObservation, "eventCode" | "eventCodeRaw" | "eventA" | "eventB">,
   operation: string,
@@ -288,13 +385,26 @@ export function parseMobileTerminalLatencyWindow(candidate: unknown): MobileTerm
   const metadata = parseMetadata(properties);
   const numbers = parseTerminalNumbers(properties);
   const histograms = parseTerminalHistograms(properties);
-  if (!metadata || !numbers || histograms === null) return null;
+  const stageMetrics = parseOptionalTerminalMetrics(properties);
+  if (!metadata || !numbers || histograms === null || stageMetrics === null) return null;
   return {
     timestamp: candidate.timestamp,
     ...numbers,
     ...(histograms ? { histograms } : {}),
+    ...(stageMetrics ? { stageMetrics } : {}),
     ...metadata,
   };
+}
+
+function parseOptionalTerminalMetrics(properties: Record<string, unknown>): Record<string, number> | undefined | null {
+  const metrics: Record<string, number> = {};
+  for (const key of optionalTerminalNumericKeys) {
+    if (properties[key] === undefined) continue;
+    const value = unsignedInteger(properties[key]);
+    if (value === null) return null;
+    metrics[key] = value;
+  }
+  return Object.keys(metrics).length > 0 ? metrics : undefined;
 }
 
 const terminalNumericKeys = [
@@ -337,7 +447,8 @@ function parseTerminalHistograms(properties: Record<string, unknown>): Record<st
   if (!hasVersion) return undefined;
   if (properties.histogram_version !== 1) return null;
   const histograms: Record<string, string> = {};
-  for (const name of names) {
+  const present = optionalTerminalStageNames.filter((name) => properties[`${name}_histogram`] !== undefined);
+  for (const name of [...names, ...present]) {
     const raw = properties[`${name}_histogram`];
     if (typeof raw !== "string" || raw.length > 512) return null;
     try {
@@ -369,7 +480,8 @@ export function parseMobileTerminalLatencyAnomaly(candidate: unknown): MobileTer
 }
 
 export function parseMobileObservabilityEvent(candidate: unknown): MobileObservabilityEvent | null {
-  return parseMobileIrohPathEvent(candidate)
+  return parseMobileIrohPathInventory(candidate)
+    ?? parseMobileIrohPathEvent(candidate)
     ?? parseMobileTaskModelResult(candidate)
     ?? parseMobileTaskModelDiscovery(candidate)
     ?? parseMobileNetworkOutcome(candidate)
@@ -499,6 +611,21 @@ function taskModelMetadataFields(metadata: Metadata): Omit<MobileTaskModelResult
 
 function pathMetadataFields(metadata: Metadata): Pick<
   MobileIrohPathEvent,
+  "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel"
+> {
+  return {
+    ...(metadata.platform ? { platform: metadata.platform } : {}),
+    ...(metadata.clientChannel ? { clientChannel: metadata.clientChannel } : {}),
+    ...(metadata.appVersion ? { appVersion: metadata.appVersion } : {}),
+    ...(metadata.buildNumber ? { buildNumber: metadata.buildNumber } : {}),
+    ...(metadata.bundleIdentifier ? { bundleIdentifier: metadata.bundleIdentifier } : {}),
+    ...(metadata.osVersion ? { osVersion: metadata.osVersion } : {}),
+    ...(metadata.deviceModel ? { deviceModel: metadata.deviceModel } : {}),
+  };
+}
+
+function pathInventoryMetadataFields(metadata: Metadata): Pick<
+  MobileIrohPathInventory,
   "platform" | "clientChannel" | "appVersion" | "buildNumber" | "bundleIdentifier" | "osVersion" | "deviceModel"
 > {
   return {
@@ -729,6 +856,38 @@ export async function emitMobileObservabilityEvents(
   batch: readonly MobileObservabilityEvent[],
 ): Promise<void> {
   await Promise.all(batch.map((observation) => {
+    if ("nonRelayPathCount" in observation) {
+      return withSpan(
+        "cmux-mobile-network",
+        "cmux.mobile.iroh.path_inventory",
+        {
+          "cmux.subsystem": "mobile-network",
+          "cmux.runtime": "ios",
+          "cmux.user_id": userId,
+          "cmux.mobile.event": "iroh_path_inventory",
+          "cmux.observation.source": "client",
+          "cmux.mobile.transport": observation.transport,
+          "cmux.mobile.path_count": observation.pathCount,
+          "cmux.mobile.relay_path_count": observation.relayPathCount,
+          "cmux.mobile.non_relay_path_count": observation.nonRelayPathCount,
+          "cmux.mobile.event_code": observation.eventCode,
+          "cmux.mobile.event_code_raw": observation.eventCodeRaw,
+          "cmux.mobile.event_surface": observation.eventSurface,
+          "cmux.mobile.event_a": observation.eventA,
+          "cmux.mobile.event_b": observation.eventB,
+          "cmux.mobile.event_c": observation.eventC,
+          "cmux.mobile.occurred_at": observation.timestamp,
+          "cmux.mobile.platform": observation.platform,
+          "cmux.client.channel": observation.clientChannel,
+          "cmux.mobile.app_version": observation.appVersion,
+          "cmux.mobile.build_number": observation.buildNumber,
+          "cmux.mobile.bundle_identifier": observation.bundleIdentifier,
+          "cmux.mobile.os_version": observation.osVersion,
+          "cmux.mobile.device_model": observation.deviceModel,
+        },
+        () => undefined,
+      );
+    }
     if ("path" in observation) {
       return withSpan(
         "cmux-mobile-network",
@@ -839,6 +998,7 @@ export async function emitMobileObservabilityEvents(
           "cmux.mobile.terminal.input_failed_count": observation.inputFailedCount,
           "cmux.mobile.terminal.histogram_version": observation.histograms ? 1 : undefined,
           ...Object.fromEntries(Object.entries(observation.histograms ?? {}).map(([name, counts]) => [`cmux.mobile.terminal.${name}_histogram`, counts])),
+          ...Object.fromEntries(Object.entries(observation.stageMetrics ?? {}).map(([key, value]) => [`cmux.mobile.terminal.${key}`, value])),
           "cmux.mobile.terminal.input_count": observation.inputCount,
           "cmux.mobile.terminal.output_count": observation.outputCount,
           "cmux.mobile.terminal.presented_count": observation.presentedCount,

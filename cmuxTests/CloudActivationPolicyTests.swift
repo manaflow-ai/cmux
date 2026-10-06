@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSettings
 import Foundation
 import Testing
@@ -10,7 +11,7 @@ import Testing
 
 /// The one launch-time decision for Cloud, as behavior: a Mac that never opted
 /// in and never had a machine is inert (no fleet polling, no tunnel start, no
-/// NetworkExtension preferences read); the Beta Features toggle plus a machine
+/// NetworkExtension preferences read); the persisted activation marker plus a machine
 /// admits the tunnel; prior Cloud use never bypasses a disabled remote gate.
 @Suite
 struct CloudActivationPolicyTests {
@@ -189,17 +190,9 @@ struct CloudActivationPolicyTests {
         defer { harness.tearDown() }
         let policy = harness.policy
 
-        #if DEBUG
-        #expect(policy.allowsBackgroundCloudWork)
-        #else
         #expect(policy.allowsBackgroundCloudWork == false)
-        #endif
         #expect(policy.allowsLaunchTimeTunnelAdoption == false)
-        #if DEBUG
-        #expect(policy.tunnelStartRefusal() == nil)
-        #else
         #expect(policy.tunnelStartRefusal() == .cloudMachinesOff)
-        #endif
 
         harness.turnCloudMachines(on: true)
         #expect(policy.allowsBackgroundCloudWork)
@@ -293,8 +286,8 @@ struct CloudActivationPolicyTests {
         #expect(cache.hasAnyMachine == nil)
     }
 
-    @Test("Cloud requires the remote gate and Beta toggle, and never bypasses managed DisableCloud")
-    func cloudMachinesGateRequiresRemoteAndBeta() throws {
+    @Test("Cloud requires the remote gate and activation marker, and never bypasses managed DisableCloud")
+    func cloudMachinesGateRequiresRemoteAndActivation() throws {
         let suiteName = "cmux.cloud.feature.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -303,11 +296,7 @@ struct CloudActivationPolicyTests {
             key == ManagedDevicePolicyKey.disableCloud.rawValue ? true : nil
         })
 
-        #if DEBUG
-        let expectedDefault = true
-        #else
         let expectedDefault = false
-        #endif
         #expect(CloudMachinesFeature.localOptIn(defaults: defaults) == expectedDefault)
         #expect(CloudMachinesFeature.isEnabled(defaults: defaults, policy: unmanaged, remoteEnabled: false) == false)
 

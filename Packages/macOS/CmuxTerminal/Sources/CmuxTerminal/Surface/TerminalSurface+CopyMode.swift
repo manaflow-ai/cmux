@@ -24,7 +24,7 @@ extension TerminalSurface {
 
     @MainActor
     private func performBindingActionImmediately(_ action: String) -> Bool {
-        guard let surface = surface else { return false }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "bindingAction") else { return false }
         return withRuntimeClipboardPasteIntent {
             action.withCString { cString in
                 ghostty_surface_binding_action(
@@ -54,6 +54,18 @@ extension TerminalSurface {
             return try body()
         }
         return try callbackContext.withRuntimeClipboardPasteIntent(body)
+    }
+
+    /// Marks a native pointer dispatch so its clipboard writes count as copy-on-select.
+    @MainActor
+    public func withPointerSelectionCopyIntent<Result>(
+        _ body: () throws -> Result
+    ) rethrows -> Result {
+        guard let callbackContext = surfaceCallbackContext?
+            .takeUnretainedValue() else {
+            return try body()
+        }
+        return try callbackContext.withPointerSelectionCopyIntent(body)
     }
 
     /// Performs an internal binding action without treating it as user input.

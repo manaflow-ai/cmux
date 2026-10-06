@@ -8,13 +8,24 @@ This document is the capacity and operations layer. It does not restate the
 routing contract, which already exists:
 
 - [`ci-runners.md`](../ci-runners.md) owns the runner-variable table, the
-  persistent compile-admission pilot contract, the Tart pool, and the
-  direct-physical-host boundary.
+  pull request pool preference (including owned pools), the retired Tart VM
+  fleet, and the direct-physical-host boundary.
 - [`fleet-enrollment.md`](../fleet-enrollment.md) owns machine onboarding.
 - [`workload-profiles.md`](../workload-profiles.md) owns workload identity.
 
 Read those first. This document answers "how many, which lane, and what
 happens at 3 a.m.", and it is the one that carries measurements.
+
+> **Pull request compile pilot retired (#14232).** The persistent
+> compile-admission pilot this plan builds on (`persistent-macos-compile.yml`,
+> `persistent-macos-router.yml`, `CI_PERSISTENT_MAC_COMPILE` and
+> `scripts/persistent-compile`) was removed before it routed any pull request.
+> No workflow targets the `cmux-persistent-compile` runner group any more, so
+> an org admin can remove the group and deregister its runners. Owned minis
+> will take pull request jobs through the pool picker instead
+> (`scripts/ci/pr_runner_pool.py`, #14205, #14237). The sections marked
+> "retired" below describe the removed pilot and are kept for their
+> measurements and reasoning. The nightly mini lane was removed separately (#14243).
 
 ## TL;DR
 
@@ -29,8 +40,10 @@ happens at 3 a.m.", and it is the one that carries measurements.
   unset.
 - **Four minis** hold the compile lane's peak. **One** (issue #13491) is the
   canary and is worth roughly 1.0-1.3 servers of relief on its own.
-- The minis never become required-CI runners. They produce a compile artifact
-  that a hosted job revalidates. That is what keeps a public repo safe.
+- Owned minis take trusted pull request jobs only through the owned-pool
+  picker (`scripts/ci/pr_runner_pool.py`), when `CI_PR_POOL_OWNED` is 1:
+  same-repository heads on a first attempt, with Blacksmith as overflow
+  (#14237, #14244). Fork pull requests never reach them.
 
 ## 1. Measured demand
 
@@ -98,9 +111,11 @@ Split by pool (`labels[0]` on each job):
 | `warp-macos-26-arm64-12x` | 9 | 448 | 0.67 | 4 |
 | `blacksmith-6vcpu-macos-26` | 11 | 443 | 0.58 | 5 |
 
-`blacksmith-6vcpu-macos-15` is the pull-request lane, because `MACOS_RUNNER_PR`
-is unset and every PR macOS job falls back to it
-(`ci-macos.yml:57,878,2404,2773`). The required/`main` lanes currently point at
+`blacksmith-6vcpu-macos-15` was the pull-request lane in this window, because
+`MACOS_RUNNER_PR` was unset and every PR macOS job fell back to it
+(`ci-macos.yml:57,878,2404,2773` at the time). Since 2026-09-24 `MACOS_RUNNER_PR` is
+`blacksmith-6vcpu-macos-26`, so re-read `gh variable list` before comparing a
+new measurement against this one. The required/`main` lanes then pointed at
 Warp (`MACOS_RUNNER_15=warp-macos-15-arm64-6x`), so PR pain and release pain
 are separate problems and only the first one is in scope here.
 
@@ -195,14 +210,19 @@ them (section 5).
    more producer workflow. Note that the guard's exemption is **two byte-exact
    strings** (`tests/test_ci_self_hosted_guard.sh:1215-1219`), so a second
    owned-Mac lane is a deliberate guard edit, not an accident.
-3. **`app-host unit tests`** - do **not** move to minis, despite being 55% of
-   the minutes. It needs a foreground GUI session, it is six shards of
-   XCTest, and it is a required check. Its home is the isolated Tart pool
-   (18 slots, `ci-runners.md`), where each job gets a fresh VM clone and an
-   Aqua login session. A shared mini cannot give it either.
-4. **Nightly app compile** - compile only, behind `NIGHTLY_MAC_MINI`. See
-   [Nightly lane](#nightly-lane). Signing, notarization and publication stay
-   hosted.
+3. **`app-host unit tests`** - the app-host shards (and `tests-build-and-lag`)
+   take an owned pool unless `vars.CI_PR_POOL_OWNED_GUI == '0'`. They need a
+   foreground GUI session, and the minis' runners are LaunchAgents in the
+   logged-in user's Aqua session. On a pool whose gui label has a count, each
+   mini gets at most one GUI job at a time (`gui_runner()` in
+   `scripts/ci/pr_runner_pool.py`). Blacksmith (`pr_retry_runner`) is the
+   fallback for shards the picker does not place and for re-runs. (The
+   isolated Tart pool that once offered this was retired on 2026-09-25; see
+   `ci-runners.md`.)
+4. **Nightly app compile** - `build-nightly-app` takes the trusted runner on cmux15
+   (`CI_SEED_TRUSTED_POOL` plus `CI_NIGHTLY_TRUSTED_RUNNER`) first on main's push and schedule runs, with
+   Blacksmith as the fallback through ci-owned-pool-rescue.yml
+   (`docs/ci-runners.md`). Signing and notarization stay on Blacksmith.
 5. **`release-build`, signing, notarization, TestFlight** - never.
    Unchanged from `ci-runners.md`.
 
@@ -213,6 +233,10 @@ workflow YAML, including `runs-on:`. Every control below exists because of
 that single fact.
 
 ### 2.1 What is already enforced
+
+> Retired with the pilot (#14232): the `check_persistent_compile_*`
+> functions and `tests/test_ci_persistent_mac_compile.py` rows below no longer
+> exist. `check_no_self_hosted_fleet_runners` still applies.
 
 | Control | Where |
 | --- | --- |
@@ -329,6 +353,10 @@ in Glaeda is not yet a runner.
 
 ### 3.2 Labels and runner group
 
+> Retired (#14232): no workflow targets this group or label any more. The
+> guard still refuses both names in a required job.
+> Owned minis will join the pool picker's `POOLS` behind a dedicated label.
+
 Exactly one group and one label set, byte-for-byte, because the guard compares
 them literally:
 
@@ -356,6 +384,10 @@ reads those variables rather than a copy of the path, so `up` and the doctor
 check each mini against the value CI uses today and print it.
 The build number matters too: revalidation compares the full `xcodebuild
 -version`, so the mini's Xcode must be the same build as the hosted image's.
+`up` checks only that the app exists. Before routing a mini, compare its
+`xcodebuild -version` against the `Build version` line that a current hosted
+`macOS compile admission` log prints after `Selected pinned Xcode`. When the
+variable moves, every mini needs the new app at that exact path.
 
 Drift is now a guard failure rather than a silent waste:
 `check_persistent_compile_owned_mac_occupancy` compares the producer's
@@ -413,13 +445,19 @@ Symptoms, in the order they show up:
 | `Xcode identity mismatch` in revalidation | hosted job log | toolchain drift; see 3.3 |
 | Producer queued > `CI_PERSISTENT_MAC_QUEUE_SECONDS` | router summary | fleet is undersized or wedged |
 
-Sweep for the last 50 PR runs:
+Sweep for the last 50 PR runs. The admission metrics step logs its record as
+one sorted JSON line, so match that line: the route step prints its own
+`fallback_reason` JSON, and counting both would double every routed run.
+`persistent_route_unused` means the route step was skipped (selector off,
+untrusted author, or a product-reuse hit). An empty reason is a run that
+adopted the persistent product.
 
 ```sh
 gh run list --repo manaflow-ai/cmux --workflow ci.yml --limit 50 \
   --json databaseId --jq '.[].databaseId' | while read -r id; do
   gh run view "$id" --repo manaflow-ai/cmux --log 2>/dev/null |
-    grep -o 'fallback_reason=[a-z_]*' || true
+    grep -F '{"artifact_publication_seconds"' |
+    grep -oE '"fallback_reason": "[a-z_]*"' || true
 done | sort | uniq -c | sort -rn
 ```
 
@@ -532,10 +570,15 @@ There is no macOS ephemeral-runner primitive anywhere in either repository.
 The honest statement of this design is: **the macOS fleet is a persistent,
 credential-minimized, artifact-producing machine whose output carries no
 authority, not an ephemeral runner.** If per-job macOS isolation is ever
-required, the existing Tart pool provides it (fresh VM clone per job, deleted
-after) and is where that requirement belongs.
+required, Blacksmith provides it (a fresh VM per job) and is where that
+requirement belongs. The Tart VM pool that used to provide it was retired on
+2026-09-25 (see `ci-runners.md`).
 
 ## 5. Rollout
+
+> Retired (#14232): `scripts/persistent-compile` and the variables below
+> were removed with the pilot. Rollout of owned minis for pull requests now
+> goes through `scripts/ci/pr_runner_pool.py` (`POOLS`, `CI_PR_POOL_ORDER`).
 
 `scripts/persistent-compile` runs every step below that can be scripted. Run
 it with no arguments from anywhere to see what is set up and the one command
@@ -581,11 +624,14 @@ token is valid for one hour.
 ### Stage 1 - canary, one mini, one lane, one PR
 
 ```sh
-scripts/persistent-compile pilot 13198
+scripts/persistent-compile pilot <PR number or head branch>
 ```
 
 That sets `CI_PERSISTENT_MAC_COMPILE=pilot` and
-`CI_PERSISTENT_MAC_COMPILE_COHORT=13198`.
+`CI_PERSISTENT_MAC_COMPILE_COHORT` to the value given. The cohort must name an
+open same-repository pull request by an org `MEMBER` or `OWNER` whose CI
+touches macOS. #13198 is the RFC issue, not a pull request, so no run can match
+it.
 
 `pilot` + a cohort restricts routing to matching PR numbers or head branch
 names. Every other PR is untouched. Leave it here for at least 20 routed runs.
@@ -652,62 +698,10 @@ A contributor with write access can build and test the entire routing path
 with the variable unset, which is exactly the state the repository is in
 today. Nothing they merge takes effect until a maintainer sets one variable.
 
-## Nightly lane
-
-Direction from Manaflow (2026-09-24): dev builds, nightlies and CI/CD run on
-the minis first and spill over to Blacksmith. The nightly takes the same shape
-as the compile lane above: the mini produces, a hosted job decides.
-
-| Piece | Where |
-| --- | --- |
-| Producer | `.github/workflows/nightly-mini-build.yml`: dispatch-only, `permissions: {}`, no secrets, public `git fetch`, and it builds only a commit already on the dispatched ref |
-| Router | `route-nightly-mini` in `nightly.yml`, running `scripts/ci/nightly_mini_route.py` |
-| Adoption | `build-nightly-app` step `Adopt owned-Mac products`: source SHA, tree, full `xcodebuild -version` and archs must match, or it compiles hosted |
-| Guard | `check_nightly_mini_lane` plus one exact-line exemption in `check_no_self_hosted_fleet_runners` |
-
-```yaml
-runs-on: group cmux-nightly-mini, labels [self-hosted, macOS, ARM64, cmux-nightly-mini-build]
-```
-
-The group must restrict workflow access to
-`manaflow-ai/cmux/.github/workflows/nightly-mini-build.yml@refs/heads/main`.
-The label avoids the bare word `nightly`, which the HQ build-fleet controller
-reserves as a tag. It is a separate registration from the compile lane's runner.
-
-**Selector.** `NIGHTLY_MAC_MINI`:
-
-| Value | Effect |
-| --- | --- |
-| unset | nothing changes; the route job does not run |
-| `build-only` | unsigned `build_only` measurement runs try a mini first |
-| `all` | every non-fast nightly build tries a mini first, including the ones that are then signed and published |
-
-A manual `build_only` dispatch can pass `mac_mini: true` without the variable.
-`NIGHTLY_MAC_MINI_QUEUE_SECONDS` (default 300) bounds the wait for a mini, and
-`NIGHTLY_MAC_MINI_EXECUTION_SECONDS` (default 2700) bounds the build. Past
-either one, or on any producer failure, the router cancels its request and
-`build-nightly-app` compiles on Blacksmith exactly as before, only later: the
-fallback starts once the route gives up, so a nightly with no free mini is about
-5 minutes late and one whose mini build overruns is up to 50 minutes late at the
-default bounds. A route job that is skipped or fails changes nothing else: the
-hosted build runs on `!cancelled()`, and signing and publication gate on explicit
-job results rather than on the implicit `success()`, which would also check
-the skipped route job.
-
-**Trust decision (not made by this change).** `build-only` ships nothing, so
-it is safe to turn on once the runner exists. `all` means the signed nightly
-DMG contains bits compiled on a persistent machine that also keeps warm state
-across runs. Signing keys never reach the mini; the question is whether
-Developer ID should sign what a mini compiled. The adoption check proves which
-commit and toolchain the producer claims, not that the warm state was clean. That is
-for Leo and Manaflow to decide before `all` is set. Until then the published nightly
-is compiled on Blacksmith.
-
-**Rollback.** `gh variable delete NIGHTLY_MAC_MINI --repo manaflow-ai/cmux`.
-
 ## 7. Open gaps
 
-- The organization runner group does not exist, so the producer has never run
+- The organization runner group exists (2026-09-24) but has no runner, so the
+  producer has never run
   (`docs/ci/workflow-inventory.md` line 21). The router has 6,887 skipped runs
   out of 6,927 and zero successes: it creates one run per CI run and exits on
   the unset variable.

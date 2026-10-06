@@ -6,6 +6,165 @@ import Testing
 
 @Suite(.serialized)
 struct SSHPTYAttachRetryScriptBuilderTests {
+    @Test func launchAcknowledgementTimeoutRetriesTheWholeAttachAttempt() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-launch-timeout-\(UUID().uuidString)")
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let sleep = root.appendingPathComponent("sleep")
+        let log = root.appendingPathComponent("events")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try """
+            #!/bin/sh
+            if [ "$3" = rpc ]; then
+              count=$(cat "$CMUX_TEST_LAUNCH_COUNT" 2>/dev/null || printf 0)
+              count=$((count + 1))
+              printf '%s' "$count" > "$CMUX_TEST_LAUNCH_COUNT"
+              if [ "$count" -le 3 ]; then exit \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue); fi
+            fi
+            exit 0
+            """.write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nexit 0\n".write(to: sleep, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sleep.path)
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_ssh_attach_attempt",
+            reauthenticates: false
+        )
+        let registrationLines = SSHPTYAttachRetryScriptBuilder()
+            .launchRegistrationRetryLines(functionPrefix: "cmux_ssh_attach")
+        let script = ([
+            "cmux_ssh_attach_cli=\"$CMUX_BUNDLED_CLI_PATH\"",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_register_attempt() { cmux_ssh_attach_launch_payload=payload; CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching \"$cmux_ssh_attach_launch_payload\" >/dev/null 2>&1; }",
+            "cmux_ssh_attach_attempt() { cmux_ssh_attach_begin_attempt || return $?; printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; }",
+        ] + registrationLines + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "PATH": "\(root.path):/usr/bin:/bin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_WORKSPACE_ID": UUID().uuidString,
+                "CMUX_SURFACE_ID": UUID().uuidString,
+                "CMUX_TERMINAL_LIFECYCLE_ID": UUID().uuidString,
+                "CMUX_TEST_LAUNCH_COUNT": root.appendingPathComponent("launch-count").path,
+                "CMUX_TEST_LOG": log.path,
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
+            ]
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: log, encoding: .utf8) == "attach\n")
+        #expect(try String(contentsOf: root.appendingPathComponent("launch-count"), encoding: .utf8) == "4")
+    }
+
+    @Test func nonTimeoutRegistrationFailureRetainsBoundedRetry() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-launch-failure-\(UUID().uuidString)")
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let count = root.appendingPathComponent("launch-count")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "#!/bin/sh\ncount=$(cat \"$CMUX_TEST_LAUNCH_COUNT\" 2>/dev/null || printf 0)\nprintf '%s' $((count + 1)) > \"$CMUX_TEST_LAUNCH_COUNT\"\nexit 1\n"
+            .write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+
+        let registrationLines = SSHPTYAttachRetryScriptBuilder()
+            .launchRegistrationRetryLines(functionPrefix: "cmux_ssh_attach")
+        let script = ([
+            "cmux_ssh_attach_cli=\"$CMUX_BUNDLED_CLI_PATH\"",
+            "cmux_ssh_attach_register_attempt() { \"$cmux_ssh_attach_cli\" rpc workspace.remote.terminal_session_launching payload; }",
+        ] + registrationLines + [
+            "cmux_ssh_attach_begin_attempt",
+        ]).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_TEST_LAUNCH_COUNT": count.path,
+            ]
+        )
+
+        #expect(result.status == 1, Comment(rawValue: result.stderr))
+        #expect(try String(contentsOf: count, encoding: .utf8) == "3")
+    }
+
+    @Test func attachExitCodeMatchingLaunchTimeoutIsNotRetried() throws {
+        let log = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-launch-status-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: log) }
+
+        let registrationLines = SSHPTYAttachRetryScriptBuilder()
+            .launchRegistrationRetryLines(functionPrefix: "cmux_ssh_attach")
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_ssh_attach_attempt",
+            reauthenticates: false
+        )
+        let script = ([
+            "cmux_ssh_attach_register_attempt() { return 0; }",
+            "cmux_ssh_attach_attempt() { cmux_ssh_attach_begin_attempt || return \"$?\"; printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; return \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue); }",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+        ] + registrationLines + retryLines).joined(separator: "\n")
+
+        let result = try run(script, environment: ["CMUX_TEST_LOG": log.path])
+
+        #expect(result.status == SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)
+        #expect(try String(contentsOf: log, encoding: .utf8) == "attach\n")
+    }
+
+    @Test func launchAcknowledgementTimeoutPrintsAReasonWhenBudgetEnds() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-launch-timeout-terminal-\(UUID().uuidString)")
+        let fakeCLI = root.appendingPathComponent("cmux")
+        let sleep = root.appendingPathComponent("sleep")
+        let log = root.appendingPathComponent("events")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try "#!/bin/sh\nexit \(SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)\n".write(to: fakeCLI, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nexit 0\n".write(to: sleep, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeCLI.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: sleep.path)
+
+        let retryLines = SSHPTYAttachRetryScriptBuilder().lines(
+            command: "cmux_ssh_attach_attempt",
+            reauthenticates: false
+        )
+        let registrationLines = SSHPTYAttachRetryScriptBuilder()
+            .launchRegistrationRetryLines(functionPrefix: "cmux_ssh_attach")
+        let script = ([
+            "cmux_ssh_attach_cli=\"$CMUX_BUNDLED_CLI_PATH\"",
+            "cmux_ssh_attach_signal_exit() { exit \"$1\"; }",
+            "cmux_ssh_attach_register_attempt() { CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" rpc workspace.remote.terminal_session_launching payload >/dev/null 2>&1; }",
+            "cmux_ssh_attach_attempt() { cmux_ssh_attach_begin_attempt || return \"$?\"; printf '%s\\n' attach >> \"$CMUX_TEST_LOG\"; }",
+        ] + registrationLines + retryLines).joined(separator: "\n")
+
+        let result = try run(
+            script,
+            environment: [
+                "PATH": "\(root.path):/usr/bin:/bin",
+                "CMUX_BUNDLED_CLI_PATH": fakeCLI.path,
+                "CMUX_SOCKET_PATH": "/tmp/cmux-test.sock",
+                "CMUX_WORKSPACE_ID": UUID().uuidString,
+                "CMUX_SSH_RECONNECT_LIMIT": "1",
+                "CMUX_SSH_RECONNECT_DELAY_SECONDS": "1",
+                "CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS": "1",
+                "CMUX_TEST_LOG": log.path,
+            ]
+        )
+
+        #expect(result.status == SSHPTYAttachExitCode.launchAcknowledgementTimedOut.rawValue)
+        #expect(result.stderr.contains("could not contact cmux to start the remote session"))
+        #expect(!FileManager.default.fileExists(atPath: log.path))
+    }
+
     @Test func defaultReconnectPolicyIsFinite() {
         let script = SSHPTYAttachRetryScriptBuilder()
             .lines(command: "cmux_test_attach", reauthenticates: false)
@@ -83,6 +242,47 @@ struct SSHPTYAttachRetryScriptBuilderTests {
 
         #expect(result.status == 253)
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "attach\nsleep:2\nattach\n")
+    }
+
+    // Regression for #9443: the loop used to prefix the attach command with env
+    // assignments, which POSIX only allows before a simple command, so a compound
+    // attach command made the generated cmux-ssh-startup script fail with
+    // "syntax error near unexpected token `then'".
+    @Test func retryLoopIsValidPOSIXShellForCompoundAttachCommands() throws {
+        let logURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString)")
+        let scriptURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-attach-compound-\(UUID().uuidString).sh")
+        defer {
+            try? FileManager.default.removeItem(at: logURL)
+            try? FileManager.default.removeItem(at: scriptURL)
+        }
+
+        let compoundCommand = [
+            "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then : || exit 1; fi",
+            "printf '%s/%s/%s\\n' \"$CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY\" \"$CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT\" >> \"$CMUX_TEST_LOG\"",
+            "exit 0",
+        ].joined(separator: "\n")
+        let script = SSHPTYAttachRetryScriptBuilder().lines(
+            command: compoundCommand,
+            reauthenticates: false
+        ).joined(separator: "\n")
+        try (script + "\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let syntaxCheck = try run("/bin/sh -n '\(scriptURL.path)'", environment: [:])
+        #expect(syntaxCheck.status == 0, "\(syntaxCheck.stderr)\n\(script)")
+
+        // The loop must still hand the retry budget to the command it runs.
+        let execution = try run(
+            script,
+            environment: [
+                "CMUX_TEST_LOG": logURL.path,
+                "CMUX_SSH_RECONNECT_LIMIT": "",
+                "CMUX_SSH_PTY_NO_PROGRESS_RETRY_LIMIT": "3",
+            ]
+        )
+        #expect(execution.status == 0, "\(execution.stderr)")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "1/0/3\n")
     }
 
     @Test func establishedSessionStopsAfterTheFiniteReconnectBudget() throws {

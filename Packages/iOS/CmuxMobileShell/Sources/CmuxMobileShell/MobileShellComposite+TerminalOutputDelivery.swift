@@ -423,7 +423,7 @@ extension MobileShellComposite {
                 replaceable: false,
                 viewportPolicy: .natural,
                 endSequence: endSequence,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -474,7 +474,7 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 theme: frame,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -488,13 +488,13 @@ extension MobileShellComposite {
                 replaceable: true,
                 replacementScope: .viewportPolicy,
                 viewportPolicy: policy,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID
         )
     }
 
-    private func deliverTerminalOutput(
+    func deliverTerminalOutput(
         _ delivery: TerminalOutputDelivery,
         surfaceID: String,
         bypassReplayBarrier: Bool = false
@@ -564,6 +564,14 @@ extension MobileShellComposite {
         if let immediate {
             let immediateBytes = immediate.bytes
             if immediate.latencyMetricsEligible {
+                if let frame = immediate.sourceRenderGridFrame, let timing = frame.hostTiming {
+                    terminalLatencyObserver.hostTimingReceived(
+                        surfaceID: surfaceID,
+                        appliedInputSequence: frame.appliedInputSequence,
+                        timing: timing,
+                        receivedAtNanos: immediate.receivedAtNanos
+                    )
+                }
                 terminalLatencyObserver.outputReceived(
                     surfaceID: surfaceID,
                     appliedInputSequence: immediate.sourceRenderGridFrame?.appliedInputSequence,
@@ -574,6 +582,7 @@ extension MobileShellComposite {
             }
             continuation.yield(
                 MobileTerminalOutputChunk(
+                    surfaceID: surfaceID,
                     data: immediateBytes,
                     streamToken: streamToken,
                     viewportPolicy: immediate.viewportPolicy,
@@ -713,6 +722,14 @@ extension MobileShellComposite {
         }
         let nextBytes = next.bytes
         if next.latencyMetricsEligible {
+            if let frame = next.sourceRenderGridFrame, let timing = frame.hostTiming {
+                terminalLatencyObserver.hostTimingReceived(
+                    surfaceID: surfaceID,
+                    appliedInputSequence: frame.appliedInputSequence,
+                    timing: timing,
+                    receivedAtNanos: next.receivedAtNanos
+                )
+            }
             terminalLatencyObserver.outputReceived(
                 surfaceID: surfaceID,
                 appliedInputSequence: next.sourceRenderGridFrame?.appliedInputSequence,
@@ -722,6 +739,7 @@ extension MobileShellComposite {
             )
         }
         continuation.yield(MobileTerminalOutputChunk(
+            surfaceID: surfaceID,
             data: nextBytes,
             streamToken: streamToken,
             viewportPolicy: next.viewportPolicy,

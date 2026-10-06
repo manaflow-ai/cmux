@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 
 /// Scroll view + outline host for the Cloud tree.
@@ -6,6 +7,10 @@ final class CloudTreeContainerView: NSView {
     private let outlineView = CloudTreeNSOutlineView()
     private let coordinator: CloudTreeOutlineView.Coordinator
     private let layoutMetrics = CloudTreeLayoutMetrics()
+    private var lastMeasuredDocumentWidth: CGFloat?
+    /// The scroll view's insets and inset mode from before a drag borrowed
+    /// scroll range, restored when the range comes back.
+    private var insetsBeforeLoan: (insets: NSEdgeInsets, automatic: Bool)?
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
         self.coordinator = coordinator
@@ -32,6 +37,10 @@ final class CloudTreeContainerView: NSView {
 
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
+        outlineView.disclosureScope.withPersistenceBatch = { [weak coordinator] action in
+            if let coordinator { coordinator.expansionStore.withBatch(action) }
+            else { action() }
+        }
         outlineView.target = coordinator
         outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
@@ -67,6 +76,8 @@ final class CloudTreeContainerView: NSView {
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 0, bottom: 6, right: 0)
         addSubview(scrollView)
         outlineView.onDocumentContentChanged = { [weak self] in self?.needsLayout = true }
+        outlineView.layoutHost = { [weak self] in self?.layoutSubtreeIfNeeded() }
+        outlineView.lendScrollRange = { [weak self] above, below in self?.lendScrollRange(above: above, below: below) }
         outlineView.frame = scrollView.contentView.bounds
         outlineView.autoresizingMask = [.width]
         NSLayoutConstraint.activate([
@@ -82,18 +93,52 @@ final class CloudTreeContainerView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// Extends the scroll range past the rows for a drag, on top of the
+    /// insets in effect when it started; zero for both restores them. AppKit
+    /// recomputes automatic insets on its next layout, which would drop the
+    /// loan mid-drag, so the insets hold still while it lasts.
+    private func lendScrollRange(above: CGFloat, below: CGFloat) {
+        guard above != 0 || below != 0 else {
+            guard let loan = insetsBeforeLoan else { return }
+            insetsBeforeLoan = nil
+            scrollView.contentInsets = loan.insets
+            scrollView.automaticallyAdjustsContentInsets = loan.automatic
+            return
+        }
+        let loan = insetsBeforeLoan
+            ?? (insets: scrollView.contentInsets, automatic: scrollView.automaticallyAdjustsContentInsets)
+        insetsBeforeLoan = loan
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(
+            top: loan.insets.top + above, left: loan.insets.left,
+            bottom: loan.insets.bottom + below, right: loan.insets.right
+        )
+    }
+
     override func layout() {
         super.layout()
         let viewportWidth = scrollView.contentView.bounds.width
         let documentWidth = layoutMetrics.documentWidth(viewportWidth: viewportWidth)
         let contentHeight = outlineView.numberOfRows > 0
-            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY + scrollView.contentInsets.bottom
+            ? outlineView.rect(ofRow: outlineView.numberOfRows - 1).maxY
+                + (insetsBeforeLoan?.insets ?? scrollView.contentInsets).bottom
             : 0
         let documentHeight = layoutMetrics.documentHeight(
             viewportHeight: scrollView.contentView.bounds.height, contentHeight: contentHeight)
-        if abs(outlineView.frame.width - documentWidth) > 0.5 || abs(outlineView.frame.height - documentHeight) > 0.5 {
+        let widthChanged = lastMeasuredDocumentWidth.map { abs($0 - documentWidth) > 0.5 } ?? true
+        if widthChanged || abs(outlineView.frame.height - documentHeight) > 0.5 {
             outlineView.setFrameSize(NSSize(width: documentWidth, height: documentHeight))
         }
         outlineView.sizeLastColumnToFit()
+        if widthChanged {
+            let statusRows = IndexSet((0..<outlineView.numberOfRows).filter { row in
+                guard let node = outlineView.item(atRow: row) as? CloudTreeNode,
+                      case .placeholder(_, let value) = node.kind else { return false }
+                return value.portStatus != nil
+            })
+            outlineView.noteHeightOfRows(withIndexesChanged: statusRows)
+        }
+        lastMeasuredDocumentWidth = documentWidth
+        coordinator.portsDemand.schedule(coordinator: coordinator)
     }
 }

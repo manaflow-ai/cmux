@@ -61,3 +61,11 @@ set -e
   || fail "collision refusal did not explain the protected bundle name"
 echo "PASS: --build-only rejects a name override that aliases the running tagged bundle"
 
+# A normal tagged reload must stop the previous process before replacing the
+# final app path. Otherwise a process that is still starting can lose its
+# SwiftPM resource bundle and trap in Bundle.module during diagnostics setup.
+terminate_line="$(grep -n 'TAG_PROCESS_PATTERN=' "$RELOAD" | head -n1 | cut -d: -f1)"
+replace_line="$(grep -n 'rm -rf "\$TAG_APP_FINAL_PATH"' "$RELOAD" | head -n1 | cut -d: -f1)"
+[[ -n "$terminate_line" && -n "$replace_line" && "$terminate_line" -lt "$replace_line" ]] \
+  || fail "normal tagged reload can replace the app bundle before terminating the prior process"
+echo "PASS: normal tagged reload terminates before replacing the final app bundle"

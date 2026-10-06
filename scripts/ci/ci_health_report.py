@@ -650,7 +650,8 @@ def _runner_variable_drift_lines() -> list[str]:
     if not drifted:
         return [
             "**Runner variable values:** every runner variable holds a label "
-            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow."
+            "`tests/test_ci_self_hosted_guard.sh` would accept in a workflow, and "
+            "`CI_PR_POOL_ORDER` names only those or owned pools."
         ]
     detail = "; ".join(
         f"`{_escape(name)}` = `{_escape(value)}` ({reason})"

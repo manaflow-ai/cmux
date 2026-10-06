@@ -135,6 +135,13 @@ final class RemoteTmuxControlConnection {
     private var ingestTask: Task<Void, Never>?
     private var processGeneration: UInt64 = 0
     var pendingCommands: [CommandKind] = []
+    /// How many replies this stream has taken off ``pendingCommands``, which is also the
+    /// position of its first entry counted from the start of the stream.
+    var dequeuedCommandCount = 0
+    /// The positions, by that count, of each queued line still waiting on replies. tmux stops
+    /// a queued line at its first failing command, so the commands after it are never
+    /// answered and their slots have to go when the failure arrives.
+    var pendingCommandQueues: [Range<Int>] = []
     var windowListRequestInFlight = false
     var windowListRequestDirty = false
     var windowReorderBatchFailed = false
@@ -200,6 +207,13 @@ final class RemoteTmuxControlConnection {
     var windowSizeDebounceTasks: [Int: Task<Void, Never>] = [:]
     /// Whether the server accepts per-window `refresh-client -C` sizing.
     var supportsPerWindowSize = true
+    // Desired colors survive reconnect; sent colors belong to one control stream.
+    var paneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var sentPaneColors: [Int: RemoteTmuxPaneColors] = [:]
+    var supportsPaneColorReports = true
+    var canSendPaneColorReports: Bool {
+        connectionState == .connected && attachBlockDrained && supportsPaneColorReports
+    }
     /// Instant of the most recent sizing write on this connection — kept for
     /// diagnostics (how stale is the last size request).
     var lastSizingSendAt: ContinuousClock.Instant?
@@ -421,6 +435,7 @@ final class RemoteTmuxControlConnection {
         #endif
         parser = RemoteTmuxControlStreamParser()
         pendingCommands.removeAll()
+        pendingCommandQueues.removeAll()
         resetWindowListRequestCoalescing()
         windowReorderBatchFailed = false
         windowReorderRecoveryGeneration = nil
@@ -511,7 +526,14 @@ final class RemoteTmuxControlConnection {
         }
         ingestTask = Task { [weak self] in
             for await chunk in stdoutPipeReader.stream {
-                self?.ingest(chunk)
+                // Cancelling this task does not empty the reader's buffer, so a torn-down stream
+                // keeps delivering what it had queued. Those bytes belong to a dead client, and
+                // after the respawn they would land in the next client's parser.
+                guard let self, self.processGeneration == generation else {
+                    stdoutPipeReader.close()
+                    break
+                }
+                self.ingest(chunk)
                 stdoutPipeReader.release(chunk)
             }
             guard !Task.isCancelled else { return }
@@ -550,6 +572,8 @@ final class RemoteTmuxControlConnection {
         // `%exit` or a session found gone on reconnect) notifies exit observers — so
         // detach / quit / window-close (preserve) and transport drops do not.
         connectionState = .ended
+        paneColors.removeAll()
+        sentPaneColors.removeAll()
         cancelScheduledWork()
         teardownProcessHandles()
     }
@@ -660,6 +684,10 @@ final class RemoteTmuxControlConnection {
             beginReconnecting()
             return false
         }
+        if kinds.count > 1 {
+            let first = dequeuedCommandCount + pendingStart
+            pendingCommandQueues.append(first..<(first + kinds.count))
+        }
         return true
     }
 
@@ -750,6 +778,8 @@ final class RemoteTmuxControlConnection {
     func beginReconnecting() {
         guard connectionState == .connected || connectionState == .connecting else { return }
         record("reconnecting")
+        sentPaneColors.removeAll()
+        supportsPaneColorReports = true
         // The stream is dead: a close decision awaiting an activity query must
         // not hang for the whole backoff window — fail it onto the cache now.
         failPendingCommandTransactions()

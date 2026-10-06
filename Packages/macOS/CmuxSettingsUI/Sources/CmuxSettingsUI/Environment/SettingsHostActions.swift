@@ -1,6 +1,35 @@
+import CmuxFoundation
 import CMUXMobileCore
 import CmuxSettings
 import Foundation
+
+/// Posted by the host when a sidebar menu or command-palette action should open the template gallery.
+public extension Notification.Name {
+    static let customSidebarTemplateGalleryRequested = Notification.Name("cmux.settings.customSidebarTemplateGalleryRequested")
+}
+
+/// Holds a gallery request until the progressively mounted Custom Sidebars
+/// section is ready to present it.
+// lint:allow namespace-type — one-shot, main-actor handoff from a host menu to the lazily mounted Custom Sidebars section (#15931); candidate to become an injected SettingsRuntime value.
+@MainActor
+public final class CustomSidebarTemplateGalleryRequest {
+    public static let shared = CustomSidebarTemplateGalleryRequest()
+
+    private var pending = false
+
+    private init() {}
+
+    public func request() {
+        pending = true
+        NotificationCenter.default.post(name: .customSidebarTemplateGalleryRequested, object: nil)
+    }
+
+    public func consume() -> Bool {
+        guard pending else { return false }
+        pending = false
+        return true
+    }
+}
 
 /// Host-supplied callbacks the package's section views invoke for
 /// actions that live outside the catalog — clearing browser history,
@@ -15,7 +44,7 @@ import Foundation
 /// check for `nil` callbacks and hide the corresponding buttons
 /// when no host action is available.
 @MainActor
-public protocol SettingsHostActions: AnyObject {
+public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     func computersSettingsActions() -> ComputersSettingsActions
     /// A registry snapshot used to populate the per-agent notification sound
     /// matrix. The host owns discovery so newly registered agents appear
@@ -55,6 +84,19 @@ public protocol SettingsHostActions: AnyObject {
 
     /// Creates a starter custom sidebar and opens it in the preferred editor.
     func createCustomSidebar() -> CustomSidebarOnboardingResult
+
+    /// Copies one bundled template into the custom-sidebar directory, selects it, and opens it.
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Installs a template and selects it without opening the editor.
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Temporarily selects a template for gallery preview.
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult
+
+    /// Keeps or discards the active gallery preview.
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult
+    func revertCustomSidebarPreview()
 
     /// Copies one bundled example into the custom-sidebar directory and opens it.
     func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult
@@ -98,8 +140,28 @@ public protocol SettingsHostActions: AnyObject {
     /// Live-reloads Ghostty after the adaptive-default-theme preference commits.
     func terminalAdaptiveDefaultThemeDidChange()
 
+    /// Lists the current opt-in local tmux sessions using the host app's bundled CLI.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary]
+
+    /// Starts and attaches a named opt-in local tmux session.
+    func startLocalTmuxSession(name: String) async throws
+
+    /// Attaches an existing opt-in local tmux session.
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws
+
     /// Opens the interactive terminal theme picker in a focused cmux terminal pane.
     func openTerminalThemePicker()
+
+    /// Theme directories, managed config file and current theme for the
+    /// Settings theme gallery, or `nil` to show only the terminal picker button.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext?
+
+    /// Reloads terminals after the gallery rewrote the managed theme block.
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase)
+
+    /// Opens a focused cmux terminal pane running `cmux import`, which lists other
+    /// terminals' settings and imports the one the user picks.
+    func openTerminalImport()
 
     /// Launches the host's browser-import flow (Safari / Chrome /
     /// Firefox source picker + profile selection + cookie prompt).
@@ -126,9 +188,9 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setMenuBarOnly(_ enabled: Bool) -> Bool
 
-    /// Opens the iOS pairing window, which shows a scannable QR code for
-    /// pairing an iPhone with this Mac. The host owns the window so the
-    /// package can't open it directly.
+    /// Opens the iOS pairing window, which walks through signing in to the
+    /// same account on the iPhone. The host owns the window so the package
+    /// can't open it directly.
     func openMobilePairingWindow()
 
     /// Plays the currently configured notification sound so the user
@@ -199,6 +261,19 @@ public protocol SettingsHostActions: AnyObject {
     /// (e.g. `12`, `13.5`), trimming trailing zeros.
     func formattedFontSize(_ points: Double) -> String
 
+    /// The effective values of the Ghostty options Settings > Terminal edits
+    /// natively, folded from the user's Ghostty config and cmux's config in
+    /// load order, with the file that last set each key. Reads the config
+    /// files off the main actor.
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot
+
+    /// Writes one option's key to cmux's Ghostty config and reloads the
+    /// configuration so open terminals pick it up.
+    ///
+    /// - Returns: `false` when the write failed.
+    @discardableResult
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool
+
     /// The current status of the Mac-side iOS pairing host (the actual bound
     /// port, whether it fell back from the configured port, the active iOS
     /// connection count, the effective display name, and the routes the phone
@@ -268,6 +343,10 @@ public protocol SettingsHostActions: AnyObject {
     /// Invalidates host-owned shortcut caches after Settings persists a shortcut change.
     func notifyShortcutSettingsDidChange()
 
+    /// Reloads cmux.json after Settings writes it, so its values apply to
+    /// UserDefaults and live chrome before the file watcher notices.
+    func reloadSettingsFile()
+
     /// Whether the host can register `shortcut` as its system-wide hotkey.
     ///
     /// The macOS host applies Carbon conversion and app-reservation checks that
@@ -293,6 +372,18 @@ public protocol SettingsHostActions: AnyObject {
     /// Whether the displayed Computer Use permission values are authoritative.
     func computerUsePermissionStatusIsKnown() -> Bool
 
+    /// The remaining setup step, including capture confirmation beyond the TCC grants.
+    func computerUseSetupStatus() -> ComputerUseSetupStatus
+
+    /// One runtime-owned enablement, permission, and setup snapshot.
+    func computerUseSetupSnapshot() -> ComputerUseSettingsSnapshot
+
+    /// Emits coalesced invalidations of the host's cached permission and setup snapshot.
+    func computerUseSetupUpdates() -> AsyncStream<Void>
+
+    /// Opens the explicit setup flow, including when both TCC grants already exist.
+    func finishComputerUseSetup()
+
     /// Starts the helper-owned Accessibility permission flow.
     func requestComputerUseAccessibility()
 
@@ -305,19 +396,6 @@ public protocol SettingsHostActions: AnyObject {
     /// Opens the Screen Recording pane in System Settings.
     func openComputerUseScreenRecordingSettings()
 
-    /// Whether the host exposes Cloud Machines (persistent cloud VMs). When
-    /// false the Cloud Machines settings section renders nothing.
-    var isCloudMachinesAvailable: Bool { get }
-
-    /// The caller's machine plan: plan name, machines in use, and the plan's
-    /// machine ceiling. `nil` when signed out or the backend is unreachable.
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary?
-
-    /// Reveals the right-sidebar Machines panel in the active main window.
-    func openCloudMachinesPanel()
-
-    /// Opens the host's plan management / upgrade flow.
-    func openCloudMachinesBilling()
 }
 
 /// Host-provided summary of the existing config-backed automation rules.
@@ -345,28 +423,6 @@ public struct AutomationRulesStatus: Equatable, Sendable {
     /// Number of configured rules that are currently disabled.
     public var disabledCount: Int {
         ruleCount - enabledCount
-    }
-}
-
-/// Snapshot of the caller's Cloud Machines plan for the settings section.
-public struct CloudMachinesPlanSummary: Equatable, Sendable {
-    public let planLabel: String
-    public let activeMachines: Int
-    /// Active-machine ceiling; nil when the plan has no cap.
-    public let maxMachines: Int?
-    public let isPaidPlan: Bool
-
-    /// Creates a plan summary.
-    /// - Parameters:
-    ///   - planLabel: Display name of the plan, already localized.
-    ///   - activeMachines: Machines currently counted against the plan.
-    ///   - maxMachines: Active-machine ceiling, or nil when the plan has no cap.
-    ///   - isPaidPlan: Whether the plan is one the backend provisions for.
-    public init(planLabel: String, activeMachines: Int, maxMachines: Int?, isPaidPlan: Bool) {
-        self.planLabel = planLabel
-        self.activeMachines = activeMachines
-        self.maxMachines = maxMachines
-        self.isPaidPlan = isPaidPlan
     }
 }
 
@@ -432,24 +488,36 @@ public extension SettingsHostActions {
         AsyncStream { $0.finish() }
     }
 
-    /// Cloud Machines defaults for previews, tests, and package-only hosts:
-    /// unavailable, no plan, no-op actions.
-    var isCloudMachinesAvailable: Bool { false }
-    func cloudMachinesPlanSummary() async -> CloudMachinesPlanSummary? { nil }
-    func openCloudMachinesPanel() {}
-    func openCloudMachinesBilling() {}
-
     /// Default no-op for package-only settings hosts without Ghostty.
     func terminalAdaptiveDefaultThemeDidChange() {}
 
+    /// Package-only previews expose no local tmux runtime.
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] { [] }
+    func startLocalTmuxSession(name: String) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        throw LocalTmuxSettingsActionError.unavailable
+    }
+
     /// Default no-op for package-only settings hosts without a terminal theme picker.
     func openTerminalThemePicker() {}
+
+    /// Package-only hosts have no Ghostty config, so the gallery stays hidden.
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? { nil }
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {}
+
+    /// Default no-op for package-only settings hosts without a bundled cmux CLI.
+    func openTerminalImport() {}
 
     /// Default no-op for hosts with no app-owned reset side effects.
     func resetAllSettingsSideEffects() {}
 
     /// Default no-op for hosts with no app-owned shortcut caches.
     func notifyShortcutSettingsDidChange() {}
+
+    /// Default no-op for hosts without a settings file store.
+    func reloadSettingsFile() {}
 
     /// Custom-sidebar defaults for package previews and tests without a live host.
     func customSidebarNames() -> [String] { [] }
@@ -464,9 +532,23 @@ public extension SettingsHostActions {
     func createCustomSidebar() -> CustomSidebarOnboardingResult {
         .writeFailed
     }
-    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
         _ = id
         return .writeFailed
+    }
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        _ = id
+        return .writeFailed
+    }
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult { .templateUnavailable }
+    func revertCustomSidebarPreview() {}
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
     }
     func openCustomSidebarInExternalEditor(named name: String) { _ = name }
     func openCustomSidebarsFolder() {}
@@ -484,22 +566,6 @@ public extension SettingsHostActions {
     /// Default no-op for package previews and tests without app-language ownership.
     func applyLanguageOverride(_ language: AppLanguage) {}
 
-    /// Default no-op for hosts without Computer Use permission reporting.
-    func refreshComputerUsePermissions() async {}
-    /// Default denied Accessibility status for hosts without Computer Use.
-    func computerUseAccessibilityGranted() -> Bool { false }
-    /// Default denied Screen Recording status for hosts without Computer Use.
-    func computerUseScreenRecordingGranted() -> Bool { false }
-    /// Default unknown status for hosts without Computer Use permission reporting.
-    func computerUsePermissionStatusIsKnown() -> Bool { false }
-    /// Default no-op for hosts that cannot request Computer Use Accessibility.
-    func requestComputerUseAccessibility() {}
-    /// Default no-op for hosts that cannot request Computer Use Screen Recording.
-    func requestComputerUseScreenRecording() {}
-    /// Default no-op for hosts without a Computer Use Accessibility settings route.
-    func openComputerUseAccessibilitySettings() {}
-    /// Default no-op for hosts without a Computer Use Screen Recording settings route.
-    func openComputerUseScreenRecordingSettings() {}
     func openMobilePairingWindow() {}
 
     /// Default no-op preview action for hosts without a Sleepy Mode overlay.

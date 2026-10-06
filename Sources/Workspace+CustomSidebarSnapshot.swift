@@ -2,6 +2,7 @@ import CmuxAgentChat
 import CmuxSidebar
 import Foundation
 
+@MainActor
 extension Workspace {
     /// Projects live workspace state into the custom-sidebar interpreter input snapshot.
     func customSidebarWorkspaceSnapshot(
@@ -45,7 +46,8 @@ extension Workspace {
             latestSubmittedAt: latestSubmittedAt,
             remote: remote,
             agents: customSidebarAgentSnapshots(),
-            groupId: groupId
+            groupId: groupId,
+            taskStatus: effectiveTaskStatus.rawValue
         )
     }
 
@@ -133,18 +135,27 @@ extension Workspace {
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
+                // Keep tab identity stable, but expose only IDs accepted by surface.*.
+                // A mirror without a projection stays visible without a focus target.
+                let focusSurfaceId = isRemoteTmuxControlContainer(panelId)
+                    ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
+                    : panelId
                 let git = reportedPanelGitBranch(panelId: panelId)
+                let prompt = panelPrompts[panelId]
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
-                        surfaceId: tab.id.uuid,
+                        surfaceId: focusSurfaceId,
                         title: tab.title,
                         isFocused: panelId == focusedPanelId,
                         isPinned: pinnedPanelIds.contains(panelId),
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                        latestSubmittedMessage: prompt?.message,
+                        latestSubmittedAt: prompt?.submittedAt,
+                        hasUnreadNotification: hasUnreadNotification(panelId: panelId)
                     )
                 )
             }

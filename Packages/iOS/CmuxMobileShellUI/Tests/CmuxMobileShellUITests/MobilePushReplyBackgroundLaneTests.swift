@@ -1,4 +1,6 @@
 import CmuxAuthRuntime
+import CmuxPhonePush
+import CryptoKit
 import Foundation
 import os
 import Testing
@@ -148,9 +150,22 @@ private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendabl
     RateLimitedReplyURLProtocol.reset()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [RateLimitedReplyURLProtocol.self]
+    // The relay only posts an end-to-end envelope, so the reply needs the
+    // push context and both keys; in-memory keys keep the host keychain out.
+    let identity = PhonePushKeyMaterial(
+        installationID: "ios-installation-1",
+        keyID: "ios-key-1",
+        privateKey: Curve25519.KeyAgreement.PrivateKey()
+    )
+    let peer = PhonePushPeerDescriptor(
+        keyID: "mac-key-1",
+        publicKey: Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+    )
     let client = SystemReplyRelayClient(
         serviceBaseURL: URL(string: "https://presence.test"),
         accessToken: { "token" },
+        keyMaterial: { identity },
+        pinnedPeer: { _ in peer },
         session: URLSession(configuration: configuration)
     )
     let reply = RelayedReply(
@@ -158,7 +173,10 @@ private final class RateLimitedReplyURLProtocol: URLProtocol, @unchecked Sendabl
         macDeviceId: "mac-1",
         workspaceId: "workspace-1",
         surfaceId: "surface-1",
-        text: "hello"
+        text: "hello",
+        accountID: "account-1",
+        macInstallationID: "mac-installation-1",
+        macBuildID: "mac-build-1"
     )
 
     let first = await client.relay(reply)

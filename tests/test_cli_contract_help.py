@@ -20,6 +20,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+import git_fixture_env
+
 
 START_MARKER = "<!-- cli-contract-help-probes:start -->"
 END_MARKER = "<!-- cli-contract-help-probes:end -->"
@@ -138,6 +140,7 @@ def clean_git_env() -> dict[str, str]:
     for key in list(env):
         if key.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_")):
             env.pop(key)
+    git_fixture_env.without_auto_maintenance(env)
     return env
 
 
@@ -443,13 +446,24 @@ def check_review_ledger_contract(cli_path: str) -> list[str]:
             encoding="utf-8",
         )
 
+        # Receipt writers may emit fractional seconds; the ledger must still
+        # parse and order the receipt instead of rejecting the whole listing.
+        fractional_review_id = "fractional-older-" + ("f" * 64)
+        fractional_receipt = dict(receipt)
+        fractional_receipt["created_at"] = "2026-09-21T12:00:00.481Z"
+        (receipt_dir / f"{fractional_review_id}.json").write_text(
+            json.dumps(fractional_receipt),
+            encoding="utf-8",
+        )
+
         cases = [
             (
                 "list",
                 ["review", "list", "--repo", str(repository), "--json"],
                 lambda payload: (
                     payload["repo_root"] == canonical_repository
-                    and payload["reviews"][0]["id"] == offset_review_id
+                    and [review["id"] for review in payload["reviews"]]
+                    == [offset_review_id, review_id, fractional_review_id]
                     and payload["reviews"][0]["verified"] == 1
                 ),
             ),

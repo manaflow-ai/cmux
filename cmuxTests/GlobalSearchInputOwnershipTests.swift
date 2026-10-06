@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ extension GlobalSearchShortcutBehaviorTests {
     @MainActor @Suite final class GlobalSearchInputOwnershipTests {
     private let originalSettingsFileStore: KeyboardShortcutSettingsFileStore
 
-    init() {
+    init() throws {
         originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: FileManager.default.temporaryDirectory
@@ -23,11 +24,33 @@ extension GlobalSearchShortcutBehaviorTests {
             startWatching: false
         )
         KeyboardShortcutSettings.resetAll()
+        // The previous test dismisses the palette on its way out, but NSPopover
+        // animates the close, so `isShown` stays true until the run loop turns.
+        // Settle it here so no test starts with the last test's palette open.
+        GlobalSearchCoordinator.shared.dismissPalette()
+        try #require(
+            Self.waitUntilGlobalSearchCloses(),
+            "The previous test's Global Search palette never closed"
+        )
     }
 
     deinit {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.resetAll()
+    }
+
+    private static func waitUntilGlobalSearchCloses(timeout: TimeInterval = 2) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        repeat {
+            if !GlobalSearchCoordinator.shared.isPaletteVisible() {
+                return true
+            }
+            _ = RunLoop.main.run(
+                mode: .default,
+                before: min(deadline, Date.now.addingTimeInterval(0.01))
+            )
+        } while Date.now < deadline
+        return !GlobalSearchCoordinator.shared.isPaletteVisible()
     }
 
     @Test func browserFocusModeOwnsGlobalSearchShortcut() throws {

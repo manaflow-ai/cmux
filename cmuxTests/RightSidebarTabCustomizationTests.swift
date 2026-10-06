@@ -1,4 +1,6 @@
+import CmuxSidebar
 import Foundation
+import CmuxSidebar
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -35,7 +37,6 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     private func enableAllModeGates() {
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
-        defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     }
 
@@ -71,11 +72,12 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testHidingLastVisibleTabIsRefused() {
-        // Feed and Dock are feature-gated off in this suite; Cloud may be on
-        // through the process-global rollout flag, so hide it explicitly.
+        // Hide every tab except Sessions through the regular tab-visibility
+        // control; the Dock is no longer beta-gated.
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .files, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults))
         XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .machines, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertFalse(
             RightSidebarTabPreferences.setHidden(true, mode: .sessions, defaults: defaults),
             "the last visible tab must stay visible"
@@ -98,8 +100,8 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
     }
 
     func testSetDisplayedOrderPermutesOnlyTheDisplayedSlots() {
-        // Hide Feed; Dock stays hidden-by-gate but keeps its slot in the full
-        // order. Dragging Cloud before Files must not move Feed or Dock.
+        // Hide Feed; Dock keeps its slot in the full order. Dragging Cloud
+        // before Files must not move Feed or Dock.
         enableAllModeGates()
         RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults)
         RightSidebarTabPreferences.setDisplayedOrder(
@@ -113,23 +115,68 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         )
     }
 
-    func testModeBarReorderPolicyMovesDraggedPillOverTarget() {
-        let displayed: [RightSidebarMode] = [.files, .find, .sessions, .machines]
+    /// Four tabs: 40, 60, 40, 50 wide, 4pt apart, from x = 0.
+    private func modeBarFrames() -> [CGRect] {
+        var x: CGFloat = 0
+        return [40, 60, 40, 50].map { width in
+            defer { x += width + 4 }
+            return CGRect(x: x, y: 0, width: width, height: 24)
+        }
+    }
+
+    func testModeBarDragLayoutAtRestMovesNothing() throws {
+        let layout = try XCTUnwrap(RightSidebarModeBarDragLayout(frames: modeBarFrames(), source: 1))
+        XCTAssertEqual(layout.slot(translation: 0), 1)
+        XCTAssertEqual(layout.draggedOffset(translation: 0), 0)
+        XCTAssertEqual(layout.offsets(slot: 1), [0, 0, 0, 0])
+        XCTAssertEqual(layout.reordered(["a", "b", "c", "d"], slot: 1), ["a", "b", "c", "d"])
+    }
+
+    func testModeBarDragLayoutNeighbourGivesWayAtHalfTheNarrowerTab() throws {
+        // Dragging the 60pt tab right over the 40pt one: it moves once 20pt is covered.
+        let layout = try XCTUnwrap(RightSidebarModeBarDragLayout(frames: modeBarFrames(), source: 1))
+        XCTAssertEqual(layout.slot(translation: 23), 1, "covers 19pt of the 40pt neighbour")
+        XCTAssertEqual(layout.slot(translation: 25), 2, "covers 21pt")
+        let offsets = layout.offsets(slot: 2)
+        XCTAssertEqual(offsets[2], -64, "the neighbour shifts left by the dragged tab plus a gap")
+        XCTAssertEqual(offsets[1], 44, "the dragged tab would land after the neighbour")
+        XCTAssertEqual(offsets[0], 0)
+        XCTAssertEqual(offsets[3], 0)
+        XCTAssertEqual(layout.draggedOffset(translation: 25), 25, "the tab stays under the pointer")
         XCTAssertEqual(
-            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .machines, over: .files, in: displayed),
-            [.machines, .files, .find, .sessions]
+            layout.reordered([RightSidebarMode.files, .find, .sessions, .machines], slot: 2),
+            [.files, .sessions, .find, .machines]
         )
-        XCTAssertEqual(
-            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .files, over: .sessions, in: displayed),
-            [.find, .sessions, .files, .machines]
-        )
-        XCTAssertNil(
-            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .files, over: .files, in: displayed)
-        )
-        XCTAssertNil(
-            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .feed, over: .files, in: displayed),
-            "a mode absent from the bar cannot reorder it"
-        )
+    }
+
+    func testModeBarDragLayoutDraggingLeftShiftsTheTabsBefore() throws {
+        let layout = try XCTUnwrap(RightSidebarModeBarDragLayout(frames: modeBarFrames(), source: 3))
+        XCTAssertEqual(layout.slot(translation: -200), 0)
+        let offsets = layout.offsets(slot: 0)
+        XCTAssertEqual(offsets[3], -152, "the last tab lands at the bar's start")
+        XCTAssertEqual(offsets[0], 54)
+        XCTAssertEqual(offsets[1], 54)
+        XCTAssertEqual(offsets[2], 54)
+    }
+
+    func testModeBarDragLayoutResistsPastTheBarEnds() throws {
+        let layout = try XCTUnwrap(RightSidebarModeBarDragLayout(frames: modeBarFrames(), source: 0))
+        let left = layout.draggedOffset(translation: -100)
+        XCTAssertLessThan(left, 0)
+        XCTAssertGreaterThan(left, -RightSidebarModeBarDragLayout.overscrollLimit)
+        let right = layout.draggedOffset(translation: 1000)
+        XCTAssertGreaterThan(right, 162, "held at the bar's end (162pt) plus some give")
+        XCTAssertLessThan(right, 162 + RightSidebarModeBarDragLayout.overscrollLimit)
+        XCTAssertEqual(layout.slot(translation: 1000), 3)
+    }
+
+    func testModeBarDragLayoutLeavesTheBarOnlyWellOutsideIt() {
+        let tab = CGRect(x: 0, y: 7, width: 40, height: 24)
+        XCTAssertFalse(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 40), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: 51), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: 1, y: -13), tabFrame: tab, barHeight: 38))
+        XCTAssertTrue(RightSidebarModeBarDragLayout.leavesBar(pointer: CGPoint(x: -1, y: 40), tabFrame: tab, barHeight: 38))
+        XCTAssertNil(RightSidebarModeBarDragLayout(frames: [], source: 0))
     }
 
     func testResetRestoresCanonicalOrderAndVisibility() {
@@ -145,13 +192,13 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
 
     // MARK: - Positional shortcut defaults
 
-    /// The reported bug: with Feed and Dock hidden (their beta gates default
-    /// off), Cloud is the 4th visible tab, so ctrl+4 must focus it. The old
-    /// static table pinned Cloud to ctrl+6, three positions past what the mode
-    /// bar showed.
+    /// With Feed and Dock hidden through the regular tab-visibility controls,
+    /// Cloud is the 4th visible tab, so ctrl+4 must focus it.
     func testCloudDefaultsToControlFourWhenFeedAndDockAreHidden() {
         CmuxFeatureFlags.shared.setOverride(true, for: CmuxFeatureFlags.cloudMachinesFlag)
         enableMachinesGate()
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults))
+        XCTAssertTrue(RightSidebarTabPreferences.setHidden(true, mode: .dock, defaults: defaults))
         XCTAssertEqual(
             RightSidebarMode.visibleModes(defaults: defaults),
             [.files, .find, .sessions, .machines]

@@ -22,6 +22,14 @@ struct CmuxConfigSemanticValidatorTests {
         }
     }
 
+    @Test("embedded schema is byte-for-byte web/data/cmux.schema.json")
+    func embeddedSchemaMatchesSource() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let source = try Data(contentsOf: root.appendingPathComponent("web/data/cmux.schema.json"))
+        #expect(CmuxEmbeddedConfigSchema.data == source)
+    }
+
     @Test("accepts valid settings and preserved config sections")
     func acceptsValidConfig() throws {
         let result = try issues([
@@ -29,6 +37,30 @@ struct CmuxConfigSemanticValidatorTests {
             "app": ["appearance": "dark"],
             "fileEditor": ["tabWidth": 4],
             "rightSidebar": ["width": 320],
+        ])
+        #expect(result.isEmpty)
+    }
+
+    @Test("accepts canonical classic catalog sections")
+    func acceptsCanonicalClassicCatalogSections() throws {
+        let result = try issues([
+            "terminal": [
+                "titleUpdates": [
+                    "coalescing": ["enabled": true, "delayMilliseconds": 500],
+                    "diagnostics": false,
+                ],
+                "runawayMemoryGuardrail": ["enabled": true, "thresholdGB": 12],
+            ],
+            "sidebar": [
+                "branchVerticalLayout": false,
+                "activeTabIndicatorStyle": "solidFill",
+                "selectionColor": "#123456",
+            ],
+            "integrations": [
+                "claudeCode": ["hooksEnabled": true, "customClaudePath": "/opt/claude"],
+                "kiro": ["hooksEnabled": true, "notificationLevel": "verbose"],
+            ],
+            "remoteTmux": ["beta": ["enabled": true]],
         ])
         #expect(result.isEmpty)
     }

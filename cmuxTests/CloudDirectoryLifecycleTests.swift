@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -10,6 +11,30 @@ import Testing
 @Suite("Cloud cwd and machine identity", .serialized)
 @MainActor
 struct CloudDirectoryLifecycleTests {
+    @Test("A terminal finishing launch wakes the sidebar even when its cwd is unchanged")
+    func launchCompletionWakesSidebar() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: ["/home/cmux/first", "/home/cmux/second"], revision: 2,
+                            lifecycles: ["launching", "launching"])
+        #expect(try fixture.sidebarText().isEmpty)
+        let directories = fixture.workspace.panelDirectories
+        let launching = fixture.workspace.cloudBindingState.revision
+
+        // The daemon reports readiness as a delta that repeats the same cwd.
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+
+        #expect(fixture.workspace.panelDirectories == directories)
+        #expect(fixture.workspace.cloudBindingState.revision > launching,
+                "The sidebar row only rebuilds when the Cloud binding stream fires")
+        #expect(try fixture.sidebarText().contains("cwd-machine · /home/cmux/first"))
+
+        let ready = fixture.workspace.cloudBindingState.revision
+        try fixture.changeDirectory("/home/cmux/first", terminal: 0)
+        #expect(fixture.workspace.cloudBindingState.revision == ready,
+                "An unchanged presentation must not rebuild the row again")
+    }
+
     @Test("Terminal-only cd deltas update focused and background panels without title changes")
     func liveDirectoryDelta() throws {
         let fixture = try CloudDirectoryTestFixture()
@@ -68,9 +93,64 @@ struct CloudDirectoryLifecycleTests {
         #expect(sidebar.compactGitBranchSummaryText == nil)
         #expect(sidebar.pullRequestRows.isEmpty)
         let text = try fixture.sidebarText()
-        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("Directory unavailable"))
         #expect(!text.contains("local-checkout"))
         #expect(!text.contains("first"))
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
+        let stale = fixture.catalog.snapshot
+        let staleResource = try #require(stale.resources.first { $0.id == fixture.resourceID(0) })
+        #expect(staleResource.detail == nil)
+        let staleRow = CloudTreeTerminalRow(resource: staleResource, isOpen: true, directoryIsCurrent: false)
+        #expect(staleRow.directoryText == CloudWorkspaceSidebarPresentation.unavailableDirectory)
+    }
+
+    @Test("Launching Cloud terminals do not render a directory placeholder")
+    func launchingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "launching"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A running Cloud terminal without cwd keeps its own placeholder beside a launching terminal")
+    func mixedLaunchingAndRunningDirectoryStates() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A stale Cloud terminal without an accepted cwd does not render a placeholder")
+    func staleMissingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["running", "running"])
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A missing terminal cwd uses another accepted terminal cwd on the machine")
+    func missingDirectoryUsesMachineFallback() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, "/home/cmux"], revision: 2, lifecycles: ["running", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates == ["cwd-machine · /home/cmux"])
     }
 
     @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
@@ -111,20 +191,23 @@ struct CloudDirectoryLifecycleTests {
         #expect(snapshot.resources.first { $0.id == local }?.detail == "/Users/alice/project")
     }
 
-    @Test("A stale graph loses cwd trust until a fresh snapshot confirms it")
+    @Test("A stale graph keeps the last accepted cwd until a fresh snapshot replaces it")
     func reconnectAndStalePublication() throws {
         let fixture = try CloudDirectoryTestFixture()
         defer { fixture.close() }
         let old = try #require(fixture.provider.cloudState)
-        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "temporary gap")
         try fixture.changeDirectory("/srv/resumed", terminal: 0)
         #expect(fixture.workspace.reportedPanelDirectory(panelId: fixture.panels[1]) == "/home/cmux/second")
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
-        #expect(fixture.workspace.presentedCurrentDirectory == nil)
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/resumed")
         #expect(fixture.catalog.snapshot.staleMachineIDs.contains(fixture.machine))
-        let row = CloudTreeTerminalRow(resource: try #require(fixture.catalog.resources[fixture.resourceID(0)]), isOpen: true, directoryIsCurrent: false)
-        #expect(row.directoryText == "Directory unavailable")
-        #expect(try fixture.sidebarText().contains("Directory unavailable"))
+        let staleSnapshot = fixture.catalog.snapshot
+        let staleResource = try #require(staleSnapshot.resources.first { $0.id == fixture.resourceID(0) })
+        #expect(staleResource.detail == "/srv/resumed")
+        let row = CloudTreeTerminalRow(resource: staleResource, isOpen: true, directoryIsCurrent: false)
+        #expect(row.directoryText == "/srv/resumed")
+        #expect(try !fixture.sidebarText().contains("Directory unavailable"))
+        #expect(try fixture.sidebarText().contains("/srv/resumed"))
         let current = try fixture.install(paths: ["/srv/reconnected", nil], revision: 1, generation: "replacement")
         #expect(fixture.workspace.presentedCurrentDirectory == "/srv/reconnected")
         #expect(!fixture.provider.installSnapshotIfNewer(old))
@@ -132,6 +215,87 @@ struct CloudDirectoryLifecycleTests {
         fixture.provider.publishDelta(old, impact: CloudVMStateDeltaImpact(resourceIDs: [fixture.resourceID(0)], requiresFullResourceRebuild: false), ports: [], reconcileTitles: false)
         #expect(fixture.catalog.cloudStates[fixture.machine] == current)
         #expect(fixture.workspace.presentedCurrentDirectory == "/srv/reconnected")
+    }
+
+    @Test("A replacement provider accepts its cwd and ignores retired callbacks")
+    func providerReplacement() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let old = try #require(fixture.provider.cloudState)
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "provider replacement")
+        let replacement = CmuxTuiSurfaceProvider(
+            summary: VMSummary(id: fixture.machine.rawValue, provider: "freestyle", status: "running", image: "cmux-devbox", createdAt: 0, base: nil),
+            links: CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil }), catalog: fixture.catalog
+        )
+        fixture.catalog.register(replacement)
+        let stale = fixture.catalog.snapshot
+        #expect(stale.resources.first { $0.id == fixture.resourceID(0) }?.detail == "/home/cmux/first")
+
+        let current = try fixture.state(paths: ["/srv/replacement", nil], revision: 1, generation: "replacement")
+        #expect(replacement.installSnapshotIfNewer(current))
+        replacement.publish(current, ports: [])
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/replacement")
+
+        fixture.provider.publish(old, ports: [])
+        #expect(fixture.workspace.presentedCurrentDirectory == "/srv/replacement")
+        #expect(fixture.catalog.cloudStates[fixture.machine] == current)
+    }
+
+    @Test("Deleting a terminal clears its cached cwd")
+    func deletedTerminalClearsDirectory() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "refresh")
+        let current = try fixture.install(paths: ["/home/cmux/first"], revision: 2, generation: "replacement")
+        #expect(current.lookupIndex.terminal(id: "term_1") == nil)
+        #expect(fixture.catalog.snapshot.resources.contains { $0.id == fixture.resourceID(1) } == false)
+        #expect(fixture.workspace.reportedPanelDirectory(panelId: fixture.panels[1]) == nil)
+        let text = try fixture.sidebarText()
+        #expect(!text.contains("Directory unavailable"))
+        #expect(!text.contains("/home/cmux/second"))
+    }
+
+    @Test("An expired creation overlay cannot close a pane while its live tab is unresolved")
+    func pendingCreationOverlayExpiryFencesPaneCleanup() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        let panel = fixture.panels[1]
+        let terminalID = fixture.resourceID(1)
+        let session = CloudTuiManualMirrorSession(
+            machineID: fixture.machine.rawValue,
+            terminalID: terminalID.key,
+            remoteSurfaceID: 0,
+            onNeedsReconnect: {}
+        )
+        fixture.provider.manualMirrorSessions[panel] = session
+        defer { session.stop() }
+
+        let resource = try #require(fixture.catalog.resources[terminalID])
+        fixture.provider.pendingRemoteCreations[terminalID] = .init(
+            resource: resource,
+            receipt: .init(generation: "daemon", revision: 2),
+            tabID: "tab_1"
+        )
+        var snapshot = try #require(fixture.provider.cloudState?.snapshotObject())
+        snapshot["cursor"] = ["generation": "daemon", "revision": "2"]
+        // Keep the live tab row while omitting its terminal row. This is an
+        // incomplete accepted graph; the pending overlay is the only catalog
+        // row that had been making the placement look complete.
+        snapshot["terminals"] = [[
+            "id": "term_0", "title": "bash", "lifecycle": "running"
+        ]]
+        let next = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: fixture.machine))
+        #expect(fixture.provider.installSnapshotIfNewer(next))
+        fixture.provider.publishDelta(
+            next,
+            impact: .init(resourceIDs: [fixture.resourceID(0)], requiresFullResourceRebuild: false),
+            ports: [],
+            reconcileTitles: false
+        )
+
+        #expect(fixture.catalog.resources[terminalID] == nil)
+        #expect(fixture.provider.manualMirrorSessions[panel] === session)
+        #expect(fixture.workspace.panels[panel] != nil)
     }
 
     @Test("Older and equal-cursor conflicting snapshots cannot overwrite a live cd")
@@ -194,7 +358,7 @@ struct CloudDirectoryLifecycleTests {
         for usesLastSegmentPath in [false, true] {
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
                 workspace: fixture.workspace, orderedPanelIDs: fixture.panels,
-                usesLastSegmentPath: usesLastSegmentPath
+                usesLastSegmentPath: usesLastSegmentPath, catalog: fixture.catalog
             ))
             let full = "\(expected) · /home/cmux/a, /home/cmux/b"
             if usesLastSegmentPath {
@@ -230,9 +394,9 @@ struct CloudDirectoryLifecycleTests {
             let expected = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? fixture.machine.rawValue : name
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
-                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true
+                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true, catalog: fixture.catalog
             ))
-            #expect(presentation.directoryCandidates == ["\(expected) · \(CloudWorkspaceSidebarPresentation.unavailableDirectory)"])
+            #expect(presentation.directoryCandidates.isEmpty)
             #expect(fixture.workspace.cloudVMID == fixture.machine.rawValue)
         }
     }
@@ -289,7 +453,7 @@ struct CloudDirectoryLifecycleTests {
         info.name = "Build server"
         fixture.catalog.updateMachine(info, from: fixture.provider)
         let singleMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(singleMachine.directoryCandidates == ["Build server · /home/cmux/a, /home/cmux/b"])
 
@@ -319,13 +483,13 @@ struct CloudDirectoryLifecycleTests {
             workspaceID: fixture.workspace.id, panelID: otherPanel
         ))
         let collision = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(collision.directoryCandidates == [
             "Build server (cwd-machine) · /home/cmux/a | Build server (other-machine) · /srv/other"
         ])
         let hiddenOtherMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(hiddenOtherMachine.directoryCandidates == ["Build server · /home/cmux/a"])
     }

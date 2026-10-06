@@ -19,6 +19,35 @@ before choosing an executable or opening a repository.
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
 
+## Start from a template
+
+Six curated custom sidebars are available as built-in templates while the Custom Sidebars beta is enabled: Workspaces, Agents Board, Panel Sessions, Panel Subagents, btop Agents, and Panel Todo. Right-click the sidebar toggle button, choose **Browse Sidebar Templates…**, and open the gallery. Each card shows a preview, placement, and description. **Try** temporarily selects the bundled source without writing to your sidebar folder; use **Keep** or **Revert** in the gallery bar. **Use** installs an editable file and offers **Edit** in your preferred editor. Right-panel templates open in the right sidebar when it is available.
+
+The same templates are available from the CLI:
+
+```bash
+cmux sidebar templates
+cmux sidebar templates --json
+cmux sidebar try agents-board
+cmux sidebar new agents-board --from agents-board
+cmux sidebar open agents-board
+```
+
+`cmux sidebar try` creates a temporary preview file and prints the command to open and remove it. `cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
+
+Preview cards ship with the app bundle.
+
+### Curated gallery
+
+| Template | Use it for | Placement | Preview |
+| --- | --- | --- | --- |
+| Workspaces | A straightforward live workspace list. | Left sidebar | ![Workspaces preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/workspaces-dark.png) |
+| Agents Board | A kanban-style board for agent workspaces. | Left sidebar | ![Agents Board preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/agents-board-dark.png) |
+| Panel Sessions | Searchable sessions for this workspace or all workspaces. | Right panel | ![Panel Sessions preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-sessions-dark.png) |
+| Panel Subagents | Coding-agent sessions grouped by workspace with live status. | Right panel | ![Panel Subagents preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-subagents-dark.png) |
+| btop Agents | A terminal-inspired monitor for agent activity. | Left sidebar | ![btop Agents preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/btop-agents-dark.png) |
+| Panel Todo | An interactive scratch checklist for the current workspace. | Right panel | ![Panel Todo preview](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-light.png) / [dark](../Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Resources/CustomSidebarTemplatePreviews/panel-todo-dark.png) |
+
 ## If you are an agent building this for someone
 
 Assume the person asking is not technical. They are describing a result ("a
@@ -77,7 +106,10 @@ examples.
 `onEdit(text)` (fires per keystroke - live search), `autofocus` (default
 true; pass `false` for persistent fields so mounting never steals focus).
 Each workspace's `tabs[i]` carries `surfaceId` for `surface.*` verbs
-(`tabs[i].id` is the panel behind the tab, not interchangeable).
+(`tabs[i].id` is the stable panel identity, not interchangeable).
+For remote tmux tabs, `surfaceId` targets the window's active pane and can
+change when another pane becomes active. It is absent until the pane is ready.
+Pass the containing workspace's `id` as `workspace_id` to focus across workspaces.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).
@@ -138,6 +170,12 @@ Rules of the runtime:
   `.hoverBackground` (host-side hover wash, no JS round trip)
   `.cornerRadius` (continuous/squircle curvature) `.borderColor`
   `.borderWidth` `.opacity` `.frame({width,height,minWidth,maxWidth,...})`
+  (or `.frame(() => ({...}))` to bind every key live; the keys come from
+  the first evaluation, so return every key you need from the start)
+  `.layoutPriority(n)` (who keeps width in an `HStack`; truncating text
+  defaults to 1, so give a button or badge beside it 2) `.fixedSize()` (keep
+  a view at its natural size; `.fixedSize("horizontal")` or `"vertical"` for
+  one axis)
   `.fill` `.stroke` `.strokeWidth` `.size` `.rotation(degrees)` (spins the
   content in place inside its layout box, spring-animated - e.g. a group
   chevron that turns instead of swapping glyphs) `.fade(width)` (constant
@@ -145,7 +183,8 @@ Rules of the runtime:
   instead of trailing padding where accessories float over the content)
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
   default 0.5, an overflowing title scrolls out and back; layout never
-  changes) `.onTap(fn)`. Any of them (except
+  changes) `.cursor("pointer")` (show a pointing-hand cursor while the view is
+  hovered) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
@@ -186,7 +225,10 @@ Rules of the runtime:
 - Right-click menus: `.contextMenu([Button("Pin", fn), Divider(),
   Menu("Move", [...]), Button("Close", fn).destructive()])` on any view. Menu
   items are ordinary Button/Menu/Divider nodes, so labels and actions can be
-  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). Useful
+  live bindings (`Button(() => w().pinned ? "Unpin" : "Pin", ...)`). The menu
+  opens only over the view it is attached to, so put it on the row's outer
+  HStack when right-clicking anywhere on the row, including the empty space a
+  Spacer fills, should open it. Useful
   verbs: `workspace.action` (pin/unpin, mark_read/mark_unread,
   move_up/move_down/move_top, close_others, set/clear color and description),
   `workspace.close`, `workspace.move_to_window`, `workspace.group.action`
@@ -241,6 +283,9 @@ The repo includes ready-to-copy sidebars in `Examples/CustomSidebars/`:
   review, progress, research, and done.
 - `finder.swift` shows a macOS Finder-style workspace browser with a source
   list, selected workspace details, and tabs.
+- `btop-agents.js` is a btop-style agent activity list: a braille sparkline
+  of recent agent activity per workspace, state glyphs, a small progress meter,
+  and a header graph of busy workspaces.
 
 Install one from a cmux checkout:
 
@@ -285,7 +330,28 @@ with:
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
-  (array of Int) + `portCount`, `unread` (Int notifications), `tabs` + `tabCount`.
+  (array of Int) + `portCount`, `unread` (Int notifications), `status`, `tabs` +
+  `tabCount`. `status` is the workspace's task-status lane, one of `todo`,
+  `working`, `needs-attention`, `review` or `done`. It is the resolved lane:
+  a manual pin set through `cmux workspace status set` or the sidebar menu
+  while that pin still holds, otherwise the lane cmux infers from live signals
+  (an agent waiting on input, a running agent, an open pull request, a dirty
+  working tree). An external tool that pins the lane through
+  `cmux workspace status set` shows up here too.
+
+  `status` is always reported, independently of whether the built-in status
+  glyph is visible. That glyph needs two further conditions the context does
+  not carry: the workspace-todo feature has to be on, which happens through the
+  beta toggle or through the remote feature flag, and the workspace's own
+  `statusHidden` has to be false. A workspace created in this session starts
+  hidden; one restored from a session snapshot that predates the field starts
+  visible. A custom sidebar therefore has to decide for itself whether to
+  render the lane, and it cannot read `statusHidden` from the context.
+
+  Note the two vocabularies differ: this lane uses `needs-attention`, while
+  `agents[j].status` uses `needs_input`. They are separate values from separate
+  sources and are not interchangeable.
+
   Present when the workspace has them (use `if let` / ternary): `description`,
   `color` (hex), `branch` + `dirty` (Bool) from git, `pr`
   (`{ number, label, url, status: open|merged|closed, stale, branch }`, the
@@ -301,10 +367,26 @@ with:
   current working/needs-input state began), `title` (first user prompt),
   `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
   tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  `transcriptPath`, `pid`, and `children` (nested subagent runs under the
+  session, oldest first; omitted when none). Each `children[k]` has `id`
+  (stable for the child's lifetime), `running` (Bool), and `startedEpoch`;
+  when available it adds `label` and `endedEpoch` (set when the child
+  settles; settled children are pruned after a short retention). Headless
+  OMP/Pi subagents run inside the parent's process, so they appear here via
+  `cmux hooks omp|pi subagent-start|subagent-stop` with JSON
+  `{"session_id": "<parent session>", "agent_id": "<stable child id>",
+  "description": "<child label>"}`: start opens the child on the parent
+  record, stop closes the oldest running child (FIFO). The `agent_id` field is
+  not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `hasUnread` (Bool, whether that surface
+  has an unread notification). It is named differently from the workspace-level
+  `unread`, which is a count, so that `w.unread > 0` and `t.hasUnread` cannot be
+  confused for one another. When available: `directory`, `branch` +
+  `dirty`, `ports` (array of Int), `latestPrompt` (the prompt last submitted in
+  that surface, not a pending state) + `latestAt` (epoch). Pair `latestPrompt`
+  with `hasUnread` to show which of a workspace's agents is waiting, instead of
+  collapsing every surface into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
@@ -401,7 +483,7 @@ A button or `.onTapGesture` body calls `cmux("<method>", param: value)`. On tap
 it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
-    ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+    ...onTapGesture { cmux("surface.focus", surface_id: t.surfaceId) }
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`
@@ -438,8 +520,10 @@ The dropped item's id and target index are sent as `workspace_id` and `index`.
             for i in 0..<workspaces.count {
                 if workspaces[i].selected {
                     for j in 0..<workspaces[i].tabs.count {
-                        Button(action: { cmux("surface.focus", surface_id: workspaces[i].tabs[j].id) }) {
-                            HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                        if let surfaceId = workspaces[i].tabs[j].surfaceId {
+                            Button(action: { cmux("surface.focus", surface_id: surfaceId, workspace_id: workspaces[i].id) }) {
+                                HStack { Image(systemName: "doc.text"); Text(workspaces[i].tabs[j].title); Spacer() }.padding(4)
+                            }
                         }
                     }
                 }

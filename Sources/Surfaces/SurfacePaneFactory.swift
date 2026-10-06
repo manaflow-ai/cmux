@@ -17,12 +17,15 @@ enum SurfacePaneFactory {
         case workspaceNotFound(UUID)
         case paneNotFound(String)
         case creationFailed(String)
+        /// Split admission had no room to divide the target pane.
+        case noSpace
 
         var errorDescription: String? {
             switch self {
             case .workspaceNotFound(let id): return "Workspace \(id.uuidString) was not found."
             case .paneNotFound(let id): return "Pane \(id) was not found."
             case .creationFailed(let detail): return "Could not create the pane: \(detail)"
+            case .noSpace: return String(localized: "surface.split.noSpace", defaultValue: "There is no room to split this pane.")
             }
         }
     }
@@ -125,15 +128,28 @@ enum SurfacePaneFactory {
 
     /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
     /// pane it opened with so a caller projecting a group can take that pane's place.
-    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+    /// `focus: false` creates it behind the current selection (no window or workspace switch).
+    static func createLocalWorkspace(title: String, titleSource: Workspace.CustomTitleSource = .user, focus: Bool) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
         guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
             title: title, titleSource: titleSource,
+            select: focus,
             shouldBringToFront: false,
             debugSource: "surface.catalog.newWorkspace"
         ) else {
             throw FactoryError.workspaceNotFound(UUID())
         }
         return (workspace.id, workspace.focusedPanelId)
+    }
+
+    /// A pane an agent or script opened without focus gets the unread dot, so the person
+    /// sees that something landed without being pulled to it. It uses the restored-unread
+    /// indicator, which clears when the person selects the workspace, clicks the pane or
+    /// types in it; a manual mark-unread would survive everything but typing. The pane the
+    /// person is already looking at is left alone.
+    static func markOpenedInBackground(panelID: UUID, in workspaceID: UUID) {
+        guard let workspace = workspace(id: workspaceID), workspace.panels[panelID] != nil else { return }
+        if workspace.owningTabManager?.selectedTabId == workspaceID, workspace.focusedPanelId == panelID { return }
+        workspace.restorePanelUnreadIndicator(panelID)
     }
 
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
@@ -281,6 +297,9 @@ enum SurfacePaneFactory {
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
         }
+        // Typed so a user gesture can choose another placement; layout replay
+        // and socket callers still see the split refused.
+        if case .noSpace = resolution { throw FactoryError.noSpace }
         throw FactoryError.creationFailed("\(resolution)")
     }
 }
@@ -364,5 +383,35 @@ enum SurfaceBrowserPlaceholder {
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """
+    }
+}
+
+extension SurfaceDestination {
+    /// Where a sidebar gesture lands when its split is refused for lack of room:
+    /// a tab in the pane that would have been split (the focused pane for a
+    /// workspace-level split). Nil for destinations that are already tabs.
+    var tabFallbackForRefusedSplit: SurfaceDestination? {
+        switch self {
+        case .workspace(let id, .split): return .workspace(id: id, placement: .tab)
+        case .split(let workspaceID, let paneID, _): return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+        default: return nil
+        }
+    }
+}
+
+extension SurfacePaneFactory {
+    /// Opens with a split when it fits, otherwise as a tab. Only user gestures
+    /// (sidebar opens and display creation) use this; layout replay and socket
+    /// callers keep the refused split so their realized layout stays truthful.
+    static func openPreferringSplit<Result>(
+        at destination: SurfaceDestination,
+        _ open: (SurfaceDestination) async throws -> Result
+    ) async throws -> Result {
+        do {
+            return try await open(destination)
+        } catch FactoryError.noSpace {
+            guard let fallback = destination.tabFallbackForRefusedSplit else { throw FactoryError.noSpace }
+            return try await open(fallback)
+        }
     }
 }

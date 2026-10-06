@@ -23,6 +23,14 @@ extension TerminalController {
         controlCommandCoordinator.invalidateHandleTopologyRefresh()
     }
 
+    /// Refreshes the mirror after workspaces or panes closed outside any socket
+    /// call and without a topology notification, such as a background
+    /// workspace's close.
+    func externalTopologyDidChange() {
+        invalidateSocketHandleTopologyRefresh()
+        scheduleSocketReadSnapshotRefresh()
+    }
+
     private func publishSocketReadSnapshot() {
         let requests: [ControlRequest] = [
             ControlRequest(id: nil, method: "window.list", params: [:]),
@@ -51,7 +59,9 @@ extension TerminalController {
         socketReadSnapshotStore.publish(
             ControlReadSnapshot(generation: nextGeneration, responses: responses)
         )
-        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+        if AppDelegate.shared?.didCompleteInitialSessionRestore == true {
+            controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+        }
     }
 }
 
@@ -155,4 +165,3 @@ extension TerminalController {
         controlCommandCoordinator.handles = store.makeRegistry()
     }
 }
-

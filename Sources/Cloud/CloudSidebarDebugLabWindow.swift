@@ -1,4 +1,5 @@
 #if DEBUG
+import CmuxCloud
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -118,6 +119,11 @@ private struct CloudSidebarDebugControls: View {
                                 }
                             }
                             .labelsHidden()
+                            // `labelsHidden()` leaves the picker with nothing a
+                            // dogfood tour can aim at, so a tour could reach the
+                            // lab but never change preset. The presets are the
+                            // point of the lab.
+                            .accessibilityIdentifier("CloudSidebarDebugLab.preset")
                             Spacer(minLength: 0)
                             CloudSidebarDebugResetButton(
                                 title: String(localized: "debug.cloudSidebarSpacing.preset", defaultValue: "Preset"),
@@ -301,6 +307,10 @@ private enum CloudSidebarDebugFixture {
                 isDesktop: true,
                 activity: .ready,
                 createdAt: Date(timeIntervalSinceNow: -86_400 * 12),
+                // A name long enough to compete with the id and the age on the
+                // same line: the lab exists to show the crowded case, not the
+                // flattering one.
+                createdBy: VMCreator(userId: "debug-user-1", displayName: "Ada Lovelace"),
                 label: "production-hotfix-review-machine-with-a-deliberately-very-long-name",
                 slug: "patient-otter",
                 stats: VMStats(
@@ -315,6 +325,21 @@ private enum CloudSidebarDebugFixture {
                     diskTotalMb: 102_400,
                     diskUsedMb: 77_824
                 )
+            ),
+            // The row above truncates its subtitle inside the id, so the author
+            // never reaches the screen there. A short-id machine is what shows
+            // the change at all: one crowded row and one that fits, which is
+            // also the pair the design call needs to look at.
+            MachineSnapshot(
+                id: "vm-4f2a",
+                provider: "freestyle",
+                image: "cmux-debug-base-image",
+                isDesktop: false,
+                activity: .ready,
+                createdAt: Date(timeIntervalSinceNow: -7_200),
+                createdBy: VMCreator(userId: "debug-user-2", displayName: "Grace Hopper"),
+                label: "api-smoke-test",
+                slug: "brave-otter"
             )
         ]
     }
@@ -447,7 +472,7 @@ private enum CloudSidebarDebugFixture {
         openDesktop: { _ in },
         runCommand: { _, _ in },
         confirmDelete: { _ in },
-        promptRename: { _, _ in },
+        promptRename: { _ in },
         resizeDisk: { _, _ in },
         promptUpgrade: {}
     )

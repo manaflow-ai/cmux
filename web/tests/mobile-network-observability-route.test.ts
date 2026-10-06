@@ -154,6 +154,59 @@ describe("iOS mobile network observability route", () => {
     expect(emitted[0]?.batch[0]).toMatchObject({ operation: "snapshot", path: "relay" });
   });
 
+  test("accepts native Iroh path inventory counts without addresses", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 1,
+        non_relay_path_count: 2,
+        path_count: 3,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        event_surface: 8,
+        event_a: 1,
+        event_b: 2,
+        event_c: 23,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(200);
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      operation: "inventory",
+      transport: "iroh",
+      relayPathCount: 1,
+      nonRelayPathCount: 2,
+      pathCount: 3,
+      eventCode: "transportPathInventory",
+      eventCodeRaw: 83,
+      eventC: 23,
+    });
+  });
+
+  test("rejects an Iroh path inventory whose aggregate exceeds the bound", async () => {
+    const response = await POST(outcomeRequest([{
+      event: "ios_iroh_path_inventory",
+      timestamp: "2026-09-04T12:00:00.000Z",
+      properties: {
+        operation: "inventory",
+        transport: "iroh",
+        relay_path_count: 64,
+        non_relay_path_count: 64,
+        path_count: 128,
+        event_code: "transportPathInventory",
+        event_code_raw: 83,
+        platform: "ios",
+      },
+    }]));
+
+    expect(response.status).toBe(400);
+    expect(emitted).toEqual([]);
+  });
+
   test.each([
     ["raw event code", { event_code_raw: 40 }],
     ["lifecycle operation", { operation: "opened" }],
@@ -285,6 +338,52 @@ describe("iOS mobile network observability route", () => {
       inputToVisibleP95Ms: 86,
       renderP99Ms: 12,
     });
+  });
+
+  test("accepts per-hop stage histograms and pacer counters when present", async () => {
+    const event = terminalWindow();
+    const properties = event.properties as Record<string, unknown>;
+    const counts = JSON.stringify([0, 0, 0, 0, 0, 0, 1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    Object.assign(properties, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      uplink_histogram: counts,
+      uplink_p50_ms: 128,
+      uplink_p95_ms: 128,
+      uplink_p99_ms: 128,
+      pacer_period_histogram: counts,
+      pacer_sample_count: 3,
+      pacer_emitted_count: 33,
+      pacer_coalesced_count: 48,
+      pacer_shed_count: 1,
+      pacer_period_max_ms: 135,
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, accepted: 1 });
+    expect(emitted[0]?.batch[0]).toMatchObject({
+      histograms: { uplink: counts, pacer_period: counts },
+      stageMetrics: { uplink_p95_ms: 128, pacer_coalesced_count: 48, pacer_period_max_ms: 135 },
+    });
+  });
+
+  test("rejects a malformed per-hop stage histogram", async () => {
+    const event = terminalWindow();
+    const counts = JSON.stringify(Array(17).fill(0));
+    Object.assign(event.properties as Record<string, unknown>, {
+      histogram_version: 1,
+      input_to_output_histogram: counts,
+      input_to_visible_histogram: counts,
+      render_histogram: counts,
+      downlink_histogram: "[1,2]",
+    });
+    const response = await POST(outcomeRequest([event]));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "invalid_outcome" });
   });
 
   test("accepts a terminal anomaly as a failure signal", async () => {

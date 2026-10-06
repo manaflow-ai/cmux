@@ -12,7 +12,8 @@ struct CloudMachineWorkspaceResolutionTests {
     func retryUsesBoundWorkspace() {
         let catalog: [String: Any] = [
             "machines": [["id": "machine", "link_state": "connected", "remote_workspaces": [
-                ["id": "ws-first", "focused": false], ["id": "ws-later", "focused": true]
+                ["id": "ws-first", "name": "workspace-1", "focused": false],
+                ["id": "ws-later", "name": "workspace-2", "focused": true]
             ]]],
             "resources": ["first", "later"].map { id -> [String: Any] in
                 ["id": "machine/terminal/term-" + id, "kind": "terminal", "lifecycle": "running",
@@ -20,6 +21,7 @@ struct CloudMachineWorkspaceResolutionTests {
             }
         ]
         let resolver = VMRemoteWorkspaceResolver()
+        #expect(resolver.remoteWorkspaceName("ws-first", machine: "machine", in: catalog) == "workspace-1")
         #expect(resolver.resolveVMMachineTerminal(machine: "machine", catalog: catalog)
             == .resolved(workspaceID: "ws-later", terminalID: "term-later", tabID: "tab-later"))
         #expect(resolver.resolveVMRemoteTerminalPlacement("term-first", machine: "machine", workspaceID: "ws-first", in: catalog)

@@ -1,6 +1,13 @@
 import Foundation
 
 public enum AgentLaunchSanitizer {
+    /// Options whose value names a working directory, in split (`--cwd dir`) or `=` form.
+    /// The app's binding-command canonicalization reads this same set, so a cwd flag added
+    /// here is recognized in both places.
+    public static let workingDirectoryValueOptions: Set<String> = [
+        "--cd", "-C", "--cwd", "--work-dir", "--workspace", "-w",
+    ]
+
     // Runtime/interpreter flags may appear in captured process argv, but they
     // are not portable agent session options to replay after a resume command.
     // Values are token widths, including the option token itself.
@@ -239,16 +246,43 @@ public enum AgentLaunchSanitizer {
         }
         return false
     }
+
+    /// Removes captured cwd options before an argument boundary.
+    ///
+    /// - Parameters:
+    ///   - args: The captured command arguments to sanitize.
+    ///   - workingDirectory: The saved cwd whose matching options should be removed.
+    ///   - agentKind: The exact built-in agent kind, or `nil` for a custom registration.
+    ///     Only consulted by `removeAllWorkingDirectoryOptions`, which drops a cwd option
+    ///     regardless of its value only when ``AgentWorkingDirectoryOptionPolicy`` knows
+    ///     that spelling is a cwd for this kind.
+    ///   - removeAllWorkingDirectoryOptions: Whether to remove every option that is a
+    ///     cwd for `agentKind`, regardless of value. Other cwd-shaped options are still
+    ///     value-matched against `workingDirectory`.
+    /// - Returns: Sanitized arguments while preserving content after `--`.
     public static func removingSavedWorkingDirectoryOptions(
         from args: [String],
-        workingDirectory: String?
+        workingDirectory: String?,
+        agentKind: String? = nil,
+        removeAllWorkingDirectoryOptions: Bool = false
     ) -> [String] {
-        guard let workingDirectory = normalizedWorkingDirectory(workingDirectory) else {
+        let savedWorkingDirectory = normalizedWorkingDirectory(workingDirectory)
+        guard removeAllWorkingDirectoryOptions || savedWorkingDirectory != nil else {
             return args
         }
-
-        let valueOptions: Set<String> = ["--cd", "-C", "--cwd", "--workspace", "-w"]
+        let policy = AgentWorkingDirectoryOptionPolicy(agentKind: agentKind)
+        let removesUnconditionally: (String) -> Bool = { option in
+            removeAllWorkingDirectoryOptions && policy.unconditionallyRemovableValueOptions.contains(option)
+        }
+        let removesAttachedUnconditionally: (String) -> Bool = { option in
+            removeAllWorkingDirectoryOptions && policy.unconditionallyRemovableAttachedShortOptions.contains(option)
+        }
+        let valueMatchesSavedDirectory: (String) -> Bool = { value in
+            savedWorkingDirectory.map { workingDirectoryValue(value, matches: $0) } == true
+        }
+        let valueOptions = workingDirectoryValueOptions
         let optionPrefixes = valueOptions.map { "\($0)=" }
+        let attachedShortValueOptions: Set<String> = ["-C", "-w"]
         var result: [String] = []
         var index = 0
         while index < args.count {
@@ -259,13 +293,36 @@ public enum AgentLaunchSanitizer {
             }
             if valueOptions.contains(arg),
                index + 1 < args.count,
-               workingDirectoryValue(args[index + 1], matches: workingDirectory) {
+               args[index + 1] != "--",
+               removesUnconditionally(arg) || valueMatchesSavedDirectory(args[index + 1]) {
                 index += 2
                 continue
             }
+            // A cwd option sitting immediately before the end-of-options delimiter, or at the
+            // very end, has no value of its own to take. Removing all cwd options would
+            // otherwise swallow "--" as if it were the value, and everything the caller put
+            // after the delimiter would then be sanitized as options -- the opposite of what
+            // this function promises. Drop the bare option and leave the delimiter alone.
+            if removesUnconditionally(arg),
+               index + 1 >= args.count || args[index + 1] == "--" {
+                index += 1
+                continue
+            }
             if let prefix = optionPrefixes.first(where: { arg.hasPrefix($0) }) {
+                let option = String(prefix.dropLast())
                 let value = String(arg.dropFirst(prefix.count))
-                if workingDirectoryValue(value, matches: workingDirectory) {
+                if removesUnconditionally(option) || valueMatchesSavedDirectory(value) {
+                    index += 1
+                    continue
+                }
+            }
+            // `-Continue` or `-Color` must not read as `-C ontinue` unless this kind's `-C`
+            // is a cwd; otherwise the attached form is removed only on an exact value match.
+            if let option = attachedShortValueOptions.first(where: {
+                arg.count > $0.count && arg.hasPrefix($0)
+            }) {
+                let value = String(arg.dropFirst(option.count))
+                if removesAttachedUnconditionally(option) || valueMatchesSavedDirectory(value) {
                     index += 1
                     continue
                 }

@@ -13,6 +13,8 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/queue_janitor.py"
@@ -622,9 +624,48 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("| cancelled |", live)
 
 
+class OwnedMarkerRunTests(unittest.TestCase):
+    def run_of(self, **overrides):
+        run = {"event": "pull_request", "path": ".github/workflows/ci.yml", "run_attempt": 1,
+               "head_repository": {"id": 1}, "repository": {"id": 1}}
+        run.update(overrides)
+        return run
+
+    def test_ci_pull_requests_and_e2e_dispatches_may_hold_an_owned_pool(self):
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(), []))
+        # Attempt 2 is placed like attempt 1, whoever started it (pr_runner_pool.LAST_OWNED_ATTEMPT).
+        bot = {"login": "github-actions[bot]"}
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=2, triggering_actor=bot), []))
+        # A person's re-run follows a code failure and may pick the fleet again.
+        self.assertTrue(janitor.may_hold_owned_pool(self.run_of(run_attempt=3), []))
+        self.assertTrue(janitor.may_hold_owned_pool(
+            self.run_of(event="workflow_dispatch", path=".github/workflows/test-e2e.yml"), []))
+        for why, run in {
+            "ci.yml dispatch": self.run_of(event="workflow_dispatch"),
+            "e2e as a pull request": self.run_of(path=".github/workflows/test-e2e.yml"),
+            "the bot's third attempt": self.run_of(run_attempt=3, triggering_actor={"login": "github-actions[bot]"}),
+            "fork": self.run_of(head_repository={"id": 2}),
+            "other workflow": self.run_of(event="workflow_dispatch", path=".github/workflows/nightly.yml"),
+        }.items():
+            with self.subTest(why=why):
+                self.assertFalse(janitor.may_hold_owned_pool(run, []))
+
+
 class WorkflowShapeTests(unittest.TestCase):
     def setUp(self):
         self.text = WORKFLOW.read_text(encoding="utf-8")
+
+    def test_a_requested_ci_run_refreshes_a_stale_snapshot(self):
+        # The cron drifts (55 minutes apart on 2026-09-25), so CI being
+        # requested also sweeps, unless the newest snapshot is fresh.
+        workflow = yaml.safe_load(self.text)
+        triggers = workflow[True] if True in workflow else workflow["on"]
+        self.assertEqual(triggers["workflow_run"], {"workflows": ["CI"], "types": ["requested"]})
+        steps = workflow["jobs"]["sweep"]["steps"]
+        self.assertEqual(steps[0]["id"], "fresh")
+        self.assertEqual(steps[0]["if"], "github.event_name == 'workflow_run'")
+        for step in steps[1:]:
+            self.assertIn("steps.fresh.outputs.skip != 'true'", step["if"], step["name"])
 
     def test_triggers_permissions_and_runner(self):
         text = self.text
@@ -632,7 +673,8 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("dry_run:", text)
         self.assertNotIn("pull_request", text.split("jobs:")[0].replace("pull-requests: read", ""))
-        self.assertIn("permissions:\n  actions: write\n  pull-requests: read\n  contents: read\n", text)
+        self.assertIn("\npermissions: {}\n", text)
+        self.assertIn("  sweep:\n    permissions:\n      actions: write\n      pull-requests: read\n      contents: read\n", text)
         self.assertIn("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}", text)
         self.assertIn("concurrency:\n  group: ci-queue-janitor\n  cancel-in-progress: false\n", text)
         self.assertIn("vars.CI_JANITOR_QUEUE_THRESHOLD", text)
@@ -763,8 +805,8 @@ class OrphanDetectionTests(unittest.TestCase):
         self.assertEqual(find([run], {run["id"]: [orphan_job(age=60 * 30)]}), [])
 
     def test_sweep_lists_queued_runs_regardless_of_age(self):
-        ghost = make_run(status="queued", age=60 * 24 * 11, name="CI status fallback",
-                         path=".github/workflows/ci-status-fallback.yml")
+        ghost = make_run(status="queued", age=60 * 24 * 11, name="Legacy workflow",
+                         path=".github/workflows/legacy-workflow.yml")
         fake = FakeGitHub({ghost["id"]: ghost})
         runs = fake.in_flight_runs()
         self.assertIn(ghost["id"], [r["id"] for r in runs])
@@ -990,6 +1032,32 @@ class OrphanExecutionTests(unittest.TestCase):
         results, _ = janitor.cancel_orphans(fake, orphan_plan(find([ghost], {})), sleep=lambda _: None)
         self.assertIn("skipped", results[ghost["id"]])
         self.assertEqual(fake.posts(), [])
+
+
+class PlannedCancellationTests(unittest.TestCase):
+    def candidate(self):
+        run = make_run(status="queued")
+        usage = janitor.macos_usage(mac_jobs(queued=1))
+        return janitor.Candidate(run, "stale-pr", "PR is merged", usage), run
+
+    def test_refused_cancel_is_force_cancelled_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("force-cancelled", results[run["id"]])
+        self.assertEqual(failures, 0)
+        self.assertEqual(fake.posts(), [[str(run["id"]), "cancel"], [str(run["id"]), "force-cancel"]])
+
+    def test_run_github_will_not_cancel_is_reported_without_failing(self):
+        candidate, run = self.candidate()
+        fake = FakeGitHub({run["id"]: dict(run)}, refuse_cancel=[run["id"]], refuse_force=[run["id"]])
+
+        results, failures = janitor.cancel_plan(fake, [candidate])
+
+        self.assertIn("stuck", results[run["id"]])
+        self.assertEqual(failures, 0)
 
 
 class OrphanSweepTests(unittest.TestCase):

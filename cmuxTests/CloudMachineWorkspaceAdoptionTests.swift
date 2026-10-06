@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
@@ -117,10 +118,16 @@ struct CloudMachineWorkspaceAdoptionTests {
 
             try provider.install(in: catalog)
             catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
-            #expect(CloudWorkspaceSidebarPresentation(workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false)?
-                .directoryCandidates.first?.hasPrefix("brave-sapphire-lobster") == true)
+            let loadingPresentation = CloudWorkspaceSidebarPresentation(
+                workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false, catalog: catalog
+            )
+            #expect(loadingPresentation?.machineLabel.contains("brave-sapphire-lobster") == true)
+            #expect(loadingPresentation?.directoryCandidates.isEmpty == true)
             let first = try await open(pending, provider: provider, catalog: catalog)
             #expect(first.panelID == loading.id)
+            #expect(CloudWorkspaceSidebarPresentation(
+                workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false, catalog: catalog
+            )?.directoryCandidates.first?.hasPrefix("brave-sapphire-lobster") == true)
             #expect(pending.surfaceIdFromPanelId(first.panelID) == tab)
             #expect(pending.paneId(forPanelId: first.panelID) == pane)
             #expect(pending.panels.count == 1)
