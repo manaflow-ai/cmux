@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -6,6 +6,7 @@ import { sessionSummary } from "./sessionSummary";
 import { SummaryPopover } from "./SummaryPopover";
 import { usePopover } from "./usePopover";
 import { useUiAnchor } from "../../../ui/anchor";
+import { registerPicker } from "../pickerOpeners";
 
 /// The header's summary button and its popover: what this chat has produced so far. The
 /// summary is read from the transcript only while the popover is open, so a live turn pays
@@ -20,15 +21,19 @@ export function SummaryButton({
   const t = useT();
   const { open, setOpen, button, popover, toggle } = usePopover();
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
-  const popoverStyle = useUiAnchor(button, popover, open && Boolean(summary), { side: "below", align: "start" });
+  // At the header's right end, beside the chat menu: the popover's right edge meets the button's.
+  const popoverStyle = useUiAnchor(button, popover, open && Boolean(summary), { side: "below", align: "end" });
+  // Automation and captures open it by its label, as a click does (see pickerOpeners.ts).
+  const label = t("summary.open");
+  useEffect(() => registerPicker(label, () => setOpen(true)), [label, setOpen]);
   return (
     <span className="acpmux-summary">
       <button
         ref={button}
         type="button"
         className="acpmux-summary-button"
-        aria-label={t("summary.open")}
-        title={t("summary.open")}
+        aria-label={label}
+        title={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={toggle}
@@ -40,7 +45,7 @@ export function SummaryButton({
           ref={popover}
           open
           tabIndex={-1}
-          aria-label={t("summary.open")}
+          aria-label={label}
           className="acpmux-summary-popover"
           style={popoverStyle}
         >

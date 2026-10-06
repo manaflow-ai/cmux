@@ -6,10 +6,6 @@ enum EmptyWorkspaceStrings {
         String(localized: "emptyWorkspace.title", defaultValue: "Start something new", bundle: .module)
     }
 
-    static var subtitle: String {
-        String(localized: "emptyWorkspace.subtitle", defaultValue: "Open a new tab or bring your existing work into cmux.", bundle: .module)
-    }
-
     static var new: String {
         String(localized: "emptyWorkspace.new", defaultValue: "New", bundle: .module)
     }

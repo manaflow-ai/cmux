@@ -17,10 +17,8 @@ import { homeSeoCopy } from "../../i18n/audited-seo";
 import { Providers } from "./providers";
 import { DevPanel } from "./components/spacing-control";
 import { ThemeBootstrapScript } from "./theme-bootstrap-script";
-import { darkThemeColor, lightThemeColor } from "./theme-colors";
+import { darkThemeColor, siteThemeBootstrapScript } from "./theme-colors";
 import { sharedClientMessages } from "../../i18n/client-messages";
-
-const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark");document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=light?"${lightThemeColor}":"${darkThemeColor}"})}catch(e){}})()`;
 
 export async function generateMetadata({
   params,
@@ -108,7 +106,7 @@ export default async function LocaleLayout({
       <meta name="theme-color" content={darkThemeColor} />
       <script type="application/ld+json">{organizationJsonLdScript}</script>
       <script type="application/ld+json">{webSiteJsonLdScript}</script>
-      <ThemeBootstrapScript script={themeBootstrapScript} />
+      <ThemeBootstrapScript script={siteThemeBootstrapScript} />
       <NextIntlClientProvider messages={messages}>
         <Providers>
           {children}
