@@ -70,7 +70,7 @@ struct AgentSessionTabItemTests {
 struct UntitledTerminalTabTitleTests {
     private func terminal(cwd: String?) throws -> TabModel {
         let cwd = cwd.map { #","cwd":"\#($0)""# } ?? ""
-        let line = #"{"surface":3,"kind":"terminal","title":""\#(cwd)}"#
+        let line = #"{"surface":3,"kind":"pty","title":""\#(cwd)}"#
         return TabModel(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
     }
 

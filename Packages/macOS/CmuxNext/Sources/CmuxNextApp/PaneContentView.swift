@@ -176,13 +176,15 @@ final class PaneContentView: NSView, PaneContentChrome {
         // Another pane may have reparented `previous` already (a moved tab):
         // only a view still installed here is removed.
         let hosted = previous.flatMap { $0.superview === contentHost ? $0 : nil }
+        // An agent page draws nothing until it paints: what this pane showed
+        // stays until then (`beginPaintHold`), not an empty pane. Not a
+        // browser whose header band the strip leaves now (its header would
+        // jump while it stays).
+        let holds = !isBandActive && holdsForFirstPaint(view, replacing: hosted)
         // The strip's band pins end before the browser leaves (R109).
         if hosted !== view { releaseBand() }
         // An earlier switch still waiting on a first frame ends now.
         endPaintHold()
-        // An agent page draws nothing until it paints: what this pane showed
-        // stays until then (`beginPaintHold`), not an empty pane.
-        let holds = holdsForFirstPaint(view, replacing: hosted)
         if hosted !== view, !holds { hosted?.removeFromSuperview() }
         if let view, view.superview !== contentHost || view.frame != contentHost.bounds {
             view.frame = contentHost.bounds

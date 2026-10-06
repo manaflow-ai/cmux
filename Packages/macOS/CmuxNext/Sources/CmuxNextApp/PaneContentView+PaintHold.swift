@@ -33,9 +33,10 @@ struct PanePaintHold {
 }
 
 extension PaneContentView {
-    /// Whether `view` replacing `hosted` waits for its first frame.
+    /// Whether `view` replacing `hosted` waits for its first frame. Content
+    /// that hid itself when withdrawn (an internal page) has nothing to keep.
     func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
-        guard let hosted, let view, hosted !== view else { return false }
+        guard let hosted, let view, hosted !== view, !hosted.isHidden else { return false }
         return (view as? PaneFirstPaintGated)?.awaitsFirstPaint == true
     }
 

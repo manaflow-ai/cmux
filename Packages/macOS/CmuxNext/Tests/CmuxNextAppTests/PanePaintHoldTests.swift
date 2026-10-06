@@ -77,8 +77,22 @@ struct PanePaintHoldTests {
         pane.show(terminal)
         let agent = Unpainted()
         pane.show(agent)
-        try await Task.sleep(for: PanePaintHold.limit + .milliseconds(200))
+        try await Task.sleep(for: PanePaintHold.limit + .seconds(1))
         #expect(terminal.superview == nil)
+        #expect(agent.alphaValue == 1)
+    }
+}
+
+extension PanePaintHoldTests {
+    /// An outgoing view that hid itself when withdrawn shows nothing to keep.
+    @Test func hiddenOutgoingContentIsNotKept() {
+        let pane = pane()
+        let page = NSView()
+        pane.show(page)
+        page.isHidden = true
+        let agent = Unpainted()
+        pane.show(agent)
+        #expect(page.superview == nil)
         #expect(agent.alphaValue == 1)
     }
 }
