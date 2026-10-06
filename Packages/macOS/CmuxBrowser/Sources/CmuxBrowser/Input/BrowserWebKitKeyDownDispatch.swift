@@ -188,14 +188,17 @@ extension WKWebView {
     /// Edit menu commands `cmux browser press` runs on the web view itself.
     static let menuEditingCommands: Set<String> = ["selectAll:", "copy:", "cut:", "paste:", "undo:", "redo:"]
 
-    /// Routes an Edit menu command `cmux browser press` runs: returns `true`
-    /// when the app ran it itself (a tab a REPL session created runs Copy,
-    /// Cut and Paste on its own clipboard, never the system pasteboard).
-    /// Set by the app; `nil` or `false` runs the web view's own action.
-    public static var automationEditingCommandRoute: (@MainActor (WKWebView, String) -> Bool)?
+    /// The clipboard commands among ``menuEditingCommands``.
+    static let clipboardEditingCommands: Set<String> = ["copy:", "cut:", "paste:"]
 
+    /// Runs an Edit menu command `cmux browser press` sent. In a tab a REPL
+    /// session created (its web view has the page clipboard guard,
+    /// ``BrowserReplPageClipboard/isInstalled(on:)``) Copy, Cut and Paste
+    /// run nothing: such a tab's clipboard is its session's virtual one, and
+    /// `cmux browser press` carries no session, so it may neither reach that
+    /// clipboard nor, as agent input, the system pasteboard.
     private func runAutomationEditingCommand(_ command: String) {
-        if let route = WKWebView.automationEditingCommandRoute, route(self, command) { return }
+        if Self.clipboardEditingCommands.contains(command), BrowserReplPageClipboard.isInstalled(on: self) { return }
         let selector = NSSelectorFromString(command)
         if responds(to: selector) { _ = perform(selector, with: nil) }
     }

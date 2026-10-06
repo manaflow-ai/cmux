@@ -365,7 +365,7 @@ public final class BrowserReplFrameGate {
         }
         return nil
     }
-    private let world: WKContentWorld
+    let world: WKContentWorld
     /// Bounds each of the gate's own probes (a frame's document, its focus,
     /// the frame boxes); one that does not answer in time refuses the call
     /// with `stale`.
@@ -426,8 +426,7 @@ public final class BrowserReplFrameGate {
     /// the gate then judges the new document and runs it again.
     ///
     /// The script runs without a user gesture unless `userGesture` is true
-    /// (the agent's page-world script, which the driver runs under the
-    /// clipboard quarantine): a page's handler it sets off synchronously (a
+    /// (the agent's page-world script): a page's handler it sets off synchronously (a
     /// `focus`, a dispatched event) holds none either, and neither does code
     /// that replaced a getter the script reads in its world, so none of them
     /// can write the system clipboard or open a window.
@@ -560,34 +559,6 @@ public final class BrowserReplFrameGate {
             }
             if ownsFocus ?? true { throw refusal }
         }
-    }
-
-    /// Runs `command`, a Copy, Cut or Paste on the focused frame, only
-    /// while no frame the policy blocks holds the focus, and gives its
-    /// result back only if none holds it after the command either.
-    ///
-    /// The driver checks the focus before it delivers the key, but the
-    /// page's own key handlers run before the command and can move the
-    /// focus into a blocked frame (whose selection the command would copy,
-    /// or into which it would paste the tab's clipboard), and a page can
-    /// move it during the command. So the focus is checked again on a fresh
-    /// tree right before the command, and after it before its result (the
-    /// copied pasteboard) is taken. The page can still move the focus in its
-    /// own web process between the last check and WebKit running the command.
-    public func guardingFocus<T>(
-        in webView: WKWebView,
-        frames: @MainActor () async -> [BrowserReplFrame],
-        _ command: () async throws -> T
-    ) async throws -> T {
-        guard isActive(in: webView) else { return try await command() }
-        try await checkFocus(in: webView, frames: await frames())
-        let value = try await command()
-        do {
-            try await checkFocus(in: webView, frames: await frames())
-        } catch let error as BrowserReplDriverError where error.code == "blocked" {
-            throw BrowserReplDriverError(code: "blocked", message: "\(error.message); the focus moved there during the command, so its result was discarded")
-        }
-        return value
     }
 
     /// Runs `input`, trusted input for the whole tab (a point, a drag, a

@@ -3,14 +3,14 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// An automated HTML5 drag carries the page's drag data from WebKit's
     /// drag start to the drop the driver plays. That data must never sit on
     /// the system's named drag pasteboard, which every process of the user
     /// can read and overwrite while the driver waits for WebKit, and two
     /// drags (two sessions) must never share a pasteboard.
     ///
-    /// Nested in the redirect suite: the drag window uses the same
+    /// Nested in the pasteboard suite: the drag window uses the same
     /// process-wide lookup hook.
     @MainActor
     @Suite("Automated drags", .serialized)
@@ -30,7 +30,7 @@ extension BrowserReplPasteboardRedirectTests {
         @Test func webKitsDragPasteboardIsTheDragsOwnOnlyWhileItsWindowIsOpen() async {
             let capture = BrowserAutomationDragCapture()
             defer { capture.finish() }
-            let redirect = BrowserReplPasteboardRedirect.shared
+            let redirect = BrowserReplDragPasteboardRedirect.shared
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
             #expect(await capture.openPasteboardWindow())
             #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) === capture.pasteboard)
@@ -55,7 +55,7 @@ extension BrowserReplPasteboardRedirectTests {
                 first.finish()
                 second.finish()
             }
-            let redirect = BrowserReplPasteboardRedirect.shared
+            let redirect = BrowserReplDragPasteboardRedirect.shared
             let clock = ManualClock()
             #expect(await redirect.openDragWindow(first.pasteboard, timeout: .seconds(5), clock: clock))
             let waiting = Task { @MainActor in
@@ -86,7 +86,7 @@ extension BrowserReplPasteboardRedirectTests {
             capture.pasteboard.clearContents()
             capture.pasteboard.setString("drag data", forType: .string)
             capture.finish()
-            #expect(BrowserReplPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
+            #expect(BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
             #expect(capture.pasteboard.types?.isEmpty ?? true)
             #expect(await !capture.openPasteboardWindow())
         }

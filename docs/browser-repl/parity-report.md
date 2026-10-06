@@ -14,7 +14,7 @@ and any member without a same or better case.
 
 - Reference A: 1.26.916.1741, recorded 2026-09-30T14:00:25.952Z.
 - Reference B: the installed app's reference runtime, AX and legacy modes, recorded 2026-09-30T14:01:09.330Z.
-- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 158 of 159 verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).
+- cmux app: tagged build `brepl-in2` at 0a2c79e2ce, recorded 2026-10-02T03:52:27.727Z; 157 of 159 verdicts use the app's result, the rest the dev driver's (Playwright WebKit, the same runtime).
 
 ## Totals
 
@@ -461,7 +461,7 @@ non-loopback host for reference A, a process kill or a person's click).
 | `edge.zoom-scale` | edge:zoomed-page, edge:device-scale | cmux | same | same |
 | `edge.large-page` | edge:large-page | cmux | same | better |
 | `edge.ime-only-editor` | edge:ime-only-editor | cmux | scope | scope |
-| `edge.trusted-paste` | edge:trusted-paste | cmux | scope | scope |
+| `edge.trusted-paste` | edge:trusted-paste | cmux-dev | scope | scope |
 | `tabs.claim-other-workspace` | BrowserUser.claimTab, BrowserUser.openTabs | cmux | n/a | same |
 | `edge.sessions-two-tabs` | edge:sessions-two-tabs | cmux | same | scope |
 | `edge.sessions-same-tab` | edge:sessions-same-tab | cmux-dev | n/a | n/a |

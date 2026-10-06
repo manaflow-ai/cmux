@@ -5,7 +5,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// Page scripts in a tab a REPL session created (the Clipboard API, a
     /// `ClipboardItem` whose data arrives later, `execCommand("copy")`) must
     /// never write the system clipboard, at any time: an agent's click gives
@@ -20,8 +20,8 @@ extension BrowserReplPasteboardRedirectTests {
     /// stand-in and the person's clipboard stays untouched. The real one is
     /// only read (its change count).
     ///
-    /// Nested in the redirect suite: the stand-in replaces process-wide
-    /// lookups, so these tests must not run alongside the redirect's.
+    /// Nested in the pasteboard suite: the stand-in replaces process-wide
+    /// lookups, so these tests must not run alongside the drag hook tests.
     @MainActor
     @Suite("Page scripts", .serialized)
     struct PageScripts {
