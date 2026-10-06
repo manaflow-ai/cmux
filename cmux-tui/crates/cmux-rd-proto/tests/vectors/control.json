@@ -7,5 +7,6 @@
   {"name": "started", "json": {"t": "started", "session": 7}},
   {"name": "refused", "json": {"t": "refused", "reason": "service"}},
   {"name": "ended", "json": {"t": "ended", "reason": "stop"}},
-  {"name": "stats", "json": {"t": "stats", "kbps": 900, "frames": 10, "keyframes": 1, "cpu_pct": 12.5, "encode_ms_p50": 4.0, "loss_pct": 0.0}}
+  {"name": "stats", "json": {"t": "stats", "kbps": 900, "frames": 10, "keyframes": 1, "cpu_pct": 12.5, "encode_ms_p50": 4.0, "loss_pct": 0.0}},
+  {"name": "service", "json": {"t": "service", "service": "rb/1", "body": {"t": "rb.open", "tab": "tab-1", "caps": ["popups"], "nested": {"n": 1}}}}
 ]
