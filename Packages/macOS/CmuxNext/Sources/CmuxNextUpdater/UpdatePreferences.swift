@@ -2,7 +2,9 @@ import Foundation
 
 /// How a ready update makes itself known (`updates.notify`).
 nonisolated public enum UpdateNotifyMode: String, Sendable, CaseIterable {
-    /// The quiet "Update ready" card above Settings, plus the Settings badge.
+    /// The Settings badge. A staged update no longer shows a card
+    /// (Lawrence 2026-10-05), so this is ``badge`` until the setting's
+    /// owner retires the choice.
     case card
     /// Only the badge on the Settings item.
     case badge
