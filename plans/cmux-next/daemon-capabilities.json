@@ -50,6 +50,7 @@
     "terminal-pending-sequence-v1",
     "terminal-placement-env-v1",
     "terminal-reap-v1",
+    "terminal-reaper-active-v1",
     "terminal-shell-args-v1",
     "terminal-snapshot-history-v1",
     "terminal-snapshot-images-v1",
