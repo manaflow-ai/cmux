@@ -206,7 +206,7 @@ struct SidebarFooterMenuButton: View {
             featureFlagEnabled: flow?.isProUpgradeAvailable
                 ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
             isProActive: flow?.isProActive == true,
-            isProStatusKnown: flow?.isAuthenticated != true || flow?.isProStatusKnown == true
+            isProStatusKnown: identity == nil || flow?.isProStatusKnown == true
         )
         if offersUpgrade {
             menu.addSidebarFooterSeparator()
