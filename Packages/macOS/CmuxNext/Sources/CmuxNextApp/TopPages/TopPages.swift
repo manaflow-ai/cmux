@@ -22,6 +22,7 @@ enum TopPages {
         }
         controller.showTopPage(route)
         controller.topPages.focus(route, in: controller.window)
+        services.locationTrail.pageDidShow(route, title: controller.topPages.title(for: route), in: controller)
         if case .home = route { return "" }
         return controller.topPages.key(for: route)
     }
