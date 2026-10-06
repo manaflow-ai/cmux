@@ -73,6 +73,9 @@ pub struct TabState {
     pub nav_seq: u64,
     pub last_nav_same_document: bool,
     pub buttons: i64,
+    /// Keys pressed and not released, oldest first: (key, code, location).
+    /// Released when the last session leaves the tab.
+    pub held_keys: Vec<(String, String, i64)>,
     pub mouse: (f64, f64),
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
@@ -111,6 +114,7 @@ impl TabState {
             nav_seq: 0,
             last_nav_same_document: false,
             buttons: 0,
+            held_keys: Vec::new(),
             mouse: (0.0, 0.0),
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
