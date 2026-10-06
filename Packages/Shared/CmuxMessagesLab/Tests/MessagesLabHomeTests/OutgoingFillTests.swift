@@ -52,4 +52,32 @@ import Testing
         #expect(cell.fillGradient.colors?.count == Fixture.gradientStops.count)
         #expect(cell.fillGradient.locations?.count == Fixture.gradientStops.count)
     }
+
+    /// iMessage shows only the red "!" beside my undelivered photo: the save
+    /// button (28 pt, 14 pt left of the media) sat under the badge, which read
+    /// as a download icon with a "!" on it.
+    @Test func aFailedPhotoShowsTheBadgeWithoutTheSaveButton() throws {
+        let (p, c) = Fixture2.projection()
+        let ref = AttachmentRef(hash: "h-shot", name: "shot.png", mimeType: "image/png", byteCount: 10, width: 800, height: 500)
+        let failed = TranscriptItem(key: IdempotencyKey("shot"), seq: nil, author: me, parts: [.attachment(ref)],
+                                    createdAt: Fixture2.start.addingTimeInterval(400), delivery: .notDelivered(.invalid("x")))
+        p.apply(items: Fixture2.history(2) + [failed], summary: Fixture2.summary(lastSeq: 2), typing: [], hasOlder: false)
+        let spec = try #require(c.demo.model.rows.first { $0.spec.key == "part:shot:0" }?.spec)
+        // The row bitmap the cell shows, at 1x, redrawn into a known RGBA layout.
+        let scale = Fixture.renderScale
+        Fixture.renderScale = 1
+        defer { Fixture.renderScale = scale }
+        let image = RowBitmaps.render(spec)
+        let span = RowDraw.drawSpan(spec)
+        let body = RowDraw.bodyRect(spec).offsetBy(dx: -span.lowerBound, dy: 0)
+        let w = image.width, h = image.height
+        let ctx = try #require(CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                         space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let bytes = try #require(ctx.data).assumingMemoryBound(to: UInt8.self)
+        func alpha(_ x: CGFloat, _ y: CGFloat) -> UInt8 { bytes[(Int(y) * w + Int(x)) * 4 + 3] }
+        #expect(alpha(body.minX - 14, body.midY) > 0, "the red badge is drawn")
+        #expect(alpha(body.minX - 36, body.midY) == 0, "no save button left of the badge")
+    }
 }
