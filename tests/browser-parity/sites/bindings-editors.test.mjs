@@ -83,11 +83,75 @@ test("googleSheets.append: rows added after the preview are never overwritten; t
   cells.set("A5", "Insurance");
   cells.set("B5", "80");
   try {
-    assert.match(await s.error("sites.googleSheets.append(apD.id, { confirm: true })"), /content_mismatch|range is "A6:B6", not "A5:B5"/);
+    assert.match(await s.error("sites.googleSheets.append(apD.id, { confirm: true })"), /object it acts on differs|appendAt is "A6", not "A5"/);
     assert.deepEqual([cells.get("A5"), cells.get("B5")], ["Insurance", "80"], "the collaborator's row was overwritten");
   } finally {
     cells.delete("A5");
     cells.delete("B5");
+  }
+});
+
+// r23 sites#1: the append position (the first empty row after the data)
+// is read again right before each input batch, not only at the
+// confirmation's read-back: a row a collaborator adds between that
+// read-back and the paste (or between two typed rows) is never
+// overwritten, and the write fails as target_mismatch.
+test("googleSheets.append: a row added after the confirmation's read-back and before the paste is never overwritten (target_mismatch)", async () => {
+  const SHEET = "https://docs.google.com/spreadsheets/d/1sheetSHARED00000000000000000000x/edit#gid=0";
+  const cells = files.get("1sheetSHARED00000000000000000000x").sheets[0].cells;
+  await s.run(`var apP = await sites.googleSheets.append(${JSON.stringify(SHEET)}, [["Tax", "50"]])`);
+  assert.equal((await s.value("apP.preview")).range, "A5:B5");
+  // The first key of the commit is Enter in the name box (selecting the
+  // drafted start cell), after the read-back: the collaborator adds a row then.
+  let added = false;
+  s.intercept(async (method, params) => {
+    if (!added && method === "input.key" && params && params.key === "Enter") {
+      added = true;
+      cells.set("A5", "Insurance");
+      cells.set("B5", "80");
+    }
+    return undefined;
+  });
+  try {
+    const err = await s.error("sites.googleSheets.append(apP.id, { confirm: true })");
+    assert.ok(added, "the collaborator's row was not added during the confirmation");
+    assert.match(String(err), /object it acts on differs|appendAt is "A6", not "A5"/);
+    await Promise.all([...(files.get("1sheetSHARED00000000000000000000x").pending || [])]);
+    assert.deepEqual([cells.get("A5"), cells.get("B5")], ["Insurance", "80"], "the collaborator's row was overwritten");
+  } finally {
+    s.intercept(null);
+    cells.delete("A5");
+    cells.delete("B5");
+  }
+});
+
+test("googleSheets.append: typed fallback reads the append position again before each row; a row added between two typed rows is never overwritten", async () => {
+  const SHEET = "https://docs.google.com/spreadsheets/d/1sheetSHARED00000000000000000000x/edit#gid=0";
+  const file = files.get("1sheetSHARED00000000000000000000x");
+  const cells = file.sheets[0].cells;
+  const original = new Map(cells);
+  await s.run(`var apT = await sites.googleSheets.append(${JSON.stringify(SHEET)}, [["Tax", "50"], ["Fee", "9"]])`);
+  assert.equal((await s.value("apT.preview")).range, "A5:B6");
+  file.ignorePaste = true;
+  file.edits = [];
+  // After the first typed row reaches Google, a collaborator adds a row
+  // where the second typed row would go.
+  file.onEdit = (data) => {
+    if (data.via === "typed" && file.edits.filter((e) => e === "typed").length === 2) {
+      cells.set("A6", "Insurance");
+      cells.set("B6", "80");
+    }
+  };
+  try {
+    const err = await s.error("sites.googleSheets.append(apT.id, { confirm: true })");
+    assert.match(String(err), /object it acts on differs|appendAt is "A7", not "A5"/);
+    assert.deepEqual(file.edits, ["typed", "typed"], "the second row was typed after the collaborator's row appeared");
+  } finally {
+    await Promise.all([...(file.pending || [])]);
+    file.onEdit = null;
+    file.ignorePaste = false;
+    file.edits = [];
+    file.sheets[0].cells = original;
   }
 });
 

@@ -390,7 +390,12 @@ nw.addEventListener("keydown", (e) => {
     // Cell edits reach the saved file (what exports read) 800 ms later.
     if (action === "cells" || action === "clear") {
       if (data.via) (file.edits ||= []).push(data.via);
-      setTimeout(() => apply(file, action, data), 800);
+      // onEdit: a test standing in for a collaborator who edits the sheet
+      // the moment this edit reaches Google (before it is saved).
+      if (file.onEdit) file.onEdit(data);
+      // file.pending: the edits not yet saved, for a test to await.
+      const saved = new Promise((resolve) => setTimeout(() => { apply(file, action, data); file.pending.delete(saved); resolve(); }, 800));
+      (file.pending ||= new Set()).add(saved);
       return { json: { ok: true } };
     }
     if (action === "title") file.title = data.title;
