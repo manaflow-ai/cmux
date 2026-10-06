@@ -41,6 +41,7 @@ import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
+import { installTooltips } from "./tooltips";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -904,6 +905,7 @@ function wideSidebar(): boolean {
 
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
+  useEffect(() => installTooltips(document), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane />
@@ -1189,10 +1191,6 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
     void callNative("chat.select", { sessionId });
   }, []);
-  const newChat = useCallback(() => {
-    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
-    void callNative("chat.new").catch(() => undefined);
-  }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -1283,6 +1281,19 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
+  const freshChatRef = useRef(freshChat);
+  freshChatRef.current = freshChat;
+  // New chat always lands in a focused composer. An empty chat is already a new chat, so
+  // another click focuses it instead of starting a duplicate session.
+  const newChat = useCallback(() => {
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
+    const focusPrompt = () => requestAnimationFrame(() => prompt.current?.focus());
+    if (freshChatRef.current) {
+      focusPrompt();
+      return;
+    }
+    void callNative("chat.new").then(focusPrompt, () => undefined);
+  }, []);
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -2093,7 +2104,8 @@ function AcpmuxPane() {
                 ) : freshChat ? (
                   <EmptyState
                     project={projectName(snapshot.summary?.cwd)}
-                    onNew={newChat}
+                    // A generic New picks the kind on the New Tab page; only "New chat" starts a chat.
+                    onNew={() => void callNative("action.run", { id: "newTab.page" }).catch(() => undefined)}
                     onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
                   />
                 ) : (
