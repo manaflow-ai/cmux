@@ -35,10 +35,7 @@ on:
         default: false
         type: boolean
 
-permissions:
-  actions: read
-  issues: write
-  contents: read
+permissions: {}
 
 # The report refreshes one comment in place, so two runs must not read the same
 # comment and then overwrite each other.
@@ -48,6 +45,10 @@ concurrency:
 
 jobs:
   report:
+    permissions:
+      actions: read
+      issues: write
+      contents: read
     name: Report CI health
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # Measured against this repo: a window's run listings plus ~160 job
@@ -88,10 +89,12 @@ jobs:
           # CI_PR_POOL_ORDER is the one list that may also name owned pools.
           CMUX_CI_RUNNER_VARIABLES: |
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
+            CI_NIGHTLY_DECIDE_RUNNER=${{ vars.CI_NIGHTLY_DECIDE_RUNNER }}
             CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
             CI_PR_POOL_ORDER=${{ vars.CI_PR_POOL_ORDER }}
             CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}
             CI_SIDE_LANE_RUNNER=${{ vars.CI_SIDE_LANE_RUNNER }}
+            CI_TRUSTED_RUNNER=${{ vars.CI_TRUSTED_RUNNER }}
             CMUX_CI_RUNNER_FLEET=${{ vars.CMUX_CI_RUNNER_FLEET }}
             CMUX_CI_RUNNER_OVERRIDES=${{ vars.CMUX_CI_RUNNER_OVERRIDES }}
             LINUX_ARM64_RUNNER=${{ vars.LINUX_ARM64_RUNNER }}
