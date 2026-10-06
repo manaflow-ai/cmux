@@ -158,11 +158,72 @@ enum CmuxEmbeddedConfigSchema {
       "additionalProperties": false,
       "description": "Behavior of custom (user or agent authored) sidebars.",
       "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": true, "description": "Enable custom sidebars in the sidebar provider picker." }
+          }
+        },
         "renderer": {
           "type": "string",
           "enum": ["inProcess", "remote"],
           "default": "inProcess",
           "description": "How a selected custom sidebar renders. \"inProcess\" renders native SwiftUI inside cmux with full hover, focus, and keyboard input; use it only for sidebars you authored. \"remote\" renders in an isolated worker process so a faulty sidebar cannot crash cmux, with input limited to clicks."
+        }
+      }
+    },
+    "extensions": {
+      "x-cmux-scopes": ["global"],
+      "title": "extensions",
+      "description": "Experimental sidebar extension settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Enable the ExtensionKit sidebar extension surface." }
+          }
+        }
+      }
+    },
+    "cloud": {
+      "x-cmux-scopes": ["global"],
+      "title": "cloud",
+      "description": "Cloud feature settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "machines": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Enable Cloud Machines." }
+              }
+            }
+          }
+        }
+      }
+    },
+    "remoteTmux": {
+      "x-cmux-scopes": ["global"],
+      "title": "remoteTmux",
+      "description": "Remote tmux mirroring settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+          }
         }
       }
     },
@@ -942,6 +1003,55 @@ enum CmuxEmbeddedConfigSchema {
             }
           }
         },
+        "titleUpdates": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Terminal title update throttling and diagnostics.",
+          "properties": {
+            "coalescing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": true,
+                  "description": "Throttle high-frequency terminal title updates before they reach workspace and sidebar metadata."
+                },
+                "delayMilliseconds": {
+                  "type": "integer",
+                  "minimum": 33,
+                  "maximum": 5000,
+                  "default": 1000,
+                  "description": "Delay between coalesced terminal title updates in milliseconds."
+                }
+              }
+            },
+            "diagnostics": {
+              "type": "boolean",
+              "default": false,
+              "description": "Enable DEBUG logging for terminal title update enqueue and flush events."
+            }
+          }
+        },
+        "runawayMemoryGuardrail": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Per-pane process-tree memory monitoring.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Monitor pane process trees for runaway memory use."
+            },
+            "thresholdGB": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 256,
+              "default": 8,
+              "description": "Resident-memory threshold in gigabytes for a pane process tree."
+            }
+          }
+        },
         "textBoxMaxLines": {
           "type": "integer",
           "minimum": 1,
@@ -1425,6 +1535,11 @@ enum CmuxEmbeddedConfigSchema {
           "default": "vertical",
           "description": "Show git branch details stacked vertically or inline."
         },
+        "branchVerticalLayout": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show git branch details stacked vertically when true, or inline when false. This boolean form is the canonical setting; branchLayout remains supported as a legacy alias."
+        },
         "stackBranchDirectory": {
           "type": "boolean",
           "default": false,
@@ -1553,6 +1668,22 @@ enum CmuxEmbeddedConfigSchema {
             "terminal": { "type": "string", "minLength": 1 }
           },
           "additionalProperties": false
+        },
+        "activeTabIndicatorStyle": {
+          "type": "string",
+          "enum": ["leftRail", "solidFill", "rail", "border", "wash", "lift", "typography", "washRail", "blueWashColorRail"],
+          "default": "leftRail",
+          "description": "Active workspace indicator style in the sidebar."
+        },
+        "selectionColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the selected workspace background color in the sidebar."
+        },
+        "notificationBadgeColor": {
+          "$ref": "#/$defs/colorHexOrNull",
+          "default": null,
+          "description": "Override the unread notification badge color in the sidebar."
         },
         "rightMaxWidth": {
           "type": "number",
@@ -1800,6 +1931,66 @@ enum CmuxEmbeddedConfigSchema {
           "minimum": 1,
           "default": 10,
           "description": "Number of ports reserved per workspace."
+        }
+      }
+    },
+    "integrations": {
+      "x-cmux-scopes": ["global"],
+      "title": "integrations",
+      "description": "Canonical external agent and search integration settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "claudeCode": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Claude Code." },
+            "customClaudePath": { "type": "string", "default": "", "description": "Custom path to the Claude Code binary." }
+          }
+        },
+        "codex": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Codex." } }
+        },
+        "pi": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Pi." } }
+        },
+        "amp": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Amp." } }
+        },
+        "cursor": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Cursor." } }
+        },
+        "gemini": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Gemini." } }
+        },
+        "kiro": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hooksEnabled": { "type": "boolean", "default": true, "description": "Enable cmux hooks for Kiro CLI." },
+            "notificationLevel": { "type": "string", "enum": ["minimal", "standard", "verbose"], "default": "standard", "description": "Controls how many Kiro tool events appear in Feed." }
+          }
+        },
+        "ripgrep": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "customBinaryPath": { "type": "string", "default": "", "description": "Custom path to the ripgrep binary used by project search." } }
+        },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suppress visible completion notifications from nested agent sessions."
         }
       }
     },
@@ -2133,7 +2324,22 @@ enum CmuxEmbeddedConfigSchema {
       "description": "Legacy and extension-owned right-sidebar configuration preserved in cmux.json.",
       "descriptionKey": "schemaDescriptions.rightSidebar",
       "type": "object",
-      "additionalProperties": true
+      "additionalProperties": true,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "feed": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Enable the beta Feed mode in the right sidebar." }
+              }
+            }
+          }
+        }
+      }
     },
     "shortcuts": {
       "x-cmux-scopes": ["global"],
