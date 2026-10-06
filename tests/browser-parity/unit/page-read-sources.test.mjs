@@ -131,3 +131,25 @@ test("agent-tools reads: extract, dropdownOptions, searchText and markdown main 
     assert.ok((m.innerText || 0) <= READ_SIZE, `markdown main detection read a ${m.innerText}-character innerText`);
   });
 });
+
+test("snapshot: generated content, placeholders and option text are cut to the size budget before they are parsed or normalized", async () => {
+  await withRepl(async (run) => {
+    const cases = {
+      pseudo: `document.body.innerHTML = '<style id="s"></style><p id="p">x</p>'; document.getElementById("s").textContent = '#p::before { content: "' + "B ".repeat(BIG / 2) + '"; }';`,
+      placeholder: `document.body.innerHTML = '<input id="i">'; document.getElementById("i").setAttribute("placeholder", "B ".repeat(BIG / 2));`,
+      option: `document.body.innerHTML = '<select size="2"><option id="o"></option><option>b</option></select>'; document.getElementById("o").textContent = "B ".repeat(BIG / 2);`,
+    };
+    for (const [name, setup] of Object.entries(cases)) {
+      const r = await run(`${prepare(setup)}
+        const s = await snapshot({ maxChars: Infinity, _maxSize: 1000 });
+        console.log("@@" + JSON.stringify({ longest: ${longest}, cut: /too large to read whole/.test(s.tree) }));`);
+      const v = JSON.parse(r.value);
+      // A name (here the placeholder's) reads at most its own bound,
+      // 20,000 characters, whatever the size budget.
+      for (const key of ["replace", "exec", "label", "text", "textContent"]) {
+        assert.ok((v.longest[key] || 0) <= 20100, `${name}: the snapshot worked on a ${v.longest[key]}-character string (${key}) with 1,000 characters of budget`);
+      }
+      assert.ok(v.cut, `${name}: the snapshot did not say it was cut`);
+    }
+  });
+});
