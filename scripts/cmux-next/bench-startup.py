@@ -296,6 +296,13 @@ def app_tab_id(app, workspace_name, timeout, wanted=lambda tab: True):
     return ""
 
 
+def project_panes(app, name="project-01"):
+    """The panes of a seeded workspace, in the app's screen order."""
+    topology = (app.call("snapshot.get").get("result") or {}).get("topology") or {}
+    return [pane for workspace in topology.get("workspaces", []) if workspace.get("name") == name
+            for screen in workspace.get("screens", []) for pane in screen.get("panes", [])]
+
+
 def seed_realistic(tag, scratch, timeout):
     """Fills the tag's state with a day's work (see --profile realistic) and
     leaves the daemon running."""
@@ -326,9 +333,15 @@ def seed_realistic(tag, scratch, timeout):
         focus_tab = app_tab_id(app, "project-01", timeout)
         if not focus_tab:
             print(f"  {tag}: the app never listed a tab in project-01", file=sys.stderr)
-        steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None), ("palette.newAgentChat", None)]
+        steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None)]
+        if SEED_FOCUS == "terminal":
+            # A launch focuses the screen's first pane: the chat goes in the
+            # last one, so the focused pane at launch is a terminal.
+            steps.append(("palette.goToTab", lambda: {"kind": "tab", "id": project_panes(app)[-1]["tabs"][0]["id"]}))
+        steps.append(("palette.newAgentChat", None))
         agent = True
         for action, target in steps:
+            target = target() if callable(target) else target
             reply = app.call("action.run", {"action": action, **({"target": target} if target else {})})
             if not reply.get("ok"):
                 print(f"  {tag}: seeding without an agent chat ({action}: {reply.get('error')})", file=sys.stderr)
@@ -351,9 +364,7 @@ def seed_realistic(tag, scratch, timeout):
         if agent and SEED_FOCUS == "terminal":
             # The chat stays visible in its pane; a terminal beside it has focus.
             app = app_client(tag)
-            panes = [pane for workspace in ((app.call("snapshot.get").get("result") or {}).get("topology") or {}).get("workspaces", [])
-                     if workspace.get("name") == "project-01" for screen in workspace.get("screens", []) for pane in screen.get("panes", [])]
-            other = next((pane["tabs"][0]["id"] for pane in panes
+            other = next((pane["tabs"][0]["id"] for pane in project_panes(app)
                           if pane.get("tabs") and not any(tab.get("kind") == "conversation" for tab in pane["tabs"])), "")
             reply = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": other}}) if other else {}
             app.close()
