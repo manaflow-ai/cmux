@@ -57,6 +57,10 @@ pub enum Command {
 
 /// The command line form of the memory and subagent tools.
 pub fn command(tool: &str, args: &[&str]) -> Result<Command, String> {
+    // A flag is never a task or a message: asking for help starts nothing.
+    if args.iter().any(|a| matches!(*a, "--help" | "-h")) {
+        return Ok(Command::Help(usage(tool)));
+    }
     let call = match (tool, args) {
         ("zoom", [id, n]) => Call::parse("zoom", &serde_json::json!({"id": id, "n": n})),
         ("date", [id]) => Call::parse("date", &serde_json::json!({"id": id})),
