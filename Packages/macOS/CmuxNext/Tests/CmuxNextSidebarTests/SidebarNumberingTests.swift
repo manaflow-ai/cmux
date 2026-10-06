@@ -1,32 +1,45 @@
 @testable import CmuxNextSidebar
 import Testing
 
-/// R119: Cmd+1…9 numbers Home first, then the workspaces in sidebar order;
-/// Cmd+9 is the last. Home is never numbered twice, and with no Home yet
-/// the workspaces start at 1.
+/// R119 + TOP-SECTION-ITEMS-ARE-PAGES: Cmd+1 is the first top-section item
+/// (Home by default; it opens Home's page), then the workspaces in sidebar
+/// order; Cmd+9 is the last. With no top item the workspaces start at 1.
 struct SidebarNumberingTests {
-    @Test func homeIsOneThenWorkspacesInOrder() {
-        let order = SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).order
-        #expect(order == ["home", "a", "b", "c"])
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(1) == "home")
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(2) == "a")
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b", "c"]).pick(4) == "c")
+    static let home = LayoutItemID("itm_home")
+
+    /// The numbering with Home as the first top item, written as strings.
+    static func order(_ workspaces: [String], first: LayoutItemID? = home) -> [String] {
+        SidebarNumbering(firstTopItem: first, workspaces: workspaces).order.map(name)
+    }
+
+    static func pick(_ number: Int, _ workspaces: [String], first: LayoutItemID? = home) -> String? {
+        SidebarNumbering(firstTopItem: first, workspaces: workspaces).pick(number).map(name)
+    }
+
+    static func name(_ target: SidebarNumbering.Target) -> String {
+        switch target {
+        case .topItem(let item): "item:" + item.rawValue
+        case .workspace(let id): id
+        }
+    }
+
+    @Test func theFirstTopItemIsOneThenWorkspacesInOrder() {
+        #expect(Self.order(["a", "b", "c"]) == ["item:itm_home", "a", "b", "c"])
+        #expect(SidebarNumbering(firstTopItem: Self.home, workspaces: ["a"]).pick(1) == .topItem(Self.home))
+        #expect(Self.pick(2, ["a", "b", "c"]) == "a")
+        #expect(Self.pick(4, ["a", "b", "c"]) == "c")
     }
 
     @Test func nineIsLastAndPastTheEndClamps() {
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b"]).pick(9) == "b")
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "b"]).pick(6) == "b")
-        #expect(SidebarNumbering(home: "home", workspaces: []).pick(9) == "home")
+        #expect(Self.pick(9, ["a", "b"]) == "b")
+        #expect(Self.pick(6, ["a", "b"]) == "b")
+        #expect(Self.pick(9, []) == "item:itm_home")
     }
 
-    @Test func homeListedAmongWorkspacesIsNotNumberedTwice() {
-        #expect(SidebarNumbering(home: "home", workspaces: ["a", "home", "b"]).order == ["home", "a", "b"])
-    }
-
-    @Test func noHomeStartsAtTheFirstWorkspace() {
-        #expect(SidebarNumbering(home: nil, workspaces: ["a", "b"]).pick(1) == "a")
-        #expect(SidebarNumbering(home: nil, workspaces: []).pick(1) == nil)
-        #expect(SidebarNumbering(home: "home", workspaces: ["a"]).pick(0) == nil)
+    @Test func noTopItemStartsAtTheFirstWorkspace() {
+        #expect(Self.pick(1, ["a", "b"], first: nil) == "a")
+        #expect(Self.pick(1, [], first: nil) == nil)
+        #expect(Self.pick(0, ["a"]) == nil)
     }
 
     static func ws(_ id: String, machine: MachineID = .local, state: SidebarRowState = .live) -> SidebarWorkspace {
@@ -52,8 +65,8 @@ struct SidebarNumberingTests {
     /// machine section, workspaces inside a group in place, placeholders skipped.
     @MainActor @Test func numberingFollowsTheSidebarRowOrderAcrossSections() {
         let model = Self.model()
-        #expect(SidebarNumbering(home: "home", workspaces: model.visibleWorkspaceIDs).order == ["home", "p1", "w1", "w2", "w3", "c1"])
-        #expect(SidebarNumbering(home: "home", workspaces: model.visibleWorkspaceIDs).pick(9) == "c1")
+        #expect(Self.order(model.visibleWorkspaceIDs) == ["item:itm_home", "p1", "w1", "w2", "w3", "c1"])
+        #expect(Self.pick(9, model.visibleWorkspaceIDs) == "c1")
     }
 
     /// Rows the user cannot see get no number: a collapsed section, a
@@ -64,6 +77,6 @@ struct SidebarNumberingTests {
         let filtered = Self.model()
         filtered.filterText = "w"
         #expect(filtered.visibleWorkspaceIDs == ["w1", "w2", "w3"])
-        #expect(SidebarNumbering(home: "home", workspaces: filtered.visibleWorkspaceIDs).pick(9) == "w3")
+        #expect(Self.pick(9, filtered.visibleWorkspaceIDs) == "w3")
     }
 }
