@@ -9,6 +9,8 @@ cmux-tui, acpmux and their hosts running after a quit, and they hold PTYs. Only 
 this job's own copy of the app are stopped, by exact PID.
 
 Usage: agent-pane-live.py <stage> --job <cmux-ci job id> --tag <the build's tag>
+Teardown checks: CMUX_LIVE_INJECT_FAILURE=1 fails once the app is up; CMUX_LIVE_HOLD_SECONDS=N
+holds N seconds once the app is up (it prints the script PID for a SIGTERM or SIGINT).
 Run under nx-remote on cmux-lawrence-2 (NX_ARTIFACTS is the output directory)."""
 import glob, json, os, plistlib, re, signal, socket, subprocess, sys, time
 
@@ -157,6 +159,12 @@ started = []
 try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 120):
         sys.exit("the app did not come up")
+    # Teardown checks: an injected failure, or a hold while a test sends SIGTERM or SIGINT.
+    if os.environ.get("CMUX_LIVE_INJECT_FAILURE") == "1":
+        raise RuntimeError("injected failure (CMUX_LIVE_INJECT_FAILURE)")
+    if os.environ.get("CMUX_LIVE_HOLD_SECONDS"):
+        say("HOLDING script pid", os.getpid())
+        time.sleep(float(os.environ["CMUX_LIVE_HOLD_SECONDS"]))
     ident = rpc("system.identify")
     say("identify", json.dumps(ident)[:1500])
     windows = rpc("debug.windows")
