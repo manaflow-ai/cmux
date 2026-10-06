@@ -10,6 +10,6 @@ permissions: {}
 
 jobs:
   registration:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - run: echo "cmux-next is implemented on feat-cmux-next"

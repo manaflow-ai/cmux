@@ -229,7 +229,10 @@ jobs:
     name: cmux-next before/after capture
     needs: publish
     if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}
-    runs-on: ${{ vars.CMUX_NEXT_CAPTURE_RUNNER || 'glaeda-capture' }}
+    # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
+    # fallback keeps workflow validation and fork checks deterministic; the
+    # step below fails closed when capture tools are absent.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     permissions:
       actions: write
