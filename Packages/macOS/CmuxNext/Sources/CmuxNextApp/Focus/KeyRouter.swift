@@ -234,15 +234,18 @@ final class KeyRouter: BrowserKeyRouting {
 
     private func run(_ candidate: Candidate, context: KeyContext, window: String) {
         lastInterception = (candidate.id, window, true)
+        let ran: Bool
         switch candidate.source {
         case .registry(let argument):
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
-                                keyContext: context.bits)
+            ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: candidate.id, argument: argument, arguments: candidate.arguments),
+                                                    keyContext: context.bits)
         case .ghostty(let arguments):
             var invocation = ActionInvocation(arguments: arguments)
             invocation.keyContext = context.bits
-            registry.perform(candidate.id, invocation: invocation)
+            ran = registry.perform(candidate.id, invocation: invocation)
         }
+        // A refused run (Cmd-W on a top page) is still a cmux shortcut; debug.key says it did not run.
+        lastInterception = (candidate.id, window, ran)
     }
 
     /// A popup panel (or its Chromium page window) has the keyboard: a key
@@ -332,7 +335,8 @@ final class KeyRouter: BrowserKeyRouting {
             return true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
-            RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            lastInterception = (id, controller.state.id, ran)
             return true
         case .mismatch:
             if !Self.isChord(event.modifierFlags) { onTyping?(window) }

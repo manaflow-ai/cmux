@@ -135,13 +135,19 @@ enum DebugKey {
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
-        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
-                        "trace": .array(trace.map(JSONValue.string))])
+        var report: [String: JSONValue] = ["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
+                                           "trace": .array(trace.map(JSONValue.string))]
+        if handledBy == "app", let interception = services.keyRouter.lastInterception {
+            report.merge(verdict(interception)) { _, new in new }
+        }
+        return .object(report)
     }
 
     /// What debug.key reports for an intercepted chord: the action when it ran.
+    /// A refused run reports no action and names it as `refused_action`.
     static func verdict(_ interception: (action: ActionID, window: String, ran: Bool)) -> [String: JSONValue] {
-        ["action": .string(interception.action.rawValue)]
+        interception.ran ? ["action": .string(interception.action.rawValue)]
+            : ["action": .null, "refused_action": .string(interception.action.rawValue)]
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what
