@@ -253,7 +253,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertGreater(names.index(by_id["actions"]["name"]), last_test)
 
         autofix = jobs["generated-autofix"]
-        self.assertEqual(sorted(autofix["needs"]), ["generated-files", "swift-test"])
+        self.assertEqual(sorted(autofix["needs"]), ["generated-files", "generated-strings", "swift-test"])
         self.assertIn("needs.swift-test.outputs.patch == 'true'", autofix["if"])
         self.assertIn("needs.generated-files.outputs.patch == 'true'", autofix["if"])
 
@@ -263,7 +263,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("head.repo.full_name == github.repository", autofix["if"])
         self.assertNotIn("vars.", str(autofix["runs-on"]))
         run = autofix["steps"][-1]["run"]
-        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
+        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json|webviews/src/*/generated/strings.json) ;;", run)
         self.assertIn('"$current" != "$HEAD_SHA"', run)
         self.assertNotIn("--force", run)
         # Never a bot push to a protected branch.
@@ -272,6 +272,58 @@ class PathRoutingStructure(unittest.TestCase):
         # the merge commit, whose context the head may not have.
         self.assertNotIn("git apply \"$patch\"", run)
         self.assertIn("git add", run)
+
+    def test_generated_page_strings_are_checked_on_every_run(self):
+        """#17559 changed only the Swift catalog and schema; web checks were path-filtered off it,
+        and its stale Settings strings.json turned react-apps-check red on every later PR."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        strings = jobs["generated-strings"]
+        # No path routing gates it: any change can stale a page's strings.
+        self.assertNotIn("needs", strings)
+        self.assertNotIn("path_route", strings.get("if", ""))
+        self.assertNotIn("macos", str(strings["runs-on"]))
+        by_id = {step.get("id"): step for step in strings["steps"] if step.get("id")}
+        self.assertEqual(by_id["check"]["run"], "node webviews/scripts/pages/gen-strings.mjs --check")
+        self.assertTrue(by_id["check"]["continue-on-error"])
+        self.assertIn("'webviews/src/*/generated/strings.json'", by_id["regenerate"]["run"])
+        self.assertEqual(strings["outputs"]["patch"], "${{ steps.regenerate.outputs.patch }}")
+        upload = next(step for step in strings["steps"] if step.get("uses", "").startswith("actions/upload-artifact"))
+        self.assertEqual(upload["with"]["name"], "cmux-next-generated-strings")
+        self.assertIn("exit 1", strings["steps"][-1]["run"])
+        self.assertIn("generated-strings", jobs["push-attribution"]["needs"])
+
+    def test_stale_page_strings_are_autofixed_on_the_pull_request(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        autofix = jobs["generated-autofix"]
+        self.assertIn("generated-strings", autofix["needs"])
+        self.assertIn("needs.generated-strings.outputs.patch == 'true'", autofix["if"])
+        download = next(step for step in autofix["steps"] if step.get("uses", "").startswith("actions/download-artifact"))
+        self.assertEqual(download["with"]["pattern"], "cmux-next-generated-*")
+        run = autofix["steps"][-1]["run"]
+        self.assertIn("webviews/src/*/generated/strings.json) ;;", run)
+        # The App has no pull-requests permission: the comment uses the job's token.
+        self.assertEqual(autofix["permissions"]["pull-requests"], "write")
+        self.assertIn('GH_TOKEN="$GITHUB_TOKEN" gh pr comment', run)
+
+    def test_a_stale_push_opens_one_autofix_pull_request(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        job = jobs["generated-autofix-pr"]
+        for clause in ("github.event_name == 'push'", "github.ref == 'refs/heads/feat-cmux-next'",
+                       "needs.push-head-preflight.outputs.current == 'true'",
+                       "needs.generated-strings.outputs.patch == 'true'",
+                       "needs.generated-files.outputs.patch == 'true'", "needs.swift-test.outputs.patch == 'true'"):
+            self.assertIn(clause, job["if"])
+        self.assertEqual(job["concurrency"], {"group": "cmux-next-generated-autofix-pr", "cancel-in-progress": False})
+        self.assertNotIn("vars.", str(job["runs-on"]))
+        run = job["steps"][-1]["run"]
+        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json|webviews/src/*/generated/strings.json) ;;", run)
+        # Only the bot's own branch is force-pushed; at most one open pull request.
+        self.assertIn('"HEAD:refs/heads/$AUTOFIX_BRANCH"', run)
+        self.assertEqual(job["env"]["AUTOFIX_BRANCH"], "autofix/cmux-next-generated")
+        self.assertIn("pulls?state=open&head=", run)
+        self.assertIn("-f base=feat-cmux-next", run)
+        # Without the App's pull-requests permission it still fails loudly.
+        self.assertIn('if [[ -z "$PR_TOKEN" ]]', run)
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]

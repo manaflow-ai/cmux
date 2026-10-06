@@ -199,6 +199,8 @@ class CmuxNextWiring(unittest.TestCase):
         # A workflow-level group made a re-push wait for every old job to finish cancelling.
         self.assertNotIn("concurrency", workflow)
         for name, job in workflow["jobs"].items():
+            if name == "generated-autofix-pr":
+                continue  # one serialized group across pushes (test_cmux_next_checks_workflow)
             with self.subTest(job=name):
                 group = job["concurrency"]["group"]
                 self.assertEqual(group, "cmux-next-${{ github.event.pull_request.number || github.run_id }}-" + name)
