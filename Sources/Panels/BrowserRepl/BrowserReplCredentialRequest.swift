@@ -51,7 +51,7 @@ enum BrowserReplCredentialRequest {
         params: [String: Any],
         fillSource: String?,
         record: @MainActor ([String: String]) throws -> Void,
-        stillAllowed: @MainActor () -> Bool
+        stillAllowed: @escaping @MainActor () -> Bool
     ) async -> [String: Any] {
         guard let fillSource else { return ["status": "unavailable"] }
         guard let origin = params["origin"] as? String,
