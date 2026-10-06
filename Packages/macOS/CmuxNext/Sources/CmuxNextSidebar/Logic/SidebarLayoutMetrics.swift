@@ -63,6 +63,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Workspace rows show their tab count (`sidebar.showCounts`).
     public var showCounts = false
+    /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
+    public var hidesWorkspaces = false
 
     public init() {}
 }

@@ -62,6 +62,8 @@ public final class SidebarModel {
     public var collapsedWorkspaces: Set<WorkspaceID> = []
     /// Workspace rows show their tab count (`sidebar.showCounts`).
     public var showCounts = false
+    /// The workspace list is hidden (`sidebar.showProjects` off).
+    public var hidesWorkspaces = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -255,6 +257,7 @@ public final class SidebarModel {
     func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
         showWorkspaceTabs = preferences.showWorkspaceTabs
         showCounts = preferences.showCounts
+        hidesWorkspaces = !preferences.showProjects
     }
 
     /// The disclosure on a workspace row: hide its listed tabs, or list them again.
@@ -269,6 +272,7 @@ public final class SidebarModel {
         o.showWorkspaceTabs = showWorkspaceTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.showCounts = showCounts
+        o.hidesWorkspaces = hidesWorkspaces
         return o
     }
 

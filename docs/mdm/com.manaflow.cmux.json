@@ -1378,6 +1378,18 @@
       "title" : "Show Tab Counts",
       "type" : "boolean"
     },
+    "sidebar.showProjects" : {
+      "default" : true,
+      "description" : "sidebar.showProjects",
+      "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showRecents" : {
+      "default" : true,
+      "description" : "sidebar.showRecents",
+      "title" : "Show Recents",
+      "type" : "boolean"
+    },
     "sidebar.showWorkspaceTabs" : {
       "default" : false,
       "description" : "Lists tabs beneath each workspace in the sidebar.",

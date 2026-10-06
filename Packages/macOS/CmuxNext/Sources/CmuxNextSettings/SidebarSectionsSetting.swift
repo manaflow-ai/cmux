@@ -13,6 +13,8 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
     public static let showCountsPath = ["sidebar", "showCounts"]
+    public static let showProjectsPath = ["sidebar", "showProjects"]
+    public static let showRecentsPath = ["sidebar", "showRecents"]
 
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
@@ -43,6 +45,20 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.showCounts", "Show Tab Counts"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showCounts),
                           keywords: ["sidebar", "workspace", "tabs", "count", "number"])
+    }
+
+    /// Projects and Recents, which their headers' menus hide (Leo 2026-10-06).
+    static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(showProjectsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showProjects", "Show Projects"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProjects),
+                              keywords: ["sidebar", "projects", "workspaces", "section", "hide", "show"]),
+            SettingDescriptor(showRecentsPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showRecents", "Show Recents"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showRecents),
+                              keywords: ["sidebar", "recents", "chats", "section", "hide", "show"]),
+        ]
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -94,6 +110,8 @@ public nonisolated enum SidebarSectionsSetting {
         }
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.showCounts = flag(root, showCountsPath, fallback: result.showCounts, &diagnostics)
+        result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
+        result.showRecents = flag(root, showRecentsPath, fallback: result.showRecents, &diagnostics)
         return result
     }
 

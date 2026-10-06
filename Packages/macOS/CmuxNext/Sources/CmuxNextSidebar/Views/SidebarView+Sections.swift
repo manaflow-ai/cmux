@@ -47,12 +47,14 @@ extension SidebarView {
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
         let room = model.activeProfileID?.rawValue
         let (above, below) = model.layout.bands(room: room)
-        let trail = model.layout.listTrail(room: room)
+        // Recents' header menu hides it (`sidebar.showRecents`); a hidden section draws nowhere.
+        let hiddenSections: Set<LayoutSectionID> = DesignSettings.shared.sidebarSections.showRecents ? [] : [SidebarLayoutDocument.recentsSectionID]
+        let trail = model.layout.listTrail(room: room).filter { !hiddenSections.contains($0.id) }
         let trailIDs = Set(trail.map(\.id))
         let apps = model.suppressedApps
         let bands = (above: above.presenting(hidingItems: hidden, apps: apps),
                      trail: trail.presenting(hidingItems: hidden, apps: apps),
-                     below: below.filter { !trailIDs.contains($0.id) }.presenting(hidingItems: hidden, apps: apps))
+                     below: below.filter { !trailIDs.contains($0.id) && !hiddenSections.contains($0.id) }.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
         // The one selection marks its top item active (its glyph, accessibility).

@@ -31,6 +31,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showWorkspaceTabs: Bool
     /// Each workspace row shows how many tabs it has.
     public var showCounts = false
+    /// The workspace list (Projects) shows; its header's menu hides it (`sidebar.showProjects`).
+    public var showProjects = true
+    /// The Recents section shows; its header's menu hides it (`sidebar.showRecents`).
+    public var showRecents = true
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// R100: the Settings/account band shows only while the pointer is over the sidebar.
     public var minimalMode: SidebarMinimalMode = .bottom
