@@ -21,7 +21,8 @@ import CmuxNextSettings
 /// gesture event); a `drag` takes `press: false` (no mouse-down: it
 /// continues a drag left open) and `release: false` (no mouse-up: the drag
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
-/// (default), `right`;
+/// (default), `right`, `middle` (AppKit's `otherMouse*` events, button
+/// number 2: a middle click on a sidebar workspace row closes it);
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -32,9 +33,7 @@ enum DebugMouse {
             return .object(["error": .string("pass x and y, or a pane shown in the window")])
         }
         let flags = modifiers(params["modifiers"]?.arrayValue ?? [])
-        let right = params["button"]?.stringValue == "right"
-        let (down, up, dragged): (NSEvent.EventType, NSEvent.EventType, NSEvent.EventType) =
-            right ? (.rightMouseDown, .rightMouseUp, .rightMouseDragged) : (.leftMouseDown, .leftMouseUp, .leftMouseDragged)
+        let (down, up, dragged) = eventTypes(button: params["button"]?.stringValue)
         let action = params["action"]?.stringValue ?? "click"
         var events: [NSEvent?] = []
         switch action {
@@ -114,11 +113,41 @@ enum DebugMouse {
         return NSPoint(x: point.x, y: height - point.y)
     }
 
-    private static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, flags: NSEvent.ModifierFlags,
-                              clicks: Int) -> NSEvent? {
-        NSEvent.mouseEvent(with: type, location: baseLocation(point, in: window), modifierFlags: flags,
-                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                           eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseUp || type == .rightMouseUp ? 0 : 1)
+    /// The press, release and drag event types for `button`.
+    static func eventTypes(button: String?) -> (down: NSEvent.EventType, up: NSEvent.EventType, dragged: NSEvent.EventType) {
+        switch button {
+        case "right": (.rightMouseDown, .rightMouseUp, .rightMouseDragged)
+        case "middle": (.otherMouseDown, .otherMouseUp, .otherMouseDragged)
+        default: (.leftMouseDown, .leftMouseUp, .leftMouseDragged)
+        }
+    }
+
+    static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, flags: NSEvent.ModifierFlags,
+                      clicks: Int) -> NSEvent? {
+        guard let event = NSEvent.mouseEvent(
+            with: type, location: baseLocation(point, in: window), modifierFlags: flags,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: clicks, pressure: [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(type) ? 0 : 1
+        ) else { return nil }
+        guard [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(type) else { return event }
+        // NSEvent.mouseEvent leaves buttonNumber 0 on otherMouse events; the
+        // middle button is 2, which the views that handle it check. AppKit
+        // maps the copy back through the window server's frame for the window,
+        // which for a window not on screen is not the window's own frame, so the
+        // copy is moved by what that mapping got wrong (DebugMouseButtonTests).
+        guard let cg = event.cgEvent?.copy() else { return nil }
+        cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        return keepingWindowPoint(cg, event.locationInWindow)
+    }
+
+    /// `cg` as an NSEvent at window-local `base`: built once, then moved by the
+    /// difference between `base` and the point AppKit mapped (global y grows down).
+    static func keepingWindowPoint(_ cg: CGEvent, _ base: NSPoint) -> NSEvent? {
+        guard let first = NSEvent(cgEvent: cg) else { return nil }
+        let miss = NSPoint(x: base.x - first.locationInWindow.x, y: base.y - first.locationInWindow.y)
+        guard miss != .zero else { return first }
+        cg.location = CGPoint(x: cg.location.x + miss.x, y: cg.location.y - miss.y)
+        return NSEvent(cgEvent: cg)
     }
 
     /// A pixel scroll at `point`, addressed to `window` like the window

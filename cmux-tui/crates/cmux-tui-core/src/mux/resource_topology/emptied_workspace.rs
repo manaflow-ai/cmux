@@ -143,6 +143,20 @@ impl Mux {
         }))
     }
 
+    pub(super) fn close_emptied_workspaces_for_resource_close_locked(
+        &self,
+        registry: &WorkspaceRegistry,
+        before: &State,
+        projected: &mut State,
+        notifications: &TreeDecorations,
+        close_emptied_workspaces: bool,
+    ) -> anyhow::Result<Option<EmptiedWorkspaceClose>> {
+        if !close_emptied_workspaces {
+            return Ok(None);
+        }
+        self.close_emptied_workspaces_locked(registry, before, projected, Some(notifications))
+    }
+
     /// Publish a workspace close delta that carries its workspace revision
     /// before the registry guard is released, so it orders with the
     /// registry's own events; other deltas publish after the commit.

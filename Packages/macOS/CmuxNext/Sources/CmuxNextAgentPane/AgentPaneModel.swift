@@ -86,6 +86,8 @@ public final class AgentPaneModel {
     @ObservationIgnored private let allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
+    /// Shell mode's commands (`shell.run`, `shell.read`, `shell.stop`).
+    @ObservationIgnored public let shell = AgentPaneShell()
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -256,6 +258,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
+        case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
@@ -385,16 +388,5 @@ public final class AgentPaneModel {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
-    }
-}
-
-extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
-        return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
-            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

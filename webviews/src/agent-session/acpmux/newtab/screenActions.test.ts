@@ -1,22 +1,25 @@
 import { expect, test } from "bun:test";
 import { newTabScreenActions } from "./screenActions";
 
-test("the page's chat and terminal start in the folder the tab inherited", async () => {
+test("the page's chat and shell command start in the folder the tab inherited", async () => {
   const calls: unknown[] = [];
   const actions = newTabScreenActions({
     callNative: async (method, params) => {
       calls.push([method, params]);
     },
     cwd: "/src/old",
-    leave() {},
+    leave: () => calls.push(["leave"]),
     selectSession() {},
     showAllChats() {},
+    runShell: (command, cwd) => calls.push(["runShell", command, cwd]),
   });
   actions.onAsk("codex", "hello");
-  actions.onTerminal("git status");
+  actions.onShell("git status");
   await Promise.resolve();
   expect(calls).toContainEqual(["chat.new", { harness: "codex", cwd: "/src/old" }]);
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false, cwd: "/src/old" }]);
+  // `!cmd` leaves for a chat that runs it; no terminal tab replaces the page.
+  expect(calls).toContainEqual(["runShell", "git status", "/src/old"]);
+  expect(calls.some((call) => (call as unknown[])[0] === "tab.open")).toBe(false);
 });
 
 test("a local file uses the file opener and a URL uses the browser", () => {
@@ -28,6 +31,7 @@ test("a local file uses the file opener and a URL uses the browser", () => {
     leave() {},
     selectSession() {},
     showAllChats() {},
+    runShell() {},
   });
   actions.onOpen("file:///src/my%20file.md");
   actions.onOpen("https://example.com");
