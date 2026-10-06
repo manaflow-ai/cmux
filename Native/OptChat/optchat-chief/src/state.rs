@@ -75,6 +75,10 @@ pub struct HostState {
     /// The number of the next subagent id (`a<N>`), unique for this home.
     #[serde(default)]
     pub next_subagent: u64,
+    /// Logged turn images whose description note is not written yet: the
+    /// next connect reads them from the owner again and describes them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undescribed: Vec<crate::brain::images::ImageRef>,
 }
 
 /// One `spawn(tasks)` call (section 9): its subagents report together.
@@ -210,6 +214,10 @@ pub struct Item {
     /// Subagents' reports (section 9): the spawn and each subagent's floor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spawn: Option<SpawnRef>,
+    /// The human message's images (never their bytes): the pending turn
+    /// keeps them so a restart can still describe them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<crate::brain::images::ImageRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
