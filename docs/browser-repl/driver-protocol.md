@@ -720,7 +720,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   frame a script put into a web page, which WebKit loads; the frame gate
   judges every frame of a web view once one of its frames loaded such a
   page), a tab the session created never loads one in any frame, and a
-  load or a landed page on one is refused. A document of an opaque
+  load, a landed page or a session `fetch` of one is refused. The diff
+  viewer's HTTP form (`http://127.0.0.1:<port>/<token>/...#cmux-diff-viewer`,
+  a loopback server cmux runs for the same files) counts the same way: its
+  whole origin, once cmux registered the server, and any loopback page
+  that names itself `#cmux-diff-viewer`. A document of an opaque
   origin whose URL names no host (a `data:` page or frame, a `blob:` of an
   opaque origin, a sandboxed `about:srcdoc`) is judged there by the
   documents that made it, as under the domain policy below: it is refused

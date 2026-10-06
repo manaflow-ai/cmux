@@ -51,16 +51,17 @@ final class BrowserReplNavigationGuard {
     /// temporary directories load there, by the rule its own navigations
     /// follow (``BrowserReplFileSandbox/navigationRefusal(_:roots:)``),
     /// whoever started it (a page, a redirect, history). Reported to the
-    /// sessions as `navigation.blocked`. A page of one of cmux's own URL
-    /// schemes that this web view serves (`cmux-diff-viewer:`, which streams
-    /// local files) is such a local file outside them: it never loads there
-    /// (``BrowserReplFileSandbox/navigationRefusal(_:roots:)`` refuses its
-    /// scheme).
+    /// sessions as `navigation.blocked`. A page cmux serves from local files
+    /// (`cmux-diff-viewer:` when this web view serves it, or the diff
+    /// viewer's loopback HTTP server) is such a local file outside them: it
+    /// never loads there
+    /// (``BrowserReplFileSandbox/navigationRefusal(_:roots:)`` refuses it).
     func cancelsLocalFile(panelID: UUID, url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased(),
               let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
-              scheme == "file" || (BrowserReplFileSandbox.isAppServedScheme(scheme)
-                  && attachment.panel?.webView.configuration.urlSchemeHandler(forURLScheme: scheme) != nil),
+              scheme == "file" || (BrowserReplFileSandbox.isAppServed(url)
+                  && (scheme == "http" || scheme == "https"
+                      || attachment.panel?.webView.configuration.urlSchemeHandler(forURLScheme: scheme) != nil)),
               let creator = attachment.creatorSessionID,
               let reason = BrowserReplFileSandbox.navigationRefusal(url.absoluteString, roots: board.fileRoots(for: creator) ?? []) else {
             return false
