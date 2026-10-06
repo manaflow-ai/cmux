@@ -293,6 +293,26 @@ done <<<"$runs"
 # one that reported on this exact head; a skipped lane remains a passing
 # conclusion, while a pending or red lane blocks the merge.
 if [ "$base" = feat-cmux-next ]; then
+  # A check run that has not been created yet (native jobs still queued behind
+  # the Linux lanes) or a rerun after a runner loss leaves the old verdict in
+  # place, so also wait for every cmux-next.yml run on this exact head to finish.
+  # --override cannot bypass this: a pending run has no verdict to waive.
+  if ! next_runs_json=$(gh api "repos/$repo/actions/workflows/cmux-next.yml/runs?head_sha=$sha&per_page=20" 2>/dev/null) \
+    || ! next_pending=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)[]
+      | select(.head_sha == null or .head_sha == $sha)
+      | select(.status != "completed")
+      | "\(.id) attempt \(.run_attempt // 1) is \(.status)"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot read cmux-next workflow runs for $sha" \
+      'restore GitHub API access, then retry the exact-head check'
+  fi
+  if [ -n "$next_pending" ]; then
+    refuse \
+      "not green: cmux-next run still pending on $sha ($(tr '\n' ';' <<<"$next_pending" | sed 's/;$//')); --override cannot bypass a run that has not finished" \
+      "wait for the cmux-next workflow run to complete on the exact head, then retry"
+  fi
   for next_check in \
     "cmux-next Release compile (Xcode 26)" \
     "cmux app scheme compile (Debug)" \

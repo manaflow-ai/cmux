@@ -283,7 +283,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=()):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=()):
         gh = Path(directory) / "gh"
         checks = [{"id": 1, "name": check_name, "status": "completed", "conclusion": check_conclusion}]
         checks.extend(
@@ -291,6 +291,9 @@ class InstalledHelperRegression(unittest.TestCase):
             for index, (name, status, conclusion) in enumerate(extra_checks)
         )
         check_payload = shlex.quote(json.dumps([{"check_runs": checks}]))
+        runs_payload = shlex.quote(json.dumps({"total_count": len(cmux_next_runs), "workflow_runs": [
+            {"id": 900 + index, "status": status, "conclusion": conclusion, "run_attempt": attempt, "head_sha": HEAD}
+            for index, (status, conclusion, attempt) in enumerate(cmux_next_runs)]}))
         gh.write_text(
             "#!/bin/sh\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
@@ -299,6 +302,8 @@ class InstalledHelperRegression(unittest.TestCase):
             "if [ \"$1 $2\" = 'pr merge' ]; then printf '%s\\n' merge >> \"$EVENT_LOG\"; touch \"$MERGE_MARKER\"; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/check-runs'; then "
             "printf '%s\\n' " + check_payload + "; exit 0; fi\n"
+            "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'workflows/cmux-next.yml/runs'; then "
+            "printf '%s\\n' " + runs_payload + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q '/contents/'; then printf '%s\\n' 'HTTP/2.0 200'; exit 0; fi\n"
             "if [ \"$1\" = api ]; then printf '%s\\n' '[]'; exit 0; fi\n"
             "exit 2\n"
@@ -352,6 +357,32 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(validator_marker.exists())
             self.assertIn("exploration PR, needs a decision from Leo or the team before merging.", result.stderr)
+
+    def test_a_cmux_next_run_still_running_refuses_even_with_override(self):
+        """ci-status and the reported checks were green while the cmux-next run's
+        native jobs were still queued (#17602) or rerunning after a runner loss
+        (#17625): those heads merged with Mac tests that never ran."""
+        cases = {
+            "native jobs not created yet": [("in_progress", None, 1)],
+            "rerun queued after a runner loss": [("completed", "cancelled", 1), ("queued", None, 2)],
+            "rerun waiting": [("waiting", None, 2)],
+        }
+        for label, runs in cases.items():
+            for extra_args in ((), ("--override", "the cmux-next swift test is red on the feat-cmux-next base for the same test")):
+                with self.subTest(label=label, override=bool(extra_args)), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, cmux_next_runs=runs, extra_args=extra_args)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("cmux-next run", result.stderr)
+                    self.assertIn("still", result.stderr)
+
+    def test_a_finished_cmux_next_run_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[("completed", "success", 1)])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_ci_status_is_required_on_the_exact_head(self):
         with tempfile.TemporaryDirectory() as directory:
