@@ -2180,8 +2180,10 @@
       this._handled = true;
       if (this._page._heldChooser === this) this._page._heldChooser = null;
     }
+    // As Playwright's, the files are read first, so a path the REPL may
+    // not read fails with its file error whatever the chooser's state;
+    // _answer refuses an answered chooser.
     async setFiles(files) {
-      if (this._handled) throw new Error("File chooser was already answered");
       const payloads = await this._page._filePayloads(files);
       if (payloads.length > 1 && !this.isMultiple()) throw new Error("Error: Non-multiple file input can only accept single file");
       await this._answer({ files: payloads });
