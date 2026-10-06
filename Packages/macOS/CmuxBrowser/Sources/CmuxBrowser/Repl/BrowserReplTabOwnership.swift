@@ -316,9 +316,9 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
-        for (frame, start) in latestNavigations where start.sessionID == sessionID {
-            latestNavigations[frame]?.sessionID = nil
-        }
+        // A navigation its input started keeps naming it: the download that
+        // navigation may still become is claimed for a session that left,
+        // and so cancelled (downloadRoute), never taken for the user's.
         for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
         guard creatorSessionID == sessionID else { return false }
         creatorSessionID = nil
@@ -559,9 +559,10 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
 
     /// The session whose input started navigation `navigation`, which
     /// WebKit turned into a download itself (its navigation action), within
-    /// ``navigationStartLifetime``; the record is used up. `nil` when no
-    /// session's input started it (the user's, or the page's own), or when
-    /// a later navigation in its frame replaced it.
+    /// ``navigationStartLifetime`` (or later, when that session has left
+    /// the tab: its download is then cancelled); the record is used up.
+    /// `nil` when no session's input started it (the user's, or the page's
+    /// own), or when a later navigation in its frame replaced it.
     public mutating func takeDownloadStarter(navigation: Int, at now: ContinuousClock.Instant = .now) -> String? {
         takeDownloadClaim(navigation: navigation, at: now)?.sessionID
     }
@@ -593,8 +594,12 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private mutating func take(_ frame: String, at now: ContinuousClock.Instant) -> BrowserReplDownloadClaim? {
         guard let start = latestNavigations[frame] else { return nil }
         latestNavigations[frame]?.sessionID = nil
+        // A record past its lifetime claims nothing for a session still on
+        // the tab; one whose session left still names it, so the download
+        // is cancelled rather than handed to the user.
         let live = now - start.at <= Self.navigationStartLifetime
-        return BrowserReplDownloadClaim(sessionID: live ? start.sessionID : nil, source: start.source)
+        let departed = start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        return BrowserReplDownloadClaim(sessionID: live || departed ? start.sessionID : nil, source: start.source)
     }
 
     /// The session a download goes to (it stays in the temporary directory
