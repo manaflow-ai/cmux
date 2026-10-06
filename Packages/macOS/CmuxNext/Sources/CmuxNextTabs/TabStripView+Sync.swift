@@ -113,6 +113,8 @@ extension TabStripView {
         cell.accessibility.setAccessibilityParent(self)
         cell.accessibility.onPress = { [weak self] in self?.model.send(.select(id)) }
         cell.accessibility.onClose = { [weak self] in self?.close(id, source: .accessibility) }
+        let element = ObjectIdentifier(cell.accessibility)
+        cell.accessibility.onFocus = { [weak self] focused in self?.noteAccessibilityFocus(element, focused) }
         tabsClip.layer?.addSublayer(cell.layer)
         cells[id] = cell
         motion[id] = TabMotion(x: 0, width: 0, alpha: animated ? 0 : 1)
@@ -147,6 +149,7 @@ extension TabStripView {
             return
         }
         cells[id]?.layer.removeFromSuperlayer()
+        if let cell = cells[id] { noteAccessibilityFocus(ObjectIdentifier(cell.accessibility), false) }
         cells[id] = nil
         motion[id] = nil
         dying.remove(id)
