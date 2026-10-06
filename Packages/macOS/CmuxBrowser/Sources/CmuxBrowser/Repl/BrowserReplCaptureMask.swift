@@ -59,7 +59,9 @@ extension WKContentWorld {
 /// picks the values from that origin, and masks only in a document that
 /// still holds the mark. After the capture every frame must still show a
 /// marked document, so none showed another page meanwhile (a navigation
-/// gives the frame a new global object, without the mark).
+/// gives the frame a new global object, without the mark), and every
+/// marked child frame must still be there (`stale` otherwise): one removed
+/// during the capture could have shown any page in it.
 ///
 /// WebKit's frame list can lack frames (no tree at all, or a child it
 /// cannot describe), and a frame missing from it would be neither masked
@@ -237,7 +239,21 @@ public struct BrowserReplCaptureMask {
             throw error
         }
         do {
-            for frame in await frames() {
+            let after = await frames()
+            // A frame marked before the capture and gone after it could have
+            // shown any page while it was taken (a response WebKit accepted
+            // before the load hold), and no check below reaches it.
+            let present = Set(after.compactMap { $0.flatMap(BrowserReplFrame.frameID(of:)) })
+            for frame in marked {
+                guard let info = frame, !info.isMainFrame else { continue }
+                guard let id = BrowserReplFrame.frameID(of: info), present.contains(id) else {
+                    throw BrowserReplDriverError(
+                        code: "stale",
+                        message: "the capture was refused: a frame it marked was removed while it was taken, so what it showed cannot be checked; try again"
+                    )
+                }
+            }
+            for frame in after {
                 try await step(frame, mode: "verify", values: [], shown: nil, in: webView)
             }
         } catch {
