@@ -24,6 +24,15 @@
              hi.cornerRadius = 3.25
              hi.opacity = 0
              hi.name = "hi"
+@@ -463,7 +462,7 @@
+             guard let spec else { return nil }
+             switch spec.kind {
+             case let .part(p): return p.text?.text ?? p.part.plainText
+-            case let .separator(b, r): return b + " " + r
++            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
+             case let .receipt(b, r): return b + " " + r
+             case let .label(text, _, _): return text
+             default: return nil
 @@ -492,7 +491,11 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
