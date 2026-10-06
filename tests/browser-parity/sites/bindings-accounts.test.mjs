@@ -19,7 +19,7 @@ test("linkedin.post: the member is read again in the share composer right before
     const before = env.state.linkedinPosts.length;
     assert.match(await s.error("sites.linkedin.post(lnD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
     assert.equal(env.state.linkedinPosts.length, before, "nothing was posted as mallory");
-    assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, postAs: "Ada Lovelace", audience: "Anyone", text: "Bound to my account." });
+    assert.deepEqual(await s.value("lnD.preview"), { account: "ada-lovelace", memberId: 424242, postAs: "Ada Lovelace", authorUrn: "urn:li:fsd_profile:ACo1", authorType: "person", audience: "Anyone", text: "Bound to my account." });
   } finally {
     env.state.linkedinViewer = null;
     env.state.linkedinSwitchOnCompose = null;

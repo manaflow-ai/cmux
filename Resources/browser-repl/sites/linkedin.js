@@ -66,13 +66,34 @@
     return out;
   }
 
+  // An author URN as one form for both sides of the check: a member's
+  // profile URN (fsd_profile, fs_miniProfile and fs_profile share its id)
+  // or a company page's (fsd_company, company, organization,
+  // fs_normalized_company and fs_miniCompany share its numeric id).
+  // Anything else is null. composerSettings, which runs in the page,
+  // keeps its own copy of the same mapping.
+  function authorOf(urn) {
+    const m = /^urn:li:(fsd_profile|fs_miniProfile|fs_profile|fsd_company|company|organization|fs_normalized_company|fs_miniCompany):([A-Za-z0-9_-]{1,100})$/.exec(String(urn || ""));
+    if (!m) return null;
+    const person = /profile$/i.test(m[1]);
+    return { authorUrn: `urn:li:${person ? "fsd_profile" : "fsd_company"}:${m[2]}`, authorType: person ? "person" : "organization" };
+  }
+
   // The share composer's header, read in the agent's world right before
   // Post: who the post goes out as (the member, or a company page they
   // admin) and its audience, from the control that shows "<name> Post to
-  // <audience>". Its text is read node by node, at most 400 characters; a
-  // header that is missing, ambiguous or longer gives nothing, so the
-  // commit fails closed (target_unverified).
+  // <audience>", and the author's URN from the attributes inside that
+  // control (its actor avatar). Its text is read node by node, at most
+  // 400 characters; a header that is missing, ambiguous or longer gives
+  // nothing, and a header without exactly one author URN gives no author,
+  // so the commit fails closed (target_unverified).
   function composerSettings() {
+    const AUTHOR = /urn:li:(?:fsd_profile|fs_miniProfile|fs_profile|fsd_company|company|organization|fs_normalized_company|fs_miniCompany):[A-Za-z0-9_-]{1,100}/g;
+    const authorOf = (urn) => {
+      const m = /^urn:li:(\w+):(.+)$/.exec(urn);
+      const person = /profile$/i.test(m[1]);
+      return { authorUrn: `urn:li:${person ? "fsd_profile" : "fsd_company"}:${m[2]}`, authorType: person ? "person" : "organization" };
+    };
     const dialog = document.querySelector('div[role="dialog"]');
     if (!dialog) return {};
     const textOf = (el) => {
@@ -94,7 +115,17 @@
     }
     if (!found || seen > 5000) return {};
     const m = /^(.+?)\s*Post to\s+(.+)$/.exec(textOf(found) || "");
-    return m ? { postAs: m[1], audience: m[2] } : {};
+    const urns = new Set();
+    let n = 0;
+    for (const el of [found, ...found.querySelectorAll("*")]) {
+      if (++n > 500) return m ? { postAs: m[1], audience: m[2] } : {};
+      for (const a of el.attributes) {
+        if (a.value.length > 2000) continue;
+        for (const u of a.value.match(AUTHOR) || []) urns.add(authorOf(u).authorUrn);
+      }
+    }
+    const author = urns.size === 1 ? authorOf([...urns][0]) : {};
+    return m ? { postAs: m[1], audience: m[2], ...author } : author;
   }
 
   // The audiences a post can name, as the composer's header shows them.
@@ -172,13 +203,19 @@
             // The draft pins the signed-in member (its immutable member id
             // and public identifier); another session can sign in as
             // someone else before the confirmation.
-            const who = await me();
+            const meJSON = await api("/voyager/api/me");
+            const who = viewer(meJSON);
             const account = who.publicIdentifier;
             const memberId = who.id;
             if (!account || !memberId) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell which LinkedIn member is signed in");
+            // The author by URN and type (a person, never an organization):
+            // a company page they admin can carry the member's very name.
+            const mini = byType(meJSON, "MiniProfile")[0] || {};
+            const author = authorOf(mini.entityUrn || (meJSON && meJSON.data && meJSON.data["*miniProfile"]));
+            if (!author || author.authorType !== "person") throw new S.SiteError("not_signed_in", "linkedin.post: could not tell the signed-in member's profile URN, which the share composer's header names as its author");
             // The target: the post goes out as the member (not a company
-            // page they admin), by the name the composer shows, to
-            // `audience`. The composer keeps LinkedIn's last choice of
+            // page they admin), by the author URN and type and the name the
+            // composer's header shows, to `audience`. The composer keeps LinkedIn's last choice of
             // both, which another session can change.
             const postAs = [who.firstName, who.lastName].filter(Boolean).join(" ");
             if (!postAs) throw new S.SiteError("not_signed_in", "linkedin.post: could not tell the signed-in member's name, which the share composer shows as who it posts as");
@@ -186,7 +223,7 @@
               category: "[9] representational communication (public post)",
               summary: `Publish a LinkedIn post as ${account} to ${audience} (${text.length} characters)`,
               account: { account, memberId },
-              target: { postAs, audience },
+              target: { postAs, authorUrn: author.authorUrn, authorType: author.authorType, audience },
               content: { text },
               canon: { text: t.normText, postAs: settingText, audience: settingText },
               commit: (c) =>

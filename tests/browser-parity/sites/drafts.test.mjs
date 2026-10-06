@@ -179,7 +179,7 @@ test("linkedin.post: the draft names who it posts as and its audience; a compose
     await run('var laD3 = await sites.linkedin.post({ text: "Audience bound.", audience: "anyone" })');
     // A composer whose header cannot be read fails closed.
     env.state.linkedinComposer = { settings: false };
-    assert.match(await s.error("sites.linkedin.post(laD3.id, { confirm: true })"), /target_unverified|could not read postAs, audience back/);
+    assert.match(await s.error("sites.linkedin.post(laD3.id, { confirm: true })"), /target_unverified|could not read postAs, authorUrn, authorType, audience back/);
     assert.equal(env.state.linkedinPosts.length, before, "a post went out to an audience or as an identity the draft did not show");
     // The composer matches the connections-only draft: it posts.
     env.state.linkedinComposer = { audience: "Connections only" };

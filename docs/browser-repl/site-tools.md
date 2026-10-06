@@ -46,8 +46,9 @@ rules neither reference enforces together:
    channel id and name, the Gmail thread and its message ids and the To,
    Cc and Bcc Gmail's Reply (all) addresses, the Google file id with its
    title and sharing, a Slides object id with its title and position, the
-   Notion page, the WebMCP tool's descriptor, the name a LinkedIn post
-   goes out as, the member's and never a company page's, and its
+   Notion page, the WebMCP tool's descriptor, the author a LinkedIn post
+   goes out as, by URN and type (the member's profile, never a company
+   page, which can carry the member's very name) and by name, and its
    audience); and every other field the
    preview shows (**content**). The confirmation prepares the write (opens
    the composer, fills it) and then, right before the click or request
@@ -206,7 +207,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `notion.append(page, markdown, { userId })` | draft naming the Notion user; confirmed: `getSpaces` must still hold that user, then `syncRecordValues`, `getSpaces` once more, and `saveTransactions` (`set` and `listAfter` per block, after the last block) with `x-notion-active-user-header` set to that user, every call in the agent's isolated world | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
-| `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, so a post as a company page or to another audience fails with `target_mismatch` and a header it cannot read with `target_unverified`, then Post (the button itself, never the header) | write [9] |
+| `linkedin.post({ text, audience })` | draft naming the member id and public identifier (account), and the member's profile URN (type `person`) and name the composer posts as and the audience, `"anyone"` (shown as `Anyone`) or `"connections"` (`Connections only`), which the call must name: a public post is an explicit choice, and a draft without it fails with `invalid` (target); confirmed: share composer (`/feed/?shareActive=true&text=`), the whole text checked, the member checked in that page (Voyager `/me`), the composer's header (`<name> Post to <audience>`, which keeps LinkedIn's last choice of identity and audience) checked, with the author URN on its actor (exactly one `fsd_profile`/`fs_miniProfile`/`fs_profile` URN, compared by id with the member's profile URN from `/me`, type `person`; company URNs map to type `organization`), so a post as a company page (even one with the member's name) or another member, or to another audience, fails with `target_mismatch`, and a header it cannot read, or without exactly one author URN, with `target_unverified`, then Post (the button itself, never the header) | write [9] |
 | `x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet` | profile and `article[data-testid="tweet"]` cards in a background tab, scrolled for more | read |
 | `x.post(text \| { text, replyTo })` | draft naming the account X authenticates (its account settings endpoint, with X's public web bearer token and the `ct0` CSRF value); confirmed: Web Intent `/intent/post`, the whole text checked, the account asked again from that page, Post | write [9] |
 | `github.issue`, `.pull`, `.issues` | pages in a background tab | read |
