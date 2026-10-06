@@ -116,8 +116,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         ) { [weak self] _ in
             guard let self else { return }
             lock.withLock {
-                guard !isDetached else { return }
-                secretSourceCheck.submit(fileRoots.map(\.path))
+                guard !self.isDetached else { return }
+                self.secretSourceCheck.submit(self.fileRoots.map(\.path))
             }
         }
     }
