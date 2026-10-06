@@ -79,4 +79,17 @@ enum WorkspaceCreation {
             )
         }
     }
+
+    /// A person's new workspace on the New Tab page (`opensNewTabPage`),
+    /// starting in `cwd`; nil when `spawn` gets a terminal instead (it runs a
+    /// command, or `daemon` cannot host the page).
+    @MainActor
+    static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+                           repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
+        guard spawn.opensNewTabPage, spawn.command == nil, tabs.canHost(on: daemon), let connection = daemon.connection else { return nil }
+        return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
+            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon)
+            return created.key.rawValue
+        }
+    }
 }

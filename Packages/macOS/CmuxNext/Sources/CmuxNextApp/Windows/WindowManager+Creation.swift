@@ -15,10 +15,8 @@ extension WindowManager {
     func createWorkspace(cwd: String? = nil, on daemon: DaemonService? = nil, into windowID: String? = nil,
                          frame: CGRect? = nil, newTabPage: Bool = false) async -> String? {
         let daemon = daemon ?? services.daemon
-        var spawn = WorkspaceSpawn(cwd: cwd)
-        spawn.opensNewTabPage = newTabPage
         do {
-            return try await createWorkspace(spawn, on: daemon, into: windowID, frame: frame)
+            return try await createWorkspace(WorkspaceSpawn(cwd: cwd, newTabPage: newTabPage), on: daemon, into: windowID, frame: frame)
         } catch {
             daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -30,9 +28,8 @@ extension WindowManager {
     /// `slot` places it in that window's sidebar once it is reported.
     func newWorkspace(in state: WindowState?, on daemon: DaemonService? = nil, at slot: WorkspaceSlot? = nil) {
         let target = targetWindow(preferring: state?.id)
-        var spawn = WorkspaceSpawn()
+        var spawn = WorkspaceSpawn(newTabPage: true)
         spawn.slot = slot
-        spawn.opensNewTabPage = true
         Task {
             do {
                 _ = try await createWorkspace(spawn, on: daemon, into: target)
