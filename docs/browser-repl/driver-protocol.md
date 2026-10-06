@@ -993,7 +993,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   session created). Meanwhile a person's Command-V and Edit menu Paste
   still work (they are not script paste); a page's own Paste button that
   reads the clipboard by script is refused. A WebKit that cannot turn it
-  off refuses such input and page-world scripts (`unsupported`). The
+  off refuses such input and page-world scripts (`unsupported`). Residual:
+  the switch is on the web view's `WKPreferences`, which a window a page
+  opens can share with its opener. The hold remembers whether script paste
+  was on before its first hold and puts that back when it ends; if a
+  session creates a tab on those shared preferences while a hold lasts
+  (its page clipboard guard turns script paste off for good), the hold's
+  end turns it back on for that tab too. Popups of a user's tab are the
+  user's, so this needs a session-created tab and a user's tab on one
+  preferences object. The
   agent's clipboard shortcuts and `page.clipboard` are refused there
   (`unsupported`).
 - Cookies: the domain policy applies by host, since a cookie belongs to a

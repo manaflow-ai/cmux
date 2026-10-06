@@ -18,8 +18,20 @@ extension BrowserReplPasteboardTests {
     /// grants without its menu: a leaking build reads it back silently and
     /// fails the test instead of opening a menu. The system pasteboard is a
     /// stand-in, so the person's clipboard stays untouched.
+    ///
+    /// A build where the refusal fails can open WebKit's Paste menu (a
+    /// window) when the stand-in does not hold the same site's copy, so the
+    /// suite runs only with `CMUX_BROWSER_REPL_PASTEBOARD_TESTS=1`, on a
+    /// fleet Mac (cmux-lawrence-2), never on a laptop.
     @MainActor
-    @Suite("Script paste in a user's tab", .serialized)
+    @Suite(
+        "Script paste in a user's tab",
+        .serialized,
+        .enabled(
+            if: ProcessInfo.processInfo.environment["CMUX_BROWSER_REPL_PASTEBOARD_TESTS"] == "1",
+            "can open WebKit's Paste menu: run on cmux-lawrence-2 with CMUX_BROWSER_REPL_PASTEBOARD_TESTS=1"
+        )
+    )
     struct UserTabPaste {
         typealias PageScripts = BrowserReplPasteboardTests.PageScripts
 
