@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The title row of a titled pinned section. A click collapses or expands
 /// it; the chevron shows on hover and while collapsed.
@@ -8,14 +9,15 @@ final class SidebarSectionHeaderView: NSView {
     var onContextMenu: ((NSEvent, NSView) -> Void)?
 
     private let name = NSTextField(labelWithString: "")
-    private let chevron = NSImageView()
+    let chevron = NSImageView()
     private var collapsed = false
-    private var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
+    var isHovered = false { didSet { if isHovered != oldValue { updateChevron() } } }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         name.lineBreakMode = .byTruncatingTail
         name.maximumNumberOfLines = 1
+        chevron.alphaValue = 0
         [name, chevron].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
@@ -45,9 +47,12 @@ final class SidebarSectionHeaderView: NSView {
     }
 
     private func updateChevron() {
-        chevron.image = NSImage(systemSymbolName: collapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
-            .withSymbolConfiguration(SidebarStyle.chevronConfig)
-        chevron.isHidden = !(collapsed || isHovered)
+        chevron.image = SidebarStyle.chevron(collapsed: collapsed)
+        // Fades in place: the chevron stays mounted (stability rule).
+        let alpha: CGFloat = collapsed || isHovered ? 1 : 0
+        guard chevron.alphaValue != alpha else { return }
+        guard window != nil, Motion.canAnimate(in: self) else { chevron.alphaValue = alpha; return }
+        Motion.animate(.hover, in: self) { chevron.animator().alphaValue = alpha }
     }
 
     override func updateLayer() {

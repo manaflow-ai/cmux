@@ -398,7 +398,7 @@ fn read_text<'a>(
     let messages = &crate::localization::catalog().app_control;
     match args.split_first() {
         Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
-        _ => Err(UsageError::new(messages.scope_usage.replace("{scope}", scope))),
+        _ => Err(UsageError::new(messages.search_text_usage.replace("{scope}", scope))),
     }
 }
 

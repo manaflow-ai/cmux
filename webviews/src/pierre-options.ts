@@ -1,3 +1,4 @@
+import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
@@ -155,6 +156,7 @@ export function codeViewUnsafeCSS(): string {
     [data-expand-button] {
       font-family: var(--diffs-header-font-family, var(--diffs-header-font-fallback));
     }
+    ${PIERRE_DIFFS_SCROLLER_CSS}
   `;
 }
 
@@ -206,6 +208,7 @@ export function fileTreeUnsafeCSS(): string {
       background-color: var(--cmux-diff-solid-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
+    ${PIERRE_TREES_SCROLLER_CSS}
   `;
 }
 

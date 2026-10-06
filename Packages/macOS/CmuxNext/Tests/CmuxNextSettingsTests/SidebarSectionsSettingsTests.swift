@@ -29,6 +29,20 @@ import Testing
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
+    @Test func countsAreOptIn() throws {
+        #expect(try !parse("{}").sidebarSections.showCounts)
+        #expect(try parse(#"{"sidebar": {"showCounts": true}}"#).sidebarSections.showCounts)
+        let bad = try parse(#"{"sidebar": {"showCounts": 1}}"#)
+        #expect(bad.sidebarSections == .defaults)
+        #expect(bad.diagnostics.map(\.path) == ["sidebar.showCounts"])
+    }
+
+    /// One nested-tabs key: `sidebar.showWorkspaceTabs` (#17186). An
+    /// unshipped `sidebar.nestedTabs` is not a setting.
+    @Test func nestedTabsIsNotASecondKey() {
+        #expect(!SettingsSchema.all.contains { $0.path == ["sidebar", "nestedTabs"] })
+    }
+
     /// R87: nightly-next builds wrote `sidebar.stickyBandsScroll`; it is
     /// read for one release, and the new key wins when both are set.
     @Test func theOldStickyBandsKeyIsReadForOneRelease() throws {

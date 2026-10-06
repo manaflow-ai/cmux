@@ -543,7 +543,7 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let id = optchat_chief::paths::home_id(&home);
     let key = format!("optchat-{id}-turn");
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
-    assert_eq!(codex.name, format!("optchat-chief-{id}"));
+    assert_eq!(codex.name, format!("optchat-chief-codex-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
     assert!(
         codex.args.is_empty(),
@@ -558,8 +558,94 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, false, "SYS").unwrap();
     assert_eq!(claude.system_prompt.as_deref(), Some("SYS"));
     assert!(!claude.env.contains_key("CODEX_PROMPT_CACHE_KEY"));
+    // claude-sr: one sticky subrouter account per Chief (subrouter PR 511),
+    // so a turn reads the prompt cache the previous turn wrote.
+    assert_eq!(
+        claude.env.get("SUBROUTER_SESSION_KEY").map(String::as_str),
+        Some(format!("optchat-{id}-turn").as_str())
+    );
     assert_eq!(
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None
     );
+}
+
+/// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run
+/// at medium effort on both engines unless `OPTCHAT_CHIEF_EFFORT` names
+/// another; on acpmux a harness of another family keeps its own default
+/// (its effort names are not known).
+#[test]
+fn turns_run_at_medium_effort_on_both_engines() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::effort::{native_effort, turn_effort};
+    assert_eq!(turn_effort(None, Family::Claude).as_deref(), Some("medium"));
+    assert_eq!(turn_effort(None, Family::Codex).as_deref(), Some("medium"));
+    assert_eq!(turn_effort(None, Family::Other), None);
+    assert_eq!(
+        turn_effort(Some("high".into()), Family::Other).as_deref(),
+        Some("high")
+    );
+    assert_eq!(native_effort(None), "medium");
+    assert_eq!(native_effort(Some("high".into())), "high");
+    // The turn session gets the setting's effort.
+    let mut h = harness_with(settings);
+    h.connect();
+    h.say("user_local", "hello");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.specs[0].effort.as_deref(), Some("medium"));
+}
+
+/// Section 8 for a view of any size: our one marker sits at the end of the
+/// stable older part of the view (a line end on a fixed grid, counted from
+/// the view's start), and the next turn's request has a block boundary at
+/// that same offset with the same bytes before it, so the API's lookback
+/// from the next marker reads it. Measured 2026-10-06 on cmux-lawrence-2: a
+/// small view had no marker, and each turn wrote the whole view again
+/// (~8,000 tokens) while 90% of it was unchanged.
+#[test]
+fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary() {
+    let mut h = harness_with(settings);
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 2);
+    // (offset of each block end, the text before it) over the view blocks.
+    let ends = |blocks: &[Value]| -> Vec<(usize, String)> {
+        let t = texts(blocks);
+        let mut acc = String::new();
+        t[..t.len() - 1]
+            .iter()
+            .map(|piece| {
+                acc.push_str(piece);
+                (acc.len(), acc.clone())
+            })
+            .collect()
+    };
+    let first = &inner.prompts[0];
+    let marked = markers(first);
+    assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
+    let at = marked[0];
+    assert!(
+        at + 1 < first.len() - 1,
+        "the marker leaves the view's newest lines out"
+    );
+    let (offset, prefix) = ends(first)[at].clone();
+    assert!(
+        prefix.ends_with('\n'),
+        "the marked piece ends at a line end"
+    );
+    let second = ends(&inner.prompts[1]);
+    assert!(
+        second.iter().any(|(o, p)| *o == offset && *p == prefix),
+        "the next turn has a block boundary at the marker with the same bytes before it"
+    );
+    // And its own marker is at or after the first turn's.
+    let next = markers(&inner.prompts[1])[0];
+    assert!(second[next].0 >= offset);
 }

@@ -6875,6 +6875,55 @@
    },
    "additional_properties": false
   },
+  "ConversationImportMessage": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "client_msg_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "author": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "parts": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ConversationPart"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "created_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "ConversationSummary": {
    "kind": "object",
    "fields": {
@@ -19356,6 +19405,73 @@
    "stream": null,
    "constraints": [
     "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
+   ]
+  },
+  "conversation-import": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "messages": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ConversationImportMessage"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationSummary"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "imported": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "uint64"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "skipped": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local user connections only (an agent-bound connection is refused; the remote relay does not admit it). Appends history from another store once: authors, times and ids are kept, the owner assigns seqs and one rev, skips a message whose author and client_msg_id (or id) it holds, and refuses times that go backward, pass the newest message it holds, or lie in the future. See spec/commands.md."
    ]
   },
   "snapshot-request": {

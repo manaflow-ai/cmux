@@ -19,7 +19,9 @@ public final class MessagesLabHomeView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
         controller = ChatController(wake: wake)
-        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller)
+        // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
+        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
+                                    linkPreviews: HomeLinkPreviews())
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
@@ -58,6 +60,12 @@ public final class MessagesLabHomeView: NSView {
 
     // MARK: Host API
 
+    /// The host's notice, the transcript's system row under the newest message (nil: none).
+    public var notice: String? {
+        get { projection.notice }
+        set { projection.notice = newValue }
+    }
+
     /// H17: offline the user can type, but Send and tapbacks are off.
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
@@ -82,6 +90,8 @@ public final class MessagesLabHomeView: NSView {
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
             controller.host.paneHeader.light = theme.active.isLight
         }
+        // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
+        if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
         RowBitmaps.shared.removeAll()
@@ -93,6 +103,26 @@ public final class MessagesLabHomeView: NSView {
             // The placeholder, waveform and chips are drawn once with the palette.
             demo.compose.rescale()
         }
+    }
+
+    /// A click (or Space/Return with the keyboard) on the header's name
+    /// pill: cmux shows the Chief's settings sidebar there.
+    public var onNamePill: () -> Void {
+        get { controller.host.paneHeader.onContact }
+        set { controller.host.paneHeader.onContact = newValue }
+    }
+
+    /// The header avatar's text (one or two characters, an emoji); nil
+    /// shows the conversation's initials.
+    public var avatarText: String? {
+        get { projection.initialsOverride }
+        set { projection.initialsOverride = newValue }
+    }
+
+    /// The name pill's VoiceOver help (what a click on it does).
+    public func setNamePillHelp(_ help: String) {
+        controller.host.paneHeader.pill.setAccessibilityHelp(help)
+        controller.host.paneHeader.pill.refusesFirstResponder = false
     }
 
     /// The field's text view (the pane's primary input).

@@ -76,14 +76,13 @@ import Testing
         h.sidebar.list.inlineRename.end(commit: false)
     }
 
-    @Test func titlebarButtonsStayMountedAndSupportTabDrags() {
+    @Test func titlebarButtonsRevealOnHoverAndForTabDrags() {
         let h = Harness()
         #expect(!h.sidebar.isChromeRevealed)
-        #expect(h.sidebar.newButton.alphaValue == 1)
+        #expect(h.sidebar.newButton.alphaValue == 0)
         h.sidebar.setChromeRevealed(true)
         #expect(h.sidebar.isChromeRevealed)
         h.sidebar.setChromeRevealed(false)
-        #expect(h.sidebar.newButton.alphaValue == 1)
         // A tab drag over the "+" reveals it and targets a new workspace.
         let button = h.sidebar.newButton.frame
         let screen = h.window.convertToScreen(h.sidebar.convert(NSRect(x: button.midX, y: button.midY, width: 0, height: 0), to: nil)).origin

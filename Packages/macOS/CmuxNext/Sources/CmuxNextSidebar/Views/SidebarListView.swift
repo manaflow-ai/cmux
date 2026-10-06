@@ -28,6 +28,7 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
+    let middleClick = SidebarMiddleClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
@@ -128,11 +129,10 @@ final class SidebarListView: NSView {
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
         applyKeepingViewport(displayLayout(), animated: animated)
+        inlineRename.follow()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
-        var o = SidebarLayoutOptions()
-        o.filterMatches = model.filterMatches
-        o.showWorkspaceTabs = model.showWorkspaceTabs
+        var o = model.listOptions()
         o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
@@ -259,10 +259,13 @@ final class SidebarListView: NSView {
         })
     }
     func activePillFrame(in layout: SidebarLayout) -> NSRect? {
-        guard let active = model.activeWorkspaceID,
-              !suppressed.contains(.workspace(active)),
-              let row = layout.row(for: .workspace(active)) else { return nil }
-        return frame(for: row)
+        guard let active = model.activeWorkspaceID, !suppressed.contains(.workspace(active)) else { return nil }
+        if let row = layout.row(for: .workspace(active)) { return frame(for: row) }
+        // A workspace in a collapsed group: the group's header stands for it.
+        let group = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in
+            if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == active }) { group.id } else { nil }
+        }.first
+        return group.flatMap { layout.row(for: .group($0)) }.map(frame(for:))
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil

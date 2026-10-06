@@ -125,6 +125,19 @@ struct DockColumnViewTests {
         view.cancelTabDrag()
     }
 
+    /// A refused zone draws nothing: every hit test shows the highlight, and
+    /// the App hides it again, keeping the zone the next hit test holds.
+    @Test func hidingTheHighlightKeepsTheHeldZone() {
+        let (view, window) = makeRoot(DockColumn(edge: .right, mode: .overlay))
+        defer { window.close() }
+        #expect(view.updateTabDrag("t", locationInWindow: NSPoint(x: 300, y: 300)) == .pane("a", .center))
+        view.hideTabDragHighlight()
+        #expect(!view.highlight.isShowing)
+        #expect(view.tabDragHighlightOnScreen == nil)
+        #expect(view.tabDropHit == .pane("a", .center))
+        view.cancelTabDrag()
+    }
+
     @Test func dragginTheInnerEdgeOfARightColumnWidensIt() {
         let (view, window) = makeRoot(DockColumn(edge: .right, mode: .docked))
         defer { window.close() }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 40f91ac6df3f10ede1f880563d9d2c8be05cc48f9b344127b8a6468521b23564. */
+/* cmux-tui mux protocol 12, IR 574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e. */
 
 
 import type * as T from "./types.js";
@@ -519,6 +519,18 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
 }
 export type ConversationHistoryResult = {
   "messages": Array<T.ConversationMessage>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationImportRequest extends CmuxRequestBase {
+  cmd: "conversation-import";
+  "conversation": string;
+  "messages": Array<T.ConversationImportMessage>;
+}
+export type ConversationImportResult = {
+  "conversation": T.ConversationSummary;
+  "imported": Array<bigint>;
+  "skipped": bigint;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -2327,6 +2339,7 @@ export type CmuxRequest =
   | ConversationBindRequest
   | ConversationCreateRequest
   | ConversationHistoryRequest
+  | ConversationImportRequest
   | ConversationListRequest
   | ConversationOpRequest
   | ConversationSearchRequest
@@ -2899,6 +2912,14 @@ export interface CmuxCommandDefinitionMap {
   "conversation-history": {
     request: ConversationHistoryRequest;
     result: ConversationHistoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-import": {
+    request: ConversationImportRequest;
+    result: ConversationImportResult;
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";

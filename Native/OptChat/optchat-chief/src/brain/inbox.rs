@@ -7,8 +7,10 @@
 //! is one chat with one user (section 1), so this Chief reads only its own
 //! conversation; mentions in other conversations are not answered.
 
-use cmux_chief::rules::{AGENT_MUX, PAGE, message_text, wakes};
-use cmux_conversation::{Change, Message, Op};
+use cmux_chief::rules::{AGENT_MUX, PAGE, message_text};
+
+use crate::wake::chief_wakes;
+use cmux_conversation::{Change, Message, Op, Part};
 
 use super::{Brain, Source};
 use crate::daemon::{DaemonEvent, OpError};
@@ -51,6 +53,7 @@ impl Brain {
                 self.post_notices();
                 self.flush_outbox();
                 self.catch_up();
+                self.describe_pending();
             }
             DaemonEvent::Changed {
                 conversation,
@@ -165,10 +168,46 @@ impl Brain {
             return;
         };
         let text = message_text(&message);
-        if !text.trim().is_empty() && wakes(summary, &message, |id| self.mux_messages.contains(id))
+        let has_images = message.parts.iter().any(|part| {
+            matches!(part, Part::Attachment { mime_type, .. } if mime_type.starts_with("image/"))
+        });
+        if (!text.trim().is_empty() || has_images)
+            && chief_wakes(summary, &message, |id| self.mux_messages.contains(id))
         {
-            self.queue(text, Source::Message { seq: message.seq });
-            return;
+            // An answer to a pending approval of the running turn: it
+            // answers, is logged, and is not a new message (it neither
+            // queues nor interrupts the turn).
+            match crate::approval::Answer::parse(&text) {
+                Some(answer) if !self.approvals.is_empty() => {
+                    self.answer_approval(answer, &message);
+                    if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
+                        (self.log)(&format!("logging an approval failed: {e}"));
+                    }
+                }
+                _ => {
+                    let remote = message
+                        .origin
+                        .as_ref()
+                        .map(|cmux_conversation::Origin::Remote { install }| install.clone());
+                    // The turn sees the images; the log keeps their references.
+                    let images = match self.daemon.as_mut() {
+                        Some(daemon) if has_images => {
+                            super::images::read_images(daemon.as_mut(), &message)
+                        }
+                        _ => Vec::new(),
+                    };
+                    let logged = super::images::logged_text(&text, &images);
+                    self.queue_with_images(
+                        logged,
+                        images,
+                        Source::Message {
+                            seq: message.seq,
+                            remote,
+                        },
+                    );
+                    return;
+                }
+            }
         }
         if !self
             .queue

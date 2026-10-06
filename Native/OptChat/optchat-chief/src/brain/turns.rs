@@ -7,14 +7,18 @@ use std::sync::mpsc::channel;
 
 use optchat_core::Kind;
 
-use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key};
+use super::{
+    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, STALL_NOTICE, Source, reply_entry,
+    reply_key_at,
+};
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
 use crate::compactor::is_marker_limit_error;
 use crate::prompt::{cached_layout, turn_blocks};
-use crate::state::{Batch, ChildRef, ChildStatus, Item, PendingTurn};
+use crate::state::{Batch, ChildRef, ChildStatus, HostState, Item, PendingTurn};
 use crate::turn::{self, Interrupt, TurnOutcome, TurnStart};
+use optchat_host::{Appended, NewMessage};
 
 impl Brain {
     /// Starts a turn worker when idle with something queued.
@@ -27,6 +31,7 @@ impl Brain {
             .get_or_insert_with(std::time::Instant::now);
         self.interrupt = Arc::new(Interrupt::new());
         let trace = self.trace.clone();
+        let settle_status = self.settle_status.clone();
         let (chat, agents, tx, log, engine, interrupt, marker_refused) = (
             self.chat.clone(),
             self.agents.clone(),
@@ -43,13 +48,27 @@ impl Brain {
                 // The wait has no deadline; a line each minute says what it
                 // waits on, and the first one with a failing node also goes to
                 // the conversation, so the user is not left without a word.
+                // Every PROGRESS_TICK of waiting, `settle.json` says how far
+                // the compactor is (the app's "Organizing Chief history");
+                // a wait shorter than one tick shows nothing.
                 let mut told = false;
-                while !chat.settle(None, Some(STALL_NOTICE)) {
+                let mut waited = std::time::Duration::ZERO;
+                let settled = loop {
+                    if chat.settle(None, Some(PROGRESS_TICK)) {
+                        break true;
+                    }
+                    waited += PROGRESS_TICK;
                     let status = chat.status();
                     if status.closed || status.fatal.is_some() {
-                        let _ = tx.send(Input::SettleFailed);
-                        return;
+                        break false;
                     }
+                    if let Some(settle) = &settle_status {
+                        settle.waiting(&status);
+                    }
+                    if waited < STALL_NOTICE {
+                        continue;
+                    }
+                    waited = std::time::Duration::ZERO;
                     let failing: Vec<String> = status
                         .failures
                         .iter()
@@ -72,6 +91,13 @@ impl Brain {
                             first.error
                         )));
                     }
+                };
+                if let Some(settle) = &settle_status {
+                    settle.clear();
+                }
+                if !settled {
+                    let _ = tx.send(Input::SettleFailed);
+                    return;
                 }
                 let (reply, start) = channel();
                 if tx.send(Input::Settled(reply)).is_err() {
@@ -130,7 +156,14 @@ impl Brain {
                             }
                             texts.recv().unwrap_or_default()
                         };
-                        native.run(&chat, &start, &*log, &mailbox, &|| interrupt.is_set())
+                        native.run_gated(
+                            &chat,
+                            &start,
+                            &*log,
+                            &mailbox,
+                            &|| interrupt.is_set(),
+                            &|| interrupt.gated(),
+                        )
                     }
                 };
                 let _ = tx.send(Input::TurnEnded {
@@ -175,33 +208,80 @@ impl Brain {
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
         let view = self.chat.render_view();
-        // Saved before the first append: a crash between an append and the
-        // next save must not log a message twice at restart (recover.rs).
+        // The messages, their bookkeeping (cursor, children) and the pending
+        // turn commit together: a crash leaves all of it or none of it, so a
+        // restart never logs a message twice and never loses one.
         let first_id = self.chat.status().messages;
-        self.state.turn = Some(PendingTurn {
-            conversation: self.state.conversation.clone(),
-            session: format!("{}-{first_id}", self.settings.turn_prefix),
-            first_id: Some(first_id),
-            items: items.iter().map(item).collect(),
-            ..PendingTurn::default()
-        });
-        self.save();
-        let first = self.log_items(&items)?;
-        let key = reply_key(&self.chat, first);
-        if let Some(turn) = self.state.turn.as_mut() {
-            turn.key = key.clone();
-        }
-        self.save();
+        let session = format!("{}-{first_id}", self.settings.turn_prefix);
+        let conversation = self.state.conversation.clone();
+        let opening: Vec<Item> = items.iter().map(item).collect();
+        let done = self.log_items(&items, move |next, done| {
+            let first = done.ids.first().copied().unwrap_or(first_id);
+            let stamp = done.stamps.first().map(String::as_str).unwrap_or("");
+            next.turn = Some(PendingTurn {
+                key: reply_key_at(first, stamp),
+                conversation,
+                session,
+                first_id: Some(first_id),
+                items: opening,
+                ..PendingTurn::default()
+            });
+        })?;
+        let first = done.ids.first().copied().unwrap_or(first_id);
+        let key = self
+            .state
+            .turn
+            .as_ref()
+            .map(|t| t.key.clone())
+            .unwrap_or_default();
+        optchat_host::fault("brain:after-turn-log");
         self.set_cursor(self.handled);
         self.set_typing(true);
         self.phase = Phase::Running;
         self.stop_wanted = false;
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
+        // The strictest origin of the turn: a paired device's message (or
+        // a remote turn this one supersedes) makes it ask for every local
+        // effect, unless the user turned on remote.autoApprove on the Mac.
+        self.turn_remote = std::mem::take(&mut self.remote_taint)
+            || items.iter().any(|i| {
+                matches!(
+                    i.source,
+                    Source::Message {
+                        remote: Some(_),
+                        ..
+                    }
+                )
+            });
+        self.turn_ask = self.turn_remote && !self.chief.remote_auto_approve;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(self.turn_ask);
+        let policy = if self.turn_ask {
+            "ask".to_owned()
+        } else {
+            self.settings.policy.clone()
+        };
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        let image_blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        self.describe_images(&images);
         let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        // The engine of this turn, read now (engine.rs): a change applies
+        // from this turn on and is logged as a note after its messages.
+        let engine = self.turn_engine_choice();
+        let family = self.family_of(&engine.harness);
+        self.note_engine(&engine);
+        let default_family = self.family_of(&self.settings.harness);
         // The cached layout on a Claude harness whose acpmux takes a preset
         // system prompt; else the view and the messages as blocks.
-        let cached = matches!(self.settings.engine, Engine::Acpmux)
+        let cached = (matches!(self.settings.engine, Engine::Acpmux)
+            && family == crate::acpmux::Family::Claude)
             .then_some(self.settings.turn_preset.as_deref())
             .flatten()
             .filter(|preset| self.agents.system_prompt(preset));
@@ -215,9 +295,21 @@ impl Brain {
                 );
                 (layout.blocks, Some(layout.system), Some(preset.to_owned()))
             }
-            None => (turn_blocks(&view.text, &texts), None, None),
+            None => {
+                // The family's own preset when the turn left the default
+                // harness's family (the port falls back to the default's).
+                let preset = match family {
+                    crate::acpmux::Family::Codex => self.settings.codex_preset.clone(),
+                    crate::acpmux::Family::Claude if default_family != family => {
+                        self.settings.turn_preset.clone()
+                    }
+                    _ => None,
+                };
+                (turn_blocks(&view.text, &texts), None, preset)
+            }
         };
-        if self.settings.turn_preset.is_some() {
+        let blocks = with_images(blocks, image_blocks);
+        if self.settings.turn_preset.is_some() && family == crate::acpmux::Family::Claude {
             // The system prompt carries the instructions in the cached
             // layout; the old layout reads them from CLAUDE.md.
             let text = system_prompt
@@ -240,10 +332,10 @@ impl Brain {
             session: SessionSpec {
                 name: format!("{}-{first}", self.settings.turn_prefix),
                 cwd: self.settings.session_dir.clone(),
-                harness: self.settings.harness.clone(),
-                policy: self.settings.policy.clone(),
-                model: self.settings.model.clone(),
-                effort: None,
+                harness: engine.harness.clone(),
+                policy,
+                model: engine.model.clone(),
+                effort: engine.effort.clone(),
                 preset,
                 tags: crate::acpmux::chief_tags(&self.settings.chief_id, "turn"),
             },
@@ -254,45 +346,73 @@ impl Brain {
         })
     }
 
-    /// Logs `items` as `user` entries and finishes their bookkeeping; returns
-    /// the first one's id. On a failed write nothing is posted for them and
-    /// the host stops (the conversation's cursor stays before them).
-    fn log_items(&mut self, items: &[Queued]) -> Option<u64> {
-        let mut first = None;
-        for item in items {
-            match self.chat.append(Kind::User, &item.text) {
-                Ok(id) => {
-                    first.get_or_insert(id);
-                }
-                Err(e) => {
-                    (self.log)(&format!("logging a message failed: {e}"));
-                    self.fatal = Some(format!("the memory stopped writing: {e}"));
-                    self.phase = Phase::Idle;
-                    return None;
-                }
-            }
-        }
-        for item in items {
-            if let Source::Child { session_id, floor } = &item.source
-                && let Some(record) = self.state.children.get_mut(session_id)
-            {
-                record.status = ChildStatus::Reported;
-                record.floor = *floor;
-            }
-            if let Source::Spawn(r) = &item.source {
-                self.state.spawn_logged(r);
-                self.trace_report_logged(r, &item.text);
-            }
-        }
+    /// Logs `items` as `user` entries and, in the same transaction, the
+    /// state their bookkeeping leaves (each child's report marked, the read
+    /// cursor past every handled message, then `update`). On a failed write
+    /// nothing is posted for them and the host stops (the conversation's
+    /// cursor stays before them).
+    fn log_items(
+        &mut self,
+        items: &[Queued],
+        update: impl FnOnce(&mut HostState, &Appended),
+    ) -> Option<Appended> {
+        let conversation = self.state.conversation.clone().unwrap_or_default();
+        let entries: Vec<NewMessage<'_>> = items
+            .iter()
+            .map(|q| NewMessage {
+                key: match q.source {
+                    Source::Message { seq, .. } => Some(format!("{conversation}#{seq}")),
+                    _ => None,
+                },
+                ..NewMessage::new(Kind::User, &q.text)
+            })
+            .collect();
+        let mut next = self.state.clone();
         // The queue is empty now, so every handled seq is logged or needed no log.
-        self.state.logged_seq = self.handled;
-        first
+        let handled = self.handled;
+        let file = &self.file;
+        let mut writes = Vec::new();
+        let result = self.chat.append_with(&entries, |done| {
+            for item in items {
+                if let Source::Child { session_id, floor } = &item.source
+                    && let Some(record) = next.children.get_mut(session_id)
+                {
+                    record.status = ChildStatus::Reported;
+                    record.floor = *floor;
+                }
+                if let Source::Spawn(r) = &item.source {
+                    next.spawn_logged(r);
+                }
+            }
+            next.logged_seq = handled;
+            update(&mut next, done);
+            writes = file.writes(&next);
+            writes.clone()
+        });
+        match result {
+            Ok(done) => {
+                self.state = next;
+                self.file.committed(&writes);
+                for item in items {
+                    if let Source::Spawn(r) = &item.source {
+                        self.trace_report_logged(r, &item.text);
+                    }
+                }
+                Some(done)
+            }
+            Err(e) => {
+                (self.log)(&format!("logging a message failed: {e}"));
+                self.fatal = Some(format!("the memory stopped writing: {e}"));
+                self.phase = Phase::Idle;
+                None
+            }
+        }
     }
 
     /// A native turn is between tool calls: everything queued is logged as
     /// `user` and delivered (section 7: "Messages the user types mid-run are
     /// delivered at the agent's next tool boundary and logged as `user`").
-    pub(super) fn boundary(&mut self, key: &str) -> Vec<String> {
+    pub(super) fn boundary(&mut self, key: &str) -> Vec<serde_json::Value> {
         let current = self.state.turn.as_ref().is_some_and(|t| t.key == key);
         if self.phase != Phase::Running || !current {
             return Vec::new();
@@ -303,24 +423,48 @@ impl Brain {
             return Vec::new();
         }
         let items: Vec<Queued> = self.queue.drain(..).collect();
-        let at = self.chat.status().messages;
-        if let Some(turn) = self.state.turn.as_mut() {
-            turn.mid.push(Batch {
-                at,
-                items: items.iter().map(item).collect(),
-                done: false,
-            });
+        if items.iter().any(|i| {
+            matches!(
+                i.source,
+                Source::Message {
+                    remote: Some(_),
+                    ..
+                }
+            )
+        }) {
+            self.turn_remote = true;
+            self.turn_ask = !self.chief.remote_auto_approve;
+            self.interrupt.set_gate(self.turn_ask);
         }
-        self.save();
-        if self.log_items(&items).is_none() {
+        let at = self.chat.status().messages;
+        let batch: Vec<Item> = items.iter().map(item).collect();
+        let logged = self.log_items(&items, move |next, _| {
+            if let Some(turn) = next.turn.as_mut() {
+                turn.mid.push(Batch {
+                    at,
+                    items: batch,
+                    done: true,
+                });
+            }
+        });
+        if logged.is_none() {
             return Vec::new();
         }
-        if let Some(batch) = self.state.turn.as_mut().and_then(|t| t.mid.last_mut()) {
-            batch.done = true;
-        }
-        self.save();
         self.set_cursor(self.handled);
-        items.into_iter().map(|i| i.text).collect()
+        // The delivered messages' images go with them, and are described
+        // for the log like a turn's own.
+        let images: Vec<super::images::TurnImage> = items
+            .iter()
+            .flat_map(|i| i.images.iter().cloned())
+            .collect();
+        self.describe_images(&images);
+        let mut blocks: Vec<serde_json::Value> = images
+            .iter()
+            .filter_map(super::images::TurnImage::block)
+            .collect();
+        let texts: Vec<String> = items.into_iter().map(|i| i.text).collect();
+        blocks.push(serde_json::json!({"type": "text", "text": texts.join("\n\n")}));
+        blocks
     }
 
     /// A human message arrived during a turn (decision 2026-10-04): the
@@ -334,6 +478,9 @@ impl Brain {
         if self.phase != Phase::Running {
             return;
         }
+        // A pending approval holds the tool call: a newer message denies it,
+        // so the turn can stop and the next one answers.
+        self.deny_pending("a newer message");
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.stop_wanted = true;
         }
@@ -384,7 +531,9 @@ impl Brain {
                 "turn": key,
                 "first": first,
                 "engine": match self.settings.engine { Engine::Acpmux => "acpmux", Engine::Native(_) => "native" },
-                "harness": self.settings.harness,
+                "harness": self.turn_engine.as_ref().map_or(self.settings.harness.as_str(), |e| e.harness.as_str()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "settle_ms": settle_ms,
                 "messages": texts.iter().map(|t| self.trace.text(t)).collect::<Vec<_>>(),
                 "sources": sources,
@@ -400,6 +549,63 @@ impl Brain {
             }),
         );
         self.prev_view = Some(view.to_owned());
+    }
+
+    /// This turn's engine: engine.json over the defaults. A harness acpmux
+    /// does not know keeps the default harness, and says so.
+    fn turn_engine_choice(&mut self) -> crate::engine::TurnEngine {
+        let s = &self.settings;
+        let choice = s
+            .engine_file
+            .as_deref()
+            .map(crate::engine::load)
+            .unwrap_or_default();
+        let mut engine =
+            crate::engine::resolve(&choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
+        if !s.families.is_empty() && !s.families.contains_key(&engine.harness) {
+            (self.log)(&format!(
+                "engine.json names harness {}, which acpmux does not have; this turn runs on {}",
+                engine.harness, s.harness
+            ));
+            engine.harness = s.harness.clone();
+        }
+        self.turn_engine = Some(engine.clone());
+        engine
+    }
+
+    /// A harness's family (the default harness is Claude in a brain made
+    /// without acpmux's metadata when it has a turn preset).
+    fn family_of(&self, harness: &str) -> crate::acpmux::Family {
+        match self.settings.families.get(harness) {
+            Some(f) => *f,
+            None if self.settings.families.is_empty() && self.settings.turn_preset.is_some() => {
+                crate::acpmux::Family::Claude
+            }
+            None => crate::acpmux::Family::Other,
+        }
+    }
+
+    /// Logs an engine change as a note (after the turn's messages, so the
+    /// pending turn's positions stay right) and into the trace.
+    fn note_engine(&mut self, engine: &crate::engine::TurnEngine) {
+        let now = engine.describe();
+        let before = self.state.engine.clone();
+        if before.as_deref() == Some(now.as_str()) {
+            return;
+        }
+        if let Some(before) = &before {
+            let text = format!("engine changed to {now} (was {before})");
+            if let Err(e) = self.chat.append(Kind::Note, &text) {
+                (self.log)(&format!("logging the engine change failed: {e}"));
+            }
+            (self.log)(&text);
+        }
+        self.trace.emit(
+            "engine",
+            serde_json::json!({"harness": engine.harness, "model": engine.model, "effort": engine.effort, "was": before}),
+        );
+        self.state.engine = Some(now);
+        self.save();
     }
 
     /// The trace's `turn.end`.
@@ -429,6 +635,9 @@ impl Brain {
                 "turn": key,
                 "ms": ms,
                 "status": status,
+                "harness": self.turn_engine.as_ref().map(|e| e.harness.clone()),
+                "model": self.turn_engine.as_ref().and_then(|e| e.model.clone()),
+                "effort": self.turn_engine.as_ref().and_then(|e| e.effort.clone()),
                 "error": outcome.error.as_deref().map(|e| self.trace.text(e)),
                 "reply": outcome.reply.as_deref().map(|r| self.trace.text(r)),
                 "first_usage": s.first.as_ref().map(crate::trace::usage),
@@ -470,7 +679,13 @@ impl Brain {
         };
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
+            // The turn that answers both keeps this one's remote origin.
+            self.remote_taint |= self.turn_remote;
         }
+        self.turn_remote = false;
+        self.turn_ask = false;
+        self.clear_turn_approvals();
+        self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
         }
@@ -485,9 +700,22 @@ impl Brain {
                 "turn {key} ended with no conversation to answer in"
             )),
         }
+        // The session's fold position goes with the pending turn, unless the
+        // session lives on as an orphan whose fold continues from it.
+        let session = self
+            .state
+            .turn
+            .as_ref()
+            .filter(|t| t.key == key)
+            .and_then(|t| t.session_id.clone());
+        let orphaned = |s: &String| self.state.orphans.iter().any(|o| &o.session == s);
+        let extra = match session {
+            Some(s) if !orphaned(&s) => vec![(crate::state::fold_key(&s), None)],
+            _ => Vec::new(),
+        };
         self.state.turn = None;
         self.stop_wanted = false;
-        self.save();
+        self.save_with(extra);
         self.flush_outbox();
         self.set_typing(false);
         self.phase = Phase::Idle;
@@ -508,11 +736,28 @@ fn source_name(source: &Source) -> &'static str {
     }
 }
 
+/// The turn's images go just before its last block (the new messages, which
+/// name them), so the view blocks and their cache marker stay as they were.
+fn with_images(
+    mut blocks: Vec<serde_json::Value>,
+    images: Vec<serde_json::Value>,
+) -> Vec<serde_json::Value> {
+    if images.is_empty() {
+        return blocks;
+    }
+    let tail = blocks.pop();
+    blocks.extend(images);
+    blocks.extend(tail);
+    blocks
+}
+
 /// A queued item's source as the pending turn saves it.
 fn item(queued: &Queued) -> Item {
+    let images = queued.images.iter().map(|i| i.source.clone()).collect();
     match &queued.source {
-        Source::Message { seq } => Item {
+        Source::Message { seq, .. } => Item {
             seq: Some(*seq),
+            images,
             ..Item::default()
         },
         Source::Child { session_id, floor } => Item {
@@ -520,12 +765,17 @@ fn item(queued: &Queued) -> Item {
                 session_id: session_id.clone(),
                 floor: *floor,
             }),
+            images,
             ..Item::default()
         },
         Source::Spawn(r) => Item {
             spawn: Some(r.clone()),
+            images,
             ..Item::default()
         },
-        Source::Note => Item::default(),
+        Source::Note => Item {
+            images,
+            ..Item::default()
+        },
     }
 }

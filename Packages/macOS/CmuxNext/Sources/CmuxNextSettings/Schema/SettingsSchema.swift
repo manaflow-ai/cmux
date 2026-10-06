@@ -56,7 +56,8 @@ public nonisolated enum SettingsSchema {
         case .accounts: ["accounts.refresh", "openTeamPicker"]
         case .rooms: ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"]
         case .machines: ["remote.connect", "newCloudMachine", "palette.auth.signIn"]
-        case .advanced: ["palette.openCmuxSettingsFile", "reloadConfiguration"]
+        // The page draws Open <settings file> itself, named from the loaded path.
+        case .advanced: ["reloadConfiguration"]
         }
     }
 
@@ -89,6 +90,18 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(NavigationHistoryScopeSetting.fallback),
                 keywords: ["history", "back", "forward", "navigation", "location", "scope"]
+            ),
+            SettingDescriptor(
+                NavigationHistoryStepSetting.configPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.navigation.historySteps", "Back and Forward Steps"),
+                help: SettingsText.keyed("settings.navigation.historySteps.help",
+                                        "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."),
+                kind: .choice([
+                    SettingChoice("workspaces", SettingsText.keyed("settings.navigation.historySteps.workspaces", "Workspaces")),
+                    SettingChoice("everything", SettingsText.keyed("settings.navigation.historySteps.everything", "Everything")),
+                ]),
+                default: .string(NavigationHistoryStepSetting.fallback),
+                keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,

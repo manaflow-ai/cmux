@@ -134,7 +134,14 @@ impl Spawner {
     }
 
     /// Starts subagent `id`'s session and first prompt, then its workspace.
-    fn start_one(&self, spawn: &str, id: &str, task: &str, view: &str) -> Result<(), String> {
+    fn start_one(
+        &self,
+        spawn: &str,
+        id: &str,
+        task: &str,
+        view: &str,
+        floor: Option<&str>,
+    ) -> Result<(), String> {
         let began = Instant::now();
         let s = &self.settings;
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
@@ -147,11 +154,21 @@ impl Spawner {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
             harness: admitted.profile.clone(),
-            policy: s.policy.clone(),
+            // The spawn floor (`Brain::spawn_policy`) wins over the setting.
+            policy: floor.unwrap_or(&s.policy).to_owned(),
             model: s.model.clone(),
             effort: None,
             preset: s.preset.clone(),
-            tags: tags(&s.parent, spawn, id),
+            tags: {
+                let mut t = tags(&s.parent, spawn, id);
+                if floor.is_some() {
+                    t.insert(
+                        crate::approval::POLICY_TAG.to_owned(),
+                        crate::approval::ASK.to_owned(),
+                    );
+                }
+                t
+            },
         };
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -164,6 +181,7 @@ impl Spawner {
         self.send(Input::SubagentStarted {
             id: id.to_owned(),
             session_id: session.clone(),
+            policy: floor.map(str::to_owned),
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
@@ -204,6 +222,19 @@ impl Spawner {
             }
         }
         Ok(())
+    }
+
+    /// `Some("ask")` under the spawn floor (`Brain::spawn_policy`); `ask`
+    /// too when the brain does not answer (fail closed).
+    fn spawn_floor(&self) -> Option<String> {
+        let (reply, answer) = channel();
+        if self.send(Input::SpawnPolicy { reply }).is_err() {
+            return Some(crate::approval::ASK.to_owned());
+        }
+        match answer.recv_timeout(Duration::from_secs(30)) {
+            Ok(policy) => policy,
+            Err(_) => Some(crate::approval::ASK.to_owned()),
+        }
     }
 
     /// Sends the prompt's answer (token use, cost) to the brain.
@@ -269,9 +300,13 @@ impl Orchestrator for Spawner {
                 (self.log)(&format!("the subagent directory's CLAUDE.md: {e}"));
             }
         }
+        // The security floor: during a remote-origin (ask) turn, or while an
+        // ask child or subagent lives, every subagent runs with policy ask.
+        // No answer from the brain fails closed (ask).
+        let floor = self.spawn_floor();
         let mut started = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
-            match self.start_one(&plan.spawn, id, task, &view) {
+            match self.start_one(&plan.spawn, id, task, &view, floor.as_deref()) {
                 Ok(()) => started.push(id.clone()),
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));

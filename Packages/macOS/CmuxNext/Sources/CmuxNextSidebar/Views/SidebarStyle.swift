@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// Sidebar sizes and fonts, derived only from CmuxNextDesign tokens
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { Metrics.space3 }
     static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
-    static var tabIconSize: CGFloat { Metrics.smallIconSize - Metrics.space2 }
+    /// A listed tab's icon, sized to its caption-size title.
+    static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
     /// Height of a placeholder row's bar (about a caption's x-height).
     static var placeholderBarHeight: CGFloat { Metrics.space3 }
     /// Placeholder bar widths, as shares of the title width.
@@ -16,6 +18,8 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
+    /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
+    static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
     static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
@@ -39,14 +43,18 @@ enum SidebarStyle {
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var titleUnreadFont: NSFont { Typography.bodyEmphasized }
     static var subtitleFont: NSFont { Typography.caption }
-    /// Where workspace titles start: past the leading type glyph every row
-    /// reserves. Group headers start their name here too.
-    static var titleLeading: CGFloat { horizontalInset + iconBox + Metrics.space3 }
+    /// Where a workspace title without a custom icon starts: rows draw no
+    /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
+    /// their name here too.
+    static var titleLeading: CGFloat { horizontalInset }
     static var headerFont: NSFont { Typography.header }
     static var badgeFont: NSFont { Typography.shortcut }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
-    static var chevronConfig: NSImage.SymbolConfiguration { .init(pointSize: Metrics.smallIconSize - Metrics.space2, weight: .bold) }
+    /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.
+    static func chevron(collapsed: Bool) -> NSImage {
+        NSImage.icon(collapsed ? .disclosureCollapsed : .disclosureExpanded, size: Metrics.smallIconSize)
+    }
 
     /// Muted tint for a user color, shared with tab groups (`GroupColor`).
     static func color(_ color: GroupColor) -> NSColor {

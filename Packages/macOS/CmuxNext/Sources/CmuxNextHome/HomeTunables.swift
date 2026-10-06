@@ -7,16 +7,14 @@ public import CmuxNextDesign
 /// The flight recorder is MessagesLab's (`HomeFlightRecorder`): after a
 /// send it samples every frame of the transcript, and on a blink (a row
 /// without pixels, a jump, a gap, an unfilled bubble) it writes the last
-/// ~10 s to ~/Library/Logs/<app>/blink-<time>/. On by default in DEV builds,
-/// opt-in in NIGHTLY; window captures in a dump are a separate opt-in.
-public nonisolated enum HomeTunables {
+/// ~10 s to ~/Library/Logs/<app>/blink-<time>/. An opt-in in DEV and
+/// NIGHTLY until MessagesLab's recorder costs at most 0.3 ms a frame (it cost
+/// more main-thread time than a send); window captures are a separate opt-in.
+public nonisolated struct HomeTunables {
+    public nonisolated init() {}
     public static let section = TunableSection(id: "home", title: "Home", symbol: "house", order: 43)
 
-    #if DEBUG
-    private static let devDefault = true
-    #else
     private static let devDefault = false
-    #endif
 
     public static let flightRecorder = Tunable<Bool>.toggle(
         "home.flightRecorder", section, "Flight recorder",

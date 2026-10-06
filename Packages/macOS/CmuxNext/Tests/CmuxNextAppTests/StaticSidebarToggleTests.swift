@@ -58,9 +58,10 @@ import Testing
         #expect(model.presentation == start)
     }
 
-    /// With the sidebar hidden the window controls stay mounted at rest and
-    /// the strip keeps its leading clearance. Hovering the corner does not
-    /// change the geometry.
+    /// With the sidebar hidden the window controls collapse at rest and the
+    /// strip keeps no room for them (nxdog41, which supersedes R68's "the
+    /// strip starts after the toggle" for the resting state). While the
+    /// corner is hovered the toggle shows and the strip starts after it.
     /// The sidebar state reaches the window root through an observation, so
     /// the test waits for it instead of for a fixed number of turns. The hide
     /// is the animated one a click makes; in a window with no screen (the
@@ -85,13 +86,13 @@ import Testing
         try #require(stripFrame.minX < toggle.minX, "the strip reaches the window edge, under the toggle")
 
         root.cornerReveal.setPointerInside(false)
-        #expect(!root.windowControlsCollapsed)
-        let insetAtRest = strip.computeWindowControlsInset()
-        #expect(insetAtRest > 0, "the strip keeps room for stable controls")
+        try #require(!root.cornerReveal.isRevealed, "nothing else holds the corner open")
+        #expect(root.windowControlsCollapsed)
+        #expect(strip.computeWindowControlsInset() == 0, "collapsed: the strip keeps no room for the controls")
 
         root.cornerReveal.setPointerInside(true)
         #expect(!root.windowControlsCollapsed)
-        #expect(strip.computeWindowControlsInset() == insetAtRest)
+        #expect(stripFrame.minX + strip.computeWindowControlsInset() >= toggle.maxX)
         root.cornerReveal.setPointerInside(false)
     }
 

@@ -95,7 +95,6 @@ export type AccountsRow = {
   statusKind: "success" | "attention" | "neutral" | "quiet";
   busy: boolean;
   buttons: AccountsButton[];
-  unsupported: string | null;
   linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
   note: string | null;
   outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
@@ -105,11 +104,10 @@ export type AccountsRow = {
 
 /** The Accounts part as the host draws it (texts already localized by the app). */
 export type AccountsState = {
-  intro: string;
   refresh: string;
   refreshing: boolean;
-  signIn: { text: string; confirm: string } | null;
-  problem: string | null;
+  /** The Sign In to cmux button's title when cmux is signed out. */
+  signIn: string | null;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };

@@ -99,6 +99,9 @@ pub struct Owner {
     pub ledger: Option<BTreeMap<String, String>>,
     /// Rejections for the next `read_cursor.set` ops, in order (None: accept).
     pub cursor_rejects: VecDeque<Option<String>>,
+    /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
+    pub attachments: BTreeMap<(String, String), String>,
+    pub attachment_reads: Vec<(String, String, u64)>,
 }
 
 impl Owner {
@@ -130,6 +133,24 @@ impl Owner {
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
 impl ConversationPort for FakeDaemon {
+    fn attachment(
+        &mut self,
+        _: &str,
+        hash: &str,
+        variant: &str,
+        bytes: u64,
+    ) -> Result<String, OpError> {
+        let mut owner = self.0.lock().unwrap();
+        owner
+            .attachment_reads
+            .push((hash.to_owned(), variant.to_owned(), bytes));
+        owner
+            .attachments
+            .get(&(hash.to_owned(), variant.to_owned()))
+            .cloned()
+            .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
     fn snapshot(&mut self, _: &str, tail: u32) -> Result<(Summary, Vec<Message>), OpError> {
         let owner = self.0.lock().unwrap();
         let messages = owner
@@ -288,6 +309,8 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every permission answer: (session, permission id, option id).
+    pub responses: Vec<(String, String, Option<String>)>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -527,6 +550,20 @@ impl AgentPort for FakeAgents {
         Ok(())
     }
 
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        self.inner.lock().unwrap().responses.push((
+            session.to_owned(),
+            permission.to_owned(),
+            option.map(str::to_owned),
+        ));
+        Ok(())
+    }
+
     /// Ends the held turn with stop reason `cancelled`, as acpmux answers a
     /// prompt that `session/cancel` interrupted.
     fn cancel(&self, session: &str) -> Result<(), String> {
@@ -563,6 +600,7 @@ pub fn settings(dir: &Path) -> Settings {
         harness: "claude-sr".into(),
         policy: "approve-all".into(),
         model: None,
+        effort: Some("medium".into()),
         parent: PARENT.into(),
         turn_prefix: TURN_PREFIX.into(),
         agent_gap: Duration::from_millis(30),
@@ -571,6 +609,11 @@ pub fn settings(dir: &Path) -> Settings {
         turn_preset: Some(TURN_PRESET.into()),
         chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
+        engine_file: None,
+        families: Default::default(),
+        codex_preset: None,
+        settings_file: dir.join("settings.json"),
+        trace_dir: Some(dir.join("traces")),
     }
 }
 
@@ -656,6 +699,23 @@ impl Harness {
             conversation: summary,
             reconnect: Box::new(move || reconnects.lock().unwrap().reconnects += 1),
         }));
+    }
+
+    /// A new message with these parts, as the subscription delivers it.
+    pub fn say_parts(&mut self, author: &str, parts: Vec<Part>) -> Message {
+        let m = {
+            let mut owner = self.owner.lock().unwrap();
+            let seq = owner.messages.len() as u64 + 1;
+            let mut m = message(seq, author, "");
+            m.parts = parts;
+            owner.messages.push(m.clone());
+            m
+        };
+        self.brain.step(Input::from(DaemonEvent::Changed {
+            conversation: CONV.into(),
+            change: Change::Message { message: m.clone() },
+        }));
+        m
     }
 
     /// A new message in the conversation, as the subscription delivers it.

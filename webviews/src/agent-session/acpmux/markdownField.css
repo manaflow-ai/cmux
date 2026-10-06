@@ -9,7 +9,6 @@
   font-size: 15px;
   line-height: 22px;
   color: var(--agent-text);
-  scrollbar-width: none;
 }
 .acpmux-md-placeholder {
   position: absolute;

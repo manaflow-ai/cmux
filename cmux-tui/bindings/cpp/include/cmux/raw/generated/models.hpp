@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "40f91ac6df3f10ede1f880563d9d2c8be05cc48f9b344127b8a6468521b23564";
+inline constexpr std::string_view kProtocolIrSha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -48,6 +48,7 @@ struct CloseTerminalResult;
 struct ColorHex;
 struct ColumnPin;
 struct ConversationChange;
+struct ConversationImportMessage;
 struct ConversationMessage;
 struct ConversationPart;
 struct ConversationPartRef;
@@ -259,6 +260,8 @@ struct ConversationCreateRequest;
 struct ConversationCreateResult;
 struct ConversationHistoryRequest;
 struct ConversationHistoryResult;
+struct ConversationImportRequest;
+struct ConversationImportResult;
 struct ConversationListRequest;
 struct ConversationListResult;
 struct ConversationOpRequest;
@@ -1709,6 +1712,28 @@ struct ConversationHistoryRequest {
 struct ConversationHistoryResult {
     std::vector<ConversationMessage> messages{};
     friend bool operator==(const ConversationHistoryResult&, const ConversationHistoryResult&) = default;
+};
+
+struct ConversationImportMessage {
+    std::string author{};
+    std::string client_msg_id{};
+    std::string created_at{};
+    Field<std::string> id{};
+    std::vector<ConversationPart> parts{};
+    friend bool operator==(const ConversationImportMessage&, const ConversationImportMessage&) = default;
+};
+
+struct ConversationImportRequest {
+    std::string conversation{};
+    std::vector<ConversationImportMessage> messages{};
+    friend bool operator==(const ConversationImportRequest&, const ConversationImportRequest&) = default;
+};
+
+struct ConversationImportResult {
+    ConversationSummary conversation{};
+    std::vector<std::uint64_t> imported{};
+    std::uint64_t skipped{};
+    friend bool operator==(const ConversationImportResult&, const ConversationImportResult&) = default;
 };
 
 struct ConversationListRequest {
@@ -5016,6 +5041,12 @@ struct Codec<ConversationChange> {
 };
 
 template <>
+struct Codec<ConversationImportMessage> {
+    static Result<Json> encode(const ConversationImportMessage& value);
+    static Result<ConversationImportMessage> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationMessage> {
     static Result<Json> encode(const ConversationMessage& value);
     static Result<ConversationMessage> decode(const Json& value);
@@ -6279,6 +6310,18 @@ template <>
 struct Codec<ConversationHistoryResult> {
     static Result<Json> encode(const ConversationHistoryResult& value);
     static Result<ConversationHistoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationImportRequest> {
+    static Result<Json> encode(const ConversationImportRequest& value);
+    static Result<ConversationImportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationImportResult> {
+    static Result<Json> encode(const ConversationImportResult& value);
+    static Result<ConversationImportResult> decode(const Json& value);
 };
 
 template <>

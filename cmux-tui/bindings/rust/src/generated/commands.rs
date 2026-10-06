@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 40f91ac6df3f10ede1f880563d9d2c8be05cc48f9b344127b8a6468521b23564.
+// cmux-tui mux protocol 12, IR 574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -738,6 +738,21 @@ pub struct ConversationHistoryRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationHistoryResult {
     pub messages: Vec<T::ConversationMessage>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationImportRequest {
+    pub conversation: String,
+    pub messages: Vec<T::ConversationImportMessage>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationImportResult {
+    pub conversation: T::ConversationSummary,
+    pub imported: Vec<u64>,
+    pub skipped: u64,
 }
 
 #[rustfmt::skip]
@@ -3515,6 +3530,10 @@ impl CmuxClient {
 
     pub fn conversation_history(&mut self, request: ConversationHistoryRequest) -> Result<ConversationHistoryResult> {
         self.execute(&CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn conversation_import(&mut self, request: ConversationImportRequest) -> Result<ConversationImportResult> {
+        self.execute(&CONVERSATION_IMPORT_METADATA, &request)
     }
 
     pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {

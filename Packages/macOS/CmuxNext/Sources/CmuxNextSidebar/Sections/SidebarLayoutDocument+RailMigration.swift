@@ -4,8 +4,10 @@ import Foundation
 // sidebar's sections and changed the default layout; R52 (Lawrence,
 // 2026-10-03) removed the rail. A stored layout that still equals the
 // rail's default moves back to the sections default; a layout the user
-// changed in any way is theirs and never migrates. The sections default
-// before R53 (an inline bottom line) moves to the grid bottom row too.
+// changed in any way is theirs and never migrates. The sections defaults
+// before SIDEBAR-FOOTER-MINIMAL (an inline bottom line, then R53's grid
+// with the Settings label) move to the minimal footer too; for R53's grid
+// only the bottom section must be untouched.
 extension SidebarLayoutDocument {
     /// What an old exact default migrates to: the sections default of that
     /// time, which still held CodeRouter. A stored layout keeps its items;
@@ -16,42 +18,45 @@ extension SidebarLayoutDocument {
         return target
     }
 
-    /// The ops that move a layout equal to the rail default back to the
-    /// sections default, or none. The revision does not matter. They are
-    /// ordinary layout ops, so the owner applies and syncs them like any
-    /// edit, and Settings keeps its item id as it returns to the bottom line.
+    /// The ops that move a layout equal to an older default to the current
+    /// one, or none. The revision does not matter. They are ordinary layout
+    /// ops, so the owner applies and syncs them like any edit, and Settings
+    /// and the account keep their item ids.
     public nonisolated var sectionsMigrationOps: [SidebarLayoutOp] {
         let top = Self.topSectionID, bottom = Self.bottomSectionID
-        // The bottom row as a grid: Settings over 7 of 8 columns, the
-        // account over 1 (R53). Items are re-added to carry their span.
-        let gridBottom: [SidebarLayoutOp] = [
-            .sectionUpdate(bottom, SectionPatch(layout: .grid, columns: .set(8))),
+        // The minimal footer: the avatar, then the gear, icons only, on one
+        // leading line (SIDEBAR-FOOTER-MINIMAL). Items are re-added to drop
+        // a span and a label.
+        let minimalFooter: [SidebarLayoutOp] = [
+            .sectionUpdate(bottom, SectionPatch(layout: .inline, align: .leading, columns: .clear)),
             .itemRemove(LayoutItemID("itm_settings")),
             .itemRemove(LayoutItemID("itm_account")),
-            .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7), section: bottom, index: 0),
-            .itemAdd(LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
-                     section: bottom, index: 1),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false), section: bottom, index: 0),
+            .itemAdd(LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), showsLabel: false), section: bottom, index: 1),
         ]
-        if sections == Self.inlineBottomDefaults.sections { return gridBottom }
+        if sections == Self.inlineBottomDefaults.sections || section(bottom) == Self.gridBottomSection { return minimalFooter }
         guard sections == Self.railDefaults.sections else { return [] }
         return [
             .itemRemove(LayoutItemID("itm_history")),
             .itemRemove(LayoutItemID("itm_notifications")),
             .itemRemove(LayoutItemID("itm_customize")),
             .sectionUpdate(top, SectionPatch(maxRows: .clear)),
-        ] + gridBottom
+        ] + minimalFooter
     }
+
+    /// R53's bottom row (Settings with its label over 7 of 8 columns, the
+    /// account over the last), the default until SIDEBAR-FOOTER-MINIMAL,
+    /// only to recognize it.
+    public nonisolated static let gridBottomSection = LayoutSection(
+        id: bottomSectionID, region: .bottom, look: .builtIn,
+        arrangement: SectionArrangement(layout: .grid, align: .fill, columns: 8), items: [
+            LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings), span: 7),
+            LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false, span: 1),
+        ])
 
     /// This layout with `sectionsMigrationOps` applied by the reducer; the
     /// layout itself when nothing migrates.
-    public nonisolated var sectionsMigration: SidebarLayoutDocument {
-        var result = self
-        for op in sectionsMigrationOps {
-            guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }
-            result = next
-        }
-        return result
-    }
+    public nonisolated var sectionsMigration: SidebarLayoutDocument { applying(sectionsMigrationOps) }
 
     /// The sections default before R53 (one inline bottom line with
     /// Settings leading and the account trailing), only to recognize it.
@@ -112,18 +117,28 @@ extension SidebarLayoutDocument {
     /// top (Lawrence 2026-10-05: rows); a user can still choose it.
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
-    /// Every migration in order (sections, then app refs), as one op list
-    /// that applies to this layout. No migration turns a plain-row top
-    /// section into tiles; the tiles default was never stored (the store
-    /// did not serve `sidebar-layout-v1` yet), so none moves back either.
-    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] {
-        sectionsMigrationOps + sectionsMigration.appRefMigrationOps
+    /// Every migration in order (sections, then app refs, then Recents), as
+    /// one op list that applies to this layout. No migration turns a
+    /// plain-row top section into tiles; the tiles default was never stored
+    /// (the store did not serve `sidebar-layout-v1` yet), so none moves back either.
+    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] { layoutMigrationOps(offeringRecents: true) }
+
+    /// `layoutMigrationOps`, without Recents once this Mac offered it (a
+    /// layout without Recents then is one the user removed it from).
+    public nonisolated func layoutMigrationOps(offeringRecents: Bool) -> [SidebarLayoutOp] {
+        let sections = sectionsMigrationOps
+        let appRefs = sectionsMigration.appRefMigrationOps
+        guard offeringRecents else { return sections + appRefs }
+        return sections + appRefs + applying(sections + appRefs).recentsMigrationOps
     }
 
     /// This layout with `layoutMigrationOps` applied.
-    public nonisolated var layoutMigration: SidebarLayoutDocument {
+    public nonisolated var layoutMigration: SidebarLayoutDocument { applying(layoutMigrationOps) }
+
+    /// This layout with `ops` applied by the reducer; the layout itself when one is refused.
+    nonisolated func applying(_ ops: [SidebarLayoutOp]) -> SidebarLayoutDocument {
         var result = self
-        for op in layoutMigrationOps {
+        for op in ops {
             guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }
             result = next
         }

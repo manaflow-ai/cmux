@@ -11,5 +11,22 @@ nonisolated enum HomeStrings {
     static var newConversationTitle: String {
         String(localized: "home.newConversation.title", defaultValue: "New Conversation", table: "Home", bundle: .module)
     }
+    /// Home's notice while an older build's own Chief still runs.
+    static var chiefMergeBlocked: String {
+        String(localized: "home.chief.mergeBlocked", defaultValue: "Quit older cmux DEV builds to merge Chief history", table: "Home", bundle: .module)
+    }
+    /// The Chief conversation's notice while a turn waits for the compactor.
+    static func chiefOrganizing(built: Int, total: Int) -> String {
+        String(format: String(localized: "home.chief.organizing", defaultValue: "Organizing Chief history: %1$lld of %2$lld",
+                              table: "Home", bundle: .module), built, total)
+    }
     static var thisMacOnly: String { String(localized: "home.owner.local", defaultValue: "This Mac only", table: "Home", bundle: .module) }
+    static var archiveDefaultChief: String {
+        String(localized: "home.chief.archive.default", defaultValue: "Make another Chief the default before archiving this one.",
+               table: "Home", bundle: .module)
+    }
+    static var archiveFailed: String {
+        String(localized: "home.chief.archive.failed", defaultValue: "The Chief couldn’t be archived. Try again.", table: "Home",
+               bundle: .module)
+    }
 }

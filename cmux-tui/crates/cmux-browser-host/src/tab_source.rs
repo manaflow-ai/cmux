@@ -32,7 +32,13 @@ pub struct TabCall<'a> {
     /// The caller takes a script's value as the engine sent it
     /// ([`Reply::Json`], the page's key order).
     pub raw: bool,
+    /// The session's origin (`user` is the person, who also reads the
+    /// host's own diagnostics in `tab.info`).
+    pub origin: &'a str,
 }
+
+/// Where a source sends an entry for one session's policy log.
+pub type PolicyLogSink = Arc<dyn Fn(Value) + Send + Sync>;
 
 /// The `tabs.list` answer every source gives (driver-protocol.md, `tabs.list`):
 /// an array of `{ targetId, title, url, active, windowId, state, dataStore,
@@ -94,6 +100,9 @@ pub trait TabSource: Send + Sync {
     /// Adds a session's event receiver; returns its id.
     fn subscribe(&self, sink: EventSink) -> u64;
     fn unsubscribe(&self, id: u64);
+    /// The policy log of subscriber `id` (until it unsubscribes): where the
+    /// source logs what it did for the session on its own (D2).
+    fn policy_log(&self, _id: u64, _sink: PolicyLogSink) {}
     /// The tabs of one engine, as `tabs.list` rows.
     fn tab_rows(&self, engine: &str) -> Vec<TabRow>;
     /// The engine of a tab, `None` when the tab is unknown.
@@ -116,6 +125,11 @@ pub trait TabSource: Send + Sync {
         _params: &Value,
     ) -> Option<Result<Value, DriverError>> {
         None
+    }
+    /// `tabs.open` for a session (a source applies the session's
+    /// `session.configure` options to the new tab here).
+    fn open_tab(&self, _session: u64, params: &Value) -> Result<Value, DriverError> {
+        self.call("tabs.open", params)
     }
     /// The session opened `target_id` (`tabs.open`): it drives it.
     fn opened(&self, _session: u64, _target_id: &str) {}

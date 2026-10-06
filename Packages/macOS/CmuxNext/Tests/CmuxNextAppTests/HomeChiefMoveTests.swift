@@ -31,6 +31,20 @@ import Testing
         #expect(move.pane != nil, "the placed chief opens where the local Chief was")
     }
 
+    /// The local Chief with history stays the Chief: a tab that a placed
+    /// chief opened in its place closes, and the local Chief tab is the one.
+    @Test func thePlacedChiefTabGivesWayBackToTheLocalChiefWithHistory() throws {
+        let store = try store([tab(7, "conv_01LOCALCHIEF", owner: "local"), tab(9, "conv_01CLOUDCHIEF", owner: "cloud")])
+        let placed = CloudChief.parse(["id": "agent_A", "display_name": "Chief", "is_default": true, "rev": 2,
+                                       "main_conversation": "conv_01CLOUDCHIEF",
+                                       "brain_place": ["host": "host_aaaaaaaaaaaaaaaaaaaa", "install": "inst_aaaaaaaaaaaaaaaaaaaa"]])
+        let chief = try #require(HomeChiefSource.choose(local: "conv_01LOCALCHIEF", localHasHistory: true, placed: placed))
+        #expect(chief == "conv_01LOCALCHIEF")
+        let stale = HomeChiefSource.staleChiefTabs(placed: placed?.mainConversation, chief: chief, in: store.workspaces)
+        #expect(stale.map(\.rawValue) == [9], "the placed chief's tab closes; the local Chief tab stays")
+        #expect(HomeChiefSource.staleChiefTabs(placed: "conv_01CLOUDCHIEF", chief: "conv_01CLOUDCHIEF", in: store.workspaces).isEmpty)
+    }
+
     @Test func nothingMovesWhenTheChiefIsLocalOrAlreadyPlaced() throws {
         let store = try store([tab(7, "conv_01LOCALCHIEF", owner: "local")])
         #expect(HomeChiefSource.move(local: "conv_01LOCALCHIEF", chief: "conv_01LOCALCHIEF", in: store.workspaces).close.isEmpty)
