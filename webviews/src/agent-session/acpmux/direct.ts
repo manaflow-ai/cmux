@@ -415,6 +415,8 @@ export class AcpmuxDirectClient {
   /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
   /// WebSocket connection is remote-origin to acpmux, which never pools for it.
   private localOrigin = false;
+  /// acpmux calls this connection remote (`_meta.acpmux.origin: "remote"`): the Web rules apply.
+  private remoteOrigin = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -544,6 +546,7 @@ export class AcpmuxDirectClient {
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
       this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
+      this.remoteOrigin = initialized?._meta?.acpmux?.origin === "remote";
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
@@ -1279,6 +1282,7 @@ export class AcpmuxDirectClient {
             title: summary.title,
             name: summary.name,
             harness: summary.harness,
+            family: typeof summary.family === "string" ? summary.family : undefined,
             model: summary.model,
             effort: effort?.currentValue,
             promptCapabilities: summary.agentCapabilities?.promptCapabilities,
@@ -1289,6 +1293,7 @@ export class AcpmuxDirectClient {
           }
         : undefined,
       connection,
+      remote: this.remoteOrigin,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
       canFork: this.canFork,

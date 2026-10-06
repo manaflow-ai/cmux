@@ -98,6 +98,8 @@ export type AcpmuxSnapshot = {
     title?: string;
     name?: string;
     harness?: string;
+    /// The harness family acpmux files the session under (`codex`, `opencode`, ...), when it says.
+    family?: string;
     model?: string;
     /// The model the agent last reported, when the pane draws a pick (`model`) it has not
     /// confirmed yet (harnessSwitch.ts). Unset otherwise: `model` is what it reported.
@@ -119,6 +121,9 @@ export type AcpmuxSnapshot = {
     }[];
   };
   connection: string;
+  /// acpmux calls this connection remote (`_meta.acpmux.origin: "remote"`): its Web rules apply,
+  /// such as Codex and opencode without editing (remoteEditing.ts).
+  remote?: boolean;
   sessionId?: string;
   isWorking: boolean;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.

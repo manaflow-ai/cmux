@@ -41185,6 +41185,138 @@
         }
       }
     },
+    "composer.remoteEditing": {
+      "comment": "Agent pane: a remote (paired or browser) connection showing a Codex or opencode chat, which acpmux runs there only in a mode that does not edit",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يتطلب التعديل من هنا وضعًا يطلب الإذن قبل كل تغيير"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uređivanje odavde traži način rada koji pita prije svake promjene"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redigering herfra kræver en tilstand, der spørger før hver ændring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bearbeiten von hier erfordert einen Modus, der vor jeder Änderung fragt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editing from here needs a mode that asks before each change"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar desde aquí requiere un modo que pregunte antes de cada cambio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modifier depuis ici nécessite un mode qui demande avant chaque changement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modificare da qui richiede una modalità che chieda prima di ogni modifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ここから編集するには、変更のたびに確認するモードが必要です"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកែសម្រួលពីទីនេះត្រូវការរបៀបដែលសួរមុនពេលផ្លាស់ប្ដូរនីមួយៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "여기에서 편집하려면 변경할 때마다 확인하는 모드가 필요합니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redigering herfra krever en modus som spør før hver endring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Edytowanie stąd wymaga trybu, który pyta przed każdą zmianą"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Editar daqui requer um modo que pergunte antes de cada alteração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для редактирования отсюда нужен режим, который спрашивает перед каждым изменением"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแก้ไขจากที่นี่ต้องใช้โหมดที่ถามก่อนการเปลี่ยนแปลงทุกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buradan düzenlemek için her değişiklikten önce soran bir mod gerekir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Для редагування звідси потрібен режим, який питає перед кожною зміною"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chỉnh sửa từ đây cần một chế độ hỏi trước mỗi thay đổi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "从这里编辑需要一种在每次更改前都会询问的模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "從這裡編輯需要一種在每次變更前都會詢問的模式"
+          }
+        }
+      }
+    },
     "composer.removeAttachment": {
       "comment": "Agent pane",
       "extractionState": "manual",

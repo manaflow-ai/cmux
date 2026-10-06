@@ -25,6 +25,7 @@ import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashM
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, type Translate, useT } from "./i18n";
+import { remoteEditingNote } from "./remoteEditing";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -241,6 +242,7 @@ export function Composer({
     pendingCaret.current = draft.length;
   }, [draft]);
   const commands = snapshot.commands;
+  const remoteNote = remoteEditingNote(snapshot);
   const modeChoices: Choice[] = (snapshot.summary?.modes?.availableModes ?? [])
     .filter((mode) => !/(^|[-_])plan$/i.test(mode.id))
     .map((mode) => ({
@@ -428,6 +430,11 @@ export function Composer({
             </li>
           ))}
         </ol>
+      )}
+      {remoteNote && (
+        <p className="acpmux-composer-remote-note" role="note">
+          {t(remoteNote)}
+        </p>
       )}
       <ComposerContext
         projectChoices={projectChoices}
