@@ -445,11 +445,16 @@ const VIDEOS = {
   // Page data whose caption track URLs point at another site (github.com,
   // which holds a session cookie); the player itself loads YouTube's.
   vidForeign5: { title: "Foreign Captions", pot: false, captionOrigin: "https://github.com" },
+  // Page data whose caption track URLs are YouTube paths that are not
+  // captions, or captions of another video; the player loads the real ones.
+  vidSameHst6: { title: "Same-host Paths", pot: false, captionURL: (id, client, i) => (i ? `/api/timedtext?v=vidDirect01&lang=en&c=${client}&trap=other-video` : `/__mock/caption-trap?v=${id}&lang=en&c=${client}`) },
 };
 
 const captionsFor = (id, client) => {
   const origin = (VIDEOS[id] && VIDEOS[id].captionOrigin) || "https://www.youtube.com";
-  return { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: `${origin}/api/timedtext?v=${id}&lang=en&c=${client}`, languageCode: "en", name: { simpleText: "English" } }, { baseUrl: `${origin}/api/timedtext?v=${id}&lang=en&kind=asr&c=${client}`, languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } };
+  const custom = VIDEOS[id] && VIDEOS[id].captionURL;
+  const at = (i, kind) => (custom ? origin + custom(id, client, i) : `${origin}/api/timedtext?v=${id}&lang=en${kind}&c=${client}`);
+  return { playerCaptionsTracklistRenderer: { captionTracks: [{ baseUrl: at(0, ""), languageCode: "en", name: { simpleText: "English" } }, { baseUrl: at(1, "&kind=asr"), languageCode: "en", kind: "asr", name: { simpleText: "English (auto-generated)" } }] } };
 };
 
 function watchPage(id) {
