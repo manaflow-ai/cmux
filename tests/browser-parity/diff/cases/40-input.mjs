@@ -78,9 +78,8 @@ return { value: await $P.locator("#keys").evaluate((e) => e.value), combos: (awa
   },
   // `at`: the first click's offsetX/offsetY near the 20,20 aimed at. The
   // offsets count from the canvas's padding edge, inside its 1px border, so
-  // the exact value is 19 less the box's subpixel fraction; WebKit's click
-  // event (Playwright WebKit, the dev backend) reports it truncated to 18.
-  // Both axes allow 2.
+  // x is 19 while the canvas sits on whole pixels (lab.html places it so);
+  // x allows 1.5, y 2.
   {
     id: "mouse.members",
     members: ["reference-a:Mouse.click", "reference-a:Mouse.dblclick", "reference-a:Mouse.down", "reference-a:Mouse.up", "reference-a:Mouse.move", "reference-a:Mouse.wheel", "reference-b:CUAAPI.click", "reference-b:CUAAPI.double_click", "reference-b:CUAAPI.move", "reference-b:CUAAPI.scroll"],
@@ -95,7 +94,7 @@ await $P.mouse.down(); await $P.mouse.up();
 await $P.mouse.wheel(0, 40);
 await sleep(200);
 const ev = $LOG.filter((r) => r[1] === "canvas");
-return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 2, at: ((p) => !!p && Math.abs(p[0] - 20) <= 2 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
+return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 2, at: ((p) => !!p && Math.abs(p[0] - 20) <= 1.5 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
     "reference-b": `${CENTER}
 const c = await center("#canvas");
 const x = c.x - 40, y = c.y - 10;
@@ -106,7 +105,7 @@ await t.cua.move({ x: x + 30, y: y + 10 });
 await t.cua.scroll({ x, y, scrollX: 0, scrollY: 40 });
 await $P.waitForTimeout(200);
 const ev = $LOG.filter((r) => r[1] === "canvas");
-return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 1, at: ((p) => !!p && Math.abs(p[0] - 20) <= 2 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
+return { clicks: ev.filter((r) => r[0] === "click").length, right: ev.some((r) => r[0] === "mousedown" && r[3][2] === 2), moves: ev.filter((r) => r[0] === "mousemove").length >= 1, at: ((p) => !!p && Math.abs(p[0] - 20) <= 1.5 && Math.abs(p[1] - 20) <= 2)(ev.filter((r) => r[0] === "click").map((r) => [r[3][0], r[3][1]])[0]), wheel: ev.some((r) => r[0] === "wheel"), trusted: ev.every((r) => r[2]) };`,
     referenceBMode: "legacy",
     compare: { "reference-a": ["clicks", "right", "moves", "at", "wheel", "trusted"], "reference-b": ["right", "moves", "at", "wheel", "trusted"] },
     expect: { clicks: 4, right: true, moves: true, at: true, wheel: true, trusted: true },

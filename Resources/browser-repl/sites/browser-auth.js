@@ -5,7 +5,7 @@
 // the app fills the fields in the page (sites/auth-fill.js). Only password,
 // username and one-time-code fields are filled, checked here and again by
 // the app, and only in a tab this session opened under a domain policy
-// within the page's site (session.allowedDomains). No value passes through
+// that names the page's exact host (session.allowedDomains). No value passes through
 // the REPL and the result never contains one; the app records each value
 // as the tab's typed secret, so whatever the agent reads back from the page
 // (values, results, captures) shows it masked. The page itself can read a

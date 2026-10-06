@@ -22,6 +22,23 @@ public struct BrowserReplDriverError: Error, Equatable, Sendable {
     }
 }
 
+/// How a REPL session ended, which decides what becomes of the tabs it
+/// opened (docs/browser-repl/README.md, Sessions and tabs).
+public enum BrowserReplSessionEnd: Sendable, Equatable {
+    /// Reset, closed by its client, or ended by itself.
+    case closed
+    /// Unused for the idle timeout (30 minutes).
+    case idle
+
+    /// Whether a tab the session opened (and did not `page.keep()`) closes
+    /// with it. A session that idled out leaves a tab the user can see
+    /// (shown in a visible window, the selected tab of its pane and
+    /// workspace), which becomes the user's; a hidden one closes.
+    public func closesOpenedTab(visibleToUser: Bool) -> Bool {
+        self == .closed || !visibleToUser
+    }
+}
+
 /// Receives driver events (`tab.created`, `dialog.opened`, ...).
 public typealias BrowserReplDriverEventSink = @Sendable (_ name: String, _ payloadJSON: String) -> Void
 
@@ -43,6 +60,11 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
 
     /// Stops events and releases held dialogs, file choosers and input state.
     func detach()
+
+    /// Like ``detach()``, for a session that ended `ending`: the tabs the
+    /// session opened close, except those ``BrowserReplSessionEnd/closesOpenedTab(visibleToUser:)``
+    /// keeps. A driver without tabs of its own ignores `ending`.
+    func detach(ending: BrowserReplSessionEnd)
 
     /// The session's domain policy changed. The driver refuses navigations
     /// the policy blocks (redirects too), blocks subresources and frames with
@@ -74,6 +96,8 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
 }
 
 extension BrowserReplDriver {
+    public func detach(ending: BrowserReplSessionEnd) { detach() }
+
     public func setDomainPolicy(_ policy: BrowserReplDomainPolicy) {}
 
     public func setFileRoots(_ roots: [String]) {}

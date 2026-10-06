@@ -309,10 +309,14 @@ requested password only into a password input) in the tab's origin and that
 all are in one frame, marks them with a random attribute, and calls the
 driver's `auth.request`. It asks only in a tab the session opened
 (`tabs.open`), under a domain policy that keeps the session's tabs on the
-page's site (`*.<registrable domain>`): the session refuses the call
-otherwise, sends that site to the driver as the credential's domains, and
-from then on refuses a policy that reaches past it, as for a typed secret;
-the driver refuses a frame outside it. The app shows a sheet on the browser
+page's exact host with https (`session.allowedDomains(["https://accounts.example.com"])`
+for a sign-in on `accounts.example.com`; a loopback host also on http). A
+wildcard over the site, such as `*.example.com`, is not enough: a sibling
+host of the same site could receive the values. The session refuses the
+call otherwise (the error names the pattern to allow), sends that host to
+the driver as the credential's domains, and from then on refuses a policy
+that reaches past it, as for a typed secret; the driver refuses a frame
+outside it. The app shows a sheet on the browser
 pane's window naming the origin of the frame that holds the fields, from
 WebKit's record of it (and the page's origin when the frame is embedded from
 another), with one field per request (secure text for passwords), labeled

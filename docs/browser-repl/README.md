@@ -412,7 +412,12 @@ rest. Measurements: [performance.md](performance.md).
   `cmux browser repl reset NAME` or 30 minutes idle. A run without `--session`
   is one-shot: its tabs close at the end unless `page.keep()` was called.
   A session's tabs close when it ends wherever they are, also one the user
-  moved to another workspace or window; only `page.keep()` keeps one.
+  moved to another workspace or window; only `page.keep()` keeps one, with
+  one exception: a session that ends after 30 minutes idle leaves open each
+  tab it opened that the user can see then (the selected tab of its pane,
+  in the selected workspace of a visible, not minimized window), which
+  becomes the user's tab; its hidden tabs close. A reset closes every tab
+  the session opened and did not keep.
 - `cmux browser repl mcp [--session NAME]` serves a session as an MCP
   server on stdio, with the tools `eval`, `snapshot`, `screenshot`, `tabs`
   and `reset`, for agents that load tools over MCP. Without `--session` each

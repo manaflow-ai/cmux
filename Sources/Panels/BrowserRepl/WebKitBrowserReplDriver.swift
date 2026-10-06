@@ -158,10 +158,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard !lock.withLock({ isDetached }) else { return }
         frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
+        let roots = currentFileRoots
         do {
             // The local-file rules first: a policy's allow list blocks every
             // load it does not name, files inside the roots included.
-            let rules = BrowserReplFileSandbox.contentRules(roots: currentFileRoots) + policy.contentRules
+            let rules = BrowserReplFileSandbox.contentRules(roots: roots) + policy.contentRules
             options.ruleList = try await compileRuleList(rules)
             policyFailure = nil
         } catch {
@@ -184,32 +185,45 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // a newer one keeps them under the fail-closed list.
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID, rulesGeneration: generation)
         BrowserReplPolicyBoard.shared.rulesInstalled(sessionID: sessionID, generation: generation)
-        let previous = tabsPolicy
-        tabsPolicy = policy
+        let previous = tabsAuthority ?? BrowserReplDocumentAuthority(sessionID: sessionID)
+        let now = BrowserReplDocumentAuthority(sessionID: sessionID, policy: policy, fileRoots: roots)
+        tabsAuthority = now
         // The session's calls wait for this task (policyRunner), so none
-        // reaches a page that loaded under the looser policy.
-        if policy.narrows(previous) { await replacePagesAfterNarrowing(policy) }
+        // reaches a page that loaded under the looser authority.
+        await replacePages(after: previous, now)
     }
 
-    /// The policy whose content rules were last put on the session's tabs.
-    @MainActor private var tabsPolicy = BrowserReplDomainPolicy()
+    /// The policy and directories whose content rules were last put on the
+    /// session's tabs.
+    @MainActor private var tabsAuthority: BrowserReplDocumentAuthority?
 
-    /// Content rules judge a connection only when it opens: a page that
-    /// loaded under a looser policy keeps a WebSocket to a host the new one
-    /// blocks. So after a narrower policy's rules are on the session's
-    /// tabs, each live page of a tab the session created is loaded again
-    /// (its old document and every connection it held end; an allowed page
-    /// reloads, a blocked one becomes `about:blank`), and the tab's
-    /// sessions get `tab.replaced` with the reason. A tab whose page cannot
-    /// be replaced within 10 s is closed.
+    /// Content rules judge a connection or a frame only when it opens: a
+    /// page that loaded under a looser policy keeps a WebSocket to a host
+    /// the new one blocks, and one of a local file's origin keeps reading
+    /// files of a directory the session left. So after new rules are on
+    /// the session's tabs, each live page of a tab the session created
+    /// that the authority no longer allows as it is
+    /// (``BrowserReplDocumentAuthority/pageReplacement(after:in:)``) is
+    /// loaded again or becomes `about:blank` (its old document and every
+    /// connection it held end), and the tab's sessions get `tab.replaced`
+    /// with the reason. A tab whose page cannot be replaced within 10 s is
+    /// closed.
     @MainActor
-    private func replacePagesAfterNarrowing(_ policy: BrowserReplDomainPolicy) async {
-        let reason = "the session narrowed its domain policy, so cmux loaded the tab's page again: connections the page opened before (WebSockets) to hosts the new policy blocks are closed, and element handles and page state from before are gone"
+    private func replacePages(after previous: BrowserReplDocumentAuthority, _ now: BrowserReplDocumentAuthority) async {
         for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
-            guard attachment.creatorSessionID == sessionID, let panel = attachment.panel, let url = panel.webView.url else { continue }
+            guard let panel = attachment.panel, panel.webView.url != nil else { continue }
+            let reason: String
             var replaced = false
-            if policy.blockReason(url.absoluteString) == nil, let (ticket, _) = panel.beginAutomationReloadFromCLI() {
-                replaced = await settle(ticket, in: panel)
+            switch now.pageReplacement(after: previous, in: tabFacts(panel, workspaceID: nil)) {
+            case .keep:
+                continue
+            case .reload(let why):
+                reason = why
+                if let (ticket, _) = panel.beginAutomationReloadFromCLI() {
+                    replaced = await settle(ticket, in: panel)
+                }
+            case .blank(let why):
+                reason = why
             }
             if !replaced, let blank = URL(string: "about:blank") {
                 replaced = await settle(panel.beginAutomationNavigation(to: blank, recordTypedNavigation: false), in: panel)
@@ -330,6 +344,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     func detach() {
+        detach(ending: .closed)
+    }
+
+    /// Ends the session's hold on its tabs; the tabs it opened close, except
+    /// one the user can see when it idled out (``BrowserReplSessionEnd/closesOpenedTab(visibleToUser:)``).
+    func detach(ending: BrowserReplSessionEnd) {
         let pendingPolicy = lock.withLock {
             sink = nil
             isDetached = true
@@ -354,7 +374,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 Task { @MainActor in _ = try? await ruleLists.update(rules: nil) }
             }
             self.clearSessionLabels()
-            self.closeOpenedTabs()
+            self.closeOpenedTabs(ending: ending)
             // The agent's proxy ends with the session: a tab it kept, now
             // the user's, and any tab opened from one on the same private
             // store go back to the browser's own proxy settings, which every
@@ -2888,20 +2908,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     @MainActor
-    private func closeOpenedTabs() {
+    private func closeOpenedTabs(ending: BrowserReplSessionEnd) {
         let opened = openedTargetIDs
         openedTargetIDs.removeAll()
         // Each tab is closed in the workspace that holds it now, of any
         // window: one the user moved out of the session's workspace (or a
         // tab of a workspace that closed meanwhile) closes too, unless
-        // `page.keep()` took it out of this set. The panel's own close
-        // forgets what is kept for it (`BrowserPanel.close()`), only once
-        // it really closes.
+        // `page.keep()` took it out of this set, or the session idled out
+        // while the user can see the tab (it stays, as the user's). The
+        // panel's own close forgets what is kept for it
+        // (`BrowserPanel.close()`), only once it really closes.
         let entries = Self.browserPanelEntries()
         for id in opened {
-            guard let workspace = entries.first(where: { $0.panel.id == id })?.workspace else { continue }
-            _ = workspace.closePanel(id, force: true)
+            guard let entry = entries.first(where: { $0.panel.id == id }) else { continue }
+            guard ending.closesOpenedTab(visibleToUser: Self.isVisibleToUser(entry.panel, in: entry.workspace)) else { continue }
+            _ = entry.workspace.closePanel(id, force: true)
         }
+    }
+
+    /// Whether the user can see `panel` now: its workspace is the selected
+    /// one of its window, and its web view is in that window's view tree,
+    /// not hidden (the selected tab of its pane), in a visible window that
+    /// is not minimized.
+    @MainActor
+    private static func isVisibleToUser(_ panel: BrowserPanel, in workspace: Workspace) -> Bool {
+        let webView = panel.webView
+        guard workspace.owningTabManager?.selectedTabId == workspace.id,
+              let window = webView.window, window.isVisible, !window.isMiniaturized else { return false }
+        return webView.superview != nil && !webView.isHiddenOrHasHiddenAncestor
     }
 
     @MainActor

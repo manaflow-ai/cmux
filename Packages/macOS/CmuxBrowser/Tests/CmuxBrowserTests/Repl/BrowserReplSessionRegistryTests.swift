@@ -213,4 +213,67 @@ struct BrowserReplSessionRegistryTests {
         }
         #expect(BrowserReplSessionKey(instanceID: "work") == nil)
     }
+    /// Owner decision 2026-10-06: a session that idles out keeps the tabs
+    /// it opened that the user can see (they become the user's); a reset
+    /// closes every one. The driver learns which end it was.
+    @Test("An idle timeout ends the session as idle, a reset as closed, and only an idle end keeps a visible tab", .timeLimit(.minutes(1)))
+    func idleEndKeepsVisibleTabs() async throws {
+        let registry = BrowserReplSessionRegistry(idleTimeout: .milliseconds(20))
+        let idleDriver = EndingRecorderDriver()
+        let idleSession = try registry.session(for: .init(workspaceID: first, name: "idle")) { id in
+            BrowserReplSession(id: id, cwd: browserReplTestWorkingDirectory, bundle: BrowserReplRuntimeBundle(replScripts: [], agentScripts: []), driver: idleDriver)
+        }
+        defer { idleSession.close() }
+        #expect(await idleDriver.ending() == .idle)
+
+        let resetDriver = EndingRecorderDriver()
+        let resetSession = try registry.session(for: .init(workspaceID: first, name: "reset")) { id in
+            BrowserReplSession(id: id, cwd: browserReplTestWorkingDirectory, bundle: BrowserReplRuntimeBundle(replScripts: [], agentScripts: []), driver: resetDriver)
+        }
+        defer { resetSession.close() }
+        #expect(registry.reset(.init(workspaceID: first, name: "reset")))
+        #expect(await resetDriver.ending() == .closed)
+
+        #expect(!BrowserReplSessionEnd.idle.closesOpenedTab(visibleToUser: true))
+        #expect(BrowserReplSessionEnd.idle.closesOpenedTab(visibleToUser: false))
+        #expect(BrowserReplSessionEnd.closed.closesOpenedTab(visibleToUser: true))
+        #expect(BrowserReplSessionEnd.closed.closesOpenedTab(visibleToUser: false))
+    }
+}
+
+/// Records how its session ended (``BrowserReplDriver/detach(ending:)``).
+private final class EndingRecorderDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: BrowserReplSessionEnd?
+    private var waiters: [CheckedContinuation<BrowserReplSessionEnd, Never>] = []
+
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> { .success("null") }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+
+    func detach() { detach(ending: .closed) }
+
+    func detach(ending: BrowserReplSessionEnd) {
+        let pending: [CheckedContinuation<BrowserReplSessionEnd, Never>] = lock.withLock {
+            guard recorded == nil else { return [] }
+            recorded = ending
+            defer { waiters.removeAll() }
+            return waiters
+        }
+        for waiter in pending { waiter.resume(returning: ending) }
+    }
+
+    /// How the session ended, once it has.
+    func ending() async -> BrowserReplSessionEnd {
+        await withCheckedContinuation { continuation in
+            let now: BrowserReplSessionEnd? = lock.withLock {
+                if let recorded { return recorded }
+                waiters.append(continuation)
+                return nil
+            }
+            if let now { continuation.resume(returning: now) }
+        }
+    }
 }

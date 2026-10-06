@@ -862,9 +862,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         close(reason: nil)
     }
 
+    /// Like ``close()``, for a session that ended `ending`, which the
+    /// driver gets (``BrowserReplDriver/detach(ending:)``).
+    public func close(ending: BrowserReplSessionEnd) {
+        close(reason: nil, ending: ending)
+    }
+
     /// Like ``close()``; a running evaluation fails with `reason` (why the
     /// session ended) when given.
-    private func close(reason: String?) {
+    private func close(reason: String?, ending: BrowserReplSessionEnd = .closed) {
         stateLock.lock()
         guard !closed else {
             stateLock.unlock()
@@ -901,7 +907,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         stateLock.unlock()
         for task in tasks { task.cancel() }
         scheduler.invalidate()
-        driver.detach()
+        driver.detach(ending: ending)
         fetcher.invalidate()
         running?.finish(error: reason ?? "Error: REPL session '\(id)' was closed")
         // Only an empty directory goes; files the session wrote stay, since

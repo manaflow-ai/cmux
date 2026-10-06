@@ -291,19 +291,22 @@ final class BrowserReplBoundary: @unchecked Sendable {
     }
 
     /// The domains of the values the sign-in sheet fills into a page of
-    /// `origin` (`auth.request`): its site (`*.<registrable domain>`, or
-    /// the host itself when it has none, an IP address or a single label).
-    /// Refused unless the policy keeps the session's tabs within them, as
-    /// for a typed secret, and kept from then on (``policyOperation(_:_:)``).
+    /// `origin` (`auth.request`): its exact host, on https (on a loopback
+    /// host, http too), never a wildcard over its site, so a sibling host
+    /// of the same site cannot receive them. Refused unless the policy
+    /// keeps the session's tabs on that host, as for a typed secret, and
+    /// kept from then on (``policyOperation(_:_:)``).
     private func credentialDomains(origin raw: Any?) -> Result<[BrowserReplDomainPattern], BrowserReplDriverError> {
         guard let origin = raw as? String, let url = URL(string: origin), url.scheme == "https" || url.scheme == "http",
-              let host = url.host, !host.isEmpty else {
+              let host = BrowserReplHostName.host(of: url) else {
             return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: origin: expected the page's http(s) origin"))
         }
-        let site = publicSuffixes.site(of: host)
-        guard let domain = (try? BrowserReplDomainPattern.parse("*.\(site)", title: "auth.request", publicSuffixes: publicSuffixes))
-            ?? (try? BrowserReplDomainPattern.parse(site, title: "auth.request", publicSuffixes: publicSuffixes)) else {
-            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no site a domain policy can name"))
+        // A loopback host is matched on http and https without a scheme
+        // (``BrowserReplDomainPattern/loadsOnlySecurely``); any other only
+        // on https.
+        let exact = BrowserReplHostName.isLoopback(host) ? host : "https://\(host)"
+        guard let domain = try? BrowserReplDomainPattern.parse(exact, title: "auth.request", publicSuffixes: publicSuffixes) else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no host a domain policy can name"))
         }
         let domains = [domain]
         return lock.withLock {
@@ -311,9 +314,11 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 let also = policy.allowed.map { list in
                     "; the policy also allows " + list.filter { pattern in !domains.contains { $0.covers(pattern, secure: true) } }.map(\.raw).joined(separator: ", ")
                 } ?? ""
+                let site = publicSuffixes.site(of: host)
+                let wildcard = site == host || BrowserReplHostName.isIPAddress(host) ? "" : " (a wildcard such as *.\(site) is not enough)"
                 return .failure(BrowserReplDriverError(
                     code: "invalid",
-                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) (or narrower) first"
+                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on exactly \(domain.raw), the page's own host\(wildcard)\(also). Call session.allowedDomains([\"\(Self.secureRaw(domain))\"]) first"
                 ))
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }

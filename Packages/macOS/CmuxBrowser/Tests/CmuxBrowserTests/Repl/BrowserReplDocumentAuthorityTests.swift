@@ -236,4 +236,42 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(authority.verdict(BrowserReplAccess(.load("https://evil.test/"))).reason != nil)
         #expect(board.authority(for: "unknown").verdict(BrowserReplAccess(.load("https://evil.test/"))) == .allowed)
     }
+    /// r17 whole#3: a `cwd` change publishes new directories, but a tab the
+    /// session created skips the local-document check on reads, so its old
+    /// page of a local file's origin must not stay live: on a root change
+    /// every such page is judged against the new directories, reloaded when
+    /// it lies inside them and made `about:blank` otherwise; web pages and
+    /// user tabs stay.
+    @Test("A cwd change replaces the session's local pages outside the new directories")
+    func rootChangeReplacesOldLocalPages() throws {
+        let session = "s1"
+        let before = BrowserReplDocumentAuthority(sessionID: session, fileRoots: ["/tmp/old-work", "/tmp/session-tmp"])
+        let after = BrowserReplDocumentAuthority(sessionID: session, fileRoots: ["/tmp/new-work", "/tmp/session-tmp"])
+        func tab(_ url: String, creator: String? = session) -> BrowserReplTabFacts {
+            BrowserReplTabFacts(id: UUID(), mainFrameURL: URL(string: url), creatorSessionID: creator)
+        }
+        func isBlank(_ r: BrowserReplPageReplacement) -> Bool { if case .blank = r { return true }; return false }
+        func isReload(_ r: BrowserReplPageReplacement) -> Bool { if case .reload = r { return true }; return false }
+
+        // An old-root file page, and a document that may hold its origin.
+        #expect(isBlank(after.pageReplacement(after: before, in: tab("file:///tmp/old-work/index.html"))))
+        #expect(isBlank(after.pageReplacement(after: before, in: tab("about:blank"))))
+        // A file inside the new directories loads again (its old frames go).
+        #expect(isReload(after.pageReplacement(after: before, in: tab("file:///tmp/new-work/index.html"))))
+        // The reason reaches the tab's sessions.
+        if case .blank(let reason) = after.pageReplacement(after: before, in: tab("file:///tmp/old-work/index.html")) {
+            #expect(reason.contains("working directory"), "\(reason)")
+        }
+        // Web pages, user tabs and an unchanged root set stay.
+        #expect(after.pageReplacement(after: before, in: tab("https://example.com/")) == .keep)
+        #expect(after.pageReplacement(after: before, in: tab("file:///tmp/old-work/index.html", creator: nil)) == .keep)
+        #expect(after.pageReplacement(after: after, in: tab("file:///tmp/new-work/index.html")) == .keep)
+        // Adding a directory takes nothing away.
+        let wider = BrowserReplDocumentAuthority(sessionID: session, fileRoots: ["/tmp/old-work", "/tmp/session-tmp", "/tmp/more"])
+        #expect(wider.pageReplacement(after: before, in: tab("file:///tmp/old-work/index.html")) == .keep)
+        // A narrowing policy still reloads web pages it allows and blanks the rest.
+        let narrowed = BrowserReplDocumentAuthority(sessionID: session, policy: try policy(allowed: ["example.com"]), fileRoots: before.fileRoots)
+        #expect(isReload(narrowed.pageReplacement(after: before, in: tab("https://example.com/"))))
+        #expect(isBlank(narrowed.pageReplacement(after: before, in: tab("https://other.test/"))))
+    }
 }
