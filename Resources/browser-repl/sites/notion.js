@@ -278,7 +278,9 @@
                   (press) => press.input(async () => {
                     // The write names the drafted user too: Notion runs it as
                     // that user or refuses it, also when the session switches
-                    // users after the read.
+                    // users after the read. It runs in the agent's isolated
+                    // world, like the read-backs: the page's own fetch,
+                    // XMLHttpRequest and JSON never see or change it.
                     const spaceId = parent.space_id;
                     const now = t.now();
                     const ops = [];
@@ -291,7 +293,7 @@
                       ops.push({ pointer: { table: "block", id, spaceId }, path: ["content"], command: "listAfter", args: after ? { after, id: bid } : { id: bid } });
                       after = bid;
                     }
-                    await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], as);
+                    await calls([{ endpoint: "saveTransactions", body: { requestId: uuid(), transactions: [{ id: uuid(), spaceId, debug: { userAction: "cmux.sites.notion.append" }, operations: ops }] } }], { ...as, world: "agent" });
                     return { status: "appended", page: id, blockIds: ids };
                   }),
                   { account: holderNow },
