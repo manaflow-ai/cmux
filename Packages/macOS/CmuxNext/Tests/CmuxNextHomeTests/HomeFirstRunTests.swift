@@ -3,10 +3,11 @@ import CmuxHomeCore
 import Testing
 @testable import CmuxNextHome
 
-/// An empty Chief conversation says what the Chief is and offers one
-/// suggested prompt (Leo's dogfood: "an empty pane with an M avatar, a Home
-/// label and a Message box"). The suggestion fills the field; it never
-/// sends. The first message hides the panel.
+/// An empty Chief conversation offers things to do now instead of a pitch
+/// (Leo's first-launch capture, op-next-look): one plain line, rows to open
+/// a terminal, start an agent or ask the Chief, and a keyboard hint. The
+/// ask row fills the field; it never sends. The first message hides the
+/// panel.
 @MainActor
 @Suite struct HomeFirstRunTests {
     static let me = ParticipantID("user_me")
@@ -30,22 +31,48 @@ import Testing
         return (window, view)
     }
 
-    @Test func anEmptyChiefConversationExplainsTheChiefAndSuggestsAPrompt() throws {
+    @Test func theAskRowFillsTheFieldAndNeverSends() throws {
         let (window, view) = Self.view()
         defer { window.close() }
         view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
         view.layoutSubtreeIfNeeded()
         let panel = view.firstRun
         #expect(!panel.isHidden)
-        #expect(!panel.title.stringValue.isEmpty)
+        #expect(!panel.lead.stringValue.isEmpty)
         #expect(!panel.suggestion.title.isEmpty)
         #expect(view.field.text.isEmpty)
         panel.suggestion.performClick(nil)
         #expect(view.field.text == panel.suggestion.title, "the suggestion fills the field")
         #expect(view.controller.conversationSummary != nil)
-        // Text on glass, never a control that dims to gray when the window is not key.
-        #expect(panel.suggestion.label.textColor == panel.title.textColor)
-        #expect(panel.suggestion.accessibilityRole() == .button)
+        // Never a control that dims to gray when the window is not key.
+        #expect(panel.suggestion.label.textColor == panel.terminal.label.textColor)
+        #expect(panel.rows.allSatisfy { $0.accessibilityRole() == .button })
+    }
+
+    @Test func theTerminalAndAgentRowsAskTheHost() {
+        let (window, view) = Self.view()
+        defer { window.close() }
+        var picked: [HomeFirstRunAction] = []
+        view.onFirstRunAction = { picked.append($0) }
+        view.firstRun.terminal.performClick(nil)
+        view.firstRun.agent.performClick(nil)
+        #expect(picked == [.openTerminal, .startAgent])
+        #expect(view.field.text.isEmpty, "neither row types into the field")
+    }
+
+    @Test func theRowsShowTheirShortcutsAndTheTabHintShowsItsKeys() {
+        let (window, view) = Self.view()
+        defer { window.close() }
+        let panel = view.firstRun
+        #expect(panel.hint.isHidden, "no hint until the host passes the keys")
+        view.setFirstRunShortcuts(terminal: "⌘T", agent: nil, tabs: "⌃1…9")
+        view.controller.update(items: [], summary: Self.summary(), typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        #expect(panel.terminal.shortcutLabel.stringValue == "⌘T" && !panel.terminal.shortcutLabel.isHidden)
+        #expect(panel.agent.shortcutLabel.isHidden, "an unbound action shows no shortcut")
+        #expect(!panel.hint.isHidden && panel.hint.stringValue.contains("⌃1…9"))
+        let row = panel.terminal
+        #expect(row.label.frame.maxX <= row.shortcutLabel.frame.minX, "label \(row.label.frame) runs into the shortcut")
     }
 
     @Test func theFirstMessageHidesThePanel() {

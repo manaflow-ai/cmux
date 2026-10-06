@@ -38,6 +38,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// Cancels my pending send (`HomeStoreBinding.cancelSend`); the menu
     /// offers it only while `HomeController.cancellableSend` is true.
     public var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
+    /// The first-run panel's open-a-terminal or start-an-agent row was
+    /// picked (the host runs the matching registry action).
+    public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
     private var observers: [any NSObjectProtocol] = []
 
     static let fieldInset: CGFloat = 16
@@ -64,6 +67,7 @@ public final class HomeNativeTranscriptView: NSView {
             self.window?.makeFirstResponder(self.field.textView)
             self.needsLayout = true
         }
+        firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         addSubview(field)
         addSubview(header)
         controller.topInset = HomeGlassHeaderView.height
@@ -161,6 +165,12 @@ public final class HomeNativeTranscriptView: NSView {
         scroll.apply(controller.scrollGeometry)
     }
 
+    /// The first-run rows' shortcuts and the tab hint's keys, as the
+    /// registry shows them; nil hides one.
+    public func setFirstRunShortcuts(terminal: String?, agent: String?, tabs: String?) {
+        firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
+    }
+
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
         let me = controller.me
@@ -244,7 +254,7 @@ public final class HomeNativeTranscriptView: NSView {
             header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
                                page: seeThrough ? Palette.pageBackground : home, seeThrough: seeThrough,
                                accent: Palette.highlight)
-            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary,
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
                                  fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
             field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
                               text: Palette.textPrimary, secondary: Palette.textTertiary)

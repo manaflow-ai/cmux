@@ -3,12 +3,12 @@ import Testing
 @testable import CmuxNextHome
 
 /// Leo's first-launch capture (op-next-look): capsule pills are banned in
-/// cmux-next. The first-run suggestion and the composer are small-radius
+/// cmux-next. The first-run rows and the composer are small-radius
 /// rects with a hairline, never glass capsules.
 @MainActor
 @Suite struct HomeNoCapsuleTests {
-    @Test func theSuggestionIsASmallRadiusRect() {
-        let chip = HomeSuggestionChip(title: "What are my agents doing right now?")
+    @Test func aFirstRunRowIsASmallRadiusRect() {
+        let chip = HomeFirstRunRow(title: "Open a terminal", symbol: "apple.terminal")
         chip.frame = NSRect(origin: .zero, size: chip.intrinsicContentSize)
         chip.layoutSubtreeIfNeeded()
         #expect(!chip.subviews.contains { $0 is NSGlassEffectView })
