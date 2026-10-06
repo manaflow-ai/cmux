@@ -1778,8 +1778,6 @@
 		<dict>
 			<key>pfm_default</key>
 			<false/>
-			<key>pfm_description</key>
-			<string>Shows how many tabs each workspace has.</string>
 			<key>pfm_name</key>
 			<string>sidebar.showCounts</string>
 			<key>pfm_title</key>
