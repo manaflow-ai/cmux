@@ -6,7 +6,7 @@ import SQLite3
 /// SQLite files (a live daemon keeps writing the original), the memory from
 /// its JSON lines, the host's cursor from `host.json`.
 extension ChiefMigration {
-    static func readSource(_ old: Old) -> ChiefMigrationSource? {
+    nonisolated static func readSource(_ old: Old) -> ChiefMigrationSource? {
         let log = readLog(old.muxHome.appendingPathComponent("optchat/chat/main", isDirectory: true))
         var hostConversation: String?
         var loggedSeq: UInt64 = 0
@@ -21,7 +21,7 @@ extension ChiefMigration {
                                     messages: store?.messages ?? [], log: log, loggedSeq: loggedSeq, hostConversation: hostConversation)
     }
 
-    static func readLog(_ main: URL) -> [ChiefMigrationSource.LogEntry] {
+    nonisolated static func readLog(_ main: URL) -> [ChiefMigrationSource.LogEntry] {
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: main.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
         var entries: [ChiefMigrationSource.LogEntry] = []
         for name in names {
@@ -36,14 +36,14 @@ extension ChiefMigration {
         return entries.sorted { $0.i < $1.i }
     }
 
-    struct StoredChief {
+    nonisolated struct StoredChief {
         var id: String
         var createdAt: String
         var messages: [ChiefMigrationSource.Message]
     }
 
     /// The Chief conversation of a store (the oldest with agent_mux) and its messages.
-    static func readStore(_ path: URL) -> StoredChief? {
+    nonisolated static func readStore(_ path: URL) -> StoredChief? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path.path) else { return nil }
         let scratch = fm.temporaryDirectory.appendingPathComponent("chief-migration-\(UUID().uuidString)", isDirectory: true)
@@ -69,7 +69,7 @@ extension ChiefMigration {
         return StoredChief(id: chief[0], createdAt: chief[2], messages: messages)
     }
 
-    static func message(fromJSON json: String) -> ChiefMigrationSource.Message? {
+    nonisolated static func message(fromJSON json: String) -> ChiefMigrationSource.Message? {
         guard let value = try? JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)), case .object(let fields) = value,
               case .string(let id)? = fields["id"], case .number(let seq)? = fields["seq"], case .string(let author)? = fields["author"],
               case .string(let key)? = fields["client_msg_id"], case .string(let createdAt)? = fields["created_at"],
@@ -77,7 +77,7 @@ extension ChiefMigration {
         return .init(id: id, seq: UInt64(seq), author: author, clientMsgID: key, createdAt: createdAt, parts: parts)
     }
 
-    private static func rows(_ db: OpaquePointer, _ sql: String, bind: [String] = []) -> [[String]] {
+    nonisolated private static func rows(_ db: OpaquePointer, _ sql: String, bind: [String] = []) -> [[String]] {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else { return [] }
         defer { sqlite3_finalize(statement) }
