@@ -110,6 +110,18 @@ public enum BrowserReplVerdict: Sendable, Equatable {
     }
 }
 
+/// What a change of the session's authority does to a tab's live page
+/// (``BrowserReplDocumentAuthority/pageReplacement(after:in:)``); the tab's
+/// sessions get `tab.replaced` with `reason` when it is replaced.
+public enum BrowserReplPageReplacement: Sendable, Equatable {
+    /// The page stays.
+    case keep
+    /// The page loads again (its old document and connections end).
+    case reload(reason: String)
+    /// The page becomes `about:blank`.
+    case blank(reason: String)
+}
+
 /// THE verdict for "may this session act on or read from this document,
 /// frame, URL or tab now". Every decision of the driver and the tab
 /// plumbing goes through ``verdict(_:)``: the domain policy, the session's
@@ -197,6 +209,20 @@ public struct BrowserReplDocumentAuthority: Sendable {
                   let reason = BrowserReplFrameGate.localBlockReason(document, roots: roots) else { return .allowed }
             return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: reason))
         }
+    }
+
+    /// What becomes of the live page of `tab` when the session's authority
+    /// changes from `previous` to this one (a new domain policy, new
+    /// directories after a `cwd` change). Only a tab the session created
+    /// is replaced: its documents are not judged on each read
+    /// (``judgesLocalDocuments(in:)``), and content rules judge only new
+    /// loads, so a page that loaded under the looser authority must load
+    /// again.
+    public func pageReplacement(after previous: BrowserReplDocumentAuthority, in tab: BrowserReplTabFacts) -> BrowserReplPageReplacement {
+        guard tab.creatorSessionID == sessionID, let url = tab.mainFrameURL?.absoluteString else { return .keep }
+        guard policy.narrows(previous.policy) else { return .keep }
+        let reason = "the session narrowed its domain policy, so cmux loaded the tab's page again: connections the page opened before (WebSockets) to hosts the new policy blocks are closed, and element handles and page state from before are gone"
+        return policy.blockReason(url) == nil ? .reload(reason: reason) : .blank(reason: reason)
     }
 
     /// Why the session may not do `capability` with `tab`, or nil.
