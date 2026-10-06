@@ -14,7 +14,7 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
-optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
@@ -26,7 +26,11 @@ fn main() {
     let started_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    // A boolean flag: taken out before parsing, which would read the next
+    // argument as its value.
+    let append_after_live = args.iter().any(|a| a == "--append-after-live");
+    args.retain(|a| a != "--append-after-live");
     let flags = Flags::parse(&args);
     let code = match flags.words.first().map(String::as_str) {
         Some("host") => optchat_chief::host::run(&flags, started_ms),
@@ -155,8 +159,21 @@ fn main() {
             match converted.and_then(|(items, stats)| {
                 println!("{}: {stats}", projects.display());
                 if mode == Some("write") {
-                    optchat_chief::browse::import(&paths.chat, &items).map(Some)
+                    optchat_chief::claude_import::import_history(
+                        &paths.chat,
+                        &items,
+                        append_after_live,
+                    )
+                    .map(Some)
                 } else {
+                    match optchat_chief::claude_import::existing_messages(&paths.chat) {
+                        Ok(n) => {
+                            if let Some(warning) = optchat_chief::claude_import::order_warning(n) {
+                                println!("warning: {warning}");
+                            }
+                        }
+                        Err(e) => println!("warning: cannot count the memory's messages: {e}"),
+                    }
                     Ok(None)
                 }
             }) {

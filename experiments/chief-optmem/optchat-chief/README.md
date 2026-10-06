@@ -85,7 +85,7 @@ optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] "task"
 optchat-chief agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
 optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
-optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
+optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts as messages (host stopped)
 ```
 
@@ -109,8 +109,11 @@ resumed session copied (same uuid) and a user message of 500 or more
 characters seen before. `dry-run` prints the counts and the date range and
 writes nothing; `write` appends the items through the chat (`OptChat`'s
 append, the store seam), so it needs the host stopped, and the items get
-their ids from the end of the log. Sessions go in order of their first line,
-so import into an empty memory to keep the history in time order.
+their ids from the end of the log. Sessions go in order of their first line.
+Old history must not land after live messages: on a memory that already
+holds messages, `write` refuses and writes nothing unless
+`--append-after-live` accepts that the history appears after the current
+messages, and `dry-run` warns about it.
 
 ## Environment
 
