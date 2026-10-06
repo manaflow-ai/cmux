@@ -10,7 +10,10 @@ import Testing
     private func folder() throws -> String {
         let url = FileManager.default.temporaryDirectory.appending(path: "shell-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url.resolvingSymlinksInPath().path
+        // The physical path `pwd` prints (Foundation maps /private/var back to /var).
+        guard let real = realpath(url.path, nil) else { return url.path }
+        defer { free(real) }
+        return String(cString: real)
     }
 
     /// Reads until the command ends, as the page does.

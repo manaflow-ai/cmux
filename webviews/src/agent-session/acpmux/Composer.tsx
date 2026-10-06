@@ -647,6 +647,7 @@ export function Composer({
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => setShellText(event.target.value)}
+              // ui-allow: the shell field's own editing keys (Enter runs, Esc or empty Backspace leaves, Ctrl-C stops).
               onKeyDown={shellKeyDown}
             />
           </div>
@@ -707,7 +708,6 @@ export function Composer({
               ]}
             />
           )}
-          <span className="acpmux-separator" aria-hidden="true" />
           <Chips snapshot={snapshot} />
           <span className="acpmux-composer-actions">
             {accessory}
