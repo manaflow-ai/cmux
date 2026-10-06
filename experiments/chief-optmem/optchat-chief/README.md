@@ -427,6 +427,57 @@ that keeps `CLAUDE_CONFIG_DIR`.
 The native engine still needs an endpoint that takes API calls; through the
 subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 
+## Remote-origin messages
+
+Taelin gives his Chief tasks from his phone. In cmux a paired device (the
+iPhone, another Mac) reaches the Chief conversation through the session
+daemon's remote relay as participant `remote_<install>`, and the owner stamps
+each message it sends with `origin: {kind: "remote", install}`. The shared
+wake rule (`cmux_chief::rules::wakes`, also used by the P1 Rust Chief) still
+refuses every such message. The Chief uses `wake::chief_wakes`: the shared
+rule for local messages, plus a remote-origin gate, default deny, that
+passes a device message only when all of these hold:
+
+1. `origin` is `Remote { install }` and the author is exactly
+   `remote_<install>` (the owner stamps the origin from the op's actor, never
+   from the request; a local author with a remote origin, a device author
+   without one, or a mismatched install is refused);
+2. the author is a human participant of this conversation with `person:
+   "user_local"`: the daemon's system-only pairing path is the only way to
+   create that participant, and it does so only for an install the server
+   owner paired with their own account. A device of another person or of no
+   person, or a non-human participant, is refused;
+3. the message is not retracted and the Chief participates;
+4. the shared rule's conversation test with humans counted as persons: one
+   person and the Chief, a DM, a mention of the Chief or a reply to one of
+   its messages. A device message in a group without a mention is not logged.
+
+Policy analysis (the relay rules of this repository's CLAUDE.md):
+
+- Local command or content execution. The gate adds no relay command, no
+  allowlist entry and no parameter: the device still uses only the relay's
+  existing conversation commands (`message.send` with text parts), whose
+  gate refuses command-bearing params and non-text parts. The Chief reads
+  only the message's text and passes it to a turn as the user's words, the
+  same bytes and the same authority as a message typed on the Mac. That is
+  the intended effect (the user directing their own agent from their phone),
+  and it is why the gate admits only the owner's own person: a second account
+  can never reach a turn. A stolen or compromised paired device has the
+  user's authority until it is revoked; revocation removes it from the relay
+  (new streams refused after 24 hours offline, all closed after 72 hours or
+  at once on `host.revoke`).
+- Access to unowned objects. The gate opens nothing: the relay already
+  scopes every id to conversations that list the install, and the Chief only
+  answers in the conversation the message came from.
+- Local-state exposure. The Chief's replies go to that conversation, which
+  the device already reads; the gate sends nothing else to the device. What
+  a turn says can include local state (file contents, command output) as it
+  does for a local message; this is the same exposure the device already has
+  as a participant of the conversation.
+
+Tests: `tests/remote_wake.rs` (every refusal above, the mention rule, and a
+device message logged and answered end to end).
+
 ## Deviations from the spec
 
 - **acpmux engine: cache breakpoints in the view (section 8).** On a Claude
@@ -519,10 +570,10 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   long outputs itself), which the host cannot change; the native engine caps
   before it resends, as the spec says.
 - **Who is logged (section 2: "every message").** Only human messages that
-  wake the Chief are logged (`cmux_chief::rules::wakes`): in a group
-  conversation a message without a mention is not, and a message from a
-  paired device is not (fail closed until the remote-origin gate exists).
-  Non-text parts are not logged on this branch.
+  wake the Chief are logged (`wake::chief_wakes`): in a group conversation a
+  message without a mention is not. A message from the user's own paired
+  device wakes and is logged (see Remote-origin messages); any other device
+  message is refused. Non-text parts are not logged on this branch.
 - **What the user sees (section 7, "show it").** Home gets each turn's last
   reply only; earlier replies and tool steps are in the memory (and in
   `browse`), not posted.
