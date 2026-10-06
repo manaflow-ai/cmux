@@ -148,9 +148,6 @@ fi
 
   if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
     elapsed=6
-    if [ "$FAKE_CURL_MODE" = "slow-fallback" ]; then
-      elapsed=1
-    fi
     timed_out=0
     if [ "$max_time" -lt "$elapsed" ]; then
       elapsed="$max_time"
