@@ -96,6 +96,15 @@ pub(super) struct AgentTokenParams {
     participant: String,
 }
 
+/// `conversation-import`: history moved from another store, appended once
+/// with its own authors and times (conversation_import.rs). Trusted local
+/// user connections only; never a remote or an agent-bound connection.
+#[derive(Deserialize)]
+pub(super) struct ImportParams {
+    conversation: String,
+    messages: Vec<crate::conversation_store::ImportedMessage>,
+}
+
 /// The actor of a write is the connection's principal, stamped by the owner.
 /// A request may still name it; naming anyone else is refused.
 fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Result<String> {
@@ -177,6 +186,32 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
         },
     )?;
     Ok(json!({"conversation": outcome.summary, "replayed": outcome.replayed}))
+}
+
+pub(super) fn import(mux: &Mux, client: u64, params: ImportParams) -> anyhow::Result<Value> {
+    anyhow::ensure!(!mux.is_remote_client(client), "conversation-import is local only");
+    require_local(mux, client)?;
+    anyhow::ensure!(
+        mux.conversation_principal(client) == LOCAL_USER,
+        "only the local user imports conversation history"
+    );
+    let ImportParams { conversation, messages } = params;
+    let outcome = mux.conversation_write(
+        |store| store.import(&conversation, &messages),
+        |outcome| {
+            if outcome.imported.is_empty() {
+                return None;
+            }
+            let change = Change::Conversation { conversation: Box::new(outcome.summary.clone()) };
+            Some(MuxEvent::Conversation(Arc::new(ConversationEvent::Changed {
+                conversation: outcome.summary.id.clone(),
+                rev: outcome.summary.rev,
+                transaction: None,
+                change: serde_json::to_value(change).ok()?,
+            })))
+        },
+    )?;
+    Ok(json!({"conversation": outcome.summary, "imported": outcome.imported, "skipped": outcome.skipped}))
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {

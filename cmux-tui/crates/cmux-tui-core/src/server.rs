@@ -2072,6 +2072,7 @@ enum Command {
     ConversationTyping(conversations::TypingParams),
     ConversationBind(conversations::BindParams),
     ConversationAgentToken(conversations::AgentTokenParams),
+    ConversationImport(conversations::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -14560,6 +14561,7 @@ fn handle_command_with_cancellation(
         Command::ConversationTyping(params) => conversations::typing(mux, client, params),
         Command::ConversationBind(params) => conversations::bind(mux, client, params),
         Command::ConversationAgentToken(params) => conversations::agent_token(mux, client, params),
+        Command::ConversationImport(params) => conversations::import(mux, client, params),
         Command::CreateProfile {
             name,
             profile,
