@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Model-check LayoutRows.tla (plans/cmux-next/rows.md) with TLC.
 #   main:    LayoutRows.cfg (one client, three ops), LayoutRows_2clients.cfg (two clients,
-#            two ops) and LayoutRows_sticky3.cfg (three columns, outer two sticky);
+#            two ops) and LayoutRows_dock3.cfg (three columns, outer two dock);
 #            every invariant and R6_OwnPlaceComplete; must pass.
 #   mutants: LayoutRows_<bug>.cfg, one deliberate defect each; each must fail.
 # Usage: run-rows-tlc.sh [main|mutants|all] (default all). Needs Java 11+.
@@ -46,11 +46,11 @@ status=0
 if [ "$mode" = main ] || [ "$mode" = all ]; then
   run LayoutRows.cfg || { echo "FAIL: LayoutRows.cfg violated a property"; status=1; }
   run LayoutRows_2clients.cfg || { echo "FAIL: LayoutRows_2clients.cfg violated a property"; status=1; }
-  run LayoutRows_sticky3.cfg || { echo "FAIL: LayoutRows_sticky3.cfg violated a property"; status=1; }
+  run LayoutRows_dock3.cfg || { echo "FAIL: LayoutRows_dock3.cfg violated a property"; status=1; }
   run LayoutRows_frame.cfg || { echo "FAIL: LayoutRows_frame.cfg violated a property"; status=1; }
 fi
 if [ "$mode" = mutants ] || [ "$mode" = all ]; then
-  for bug in keepEmptyRow sticky3_noStickyNormalize ownPlaceRowOnly noDedup noFocusRepair \
+  for bug in keepEmptyRow dock3_noDockNormalize ownPlaceRowOnly noDedup noFocusRepair \
              focusColumnFirst respawnDropsTab frame_dockAllowsRows frame_pinRowNoCascade \
              frame_orientTouchesPins; do
     if run "LayoutRows_$bug.cfg"; then echo "FAIL: mutant $bug passed (expected a counterexample)"; status=1

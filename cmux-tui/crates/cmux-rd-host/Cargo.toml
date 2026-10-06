@@ -16,8 +16,9 @@ name = "cmux-rd"
 path = "src/main.rs"
 
 [dependencies]
-cmux-rd-proto = { path = "../cmux-rd-proto" }
+cmux-rd-proto = { path = "../cmux-rd-proto", features = ["serde"] }
 cmux-rd-core = { path = "../cmux-rd-core" }
+cmux-rd-engine = { path = "../cmux-rd-engine" }
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

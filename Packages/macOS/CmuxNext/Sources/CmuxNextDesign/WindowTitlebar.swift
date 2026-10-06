@@ -87,4 +87,11 @@ public struct WindowTitlebar {
 public protocol TitlebarAccessoryHosting: AnyObject {
     /// The accessory's frame in window coordinates, nil when none shows.
     var titlebarAccessoryFrame: CGRect? { get }
+    /// The traffic lights and the accessory are collapsed (sidebar hidden, pointer away from the
+    /// top-left corner): strips under them keep no room.
+    var windowControlsCollapsed: Bool { get }
+}
+
+extension TitlebarAccessoryHosting {
+    public var windowControlsCollapsed: Bool { false }
 }

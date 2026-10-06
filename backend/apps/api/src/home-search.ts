@@ -35,10 +35,10 @@ export interface SearchHit {
 
 /** home-core search.ts MAX_QUERY_CHARS (the catalog caps q at 200 too). */
 const MAX_QUERY_CHARS = 200
-const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
+export const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 
 /** Opaque cursor: the last hit's (created_at, conversation, seq). */
-const encodeCursor = (h: SearchHit) => Buffer.from(JSON.stringify([h.created_at, h.conversation, h.seq])).toString("base64url")
+export const encodeCursor = (h: SearchHit) => Buffer.from(JSON.stringify([h.created_at, h.conversation, h.seq])).toString("base64url")
 const decodeCursor = (c: string): [string, string, number] | null => {
   try {
     const v = JSON.parse(Buffer.from(c, "base64url").toString("utf8")) as unknown
@@ -75,7 +75,11 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
   }
 }
 
-export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<{ ok: true; value: { hits: Array<SearchHit>; cursor?: string } } | { ok: false; code: string; message: string }> => {
+export type SearchResult = { ok: true; value: { hits: Array<SearchHit>; cursor?: string } } | { ok: false; code: string; message: string }
+export type PreparedSearch = { readonly me: string; readonly q: string; readonly limit: number; readonly cursor: [string, string, number] | undefined }
+
+/** Validation shared by both projection dialects: the caller, the query, the limit and the cursor. */
+export const prepareSearch = (principal: Principal, params: SearchParams): PreparedSearch | { ok: false; code: string; message: string } => {
   const me = homeConversation.actorOf(principal)
   if (!me || principal.agent) return { ok: false, code: "auth.forbidden", message: "search is for human participants" }
   const q = typeof params.q === "string" ? params.q : ""
@@ -87,8 +91,16 @@ export const homeSearch = async (env: Env, principal: Principal, params: SearchP
   if (params.before !== undefined && (typeof params.before !== "string" || Number.isNaN(Date.parse(params.before)))) return { ok: false, code: "validation.invalid", message: "invalid before" }
   // An install's grant must cover reads (sessions are the user).
   if (principal.kind !== "session" && !(principal.grant_classes ?? []).includes("read")) return { ok: false, code: "auth.forbidden", message: "grant does not cover read" }
-  if (!env.HYPERDRIVE_RO) return { ok: false, code: "home.not_configured", message: "search is not configured on this deployment" }
+  return { me, q, limit, cursor: cursor ?? undefined }
+}
 
+export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
+  // MySQL reads after the verified cutover (state-placement.md 4.5); Postgres until then.
+  if (env.PROJECTION_READS === "mysql") return (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
+  const prepared = prepareSearch(principal, params)
+  if ("ok" in prepared) return prepared
+  const { me, q, limit, cursor } = prepared
+  if (!env.HYPERDRIVE_RO) return { ok: false, code: "home.not_configured", message: "search is not configured on this deployment" }
   const where = [
     "p.participant_id = $1",
     "p.left_at IS NULL",

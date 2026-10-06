@@ -39,6 +39,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/integrations-catalog.json",
+  "cli": { "name": "integrations" },
   "implements": {
     "cmux.section/1": {
       "export": "renderSection",

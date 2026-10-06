@@ -9,9 +9,64 @@ use serde_json::{Value, json};
 use std::process::Command;
 use std::sync::Arc;
 
+/// An ssh destination given on the command line or taken from a peer URL,
+/// checked like a peer's (`peer::ssh_target`): never an ssh option.
+fn checked_host(host: &str) -> Result<&str> {
+    let t = crate::peer::ssh_target(&format!("ssh://{host}"))
+        .map_err(|why| anyhow!("refusing that ssh host: {why}"))?;
+    if t.destination != host {
+        return Err(anyhow!("refusing that ssh host: give the host without a port"));
+    }
+    Ok(host)
+}
+
+/// `ssh ... -- HOST SCRIPT`: `--` before the destination; the script is
+/// acpmux's own fixed text.
+fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
+    let host = checked_host(host)?;
+    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, script]
+        .iter()
+        .map(|s| s.to_string())
+        .collect())
+}
+
+/// `scp -q -o BatchMode=yes -- LOCAL HOST:REMOTE`.
+fn scp_push_argv(host: &str, local: &str, remote: &str) -> Result<Vec<String>> {
+    let host = checked_host(host)?;
+    Ok(vec![
+        "-q".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "--".into(),
+        local.to_owned(),
+        format!("{host}:{remote}"),
+    ])
+}
+
+/// `scp -rq -o BatchMode=yes -- HOST:REMOTE LOCAL` for a bundle an ssh peer
+/// made. `remote` comes from the peer's reply: only a plain absolute or
+/// home path is accepted (a remote scp may hand it to a shell).
+pub(crate) fn scp_fetch_argv(peer_url: &str, remote: &str, local: &str) -> Result<Vec<String>> {
+    let t =
+        crate::peer::ssh_target(peer_url).map_err(|why| anyhow!("refusing that peer: {why}"))?;
+    let plain = (remote.starts_with('/') || remote.starts_with("~/"))
+        && remote.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-~+".contains(&b));
+    if !plain {
+        return Err(anyhow!("refusing the bundle path the peer sent (not a plain path)"));
+    }
+    Ok(vec![
+        "-rq".into(),
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "--".into(),
+        format!("{}:{remote}", t.destination),
+        local.to_owned(),
+    ])
+}
+
 fn ssh(host: &str, script: &str) -> Result<String> {
     let out = Command::new("ssh")
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", host, script])
+        .args(ssh_argv(host, script)?)
         .output()
         .with_context(|| format!("ssh {host}"))?;
     if !out.status.success() {
@@ -26,13 +81,7 @@ fn push_binary(host: &str) -> Result<String> {
     let exe = std::env::current_exe()?;
     ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
     let status = Command::new("scp")
-        .args([
-            "-q",
-            "-o",
-            "BatchMode=yes",
-            &exe.to_string_lossy(),
-            &format!("{host}:.local/bin/acpmux.new"),
-        ])
+        .args(scp_push_argv(host, &exe.to_string_lossy(), ".local/bin/acpmux.new")?)
         .status()
         .context("scp")?;
     if !status.success() {
@@ -142,15 +191,25 @@ pub(crate) async fn setup(
     // Config: keep an existing one, but make sure the websocket listener and token exist.
     let existing = ssh(host, "cat ~/.acpmux/config.json 2>/dev/null || echo '{}'")?;
     let mut cfg: Value = serde_json::from_str(&existing).unwrap_or_else(|_| json!({}));
-    let token = match cfg.pointer("/websocket/token").and_then(Value::as_str) {
-        Some(t) => t.to_owned(),
+    let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
+    let token = match kept.clone() {
+        Some(t) => t,
         None => {
             let mut b = [0u8; 24];
             getrandom_fill(&mut b)?;
             b.iter().map(|x| format!("{x:02x}")).collect()
         }
     };
-    cfg["websocket"] = json!({"listen": format!("127.0.0.1:{port}"), "token": token});
+    // Keep the rest of the listener's settings (allowed origins and hosts,
+    // `tokenRotated`); a token made here is new, so it never rotates.
+    let mut websocket =
+        cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
+    websocket["token"] = json!(token);
+    if kept.is_none() {
+        websocket["tokenRotated"] = json!(1);
+    }
+    cfg["websocket"] = websocket;
     if cfg.get("store").is_none() {
         cfg["store"] = json!({"mode": "local"});
     }
@@ -281,11 +340,7 @@ pub(crate) async fn update(
 /// The ssh host of an `ssh://host[:port]` peer url. As in `Peer::ssh_parts`,
 /// only a numeric suffix is a port, so a bracketed IPv6 host stays whole.
 fn ssh_host(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("ssh://")?;
-    Some(match rest.rsplit_once(':') {
-        Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => h.to_owned(),
-        _ => rest.to_owned(),
-    })
+    crate::peer::ssh_target(url).ok().map(|t| t.destination)
 }
 
 /// Fill `buf` from /dev/urandom; a failure aborts setup rather than writing
@@ -300,6 +355,30 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_ssh_and_scp_argv_puts_double_dash_before_the_destination() {
+        let check = |argv: Vec<String>, dest: &str| {
+            let dd = argv.iter().position(|a| a == "--").expect("a --");
+            assert!(argv[dd + 1..].iter().any(|a| a.starts_with(dest)), "{argv:?}");
+            assert!(argv[..dd].iter().all(|a| !a.contains(dest)), "{argv:?}");
+        };
+        check(super::ssh_argv("me@box", "true").unwrap(), "me@box");
+        check(super::scp_push_argv("box", "/bin/acpmux", ".local/x").unwrap(), "box");
+        check(super::scp_fetch_argv("ssh://box:2222", "/tmp/b.tar", "/l").unwrap(), "box:");
+    }
+
+    #[test]
+    fn option_shaped_hosts_and_odd_bundle_paths_are_refused() {
+        for bad in ["-oProxyCommand=touch /tmp/x", "-F", "-luser@box", "ho st", "box\n", "box:22"] {
+            assert!(super::ssh_argv(bad, "true").is_err(), "{bad:?}");
+            assert!(super::scp_push_argv(bad, "/x", "y").is_err(), "{bad:?}");
+        }
+        assert!(super::scp_fetch_argv("ssh://-oProxyCommand=x", "/b", "/l").is_err());
+        for path in ["/b; rm -rf ~", "$(id)", "relative", "/b c", "-oX"] {
+            assert!(super::scp_fetch_argv("ssh://box", path, "/l").is_err(), "{path:?}");
+        }
+    }
 
     #[test]
     fn ssh_host_strips_only_a_numeric_port() {

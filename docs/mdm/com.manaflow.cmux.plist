@@ -30,6 +30,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>workspace</string>
+			<key>pfm_description</key>
+			<string>What Go Back and Go Forward walk: places in this workspace, in this window, or the focused page's own history.</string>
+			<key>pfm_name</key>
+			<string>navigation.historyScope</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>workspace</string>
+				<string>window</string>
+				<string>surface</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Back and Forward</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>Minimal has no titlebar strip; the top row moves the window.</string>
@@ -47,25 +65,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>leading</string>
+			<string>hover</string>
 			<key>pfm_description</key>
-			<string>Shows the sidebar's pinned sections as a column of icons beside it.</string>
+			<string>On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.</string>
 			<key>pfm_name</key>
-			<string>window.rail</string>
+			<string>window.titlebarButtons</string>
 			<key>pfm_range_list</key>
 			<array>
-				<string>off</string>
-				<string>leading</string>
-				<string>afterSidebar</string>
+				<string>hover</string>
+				<string>always</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Action Rail</string>
+			<string>Titlebar Buttons</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>same-kind</string>
+			<string>agent</string>
 			<key>pfm_description</key>
 			<string>What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.</string>
 			<key>pfm_name</key>
@@ -81,6 +98,57 @@
 			</array>
 			<key>pfm_title</key>
 			<string>New Tab Opens</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>hover</string>
+			<key>pfm_description</key>
+			<string>On Hover shows each tab bar's + only while the pointer is over that tab bar.</string>
+			<key>pfm_name</key>
+			<string>tabs.plusButton</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>hover</string>
+				<string>always</string>
+			</array>
+			<key>pfm_title</key>
+			<string>New Tab Button</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>top</string>
+			<key>pfm_description</key>
+			<string>Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane.</string>
+			<key>pfm_name</key>
+			<string>tabs.barPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>top</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>aboveToolbar</string>
+			<key>pfm_description</key>
+			<string>In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.</string>
+			<key>pfm_name</key>
+			<string>tabs.barOrder</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>aboveToolbar</string>
+				<string>belowToolbar</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Bar and Browser Toolbar</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -184,6 +252,169 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Hold Command or Control for 0.30 seconds to show shortcut hints.</string>
+			<key>pfm_name</key>
+			<string>shortcuts.showModifierHoldHints</string>
+			<key>pfm_title</key>
+			<string>Show Shortcuts When Holding a Modifier</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>updates.checkAutomatically</string>
+			<key>pfm_title</key>
+			<string>Check for Updates Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>3600</integer>
+			<key>pfm_name</key>
+			<string>updates.checkIntervalSeconds</string>
+			<key>pfm_range_max</key>
+			<real>604800</real>
+			<key>pfm_range_min</key>
+			<real>900</real>
+			<key>pfm_title</key>
+			<string>Check Every</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off: a found update waits, and one click downloads and installs it.</string>
+			<key>pfm_name</key>
+			<string>updates.downloadAutomatically</string>
+			<key>pfm_title</key>
+			<string>Download Updates Automatically</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>defer-low-data</string>
+			<key>pfm_description</key>
+			<string>While downloads wait, a found update shows as a card and one click downloads it.</string>
+			<key>pfm_name</key>
+			<string>updates.meteredNetwork</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>defer-low-data</string>
+				<string>defer-expensive</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>On Metered Networks</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A downloaded update installs as cmux quits. Terminals keep running.</string>
+			<key>pfm_name</key>
+			<string>updates.installOnQuit</string>
+			<key>pfm_title</key>
+			<string>Install Updates When Quitting</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>card</string>
+			<key>pfm_name</key>
+			<string>updates.notify</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>card</string>
+				<string>badge</string>
+				<string>silent</string>
+			</array>
+			<key>pfm_title</key>
+			<string>When an Update Is Ready</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>1</integer>
+			<key>pfm_description</key>
+			<string>Earlier builds kept so you can roll back. Uses almost no disk until files change.</string>
+			<key>pfm_name</key>
+			<string>updates.keepPreviousVersions</string>
+			<key>pfm_range_max</key>
+			<real>5</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Previous Versions</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>No update card between these times.</string>
+			<key>pfm_name</key>
+			<string>updates.quietHours</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_description</key>
+					<string>HH:MM</string>
+					<key>pfm_name</key>
+					<string>start</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+				<dict>
+					<key>pfm_description</key>
+					<string>HH:MM</string>
+					<key>pfm_name</key>
+					<string>end</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Quiet Hours</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.</string>
+			<key>pfm_name</key>
+			<string>announcements.enabled</string>
+			<key>pfm_title</key>
+			<string>Show Announcements</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off: cmux never asks the network for announcements. The request carries no identifiers.</string>
+			<key>pfm_name</key>
+			<string>announcements.fetch</string>
+			<key>pfm_title</key>
+			<string>Download Announcements</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>even</string>
 			<key>pfm_description</key>
 			<string>Even gives every pane in the column the same size after a split.</string>
@@ -219,7 +450,7 @@
 			<key>pfm_default</key>
 			<string>nearest</string>
 			<key>pfm_name</key>
-			<string>layout.stickyColumnEdge</string>
+			<string>layout.dockColumnEdge</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>nearest</string>
@@ -229,7 +460,7 @@
 				<string>bottom</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Sticky Column Edge</string>
+			<string>Dock Column Edge</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -237,14 +468,14 @@
 			<key>pfm_default</key>
 			<string>docked</string>
 			<key>pfm_name</key>
-			<string>layout.stickyColumnMode</string>
+			<string>layout.dockColumnMode</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>docked</string>
 				<string>overlay</string>
 			</array>
 			<key>pfm_title</key>
-			<string>Sticky Column Mode</string>
+			<string>Dock Column Mode</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -262,6 +493,18 @@
 			<string>Dock Corners</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Off hides New Row and fits a column's existing rows into it without scrolling.</string>
+			<key>pfm_name</key>
+			<string>layout.rows</string>
+			<key>pfm_title</key>
+			<string>Rows</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -463,6 +706,27 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>The picker lists these folders under Locations, after Home and Downloads. Use full paths or ~/ paths.</string>
+			<key>pfm_name</key>
+			<string>picker.pinned</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pinned Folders</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>inbox</string>
 			<key>pfm_description</key>
 			<string>Inbox lists what needs you first, with the task beside it. Changes apply at once.</string>
@@ -652,6 +916,42 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarWidth</string>
+			<key>pfm_range_max</key>
+			<real>420</real>
+			<key>pfm_range_min</key>
+			<real>160</real>
+			<key>pfm_title</key>
+			<string>Sidebar Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.columnGap</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Column Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.titlebarHeight</string>
+			<key>pfm_range_max</key>
+			<real>56</real>
+			<key>pfm_range_min</key>
+			<real>24</real>
+			<key>pfm_title</key>
+			<string>Titlebar Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -718,6 +1018,25 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Animations</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>borders</string>
+			<key>pfm_description</key>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<key>pfm_name</key>
+			<string>layout.paneSeparation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>none</string>
+				<string>dividers</string>
+				<string>borders</string>
+				<string>cards</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Separation</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>
@@ -855,6 +1174,286 @@
 			<string>boolean</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.sidebar.color</string>
+			<key>pfm_title</key>
+			<string>Sidebar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.sidebar.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Sidebar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.tabBar.color</string>
+			<key>pfm_title</key>
+			<string>Tab Bar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.tabBar.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Tab Bar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.terminal.color</string>
+			<key>pfm_title</key>
+			<string>Terminal Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.terminal.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Terminal Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.agentPane.color</string>
+			<key>pfm_title</key>
+			<string>Agent Chat Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.agentPane.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Agent Chat Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.settings.color</string>
+			<key>pfm_title</key>
+			<string>Settings Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.settings.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Settings Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.newTabPage.color</string>
+			<key>pfm_title</key>
+			<string>New Tab Page Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.newTabPage.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>New Tab Page Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.home.color</string>
+			<key>pfm_title</key>
+			<string>Home Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.home.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Home Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.browserChrome.color</string>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.browserChrome.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.internalPage.color</string>
+			<key>pfm_title</key>
+			<string>Internal Pages Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.internalPage.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Internal Pages Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.splitDivider.color</string>
+			<key>pfm_title</key>
+			<string>Split Divider Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.splitDivider.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Split Divider Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.docks.color</string>
+			<key>pfm_title</key>
+			<string>Docked Columns Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.docks.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Docked Columns Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.diff.color</string>
+			<key>pfm_title</key>
+			<string>Diff Viewer Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.diff.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Diff Viewer Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.markdown.color</string>
+			<key>pfm_title</key>
+			<string>Markdown Editor Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.markdown.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Markdown Editor Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.editor.color</string>
+			<key>pfm_title</key>
+			<string>Code Editor Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.surfaces.editor.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Code Editor Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>arc</string>
 			<key>pfm_description</key>
@@ -949,6 +1548,87 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_default</key>
+			<string>unified</string>
+			<key>pfm_name</key>
+			<string>diff.layout</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>split</string>
+				<string>unified</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Layout</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bars</string>
+			<key>pfm_name</key>
+			<string>diff.diffIndicators</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>bars</string>
+				<string>classic</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Change Markers</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.wordWrap</string>
+			<key>pfm_title</key>
+			<string>Wrap Lines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.wordDiffs</string>
+			<key>pfm_title</key>
+			<string>Highlight Word Changes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>diff.lineNumbers</string>
+			<key>pfm_title</key>
+			<string>Line Numbers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>diff.showBackgrounds</string>
+			<key>pfm_title</key>
+			<string>Change Backgrounds</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>diff.expandUnchanged</string>
+			<key>pfm_title</key>
+			<string>Expand Unchanged Lines</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
 			<key>pfm_description</key>
 			<string>A monospaced font installed on this Mac.</string>
 			<key>pfm_name</key>
@@ -967,6 +1647,30 @@
 			<real>4</real>
 			<key>pfm_title</key>
 			<string>Font Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.</string>
+			<key>pfm_name</key>
+			<string>sidebar.border</string>
+			<key>pfm_title</key>
+			<string>Border</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>sidebar.borderWidth</string>
+			<key>pfm_range_max</key>
+			<real>4</real>
+			<key>pfm_range_min</key>
+			<real>0.5</real>
+			<key>pfm_title</key>
+			<string>Border Width</string>
 			<key>pfm_type</key>
 			<string>real</string>
 		</dict>
@@ -1028,7 +1732,7 @@
 			<key>pfm_description</key>
 			<string>Off: the top and bottom sections never scroll and the workspace list gets smaller.</string>
 			<key>pfm_name</key>
-			<string>sidebar.stickyBandsScroll</string>
+			<string>sidebar.pinnedBandsScroll</string>
 			<key>pfm_title</key>
 			<string>Scroll Tall Sections</string>
 			<key>pfm_type</key>
@@ -1045,6 +1749,59 @@
 			<string>Show Workspace Tabs</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bottom</string>
+			<key>pfm_description</key>
+			<string>Hides the chosen sections until the pointer is over the sidebar.</string>
+			<key>pfm_name</key>
+			<string>sidebar.minimalMode</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>bottom</string>
+				<string>top</string>
+				<string>both</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Minimal Mode</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>left</string>
+			<key>pfm_description</key>
+			<string>The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar.</string>
+			<key>pfm_name</key>
+			<string>sidebar.side</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>left</string>
+				<string>right</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Sidebar Side</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>bottom</string>
+			<key>pfm_description</key>
+			<string>Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row.</string>
+			<key>pfm_name</key>
+			<string>sidebar.spacesPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>top</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Spaces Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -1145,6 +1902,201 @@
 			<string>Open localhost on the Workspace's Machine</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>google</string>
+			<key>pfm_description</key>
+			<string>The address bar searches here and asks it for suggestions.</string>
+			<key>pfm_name</key>
+			<string>browser.searchEngine</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>google</string>
+				<string>duckduckgo</string>
+				<string>bing</string>
+				<string>brave</string>
+				<string>kagi</string>
+				<string>custom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Search Engine</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.</string>
+			<key>pfm_name</key>
+			<string>browser.customSearchEngine.search</string>
+			<key>pfm_title</key>
+			<string>Custom Search Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string></string>
+			<key>pfm_description</key>
+			<string>Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.</string>
+			<key>pfm_name</key>
+			<string>browser.customSearchEngine.suggest</string>
+			<key>pfm_title</key>
+			<string>Custom Suggestions Address</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.remoteSuggestions</string>
+			<key>pfm_title</key>
+			<string>Search Suggestions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Completes a site you typed before or visit often.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.inlineAutocomplete</string>
+			<key>pfm_title</key>
+			<string>Complete Addresses Inline</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>8</integer>
+			<key>pfm_name</key>
+			<string>browser.omnibar.maxRows</string>
+			<key>pfm_range_max</key>
+			<real>15</real>
+			<key>pfm_range_min</key>
+			<real>3</real>
+			<key>pfm_title</key>
+			<string>Suggestions Shown</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Shows the answer to arithmetic you type. Return copies it.</string>
+			<key>pfm_name</key>
+			<string>browser.omnibar.calculator</string>
+			<key>pfm_title</key>
+			<string>Calculator Answers</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>backgroundTab</string>
+			<key>pfm_description</key>
+			<string>In Chromium tabs, Download keeps Chrome's default.</string>
+			<key>pfm_name</key>
+			<string>browser.links.cmdClick</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>backgroundTab</string>
+				<string>foregroundTab</string>
+				<string>newWindow</string>
+				<string>currentTab</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Command-Click</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>foregroundTab</string>
+			<key>pfm_description</key>
+			<string>Shift-middle-click does the same.</string>
+			<key>pfm_name</key>
+			<string>browser.links.cmdShiftClick</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>backgroundTab</string>
+				<string>foregroundTab</string>
+				<string>newWindow</string>
+				<string>currentTab</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Shift-Command-Click</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>newWindow</string>
+			<key>pfm_description</key>
+			<string>In Chromium tabs, Download keeps Chrome's default.</string>
+			<key>pfm_name</key>
+			<string>browser.links.shiftClick</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>backgroundTab</string>
+				<string>foregroundTab</string>
+				<string>newWindow</string>
+				<string>currentTab</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Shift-Click</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>download</string>
+			<key>pfm_description</key>
+			<string>Chromium tabs always download.</string>
+			<key>pfm_name</key>
+			<string>browser.links.optionClick</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>backgroundTab</string>
+				<string>foregroundTab</string>
+				<string>newWindow</string>
+				<string>currentTab</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Option-Click</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>backgroundTab</string>
+			<key>pfm_description</key>
+			<string>Chromium tabs use the Command-Click setting.</string>
+			<key>pfm_name</key>
+			<string>browser.links.middleClick</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>backgroundTab</string>
+				<string>foregroundTab</string>
+				<string>newWindow</string>
+				<string>currentTab</string>
+				<string>download</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Middle-Click</string>
+			<key>pfm_type</key>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

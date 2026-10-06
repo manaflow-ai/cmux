@@ -17,7 +17,8 @@ import CmuxNextSettings
 /// `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
 /// exited at once, `DebugHover`: the tab strip's hover reveal), or `scroll`
-/// (`dx`,`dy` pixels); a `drag` takes `press: false` (no mouse-down: it
+/// (`dx`,`dy` pixels; `phase` began/changed/ended makes it a trackpad
+/// gesture event); a `drag` takes `press: false` (no mouse-down: it
 /// continues a drag left open) and `release: false` (no mouse-up: the drag
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
 /// (default), `right`;
@@ -60,7 +61,8 @@ enum DebugMouse {
         case "move":
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
-            guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0) else {
+            guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
+                                     phase: params["phase"]?.stringValue) else {
                 return .object(["error": .string("could not synthesize events")])
             }
             guard event.window == nil else {
@@ -82,7 +84,7 @@ enum DebugMouse {
             // Hover: tracking-area owners get the events at once (DebugHover).
             let delivered = DebugHover.move(to: baseLocation(point, in: window), in: window)
             return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
-                            "delivered": .number(Double(delivered))])
+                            "delivered": .number(Double(delivered)), "crossings": .array(DebugHover.lastCrossings.map(JSONValue.string))])
         default:
             return .object(["error": .string("unknown action \(action)")])
         }
@@ -121,9 +123,17 @@ enum DebugMouse {
 
     /// A pixel scroll at `point`, addressed to `window` like the window
     /// server addresses a real one.
-    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double) -> NSEvent? {
+    /// `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture
+    /// event: continuous (precise deltas) with that scroll phase (R99 swipes).
+    private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil) -> NSEvent? {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
+        if let phase, let value = ["began": 1, "changed": 2, "ended": 4][phase] {
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(value))
+            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
+            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
+        }
         let screen = window.convertPoint(toScreen: baseLocation(point, in: window))
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         cg.location = CGPoint(x: screen.x, y: primaryHeight - screen.y)

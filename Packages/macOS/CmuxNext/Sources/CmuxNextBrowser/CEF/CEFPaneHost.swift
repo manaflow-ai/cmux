@@ -106,7 +106,7 @@ final class CEFPaneHost {
             _ = runtime.shim?.tabActivate(browser)
             hostView.postGeometryChange()
             // A window-wide side panel stays open across tabs: no event.
-            tab.scheduleSidePanelRefresh()
+            tab.sidePanel.scheduleRefresh()
         }
     }
 

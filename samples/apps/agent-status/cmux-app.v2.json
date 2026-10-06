@@ -1,0 +1,30 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/agent-status",
+  "name": { "en": "Agent Status", "ja": "エージェントの状態" },
+  "version": "1.0.0",
+  "description": "A small status item: how many agents are working and how many wait for you.",
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": { "symbol": "gauge.with.dots.needle.33percent" },
+  "categories": ["agents", "monitoring", "samples"],
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "dist/main.js" },
+  "implements": {
+    "cmux.status/1": {
+      "export": "renderStatus",
+      "title": { "en": "Agent Status", "ja": "エージェントの状態" },
+      "symbol": "gauge.with.dots.needle.33percent",
+      "options": { "placement": "titlebar" }
+    }
+  },
+  "scopes": {
+    "agent:read": "Count the agents running in your terminals.",
+    "terminal:read": "Find the tab of an agent's terminal.",
+    "workspace:write": "Show an agent's tab from the menu."
+  },
+  "activation": ["onInterface:cmux.status/1"],
+  "files": ["dist/"]
+}

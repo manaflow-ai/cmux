@@ -4,7 +4,7 @@
     {
       "class": "mutation",
       "cli": {
-        "path": "apps run cmux/agents open",
+        "path": "open",
         "visible": true
       },
       "docs": "Open the Agent CLIs pane.",
@@ -33,7 +33,7 @@
     {
       "class": "read",
       "cli": {
-        "path": "apps run cmux/agents check-updates",
+        "path": "check-updates",
         "visible": true
       },
       "docs": "Ask every machine for the latest versions of its agent CLIs.",

@@ -67,8 +67,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         await #expect(throws: SettingRefused.self) { try await settings.setPanePadding(99) }
         await #expect(throws: SettingRefused.self) { try await settings.setPaneBorderColor("blue") }
-        await #expect(throws: SettingRefused.self) { try await settings.setSetting(at: InterfaceSizeSetting().configPath, to: 40) }
-        await #expect(throws: SettingNotInSchema.self) { try await settings.setSetting(at: ["no", "suchKey"], to: true) }
+        await #expect(throws: SettingRefused.self) { try await settings.setSetting(at: InterfaceSizeSetting().configPath, to: 40, by: .user) }
+        await #expect(throws: SettingNotInSchema.self) { try await settings.setSetting(at: ["no", "suchKey"], to: true, by: .user) }
         #expect(try document(url) == .object([:]))
         #expect(settings.validatedWrites.isEmpty)
     }

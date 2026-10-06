@@ -35,6 +35,14 @@ nonisolated enum Strings {
     static func searchWith(engine: String) -> String {
         String(localized: "browser.suggestion.searchWith", defaultValue: "\(engine) Search", bundle: .module)
     }
+    /// Chromium's `IDS_OMNIBOX_TAB_SUGGEST_HINT`: the detail of an open-tab row.
+    static var switchToTab: String {
+        String(localized: "browser.suggestion.switchToTab", defaultValue: "Switch to Tab", bundle: .module)
+    }
+    /// The detail of a calculator row.
+    static var calculatorCopyHint: String {
+        String(localized: "browser.suggestion.calculatorCopyHint", defaultValue: "Return Copies", bundle: .module)
+    }
     /// Chromium's `IDS_OMNIBOX_EMPTY_HINT`.
     static var omnibarPlaceholder: String {
         String(localized: "browser.omnibar.placeholder", defaultValue: "Search or type URL", bundle: .module)
@@ -68,6 +76,27 @@ nonisolated enum Strings {
     static func permissionCameraAndMicrophone(_ origin: String) -> String {
         String(localized: "browser.permission.cameraAndMicrophone", defaultValue: "\(origin) wants to use your camera and microphone.", bundle: .module)
     }
+    /// The automatic-downloads question; `origin` is empty for a page
+    /// without one (data:, about:blank).
+    static func permissionAutomaticDownloads(_ origin: String) -> String {
+        guard !origin.isEmpty else {
+            return String(localized: "browser.permission.automaticDownloads.thisPage", defaultValue: "This page wants to download multiple files.", bundle: .module)
+        }
+        return String(localized: "browser.permission.automaticDownloads", defaultValue: "\(origin) wants to download multiple files.", bundle: .module)
+    }
+    /// Why a download was listed blocked: no one could be asked whether the
+    /// site may download multiple files.
+    static var downloadBlockedUnanswered: String {
+        String(localized: "browser.download.blockedUnanswered", defaultValue: "Blocked: cmux could not ask whether this site may download multiple files.", bundle: .module)
+    }
+    /// Why a download was listed blocked: the site's remembered setting.
+    static var downloadBlockedBySite: String {
+        String(localized: "browser.download.blockedBySite", defaultValue: "Blocked: this site may not download multiple files. Change it in Site settings.", bundle: .module)
+    }
+    /// Why a download was listed blocked: the person answered Block.
+    static var downloadBlockedDeclined: String {
+        String(localized: "browser.download.blockedDeclined", defaultValue: "Blocked: you chose to block multiple downloads from this site.", bundle: .module)
+    }
     static func dialogFrom(_ origin: String) -> String {
         String(localized: "browser.dialog.from", defaultValue: "\(origin) says", bundle: .module)
     }
@@ -77,7 +106,6 @@ nonisolated enum Strings {
     static var cancel: String { String(localized: "browser.prompt.cancel", defaultValue: "Cancel", bundle: .module) }
 
     // Context menu
-    static var openLinkInNewTab: String { String(localized: "browser.menu.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module) }
     static var openImageInNewTab: String { String(localized: "browser.menu.openImageInNewTab", defaultValue: "Open Image in New Tab", bundle: .module) }
     static var openVideoInNewTab: String { String(localized: "browser.menu.openVideoInNewTab", defaultValue: "Open Video in New Tab", bundle: .module) }
 

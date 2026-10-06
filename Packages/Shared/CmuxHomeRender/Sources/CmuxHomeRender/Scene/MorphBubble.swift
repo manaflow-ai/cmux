@@ -13,9 +13,26 @@ import QuartzCore
 ///   the sharp text fades in.
 /// - `tail`: fixed at the right-bottom corner.
 /// The row underneath stays hidden until `landTime`, then shows the same pixels.
+///
+/// An attachment flies the same way from its draft thumbnail (`origin`):
+/// a file chip as its chip, an image or video as its picture, which then
+/// scales with the body (aspect fill) instead of being clipped by it.
 @MainActor
 final class MorphBubble {
+    /// What lands: the sharp content at the target size, the body fill and
+    /// whether the face follows the body's size (media) or stays put (text).
+    struct Face {
+        var image: CGImage?
+        /// Nil: the outgoing colour at the target's viewport position.
+        var fill: CGColor?
+        var tail: Bool
+        var scalesWithBody: Bool
+    }
+
     let key: String
+    /// Where it starts and lands (viewport points).
+    let origin: CGRect
+    let target: CGRect
     let holder = CALayer()
     private let bubble = CALayer()
     private let body = CALayer()
@@ -25,9 +42,11 @@ final class MorphBubble {
     private let underlay = CALayer()
     let landTime: CFTimeInterval
 
-    init(key: String, in parent: CALayer, viewport: CGRect, from field: CGRect, to target: CGRect, row: PartRow,
+    init(key: String, in parent: CALayer, viewport: CGRect, from field: CGRect, to target: CGRect, face: Face,
          palette: HomePalette, motion: MotionPolicy, begin: CFTimeInterval) {
         self.key = key
+        origin = field
+        self.target = target
         for l in [holder, bubble, body, text, blurred, tail, underlay] {
             l.actions = RowLayer.noActions
             l.contentsScale = Canvas.scale
@@ -35,7 +54,7 @@ final class MorphBubble {
         holder.frame = viewport
         parent.addSublayer(holder)
 
-        let color = palette.outgoing(at: viewport.height > 0 ? target.midY / viewport.height : 1).cgColor
+        let color = face.fill ?? palette.outgoing(at: viewport.height > 0 ? target.midY / viewport.height : 1).cgColor
         let w1 = target.width, h1 = target.height
         bubble.anchorPoint = CGPoint(x: 1, y: 0.5)
         bubble.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
@@ -58,11 +77,10 @@ final class MorphBubble {
         tail.fillColor = color
         tail.frame = CGRect(x: -w1, y: 0, width: w1, height: h1)
         tail.bounds = CGRect(x: -w1, y: 0, width: w1, height: h1)
+        tail.isHidden = !face.tail
         bubble.addSublayer(tail)
-        let size = row.size
-        let image = Canvas.image(size: size) { ctx in
-            PartDrawing.drawText(ctx, row.text, in: CGRect(origin: .zero, size: size), outgoing: true, palette: palette)
-        }
+        let size = target.size
+        let image = face.image
         text.contents = image
         text.frame = CGRect(origin: .zero, size: size)
         body.addSublayer(text)
@@ -78,6 +96,10 @@ final class MorphBubble {
             }
         }
         blurred.magnificationFilter = .linear
+        if face.scalesWithBody {
+            text.contentsGravity = .resizeAspectFill
+            blurred.contentsGravity = .resizeAspectFill
+        }
         blurred.frame = text.frame
         body.addSublayer(blurred)
         blurred.opacity = Animate.hiddenOpacity
@@ -92,6 +114,14 @@ final class MorphBubble {
             for (keyPath, a, b) in [("bounds.size.width", w0, w1), ("position.x", -w0 / 2, -w1 / 2),
                                     ("bounds.size.height", h0, h1), ("position.y", h0 / 2, h1 / 2)] {
                 Animate.scalar(layer, keyPath, from: Double(a), to: Double(b), width, begin: begin)
+            }
+        }
+        if face.scalesWithBody {
+            for layer in [text, blurred] {
+                for (keyPath, a, b) in [("bounds.size.width", w0, w1), ("position.x", w0 / 2, w1 / 2),
+                                        ("bounds.size.height", h0, h1), ("position.y", h0 / 2, h1 / 2)] {
+                    Animate.scalar(layer, keyPath, from: Double(a), to: Double(b), width, begin: begin)
+                }
             }
         }
         Animate.scalar(tail, "position.y", from: Double(h1 / 2 + (h0 - h1) / 2), to: Double(h1 / 2), width, begin: begin)

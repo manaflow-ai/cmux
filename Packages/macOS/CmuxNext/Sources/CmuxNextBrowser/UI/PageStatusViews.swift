@@ -11,6 +11,9 @@ final class PageStatusViews {
     let errorView = LoadErrorView()
     let goneView = PageGoneView()
     let unresponsiveView = PageUnresponsiveView()
+    /// Runs a warning page button through the action registry (the App
+    /// installs it); true when it ran there.
+    var certificateWarningRouter: ((CertificateWarningCommand) -> Bool)?
 
     /// The views currently shown (occlusion holes).
     var shown: [NSView] {
@@ -40,6 +43,13 @@ final class PageStatusViews {
         goneView.isHidden = true
         unresponsiveView.isHidden = true
         errorView.onRetry = { tab()?.reload() }
+        // The warning page's buttons run their registry action when routed.
+        let send: (CertificateWarningCommand) -> Void = { [weak self] command in
+            if let router = self?.certificateWarningRouter, router(command) { return }
+            if let tab = tab() { command.perform(on: tab) }
+        }
+        errorView.onProceed = { send(.proceed) }
+        errorView.onBack = { send(.goBack) }
         goneView.onReload = { tab()?.reload() }
         unresponsiveView.onWait = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: false) }
         unresponsiveView.onExit = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: true) }

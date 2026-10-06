@@ -19,7 +19,8 @@ final class ConversationViewController: UIViewController {
     private lazy var observation = StoreObservation { [weak self] in self?.render() }
     private var shown: [TranscriptItem] = []
     private var isVisible = false
-    private var openTask: Task<Void, Never>?
+    /// The screen left the stack: no transcript or binding is made after it.
+    private var closed = false
     private var foregroundObservers: [any NSObjectProtocol] = []
 
     /// The search hit to open at, until its row is loaded and shown (nil
@@ -44,12 +45,10 @@ final class ConversationViewController: UIViewController {
         view.backgroundColor = CmuxiOSDesign.HomePalette.background
         navigationItem.largeTitleDisplayMode = .never
 
-        let store = self.store
-        let id = conversation
-        openTask = Task { [weak self] in
-            await store.open(id)
-            self?.attachTranscript()
-        }
+        // The binding opens the conversation and `close()` stops it, which
+        // closes that open, also while the first page loads. Without an
+        // account yet (`store.me`), nothing opens until it arrives (`render`).
+        attachTranscript()
         observation.start()
         let center = NotificationCenter.default
         for (name, visible) in [(UIApplication.didEnterBackgroundNotification, false),
@@ -69,7 +68,12 @@ final class ConversationViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         setVisible(true)
+        // Esc and Cmd-[ work before the field is tapped; a field that already
+        // edits keeps the keyboard.
+        if transcript?.field.textView.isFirstResponder != true { becomeFirstResponder() }
     }
+
+    override var canBecomeFirstResponder: Bool { true }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
@@ -82,9 +86,13 @@ final class ConversationViewController: UIViewController {
         close()
     }
 
-    /// Stops the binding and the observers (the screen left the stack).
-    private func close() {
-        openTask?.cancel()
+    /// Stops the binding and the observers (the screen left the stack). A
+    /// screen freed without it (loaded but never shown, or a navigation
+    /// root replaced without a pop) frees its binding, whose deinit closes
+    /// the conversation; the observers capture this screen weakly.
+    func close() {
+        guard !closed else { return }
+        closed = true
         binding?.stop()
         observation.stop()
         for o in foregroundObservers { NotificationCenter.default.removeObserver(o) }
@@ -96,11 +104,27 @@ final class ConversationViewController: UIViewController {
         transcript?.controller.isVisibleToUser = visible
     }
 
+    // MARK: Hardware keyboard (plans/cmux-next/ios-keyboard.md K5)
+
+    /// Esc and Cmd-[ go back to Home, as the Back button. Esc yields to an
+    /// input method that is composing (system behavior first).
+    override var keyCommands: [UIKeyCommand]? {
+        // One overlay entry (Cmd-[); Esc is the same action without a second listing.
+        [UIKeyCommand(title: HomeText.backCommand, action: #selector(backCommand), input: "[", modifierFlags: .command),
+         UIKeyCommand(input: UIKeyCommand.inputEscape, modifierFlags: [], action: #selector(backCommand))]
+    }
+
+    @objc private func backCommand() {
+        guard navigationController?.topViewController === self else { return }
+        navigationController?.popViewController(animated: !CmuxiOSDesign.HomeMotion.reduceMotion)
+    }
+
     // MARK: Transcript
 
-    /// Builds the transcript once the store has opened the conversation (`me` is known).
+    /// Builds the transcript and its binding (which opens the conversation)
+    /// once the account is known (`me`), unless the screen already left.
     private func attachTranscript() {
-        guard transcript == nil, let me = store.me?.id else { return }
+        guard transcript == nil, !closed, let me = store.me?.id else { return }
         let view = HomeTranscriptView(conversation: conversation, me: me, traits: traitCollection)
         view.frame = self.view.bounds
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -116,11 +140,30 @@ final class ConversationViewController: UIViewController {
         view.scroll.panGestureRecognizer.addTarget(self, action: #selector(userScrolled))
         // Sends, refusals (the draft comes back through `onRestoreDraft`),
         // read cursors and older pages all go through the binding.
-        binding = HomeStoreBinding(store: store, controller: view.controller)
+        let binding = HomeStoreBinding(store: store, controller: view.controller)
+        // A refused reaction (or any other refused op but a send) says why.
+        binding.onRefusal = { [weak self] intent, rejection in
+            self?.presentRefusal(HomeRefusalAlert(intent: intent, rejection: rejection))
+        }
+        // An op that ran out of resends unanswered may not have gone through.
+        // Hosts set the binding hooks, never store.onUnanswered/onRefusal:
+        // the store tells every live binding of the conversation once each.
+        binding.onUnanswered = { [weak self] intent in
+            self?.presentRefusal(HomeRefusalAlert(unanswered: intent))
+        }
+        self.binding = binding
         view.controller.isVisibleToUser = isVisible
         observation.renderNow()
         view.layoutIfNeeded()
         revealFocus()
+    }
+
+    private func presentRefusal(_ content: HomeRefusalAlert) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: content.title, message: content.message.isEmpty ? nil : content.message,
+                                      preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: HomeText.ok, style: .default))
+        present(alert, animated: true)
     }
 
     // MARK: Search hit
@@ -174,6 +217,7 @@ final class ConversationViewController: UIViewController {
     /// change to them renders once per main-actor turn. The rows themselves
     /// reach the core through `HomeStoreBinding`.
     private func render() {
+        if transcript == nil { attachTranscript() }
         _ = store.transcriptVersion[conversation]
         let row = store.rows.first { $0.id == conversation }
         title = row?.title ?? title
@@ -203,7 +247,7 @@ final class ConversationViewController: UIViewController {
     #if DEBUG
     /// Returns when the transcript exists and its visible rows are drawn (screenshots).
     func rendered() async {
-        await openTask?.value
+        await binding?.opened()
         await transcript?.rendered()
     }
 
@@ -213,7 +257,7 @@ final class ConversationViewController: UIViewController {
     /// the drawn badge with the choice selected.
     func debugTapback(choose: Reaction.Tapback?) async {
         // A pushed screen loads its view during the transition; load it now
-        // so `openTask` exists before `rendered()` waits on it.
+        // so the binding exists before `rendered()` waits on it.
         loadViewIfNeeded()
         await rendered()
         guard let transcript else { return }

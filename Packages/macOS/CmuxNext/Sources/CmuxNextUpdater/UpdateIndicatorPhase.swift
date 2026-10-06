@@ -14,6 +14,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     /// Downloading or unpacking: a progress ring, nil while the size is
     /// unknown (spinning).
     case downloading(progress: Double?)
+    /// Found, not downloaded (`updates.downloadAutomatically` off): a click
+    /// downloads and installs.
+    case available(version: String?)
     /// Downloaded and waiting: the accent circle with a download glyph.
     /// A click installs and relaunches.
     case ready(version: String?)
@@ -23,11 +26,20 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     /// hides itself.
     case note(String, isError: Bool)
 
+    /// An update was found: downloading, downloaded and waiting, or
+    /// installing (the Settings item's badge).
+    public var isUpdateAvailable: Bool {
+        switch self {
+        case .available, .downloading, .ready, .installing: true
+        case .hidden, .checking, .note: false
+        }
+    }
+
     /// Whether the circle shows.
     public var showsCircle: Bool {
         switch self {
         case .hidden, .note: false
-        case .checking, .downloading, .ready, .installing: true
+        case .checking, .available, .downloading, .ready, .installing: true
         }
     }
 
@@ -41,7 +53,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         case .checking:
             self = .checking
         case .updateAvailable(let available):
-            self = .ready(version: available.appcastItem.displayVersionString)
+            // Only with `updates.downloadAutomatically` off: background
+            // installs accept every other found update at once.
+            self = .available(version: available.appcastItem.displayVersionString)
         case .notFound:
             self = .note(UpdaterStrings.upToDate, isError: false)
         case .error:
@@ -85,7 +99,8 @@ extension UpdateIndicatorPhase {
         case .checking: UpdaterStrings.checking
         case .downloading: UpdaterStrings.downloading
         case .ready(let version?) where !version.isEmpty: UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
-        case .ready: UpdaterStrings.availableNoVersion + "\n" + UpdaterStrings.install
+        case .ready, .available(nil): UpdaterStrings.availableNoVersion + "\n" + UpdaterStrings.install
+        case .available(let version?): UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
         case .installing: UpdaterStrings.installing
         case .note(let text, _): text
         }
@@ -96,7 +111,7 @@ extension UpdateIndicatorPhase {
         switch self {
         case .installing: UpdaterStrings.installing
         case .note(let text, _): text
-        case .hidden, .checking, .downloading, .ready: nil
+        case .hidden, .checking, .available, .downloading, .ready: nil
         }
     }
 
@@ -104,7 +119,7 @@ extension UpdateIndicatorPhase {
     public var spins: Bool {
         switch self {
         case .checking, .installing, .downloading(progress: nil): true
-        case .hidden, .downloading, .ready, .note: false
+        case .hidden, .available, .downloading, .ready, .note: false
         }
     }
 

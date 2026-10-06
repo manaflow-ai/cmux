@@ -636,11 +636,13 @@ Owners: `CmuxNextApp/BrowserProfiles/BrowserProfileLinkMenu.swift`,
 - Links, popups and Chromium window requests a page opens stay in that
   page's profile.
 
-TODO: the `link` menu context (`openLinkInNewTab`, `openLinkInDefaultBrowser`)
-still receives no link (MiscHandlerStrings.linkTarget) and is not shown by
-any surface. When a surface passes a link to actions, add
-`browserProfile.openLink` to `ContextMenuCatalog.link` and remove the
-`hoveredLink` special case in `TerminalHostDelegate`.
+Page links have a menu context since R123 slice B: `browserLink` (and
+`browserImage`, `browserSelection`) rows carry the hit's `url` and `text`
+as action arguments, the same in WebKit and Chromium (`BrowserHitMenu`).
+TODO: `browserProfile.openLink` and `openLinkInDefaultBrowser` still use the
+profile item list and the unavailable stub; move them into `browserLink`
+(and the terminal's `hoveredLink` menu) when they take the `url` argument
+from a menu row.
 
 ## Browser import: cookies and security (2026-09-30)
 

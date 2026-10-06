@@ -20,6 +20,7 @@ enum TabSearchHandlers {
         }
         services.palette.sources.actionPages["tab.search"] = { page("") }
         registry.bind("tab.search", run: { invocation in
+            // A tab target: reveal it (Go to Tab, `palette.goToTab`). The only argument is `query`.
             if let target = invocation.target, target.kind == .tab {
                 return TabHandlers.reveal(tabID: target.id, ctx: context)
             }

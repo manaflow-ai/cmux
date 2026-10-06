@@ -193,7 +193,7 @@ final class OnboardingService {
     }
 
     /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionProvider`), not as visits.
+    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
     nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
         batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
     }

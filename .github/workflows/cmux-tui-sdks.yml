@@ -146,6 +146,9 @@ jobs:
       - name: Check public resource API boundary
         run: python3 cmux-tui/scripts/check-resource-api-boundary.py
 
+      - name: Test and check the seven SDK capability descriptors
+        run: python3 cmux-tui/bindings/rust/scripts/test_sync_resource_api.py
+
       - name: Test deterministic SDK generator
         env:
           PYTHONPATH: cmux-tui/bindings
@@ -666,11 +669,12 @@ jobs:
             --require python,typescript,rust,go,java,cpp,zig \
             --cmux-tui-bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
 
-      # cmux::raw::ByteAttachment and the typed state calls against the exact
+      # cmux::raw::ByteAttachment, the typed state calls, and Home (ensure_home,
+      # conversation tabs, typed conversation results) against the exact
       # headless daemon built above.
       - name: Test Rust SDK byte attachment and typed state against the live daemon
         if: ${{ needs.contract.outputs.sdk_inputs == 'true' }}
         working-directory: cmux-tui
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
-        run: cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live -- --nocapture
+        run: cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live -- --nocapture

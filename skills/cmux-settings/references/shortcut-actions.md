@@ -158,10 +158,15 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.browserForward`
 - `shortcuts.bindings.browserHardReload`
 - `shortcuts.bindings.browserReload`
+- `shortcuts.bindings.browserStop`
+- `shortcuts.bindings.browser.copyURL`
+- `shortcuts.bindings.browser.findPrevious`
 - `shortcuts.bindings.browserZoomIn`
 - `shortcuts.bindings.browserZoomOut`
 - `shortcuts.bindings.browserZoomReset`
 - `shortcuts.bindings.focusBrowserAddressBar`
+- `shortcuts.bindings.omnibar.openInBackgroundTab`
+- `shortcuts.bindings.omnibar.openInForegroundTab`
 - `shortcuts.bindings.openBrowser`
 - `shortcuts.bindings.showBrowserJavaScriptConsole`
 - `shortcuts.bindings.splitBrowserDown`

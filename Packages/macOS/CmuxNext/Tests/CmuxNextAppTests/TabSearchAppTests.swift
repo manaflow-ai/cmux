@@ -65,11 +65,11 @@ struct TabSearchAppTests {
         let facts = ControlTabSearchFacts(closed: [ControlClosedTab(id: "local/tab_z", kind: "terminal", title: "htop",
                                                                     closedAt: Date(timeIntervalSince1970: 1))])
         let ids = await Task.detached {
-            TabSearchRanker.search(TabSearchEntries.entries(topology, facts), query: "", now: Date()).map(\.row.entry.id)
+            TabSearchRanker().search(TabSearchEntries.entries(topology, facts), query: "", now: Date()).map(\.row.entry.id)
         }.value
         #expect(ids == ["tab_y", "tab_x", "local/tab_z"])
         let github = await Task.detached {
-            TabSearchRanker.search(TabSearchEntries.entries(topology, facts), query: "github", now: Date()).first?.row.entry.id
+            TabSearchRanker().search(TabSearchEntries.entries(topology, facts), query: "github", now: Date()).first?.row.entry.id
         }.value
         #expect(github == "tab_x")
     }

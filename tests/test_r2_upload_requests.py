@@ -235,6 +235,17 @@ class R2UploadRequestsTests(unittest.TestCase):
             self.assertNotIn("content-type", headers)
             self.assertNotIn("content-type", headers["authorization"])
 
+    def test_write_once_conflict_is_a_named_hard_failure(self):
+        # A different immutable object is never retried: the run's retry
+        # workflow reads this annotation title and leaves the run red.
+        endpoint, requests = self.start_endpoint(existing=True)
+        result = self.upload("manifest.json", "--write-once", endpoint=endpoint, body=BODY + b"changed")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["HEAD", "GET"])
+        self.assertIn("::error title=immutable-r2-conflict::", result.stdout)
+        self.assertIn("nightly/manifest.json", result.stdout)
+        self.assertIn("immutable R2 object already exists with a different SHA-256", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -11,8 +11,7 @@ extension AppServices {
     /// when no connected machine has the tab.
     ///
     /// - Parameters:
-    ///   - id: A daemon tab's id (`TabModel.id`) or an agent tab's
-    ///     (`local-agent:…`).
+    ///   - id: A daemon tab's id (`TabModel.id`), agent chat tabs included.
     ///   - intent: How the window comes forward; `.bringForward` leaves the
     ///     key window alone (a link opened in the background).
     @discardableResult
@@ -20,7 +19,7 @@ extension AppServices {
         let located = locateTab(id)
         // A `tab_` link names a tab the strip may know by its first id.
         let tabID = located?.0.id ?? id
-        guard let paneModel = located?.1 ?? agentTabs.paneKey(listing: id).flatMap({ pane(id: $0) }),
+        guard let paneModel = located?.1,
               let workspace = daemon(for: paneModel).store.workspace(containing: paneModel.handle),
               let window = windows.reveal(workspaceID: workspace.id) else { return false }
         window.state.selection.select(tabID, in: paneModel.id)

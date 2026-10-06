@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { SchemaValidator } from "../../tools/json-schema.ts"
 import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
 import { generate, scopeFor } from "../../tools/gen-cmux-global.ts"
+import { loadAppCatalogs, schemaType } from "../../tools/app-catalogs.ts"
 
 const root = join(import.meta.dir, "../..")
 const schema = new SchemaValidator(JSON.parse(readFileSync(join(root, "schema/cmux-app.schema.json"), "utf8")))
@@ -115,6 +116,28 @@ describe("generator", () => {
     expect(scopeFor("terminal.close", { class: "mutation" })).toBeNull()
     expect(scopeFor("install.revoke", { class: "mutation", risk: "destructive" })).toBeNull()
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
+  })
+  test("first-party app catalog ops get scopes and typed clients", () => {
+    const files = generate()
+    const scopes = JSON.parse(files["scopes.json"]!).ops
+    expect(scopes["rd.session.start"]).toEqual({ scope: "rd:execute", class: "mutation" })
+    expect(scopes["rd.session.list"]).toEqual({ scope: "rd:read", class: "read" })
+    expect(JSON.parse(files["ops.json"]!).ops).toContain("rd.session.start")
+    expect(files["cmux-app.d.ts"]).toContain("owner `app:cmux/remote-desktop`")
+    expect(files["cmux-app.d.ts"]).toContain('start: CmuxOp<{ host: string; target?: string; mode?: "view" | "control" }, { session: string; tab: string }>')
+  })
+  test("app catalog fragments are validated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-app-catalogs-"))
+    mkdirSync(join(dir, "bad/catalog"), { recursive: true })
+    writeFileSync(join(dir, "bad/cmux-app.v2.json"), JSON.stringify({ catalog: "catalog/c.json" }))
+    writeFileSync(join(dir, "bad/catalog/c.json"), JSON.stringify({ family: "bad", operations: [{ name: "bad.x" }] }))
+    expect(() => loadAppCatalogs(dir)).toThrow(/bad\/catalog\/c.json/)
+  })
+  test("JSON Schema to TypeScript", () => {
+    expect(schemaType({ type: "object", properties: { a: { type: "integer" }, b: { type: "array", items: { enum: ["x", "y"] } } }, required: ["a"] }))
+      .toBe('{ a: number; b?: Array<"x" | "y"> }')
+    expect(schemaType({ type: "object", additionalProperties: false })).toBe("Record<string, never>")
+    expect(schemaType({ oneOf: [{ type: "string" }, { type: "null" }] })).toBe("string | null")
   })
 })
 

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// One item of a sticky section: a row (built-in or list look) or a tray
+/// One item of a pinned section: a row (built-in or list look) or a tray
 /// tile. A pill shows on hover, while pressed and while the item is
 /// active, in the shared chrome fills (`ChromeHover.fillColor`), fading on
 /// pointer changes. The rail's icon-only items show unread items as a dot
@@ -19,6 +19,9 @@ final class SidebarItemRowView: NSView {
         case icon
         /// Glyph and label side by side on one line (inline), no fill at rest.
         case chip
+        /// A large glyph in a rounded well over a short centered label
+        /// (the tiles arrangement), no fill at rest.
+        case favorite
 
         var isIconOnly: Bool { self == .tile || self == .icon }
     }
@@ -27,6 +30,14 @@ final class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
+    /// The trailing control was pressed (`SidebarItemInfo.accessory`).
+    var onAccessory: (() -> Void)?
+    /// The accessory draws (tests).
+    var isAccessoryShown: Bool { !accessoryView.isHidden }
+    /// The accessory's frame while it draws (tests).
+    var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
+    private let accessoryView = NSImageView()
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -55,7 +66,9 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [icon, title, badge].forEach(addSubview)
+        accessoryView.imageScaling = .scaleProportionallyDown
+        accessoryView.isHidden = true
+        [icon, title, badge, accessoryView].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -65,6 +78,12 @@ final class SidebarItemRowView: NSView {
 
     override var isFlipped: Bool { true }
     override var wantsUpdateLayer: Bool { true }
+    /// A drag from a press (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    var onDragEnded: (() -> Void)?
+    private var pressLocation: NSPoint?
+    private var didDrag = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     /// Width of a chip showing `title` (and an unread count): padding,
@@ -104,20 +123,25 @@ final class SidebarItemRowView: NSView {
         guard info != self.info || style != self.style else { return }
         self.info = info
         self.style = style
-        title.stringValue = info.title
+        title.stringValue = style == .favorite ? info.caption ?? info.title : info.title
         title.isHidden = style.isIconOnly
-        // Icons have no room for a count: unread items show a dot at the
-        // glyph's top trailing corner (the rail, like the Codex app's).
+        title.alignment = style == .favorite ? .center : .natural
+        // Icons and tiles have no room for a count: unread items show a dot
+        // at the glyph's top trailing corner (the rail, like the Codex app's).
         let unread: UnreadState
-        if style.isIconOnly {
+        if style == .favorite {
+            unread = (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
+        } else if style.isIconOnly {
             unread = isRailButton && (info.badge ?? 0) > 0 ? UnreadState.dot : UnreadState.none
         } else {
             unread = info.badge.map(UnreadState.count) ?? UnreadState.none
         }
         badge.configure(unread)
+        configureAccessory(info.accessory)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.badge.map { String($0) })
-        toolTip = style.isIconOnly ? info.title : nil
+        // A tile's caption can truncate, so it keeps the full title as a tooltip.
+        toolTip = style.isIconOnly || style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -129,18 +153,28 @@ final class SidebarItemRowView: NSView {
         performWithTheme {
             ChromeHover.paint(pill, fill, animated: fadesNextFill)
             fadesNextFill = false
-            chip.backgroundColor = style == .list ? (info.color.map(SidebarStyle.color) ?? Palette.hoverFill).cgColor : nil
+            let wells = style == .list || style == .favorite
+            // A tile's well is the raised surface on the tiles card (Safari's
+            // favorites); a list row's well is the quieter hover step.
+            let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
+            chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
-            icon.contentTintColor = style == .list && info.color != nil ? Palette.textOnPrimary
+            icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
+                : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
         }
     }
 
     /// The pill's fill: pressed, then active, then hovered, then the
-    /// tile's resting fill.
+    /// tile's resting fill. A tile rests on `hoverFill`, so its hover takes
+    /// the next tonal step (`selectionFill`) and still shows a change (R97).
     var fill: NSColor? {
         let state = ChromeHover.State(hovering: isHovered, pressed: isPressed, selected: info.isActive)
-        return performWithTheme { ChromeHover.fillColor(state, rest: style == .tile ? Palette.hoverFill : nil) }
+        return performWithTheme {
+            guard style == .tile else { return ChromeHover.fillColor(state) }
+            if state.hovering, !state.pressed, !state.selected { return Palette.selectionFill }
+            return ChromeHover.fillColor(state, rest: Palette.hoverFill)
+        }
     }
 
     private func pointerChanged() {
@@ -151,6 +185,7 @@ final class SidebarItemRowView: NSView {
     override func layout() {
         super.layout()
         let b = bounds
+        if style == .favorite { return layoutFavorite(b) }
         let inset = SidebarStyle.horizontalInset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -179,16 +214,54 @@ final class SidebarItemRowView: NSView {
             title.frame = .zero
             return
         }
+        // The accessory sits at the trailing edge, before any count badge.
+        let accessorySide = Metrics.smallIconSize
+        let accessoryX = b.width - Metrics.space2 - accessorySide
+        accessoryView.frame = accessoryView.isHidden ? .zero
+            : NSRect(x: accessoryX, y: (b.height - accessorySide) / 2, width: accessorySide, height: accessorySide)
+        let trailing = accessoryView.isHidden ? b.width : accessoryX - Metrics.space1
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeX = style == .chip
-            ? (badge.isHidden ? b.width : b.width - Metrics.space2 - badgeWidth)
-            : b.width - inset * 2 - badgeWidth
+            ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
+            : (accessoryView.isHidden ? b.width - inset * 2 : trailing) - badgeWidth
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, badgeX - Metrics.space2 - textX), height: th)
     }
+
+    /// A large tile: the glyph well centered over a one-line caption, the
+    /// pair centered in the tile. An unread item shows a dot on the well.
+    private func layoutFavorite(_ b: NSRect) {
+        title.font = SidebarStyle.subtitleFont
+        let well = SidebarStyle.favoriteWell
+        let th = ceil(title.intrinsicContentSize.height)
+        let wellFrame = NSRect(x: (b.width - well) / 2, y: max(0, (b.height - well - Metrics.space1 - th) / 2),
+                               width: well, height: well)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        pill.frame = b
+        pill.cornerRadius = SidebarStyle.railTileCornerRadius
+        chip.frame = wellFrame
+        chip.cornerRadius = SidebarStyle.railTileCornerRadius
+        CATransaction.commit()
+        icon.image = NSImage(systemSymbolName: info.symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: SidebarStyle.railGlyphSize, weight: .medium))
+        let side = SidebarStyle.railIconBox
+        icon.frame = NSRect(x: wellFrame.midX - side / 2, y: wellFrame.midY - side / 2, width: side, height: side)
+        // The caption takes the tile's full width: a tile is narrow, and the
+        // tiles' gap already separates neighboring captions.
+        title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
+        let dot = SidebarStyle.dotSize
+        badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
+        accessoryView.frame = .zero
+    }
+
+    /// The caption's frame (tests).
+    var titleFrame: CGRect { title.isHidden ? .zero : title.frame }
+    /// The drawn title or caption (tests).
+    var titleText: String { title.stringValue }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -209,12 +282,51 @@ final class SidebarItemRowView: NSView {
     /// Activates on press, as the sidebar's rows do; the pressed fill shows
     /// until release.
     override func mouseDown(with event: NSEvent) {
-        guard pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
+        if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
+        pressLocation = event.locationInWindow
+        didDrag = false
         if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
+    /// The accessory takes a click a little outside its glyph.
+    private func hitsAccessory(_ point: NSPoint) -> Bool {
+        !accessoryView.isHidden && accessoryView.frame.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point)
+    }
+
+    private func configureAccessory(_ accessory: SidebarItemAccessory?) {
+        guard let accessory else {
+            accessoryView.isHidden = true
+            setAccessibilityCustomActions(nil)
+            return
+        }
+        switch accessory {
+        case .update:
+            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: Strings.updateAvailable)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
+            accessoryView.contentTintColor = performWithTheme { Palette.accent }
+            accessoryView.toolTip = Strings.updateAvailable
+            accessoryView.isHidden = false
+            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: Strings.updateAvailable) { [weak self] in
+                self?.onAccessory?()
+                return true
+            }])
+        }
+    }
+
+    /// Past the drag threshold the region reorders in place (R77).
+    override func mouseDragged(with event: NSEvent) {
+        guard let pressLocation, onDragged?(pressLocation, event) == true else { return super.mouseDragged(with: event) }
+        didDrag = true
+        isPressed = false
+    }
+
     override func mouseUp(with event: NSEvent) {
+        if didDrag { onDragEnded?() }
+        pressLocation = nil
+        didDrag = false
         guard isPressed else { return super.mouseUp(with: event) }
         isPressed = false
     }
@@ -222,6 +334,12 @@ final class SidebarItemRowView: NSView {
     override func rightMouseDown(with event: NSEvent) {
         guard let onContextMenu else { return super.rightMouseDown(with: event) }
         onContextMenu(event, self)
+    }
+
+    /// A press at `point` (this view's coordinates), as a click there (tests).
+    func press(at point: NSPoint) {
+        if hitsAccessory(point) { return onAccessory?() ?? () }
+        if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
     }
 
     override func accessibilityPerformPress() -> Bool {

@@ -121,7 +121,7 @@ describe("SchedulerDO abuse limits (pure)", () => {
   })
 
   it("refuses run creation past the burst with a retryable rate.limited, and accepts after a refill", () => {
-    let s: SchedulerState = schedulerDomain.initial()
+    let s: SchedulerState = ({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } })
     const created = schedulerDomain.reduce(s, "automation.create", { name: "x", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "n" }] }, concurrency: { max: 10, on_limit: "queue" } }, ctx(T0))
     if (!created.ok) throw new Error(created.code)
     s = created.state

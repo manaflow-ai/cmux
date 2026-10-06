@@ -12,6 +12,11 @@
 #   - raw animation construction: CABasicAnimation, CASpringAnimation,
 #     CAKeyframeAnimation, CATransition, CAAnimationGroup, CAMediaTimingFunction,
 #     NSAnimationContext.runAnimationGroup / .animate, withAnimation
+#   - a constraint animator outside `Motion.animator(_:in:)`: `.animator().constant`
+#     (it never applies in a window with no screen, even in a zero-length group)
+#   - `Motion.animate(`, `Motion.animateTimed(` or `Motion.animateExit(` without
+#     `in:` on the call's line: Motion snaps when the animated view's window has
+#     no screen, so it must know that view
 # A reviewed exception carries `// motion-allow: <reason>` on the line or the
 # line above.
 #
@@ -35,7 +40,10 @@ RULES = [
     ("raw Core Animation object (use Motion.set / Motion.transaction)", r"\b(CABasicAnimation|CASpringAnimation|CAKeyframeAnimation|CATransition|CAAnimationGroup|CAMediaTimingFunction)\("),
     ("raw NSAnimationContext (use Motion.animate)", r"\bNSAnimationContext\.(runAnimationGroup|animate)\b"),
     ("SwiftUI withAnimation (use a Motion token)", r"\bwithAnimation\s*[({]"),
+    ("constraint animator (use Motion.animator(_:in:))", r"\.animator\(\)\.constant\b"),
 ]
+# A Motion AppKit call whose arguments before its first closure name no view.
+motion_call = re.compile(r"\bMotion\.(animate|animateTimed|animateExit)\(")
 compiled = [(name, re.compile(pattern)) for name, pattern in RULES]
 
 def code_part(line):
@@ -67,6 +75,10 @@ for directory, _, files in os.walk(sources):
             for rule, pattern in compiled:
                 if pattern.search(code) and not allowed:
                     failures.append(f"{os.path.relpath(path, root)}:{index + 1}: {rule}: {stripped}")
+            for match in motion_call.finditer(code):
+                head = code[match.end():].split("{", 1)[0]
+                if "in:" not in head and not allowed:
+                    failures.append(f"{os.path.relpath(path, root)}:{index + 1}: Motion call without the animated view (pass in:): {stripped}")
 
 if failures:
     print("check-motion: animation timing must come from CmuxNextDesign Motion tokens:")

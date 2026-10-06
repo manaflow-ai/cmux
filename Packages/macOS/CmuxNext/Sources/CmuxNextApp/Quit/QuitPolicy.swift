@@ -40,8 +40,10 @@ enum QuitPolicy {
         case .interactive: break
         }
         let hasTerminals = facts.terminals > 0
+        // Agents outlive the app like terminals; an unknown count asks too.
+        let hasAgents = facts.agents.map { $0.live > 0 } ?? true
         let incognito = !facts.incognitoPrograms.isEmpty
-        guard hasTerminals || incognito else { return .quit(remembered ?? .keep) }
+        guard hasTerminals || hasAgents || incognito else { return .quit(remembered ?? .keep) }
         // A remembered choice skips the alert unless incognito windows would
         // end running programs (that confirmation is not remembered); the
         // alert then only confirms the incognito close, and Quit applies the
@@ -53,8 +55,12 @@ enum QuitPolicy {
             busiest: busiest(facts.programs),
             incognitoPrograms: facts.incognitoPrograms,
             remoteSessions: facts.remoteSessions,
-            offersSessionChoice: hasTerminals && remembered == nil,
-            defaultChoice: remembered ?? .keep
+            offersSessionChoice: (hasTerminals || hasAgents) && remembered == nil,
+            defaultChoice: remembered ?? .keep,
+            agents: facts.agents?.live,
+            agentsInTurn: facts.agents?.inTurn ?? 0,
+            busyAgents: Array((facts.agents?.inTurnNames ?? []).prefix(busiestLimit)),
+            chiefKeepsRunning: facts.agents?.chiefInTurn ?? false
         ))
     }
 

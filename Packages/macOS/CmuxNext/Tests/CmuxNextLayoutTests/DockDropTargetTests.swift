@@ -9,12 +9,12 @@ import Testing
     let viewport = CGSize(width: 1000, height: 600)
     let style = LayoutStyle()
 
-    private func geometry(dock: StickyColumn? = nil) -> ScreenGeometry {
+    private func geometry(dock: DockColumn? = nil) -> ScreenGeometry {
         var columns = [0.5, 0.5].enumerated().map { index, width in
             LayoutColumn(id: ColumnID("c\(index)"), width: width, root: .leaf(PaneID("p\(index)")))
         }
         if let dock {
-            columns.append(LayoutColumn(id: ColumnID("d"), width: 0.3, root: .leaf(PaneID("pd")), sticky: dock))
+            columns.append(LayoutColumn(id: ColumnID("d"), width: 0.3, root: .leaf(PaneID("pd")), dock: dock))
         }
         return ScreenGeometry.compute(.columns(columns), viewport: viewport, style: style, scale: 2)
     }
@@ -40,12 +40,19 @@ import Testing
         }
         #expect(at(10) == nil)
         #expect(at(31) == .newDock(screen: "s", edge: .top))
-        #expect(at(30 + style.dockDropBand) == .newDock(screen: "s", edge: .top))
-        #expect(at(31 + style.dockDropBand) == nil)
+        #expect(at(30 + style.dockTopDropBand) == .newDock(screen: "s", edge: .top))
+        #expect(at(31 + style.dockTopDropBand) == nil)
+    }
+
+    /// The tab strip takes drops 8 pt below its edge, so the top band is
+    /// deeper than the others: below that slop it is as deep as the bottom
+    /// band (dogfood nxdog27: a 24 pt band left about 15 pt to hit).
+    @Test func theTopBandLeavesABottomBandsDepthBelowTheStripSlop() {
+        #expect(style.dockTopDropBand - 8 >= style.dockDropBand)
     }
 
     @Test func anEdgeThatHasADockOpensNoSecondOne() {
-        let g = geometry(dock: StickyColumn(edge: .top, mode: .docked))
+        let g = geometry(dock: DockColumn(edge: .top, mode: .docked))
         #expect(dock(g, y: 0) == nil)
         #expect(dock(g, y: 600) == .newDock(screen: "s", edge: .bottom))
     }
@@ -69,7 +76,7 @@ import Testing
         #expect(at(1000, 300) == .newDock(screen: "s", edge: .right))
         #expect(at(0, 0) == .newDock(screen: "s", edge: .top))
         // A side another column holds opens no second dock there.
-        let held = geometry(dock: StickyColumn(edge: .right, mode: .docked))
+        let held = geometry(dock: DockColumn(edge: .right, mode: .docked))
         #expect(DropZoneGeometry.dockTarget(atView: CGPoint(x: 1000, y: 300), screen: "s", geometry: held, style: style) == nil)
     }
 

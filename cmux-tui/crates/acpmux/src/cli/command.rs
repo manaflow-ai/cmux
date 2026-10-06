@@ -107,7 +107,7 @@ pub enum Command {
     #[command(alias = "presets")]
     Preset {
         name: Option<String>,
-        /// key=value pairs: harness, model, effort, policy, description, env.KEY
+        /// key=value pairs: harness, model, effort, policy, description, env.KEY, args (a JSON list)
         pairs: Vec<String>,
         #[arg(long)]
         clear: bool,
@@ -308,6 +308,10 @@ pub enum Command {
         /// Debug app passes it, for its agent pane dev server; it is not saved.
         #[arg(long = "allow-dev-origin")]
         allow_dev_origin: Vec<String>,
+        /// A development launch: `--allow-dev-origin` is honored only with it
+        /// (or in a debug build). Release launchers never pass it.
+        #[arg(long)]
+        dev: bool,
     },
 }
 
@@ -413,6 +417,10 @@ pub enum DaemonCmd {
         /// Debug app passes it, for its agent pane dev server; it is not saved.
         #[arg(long = "allow-dev-origin")]
         allow_dev_origin: Vec<String>,
+        /// A development launch: `--allow-dev-origin` is honored only with it
+        /// (or in a debug build). Release launchers never pass it.
+        #[arg(long)]
+        dev: bool,
     },
     /// Daemon status, hosts, and the web URL.
     Status,
@@ -548,8 +556,8 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::History { session, limit } => Command::History { session, limit },
         },
         Command::Daemon(dc) => match dc {
-            DaemonCmd::Run { listen, token, memory, log, ready_fd, allow_dev_origin } => {
-                Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin }
+            DaemonCmd::Run { listen, token, memory, log, ready_fd, allow_dev_origin, dev } => {
+                Command::DaemonRun { listen, token, memory, log, ready_fd, allow_dev_origin, dev }
             }
             DaemonCmd::Status => Command::Status,
             DaemonCmd::Start => Command::DaemonStart,

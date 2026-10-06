@@ -75,6 +75,30 @@ opacity 1 they draw the token or stay clear. There are no tonal steps
 (`appearance.tabBarBackground` and the sidebar step are gone; retired keys:
 `SettingsSchema.retiredKeys`). `OneBackdropTests` walks every kind.
 
+### Pane fill and cards (Lawrence R48, lane 20 v2)
+
+A page or tab view that must hand a background somewhere (Home's scene,
+Feed, History, Tasks, Bookmarks) takes `Palette.paneFill`: the surface
+token, opaque, in an opaque window, clear over a see-through one. Their
+host layers paint nothing (the pane paints under them). Home has no
+inactive tint. Cards (Settings groups) are `ThemeTokens.cardFill`, the
+foreground at 5% (3.5% light): over an opaque window that composites to
+`chromeBackground`, over a see-through one it tints the one backdrop. The
+agent pane's session list has no step of its own. Live check:
+`scripts/cmux-next/background-match-e2e.py --tag <tag>` (composited
+capture of the app's own window, alpha included; no Screen Recording
+grant needed; the behind-window blur itself is not in the capture).
+Known gap: a Chromium page (the blank New Tab page included) is an opaque
+child window painted with the theme color, so it cannot show a
+see-through backdrop (browser owner, CEF fork).
+
+Per-surface overrides (Lawrence R55, surface-backgrounds.md): with no
+`appearance.surfaces.*` key every surface follows the rule above. A set
+row is painted by that surface's owner from one resolver
+(`SurfaceBackgrounds.fill`, read through `Palette.surfaceOverride`), over
+the window's backdrop, live on change. The live check's override phase
+sets one surface color at a time and checks that only its region changes.
+
 ### Web theme (shared by every cmux web view)
 
 `WebTheme` (CmuxNextDesign) is the one web theme, from the same tokens.

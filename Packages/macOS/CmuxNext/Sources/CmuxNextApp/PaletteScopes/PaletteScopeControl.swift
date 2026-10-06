@@ -79,7 +79,7 @@ enum PaletteScopeControl {
         // A headless run is never the in-app user: only a user in this app
         // may change its view without `focus: true` (OWNERSHIP-PRINCIPLES).
         // The same rule as `action.run` from the socket (ControlOrigin).
-        _ = try ControlOrigin.validated(params["origin"], allowsUser: false)
+        _ = try ControlOrigin().validated(params["origin"], allowsUser: false)
         return (scope, item, params["action"]?.stringValue)
     }
 

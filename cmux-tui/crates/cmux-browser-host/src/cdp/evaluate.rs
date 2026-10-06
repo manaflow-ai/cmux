@@ -3,6 +3,7 @@
 use super::driver::{Inner, Session};
 use super::state::{AGENT_WORLD, HOST_WORLD, World, error_message};
 use crate::protocol::{DriverError, ErrorCode, required_str, timeout_of};
+use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
@@ -13,7 +14,29 @@ const CONTEXT_GRACE: Duration = Duration::from_millis(500);
 const STALE_MARKER: &str = "cmux-stale-handle:";
 
 /// Object group for handle moves, released after each evaluation.
-const HANDLE_GROUP: &str = "cmux-handles";
+/// Object groups of the driver's own remote objects. Every call takes a
+/// group of its own: frames in one process share a CDP session, and a
+/// release of one shared group killed the objects of a concurrent call
+/// ("Could not find object with given id": the snapshot lost a frame).
+fn handle_group() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    format!("cmux-handles-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+}
+
+/// `Runtime.callFunctionOn` with `returnByValue`, parsed once: the value
+/// stays the JSON text Chromium sent (a9 raw_value: the page's key order).
+#[derive(serde::Deserialize)]
+struct CallReply {
+    result: CallResult,
+    #[serde(rename = "exceptionDetails")]
+    exception_details: Option<Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct CallResult {
+    /// Absent for `undefined` and for values JSON cannot hold.
+    value: Option<Box<RawValue>>,
+}
 
 /// A script context: the CDP session that owns it and its id there.
 struct Context {
@@ -51,13 +74,21 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Context, DriverError> {
         let key = (frame_id.to_owned(), world);
-        let grace = (Instant::now() + CONTEXT_GRACE).min(deadline);
+        // A fetch shell never reports the host world (nothing creates it
+        // but the host): look once, then create it, without the grace.
+        let shell_host = world == World::Host && self.lock().is_hidden(&session.target_id);
+        let grace = if shell_host { Instant::now() } else { Instant::now() + CONTEXT_GRACE };
+        let grace = grace.min(deadline);
         let known = self.wait_for(&session.target_id, grace, "the frame's script context", |tab| {
             tab.contexts
                 .get(&key)
                 .map(|(session, id)| Ok(Context { session: session.clone(), id: *id }))
         });
         match known {
+            Ok(context) if world == World::Agent => {
+                self.ensure_agent(session, &context, deadline)?;
+                return Ok(context);
+            }
             Ok(context) => return Ok(context),
             Err(error) if error.code != ErrorCode::Timeout => return Err(error),
             Err(_) => {}
@@ -90,8 +121,55 @@ impl Inner {
         }
         if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
             tab.contexts.insert(key, (owner.clone(), id));
+            if world == World::Agent {
+                tab.agent_ready.insert((owner.clone(), id));
+            }
         }
         Ok(Context { session: owner, id })
+    }
+
+    /// Makes sure a reported agent-world context holds the page agent.
+    /// Chromium can report two isolated contexts with the agent world's name
+    /// for one new document (seen after a cross-site navigation to an http
+    /// page), and the one recorded last may never have run the agent script;
+    /// agent calls there failed with "Cannot read properties of undefined".
+    /// The agent script returns at once where the agent already exists.
+    fn ensure_agent(
+        &self,
+        session: &Session,
+        context: &Context,
+        deadline: Instant,
+    ) -> Result<(), DriverError> {
+        let ready = (context.session.clone(), context.id);
+        let known_ready = self
+            .lock()
+            .tabs
+            .get(&session.target_id)
+            .is_some_and(|tab| tab.agent_ready.contains(&ready));
+        if known_ready {
+            return Ok(());
+        }
+        let probe = self.send_on(
+            &context.session,
+            "Runtime.evaluate",
+            json!({"expression": "typeof globalThis.__cmuxPageAgent === 'object'", "contextId": context.id, "returnByValue": true}),
+            deadline,
+        )?;
+        if probe["result"]["value"].as_bool() != Some(true) {
+            let installed = self.send_on(
+                &context.session,
+                "Runtime.evaluate",
+                json!({"expression": &*self.agent_source, "contextId": context.id, "returnByValue": true}),
+                deadline,
+            )?;
+            if let Some(details) = installed.get("exceptionDetails") {
+                return Err(evaluation_error(details));
+            }
+        }
+        if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
+            tab.agent_ready.insert(ready);
+        }
+        Ok(())
     }
 
     /// Remote object id of an agent handle, in the frame's agent world.
@@ -99,6 +177,7 @@ impl Inner {
         &self,
         agent: &Context,
         handle: &str,
+        group: &str,
         deadline: Instant,
     ) -> Result<String, DriverError> {
         let resolved = self.send_on(
@@ -109,7 +188,7 @@ impl Inner {
                 "executionContextId": agent.id,
                 "arguments": [{"value": handle}],
                 "returnByValue": false,
-                "objectGroup": HANDLE_GROUP,
+                "objectGroup": group,
             }),
             deadline,
         )?;
@@ -126,7 +205,15 @@ impl Inner {
         )
     }
 
+    /// A script's value, parsed (internal callers read fields of it).
     pub(super) fn evaluate(&self, params: &Value) -> Result<Value, DriverError> {
+        let raw = self.evaluate_raw(params)?;
+        serde_json::from_str(raw.get())
+            .map_err(|e| DriverError::invalid(format!("the script's value is not JSON: {e}")))
+    }
+
+    /// A script's value as the JSON text Chromium sent.
+    pub(super) fn evaluate_raw(&self, params: &Value) -> Result<Box<RawValue>, DriverError> {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         let frame_id = self.frame_or_main(&session, params)?;
@@ -152,7 +239,7 @@ impl Inner {
         world: World,
         params: &Value,
         deadline: Instant,
-    ) -> Result<Value, DriverError> {
+    ) -> Result<Box<RawValue>, DriverError> {
         let source = required_str(params, "source")?;
         let args: Vec<Value> =
             params.get("args").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -163,7 +250,7 @@ impl Inner {
             .unwrap_or_default();
 
         let mut arguments: Vec<Value> = Vec::new();
-        let mut used_group: Option<String> = None;
+        let mut used_group: Option<(String, String)> = None;
         let (context, declaration) = match world {
             World::Host if !handles.is_empty() => {
                 return Err(DriverError::invalid("the host world takes no element handles"));
@@ -187,14 +274,15 @@ impl Inner {
                 let page = self.context(session, frame_id, World::Page, deadline)?;
                 if !handles.is_empty() {
                     let agent = self.context(session, frame_id, World::Agent, deadline)?;
-                    used_group = Some(agent.session.clone());
-                    let moved = self.move_handles(&agent, &page, &handles, deadline);
+                    let group = handle_group();
+                    used_group = Some((agent.session.clone(), group.clone()));
+                    let moved = self.move_handles(&agent, &page, &handles, &group, deadline);
                     match moved {
                         Ok(objects) => {
                             arguments.extend(objects.into_iter().map(|id| json!({"objectId": id})));
                         }
                         Err(error) => {
-                            self.release_handles(&agent.session);
+                            self.release_handles(&agent.session, &group);
                             return Err(error);
                         }
                     }
@@ -203,8 +291,9 @@ impl Inner {
             }
         };
         arguments.extend(args.into_iter().map(|value| json!({"value": value})));
-        let reply = self.send_on(
-            &context.session,
+        let left = deadline.saturating_duration_since(Instant::now()).max(Duration::from_millis(1));
+        let reply: Result<CallReply, DriverError> = self.conn.call_typed(
+            Some(&context.session),
             "Runtime.callFunctionOn",
             json!({
                 "functionDeclaration": declaration,
@@ -214,16 +303,20 @@ impl Inner {
                 "awaitPromise": params.get("awaitPromise").and_then(Value::as_bool).unwrap_or(true),
                 "userGesture": true,
             }),
-            deadline,
+            left,
         );
-        if let Some(group_session) = used_group {
-            self.release_handles(&group_session);
+        if let Some((group_session, group)) = used_group {
+            self.release_handles(&group_session, &group);
         }
         let reply = reply?;
-        if let Some(details) = reply.get("exceptionDetails") {
+        if let Some(details) = &reply.exception_details {
             return Err(evaluation_error(details));
         }
-        Ok(reply["result"].get("value").cloned().unwrap_or(Value::Null))
+        match reply.result.value {
+            Some(value) => Ok(value),
+            None => RawValue::from_string("null".to_owned())
+                .map_err(|e| DriverError::invalid(e.to_string())),
+        }
     }
 
     /// Agent handles -> remote objects in the page world, through backend node ids.
@@ -232,11 +325,12 @@ impl Inner {
         agent: &Context,
         page: &Context,
         handles: &[String],
+        group: &str,
         deadline: Instant,
     ) -> Result<Vec<String>, DriverError> {
         let mut objects = Vec::with_capacity(handles.len());
         for handle in handles {
-            let object = self.handle_object(agent, handle, deadline)?;
+            let object = self.handle_object(agent, handle, group, deadline)?;
             let node = self.send_on(
                 &agent.session,
                 "DOM.describeNode",
@@ -249,7 +343,7 @@ impl Inner {
             let moved = self.send_on(
                 &page.session,
                 "DOM.resolveNode",
-                json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": HANDLE_GROUP}),
+                json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
                 deadline,
             )?;
             let object_id = moved["object"]["objectId"].as_str().ok_or_else(|| {
@@ -260,11 +354,11 @@ impl Inner {
         Ok(objects)
     }
 
-    fn release_handles(&self, session_id: &str) {
+    fn release_handles(&self, session_id: &str, group: &str) {
         let _ = self.conn.call(
             Some(session_id),
             "Runtime.releaseObjectGroup",
-            json!({"objectGroup": HANDLE_GROUP}),
+            json!({"objectGroup": group}),
             Duration::from_secs(2),
         );
     }
@@ -335,11 +429,12 @@ impl Inner {
         deadline: Instant,
     ) -> Result<Value, DriverError> {
         let agent = self.context(session, frame_id, World::Agent, deadline)?;
-        let object = self.handle_object(&agent, element, deadline);
+        let group = handle_group();
+        let object = self.handle_object(&agent, element, &group, deadline);
         let node = object.and_then(|object| {
             self.send_on(&agent.session, "DOM.describeNode", json!({"objectId": object}), deadline)
         });
-        self.release_handles(&agent.session);
+        self.release_handles(&agent.session, &group);
         Ok(match node?["node"].get("frameId").and_then(Value::as_str) {
             Some(child) => json!({"frameId": child}),
             None => Value::Null,
@@ -392,10 +487,11 @@ impl Inner {
             DriverError::not_found(format!("Frame {frame_id} has no owner element"))
         })?;
         let page = self.context(&session, &parent, World::Page, deadline)?;
+        let group = handle_group();
         let resolved = self.send_on(
             &page.session,
             "DOM.resolveNode",
-            json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": HANDLE_GROUP}),
+            json!({"backendNodeId": backend, "executionContextId": page.id, "objectGroup": group}),
             deadline,
         )?;
         let object_id = resolved["object"]["objectId"]
@@ -417,7 +513,7 @@ impl Inner {
             }),
             deadline,
         );
-        self.release_handles(&page.session);
+        self.release_handles(&page.session, &group);
         let reply = reply?;
         if let Some(details) = reply.get("exceptionDetails") {
             return Err(evaluation_error(details));

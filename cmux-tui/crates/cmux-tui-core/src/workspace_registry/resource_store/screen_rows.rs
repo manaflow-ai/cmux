@@ -14,13 +14,25 @@
 //! row of a column with two or more rows. `viewport_json` keeps its shape and
 //! each column's `layout` there is the compat chain. A lone column with rows
 //! is written as no viewport at all ([`RegistryViewport::durable`]), so a
-//! build without `rows-v1` loads its panes as vertical splits. Load keeps a
-//! column's rows only while the stored chain still matches them (a build
+//! build without `rows-v1` loads its panes as vertical splits; its id is the
+//! rows' `column_id` and it fills the screen width. Load keeps a column's
+//! rows only while the stored chain still matches them (a build
 //! without `rows-v1` may have rewritten the screen); otherwise they are
 //! dropped and the column loads as one row.
+//!
+//! Split identities of ids that only these tables name are in [`identities`].
 
 use super::*;
-use crate::model::{ColumnSticky, StickyEdge, StickyMode};
+use crate::model::{ColumnDock, DockEdge, DockMode};
+
+mod identities;
+pub(super) use identities::validate_screen_splits;
+
+/// The repairs every registry open runs before it validates the store.
+pub(crate) fn repair_resources_at_open(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    repair_dangling_terminal_resources(transaction)?;
+    identities::repair_side_split_identities(transaction)
+}
 
 pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -38,6 +50,10 @@ pub(super) fn create_column_dock_schema(transaction: &Transaction<'_>) -> anyhow
            row_id TEXT NOT NULL,
            height_permille INTEGER NOT NULL,
            PRIMARY KEY (screen_id, column_id, position)
+         );
+         CREATE TABLE IF NOT EXISTS resource_parked_splits (
+           public_id TEXT PRIMARY KEY NOT NULL,
+           screen_id TEXT NOT NULL
          );",
     )?;
     Ok(())
@@ -52,7 +68,7 @@ fn write_column_docks(
         params![screen.public_id.as_str()],
     )?;
     for column in &screen.viewport.columns {
-        let Some(dock) = column.sticky.filter(|sticky| sticky.edge.is_band()) else { continue };
+        let Some(dock) = column.dock.filter(|dock| dock.edge.is_band()) else { continue };
         transaction.execute(
             "INSERT INTO resource_column_docks(screen_id, column_id, edge, mode)
              VALUES(?1, ?2, ?3, ?4)",
@@ -67,16 +83,18 @@ fn write_column_docks(
     Ok(())
 }
 
-/// Deletes a closed screen's docks and rows, in the transaction that
-/// closes it.
+/// Deletes a closed screen's docks and rows, in the transaction that closes
+/// it, and truly tombstones the split identities that only its rows named.
 pub(super) fn delete_side_tables(
     transaction: &Transaction<'_>,
     screen_id: &str,
+    revision: i64,
 ) -> anyhow::Result<()> {
-    transaction
-        .execute("DELETE FROM resource_column_docks WHERE screen_id = ?1", params![screen_id])?;
-    transaction
-        .execute("DELETE FROM resource_screen_rows WHERE screen_id = ?1", params![screen_id])?;
+    identities::retire_side_splits(transaction, screen_id, revision)?;
+    for table in ["resource_column_docks", "resource_screen_rows"] {
+        transaction
+            .execute(&format!("DELETE FROM {table} WHERE screen_id = ?1"), params![screen_id])?;
+    }
     Ok(())
 }
 
@@ -171,7 +189,8 @@ pub(super) fn with_side_tables(
 
 /// Attaches stored rows to their column when they are valid and the stored
 /// chain still matches them; anything else is dropped (the column then loads
-/// as one row, and its records go on the screen's next write).
+/// as one row, and its records go on the screen's next write). A lone
+/// column fills the screen width.
 fn overlay_column_rows(screen: &mut RegistryScreen, column_id: &str, rows: &[(String, i64)]) {
     let Some(rows) = rows
         .iter()
@@ -237,7 +256,7 @@ fn desired_docks(screen: &RegistryScreen) -> Vec<(String, String, String)> {
         .columns
         .iter()
         .filter_map(|column| {
-            let dock = column.sticky.filter(|sticky| sticky.edge.is_band())?;
+            let dock = column.dock.filter(|dock| dock.edge.is_band())?;
             Some((column.id.to_string(), dock.edge.as_str().into(), dock.mode.as_str().into()))
         })
         .collect();
@@ -289,7 +308,7 @@ fn with_column_docks(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for (screen_id, column_id, edge, mode) in rows {
-        let (Some(edge), Some(mode)) = (StickyEdge::parse(&edge), StickyMode::parse(&mode)) else {
+        let (Some(edge), Some(mode)) = (DockEdge::parse(&edge), DockMode::parse(&mode)) else {
             continue;
         };
         if !edge.is_band() {
@@ -300,16 +319,16 @@ fn with_column_docks(
             continue;
         };
         let columns = &mut screen.viewport.columns;
-        let edge_taken = columns.iter().any(|column| column.sticky.is_some_and(|s| s.edge == edge));
+        let edge_taken = columns.iter().any(|column| column.dock.is_some_and(|s| s.edge == edge));
         let Some(index) = columns.iter().position(|column| column.id.as_str() == column_id) else {
             continue;
         };
         let other_scrolls = columns
             .iter()
             .enumerate()
-            .any(|(other, column)| other != index && column.sticky.is_none());
-        if columns[index].sticky.is_none() && !edge_taken && other_scrolls {
-            columns[index].sticky = Some(ColumnSticky { edge, mode });
+            .any(|(other, column)| other != index && column.dock.is_none());
+        if columns[index].dock.is_none() && !edge_taken && other_scrolls {
+            columns[index].dock = Some(ColumnDock { edge, mode });
         }
     }
     Ok(screens)
@@ -336,19 +355,21 @@ pub(super) fn upsert_resource_screen(
         })
         .transpose()?
         .unwrap_or_default();
+    let old_side_splits = identities::stored_side_splits(transaction, screen.public_id.as_str())?;
     upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
     let durable_viewport = screen.viewport.durable();
     let mut desired_splits = Vec::new();
     collect_screen_split_public_ids(&screen.layout, &durable_viewport, &mut desired_splits);
-    for split in &desired_splits {
-        upsert_resource_identity(transaction, split, "split", revision)?;
-    }
-    let desired_splits = desired_splits.into_iter().collect::<HashSet<_>>();
-    for split in old_splits {
-        if !desired_splits.contains(&split) {
-            tombstone_resource_identity(transaction, &split, revision)?;
-        }
-    }
+    identities::register_screen_splits(
+        transaction,
+        screen.public_id.as_str(),
+        identities::ScreenSplits { projection: old_splits, side: old_side_splits },
+        identities::ScreenSplits {
+            projection: desired_splits,
+            side: identities::side_splits(screen),
+        },
+        revision,
+    )?;
     let layout = canonical_json(&serde_json::to_value(&screen.layout)?)?;
     let auto_layout = screen
         .auto_layout

@@ -99,6 +99,8 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case agentPage(pane: String, tab: String)
         /// An internal page tab (`LocalPageTab`) has the keyboard.
         case page(pane: String, tab: String)
+        /// A conversation tab (Home) has the keyboard: its message box.
+        case conversation(pane: String, tab: String)
         /// A focused pane with no content to type into (empty, loading).
         case emptyPane(pane: String)
         case sidebar
@@ -110,7 +112,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var pane: String? {
             switch self {
             case .terminal(let pane, _), .browserPage(let pane, _), .addressBar(let pane, _), .findBar(let pane, _),
-                 .devTools(let pane, _), .agentPage(let pane, _), .page(let pane, _): pane
+                 .devTools(let pane, _), .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): pane
             case .emptyPane(let pane): pane
             default: nil
             }
@@ -119,7 +121,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var tab: String? {
             switch self {
             case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab),
-                 .devTools(_, let tab), .agentPage(_, let tab), .page(_, let tab): tab
+                 .devTools(_, let tab), .agentPage(_, let tab), .page(_, let tab), .conversation(_, let tab): tab
             default: nil
             }
         }
@@ -149,6 +151,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case .devTools: "devTools"
             case .agentPage: "agentPage"
             case .page: "page"
+            case .conversation: "conversation"
             case .emptyPane: "emptyPane"
             case .sidebar: "sidebar"
             case .sidebarField: "sidebarField"
@@ -222,6 +225,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
             case (.agent, _): return .agentPage(pane: pane, tab: tab.id)
             case (.page, _): return .page(pane: pane, tab: tab.id)
+            case (.conversation, _): return .conversation(pane: pane, tab: tab.id)
             case (.other, _): return .emptyPane(pane: pane)
             }
         }

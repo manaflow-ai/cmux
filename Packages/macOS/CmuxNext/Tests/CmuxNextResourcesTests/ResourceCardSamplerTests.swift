@@ -52,9 +52,22 @@ final class ManualClock: Clock, @unchecked Sendable {
     }
 }
 
+/// Lets 10 000 turns pass (no condition): work that must NOT happen gets
+/// every chance to run before the test checks it did not.
 @MainActor
-private func waitUntil(_ condition: @MainActor () -> Bool) async {
+private func drainTurns() async {
+    for _ in 0..<10_000 { await Task.yield() }
+}
+
+/// Waits up to 10 000 turns; a timeout records an Issue at the caller with the time waited.
+@MainActor
+private func waitUntil(sourceLocation: SourceLocation = #_sourceLocation, _ condition: @MainActor () -> Bool) async {
+    let start = ContinuousClock.now
     for _ in 0..<10_000 where !condition() { await Task.yield() }
+    if !condition() {
+        Issue.record("waitUntil gave up after 10000 turns (\(ContinuousClock.now - start)): the condition at \(sourceLocation.fileName):\(sourceLocation.line) never held",
+                     sourceLocation: sourceLocation)
+    }
 }
 
 /// Counts calls; each call reports one process that used 0.25 s of CPU per call.
@@ -112,7 +125,7 @@ private final class CountingSource: ResourceSampleSource {
         let callsAtClose = source.calls
         let updatesAtClose = updates
         for _ in 0..<5 { clock.advance(by: .seconds(1)) }
-        await waitUntil { false }
+        await drainTurns()
         #expect(source.calls == callsAtClose)
         #expect(updates == updatesAtClose)
     }
@@ -126,7 +139,7 @@ private final class CountingSource: ResourceSampleSource {
         sampler.open(.tab("t")) { _ in updates += 1 }
         // Close before the first sample's task ran.
         sampler.close()
-        await waitUntil { false }
+        await drainTurns()
         #expect(updates == 0)
         #expect(!sampler.isScheduled)
         #expect(clock.sleeperCount == 0)

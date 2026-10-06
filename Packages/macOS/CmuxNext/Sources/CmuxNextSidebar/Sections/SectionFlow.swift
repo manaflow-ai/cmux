@@ -7,6 +7,8 @@ nonisolated enum SectionFlow {
     enum Mode: Hashable {
         /// Tiles in columns (nil = as many as fit).
         case grid(columns: Int?)
+        /// Large labeled tiles in columns (nil = as many as fit).
+        case tiles(columns: Int?)
         /// One line; labels while they fit unless `iconsOnly`.
         case inline(iconsOnly: Bool)
     }
@@ -27,6 +29,7 @@ nonisolated enum SectionFlow {
         switch section.arrangement.layout {
         case .inline: return .inline(iconsOnly: false)
         case .grid: return .grid(columns: section.arrangement.columns)
+        case .tiles: return .tiles(columns: section.arrangement.columns)
         case .list: break
         }
         switch look.tiling(section) {
@@ -54,17 +57,17 @@ nonisolated enum SectionFlow {
         let align = section.arrangement.align
         switch mode {
         case let .grid(columns):
-            let fit = max(1, Int((width + gap) / (m.tileMinWidth + gap)))
-            let count = min(max(columns ?? fit, 1), fit)
-            // Fitted columns (or fill) stretch the tiles to the width;
-            // fixed columns keep the tile size and place every line by
-            // the leftover of a full line, so columns line up.
-            let stretched = align == .fill || columns == nil
-            let tileWidth = stretched ? (width - CGFloat(count - 1) * gap) / CGFloat(count) : m.tileMinWidth
-            let lines = chunk(items, count)
-            return lay(lines, kind: { .tile($0, section: section.id) }, widths: { _ in tileWidth }, x: x, y: y, width: width,
-                       gap: gap, align: stretched ? .leading : align, lineHeight: m.tileHeight,
-                       fullLine: CGFloat(count) * (tileWidth + gap) - gap)
+            if let columns, items.contains(where: { $0.span != nil }) {
+                return placeSpans(section, columns: columns, x: x, y: y, width: width, gap: gap,
+                                  labelWidths: labelWidths, metrics: m)
+            }
+            return placeColumns(section, columns: columns, x: x, y: y, width: width, gap: gap, align: align,
+                                lineHeight: m.tileHeight, metrics: m)
+        case let .tiles(columns):
+            // Labeled tiles always fill the line, so a short last line
+            // keeps the column width of the lines above it.
+            return placeColumns(section, columns: columns, x: x, y: y, width: width, gap: gap, align: .fill,
+                                lineHeight: m.favoriteHeight, metrics: m)
         case let .inline(iconsOnly):
             let icon = m.iconButtonWidth
             let chips = items.map { labelWidths[$0.id] ?? icon }
@@ -78,6 +81,49 @@ nonisolated enum SectionFlow {
             return lay(chunk(items, perLine), kind: { .tile($0, section: section.id) }, widths: { _ in icon }, x: x, y: y,
                        width: width, gap: gap, align: align, lineHeight: m.rowHeight)
         }
+    }
+
+    /// Equal tiles in `columns` (nil = as many as fit at the minimum tile
+    /// width). Fitted columns (or fill) stretch the tiles to the width;
+    /// fixed columns keep the tile size and place every line by the
+    /// leftover of a full line, so columns line up.
+    private static func placeColumns(_ section: LayoutSection, columns: Int?, x: CGFloat, y: CGFloat, width: CGFloat, gap: CGFloat,
+                                     align: SectionArrangement.Alignment, lineHeight: CGFloat, metrics m: SidebarRegionMetrics) -> Result {
+        let fit = max(1, Int((width + gap) / (m.tileMinWidth + gap)))
+        let count = min(max(columns ?? fit, 1), fit)
+        let stretched = align == .fill || columns == nil
+        let tileWidth = stretched ? (width - CGFloat(count - 1) * gap) / CGFloat(count) : m.tileMinWidth
+        return lay(chunk(section.items, count), kind: { .tile($0, section: section.id) }, widths: { _ in tileWidth }, x: x, y: y,
+                   width: width, gap: gap, align: stretched ? .leading : align, lineHeight: lineHeight,
+                   fullLine: CGFloat(count) * (tileWidth + gap) - gap)
+    }
+
+    /// A grid with spans (R53): lines of `columns` equal columns; an item
+    /// takes `span` of them (one when nil) and moves to the next line when
+    /// it does not fit. A labeled item draws icon and label, others icon
+    /// only; lines are row height.
+    private static func placeSpans(_ section: LayoutSection, columns: Int, x: CGFloat, y: CGFloat, width: CGFloat, gap: CGFloat,
+                                   labelWidths: [LayoutItemID: CGFloat], metrics m: SidebarRegionMetrics) -> Result {
+        let unit = max(0, (width - CGFloat(columns - 1) * gap) / CGFloat(columns))
+        var rows: [SidebarRegionRow] = []
+        var line = 0, column = 0
+        for item in section.items {
+            let span = min(max(item.span ?? 1, 1), columns)
+            if column + span > columns {
+                line += 1
+                column = 0
+            }
+            let itemX = x + CGFloat(column) * (unit + gap)
+            let itemWidth = CGFloat(span) * unit + CGFloat(span - 1) * gap
+            let kind: SidebarRegionRow.Kind = item.showsLabel && labelWidths[item.id] != nil
+                ? .chip(item.id, section: section.id) : .tile(item.id, section: section.id)
+            rows.append(SidebarRegionRow(kind: kind, frame: CGRect(x: itemX, y: y + CGFloat(line) * (m.rowHeight + gap),
+                                                                   width: itemWidth, height: m.rowHeight)))
+            column += span
+        }
+        let lines = section.items.isEmpty ? 0 : line + 1
+        let height = CGFloat(lines) * m.rowHeight + CGFloat(max(0, lines - 1)) * gap
+        return Result(rows: rows, height: height, lines: lines, lineHeight: m.rowHeight)
     }
 
     private static func chunk(_ items: [LayoutItem], _ size: Int) -> [[LayoutItem]] {

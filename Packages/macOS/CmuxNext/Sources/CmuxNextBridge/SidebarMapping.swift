@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 public import CmuxNextDaemon
 public import CmuxNextSidebar
 public import CmuxNextDesign
@@ -7,16 +8,23 @@ import Foundation
 /// section for the local daemon, loose workspaces first, then groups.
 public struct SidebarMapping {
     public static let shared = Self()
+    /// The workspace kind of the home workspace (`workspace-kind-v1`).
+    public static let homeKind = "home"
     /// `statusLine` maps a workspace id to the status hooks reported
     /// (`set_status`), the row's live second line. The cwd stays passive
     /// detail (tooltip, accessibility).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
+                                hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
                                 statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
-            let rows = section.workspaces.map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
+            // The home workspace (`kind` "home") is what the Home item in the
+            // top section shows; it is not also a workspace row (nxdog28)
+            // while that item is in the layout (`hidesHomeWorkspace`).
+            let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -37,6 +45,13 @@ public struct SidebarMapping {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
+        let kind: SidebarWorkspaceKind = if tabs.contains(where: { $0.agent != nil }) {
+            .harness
+        } else if tabs.contains(where: { $0.kind == .browser }) {
+            .browser
+        } else {
+            .terminal
+        }
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -44,15 +59,25 @@ public struct SidebarMapping {
             subtitle: subtitle(tabs),
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
+            icon: Self.icon(color: workspace.color, icon: workspace.icon),
+            kind: kind,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
+            agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
             }
         )
+    }
+
+    /// The brand of the first agent that works or waits in these tabs (design/agent-icons).
+    func agentBrand(_ tabs: [TabModel]) -> String? {
+        tabs.lazy.compactMap { tab -> String? in
+            guard let agent = tab.agent, agent.state == .working || agent.state == .blocked else { return nil }
+            return AgentBrandCatalog.brand(for: agent.agent)?.rawValue
+        }.first
     }
 
     private static func tabKind(_ kind: TabKind) -> SidebarTabKind {
@@ -97,6 +122,13 @@ public struct SidebarMapping {
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
+    }
+
+    /// A workspace's sidebar icon: its icon with its color (a tinted symbol,
+    /// an emoji on a color chip), else its color as a swatch, else none.
+    public static func icon(color name: String?, icon: String?) -> WorkspaceIcon? {
+        let color = shared.color(name)
+        return icon.flatMap { WorkspaceIcon.parse($0, color: color) } ?? color.map(WorkspaceIcon.swatch)
     }
 
     public func color(_ name: String?) -> GroupColor? {

@@ -30,21 +30,30 @@ extension HomeController {
     /// The compose field the host draws, in viewport points (top-left
     /// origin). `send` is true for the shrink after a send. The rows above
     /// follow with the shared field spring (`animateField`).
-    public func setHostedField(_ hostFrame: CGRect, send: Bool = false) {
+    ///
+    /// `animated: false` is for a move the host animates itself (the iOS
+    /// keyboard: UIKit's curve, or the finger during an interactive
+    /// dismissal): the rows and the clip move at once with no spring, and the
+    /// result is how far the rows moved in the viewport (host points,
+    /// old minus new, so positive when they moved up). The host shows the
+    /// rows offset by that much and animates the offset to zero on its curve.
+    @discardableResult
+    public func setHostedField(_ hostFrame: CGRect, send: Bool = false, animated: Bool = true) -> CGFloat {
         let oldTop = scene.fieldTop
         hostedFieldInHost = hostFrame
         let frame = toDesign(hostFrame)
-        guard frame != scene.hostedField else { return }
+        guard frame != scene.hostedField else { return 0 }
         let begin = scene.now
         scene.hostedField = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let change = TranscriptChange.field(send: send)
-        scene.placeMask(oldTop: oldTop, element: scene.motion(change.element), begin: begin)
+        scene.placeMask(oldTop: oldTop, element: animated ? scene.motion(change.element) : nil, begin: begin)
         CATransaction.commit()
-        guard scene.size.width > 0, oldTop != scene.fieldTop || send else { return }
-        scene.commit(nil, change: change)
+        guard scene.size.width > 0, oldTop != scene.fieldTop || send else { return 0 }
+        let moved = scene.commit(nil, change: change, animated: animated)
         publishScrollGeometryIfChanged()
+        return moved * zoom
     }
 
     /// Adds the shared field spring to a host layer's scalar key path (the
@@ -59,10 +68,29 @@ extension HomeController {
     /// frame in viewport points (the morph flies from there).
     @discardableResult
     public func sendHosted(text: String, from field: CGRect) -> HomeIntent? {
+        sendHosted(text: text, attachments: [], from: field)
+    }
+
+    /// A send with attachments: one message whose parts are the
+    /// attachments in order, then the text (when there is any). Each
+    /// attachment flies from its `origin` (the draft thumbnail) when given.
+    @discardableResult
+    public func sendHosted(text: String, attachments: [HomeOutgoingAttachment], from field: CGRect) -> HomeIntent? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: [.text(trimmed)]))
+        var parts = attachments.map { MessagePart.attachment($0.ref) }
+        if !trimmed.isEmpty { parts.append(.text(trimmed)) }
+        guard !parts.isEmpty else { return nil }
+        for attachment in attachments {
+            if let preview = attachment.preview { scene.media.usePreview(preview, for: attachment.ref.hash) }
+            if let files = attachment.files {
+                scene.media.useLocalFile(files.fileURL, poster: files.posterURL, for: attachment.ref.hash)
+            }
+        }
+        let intent = HomeIntent(op: .sendMessage(conversation: conversation, parts: parts))
         pendingSend = (intent, text, toDesign(field))
+        pendingOrigins = Dictionary(uniqueKeysWithValues: attachments.enumerated().compactMap { i, a in
+            a.origin.map { (i, toDesign($0)) }
+        })
         scene.pinned = true
         onIntent(intent)
         onAccessibilityChange()

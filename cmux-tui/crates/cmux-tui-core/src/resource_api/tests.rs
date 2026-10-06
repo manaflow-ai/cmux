@@ -111,6 +111,22 @@ fn cloud_cwd_snapshot_presents_the_launch_directory_until_the_shell_reports() {
     mux.shutdown();
 }
 
+/// A shell's first directory report is recorded on the reader thread and
+/// committed later. Between the two, the terminal must still present its
+/// launch directory, not nothing (new_terminals_default_to_the_daemon_launch_directory
+/// failed with cwd None, 1 of 20 loaded runs on a Linux Testbox).
+#[test]
+fn launch_directory_stays_presented_while_the_first_report_is_uncommitted() {
+    let mux = Mux::new_for_test(
+        "cloud-cwd-uncommitted",
+        SurfaceOptions { cwd: Some("/tmp".into()), ..SurfaceOptions::default() },
+    );
+    let surface = mux.new_workspace(Some("cwd".into()), None).unwrap();
+    surface.set_test_pwd(Some("file://localhost/srv/reported".into()));
+    assert_eq!(surface.presented_directory().as_deref(), Some("/tmp"));
+    mux.shutdown();
+}
+
 #[test]
 fn cloud_cwd_snapshot_follows_reported_directory_instead_of_launch_directory() {
     let mux = Mux::new_for_test(

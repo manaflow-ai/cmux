@@ -20,6 +20,11 @@ final class HomeScene {
     let ledger = MotionLedger()
     let bitmaps: RowBitmaps
     var morphs: [String: MorphBubble] = [:]
+    /// Attachment pictures by content hash, and inline video playback.
+    let media = MediaStore()
+    let video = VideoPlayback()
+    /// Upload progress by content hash (absent: not uploading).
+    var uploadProgress: [String: Double] = [:]
     private(set) var size: CGSize = .zero
     /// Space the host covers at the top (toolbar, safe area); rows scroll under it.
     var topInset: CGFloat = 0
@@ -73,6 +78,7 @@ final class HomeScene {
         clip.addSublayer(scrollLayer)
         root.addSublayer(compose.layer)
         root.addSublayer(morphLayer)
+        wireMedia()
     }
 
     var palette: HomePalette { bitmaps.palette }
@@ -227,7 +233,8 @@ final class HomeScene {
             next[key] = row
             newIndex[ObjectIdentifier(row)] = i
         }
-        for (_, r) in visible {
+        for (key, r) in visible {
+            video.rowLeft(key)
             r.layer.isHidden = true
             r.prepareForReuse()
             pool.append(r)
@@ -281,6 +288,7 @@ final class HomeScene {
         row.configure(r.spec, metrics: metrics, bitmaps: bitmaps, viewportHeight: size.height)
         row.content.opacity = r.ghost ? Animate.hiddenOpacity : 1
         row.windowY = windowY(contentY: layout.frame(for: i).minY)
+        decorateMedia(row, r.spec)
         for e in ledger.live(r.spec.key) where !row.applied.contains(e.id) {
             row.applied.insert(e.id)
             if e.target == .receiptOld, let old = receiptChanges[r.spec.key] {

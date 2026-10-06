@@ -33,7 +33,12 @@ impl Wire {
         let id = self.next_id;
         self.next_id += 1;
         request["id"] = json!(id);
-        handle_message(&self.mux, 7, &request.to_string(), &self.writer);
+        handle_message(
+            &self.mux,
+            self.mux.local_test_client(7),
+            &request.to_string(),
+            &self.writer,
+        );
         let response: Value = serde_json::from_str(&self.outbound.try_pop().unwrap()).unwrap();
         assert_eq!(response["id"], id, "response must answer the request: {response}");
         response
@@ -46,8 +51,13 @@ impl Wire {
     }
 
     fn screen(&self) -> Value {
-        handle_command(&self.mux, 0, Command::ListWorkspaces, &self.writer).unwrap()["workspaces"]
-            [0]["screens"][0]
+        handle_command(
+            &self.mux,
+            self.mux.local_test_client(0),
+            Command::ListWorkspaces,
+            &self.writer,
+        )
+        .unwrap()["workspaces"][0]["screens"][0]
             .clone()
     }
 
@@ -132,6 +142,30 @@ fn set_row_heights_replaces_every_height_of_a_column() {
     }));
     assert_eq!(stale["ok"], false, "{stale}");
     assert_eq!(wire.rows(0)[0]["height"], 600);
+}
+
+/// One column with rows keeps its id when a second column joins it and
+/// when it is left alone again; left alone, it fills the screen width.
+#[test]
+fn a_lone_column_of_rows_keeps_its_id_and_fills_the_width() {
+    let (mut wire, pane) = Wire::lone();
+    wire.ok(json!({"cmd": "new-row", "pane": pane, "height_permille": 500}));
+    let id = wire.columns()[0]["id"].clone();
+    let width = |wire: &Wire| wire.columns()[0]["width"].as_f64().unwrap();
+    let right = wire.ok(json!({"cmd": "new-pane-right", "pane": pane, "cols": 38, "rows": 22}));
+    assert_eq!(wire.columns().len(), 2);
+    assert_eq!(wire.columns()[0]["id"], id, "a second column keeps the first column's id");
+    wire.ok(json!({"cmd": "set-viewport-pane-width", "pane": pane, "width": 0.6}));
+    assert!((width(&wire) - 0.6).abs() < 1e-6, "{}", wire.screen());
+    let right_pane = wire.mux.with_state(|state| {
+        let surface = serde_json::from_value(right["surface"].clone()).unwrap();
+        state.pane_of(surface).unwrap()
+    });
+    wire.ok(json!({"cmd": "close-pane", "pane": right_pane}));
+    assert_eq!(wire.columns().len(), 1);
+    assert_eq!(wire.columns()[0]["id"], id, "the column left alone keeps its id");
+    assert_eq!(width(&wire), 1.0, "the column left alone fills the width: {}", wire.screen());
+    assert_eq!(wire.rows(0).len(), 2);
 }
 
 /// A client without `rows-v1` cannot resize a row through its synthetic split.

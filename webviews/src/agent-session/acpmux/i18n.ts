@@ -1,398 +1,101 @@
-// Pane strings in English and Japanese. The page has no string catalog from the host yet,
-// so it picks the language WebKit reports for the app (`navigator.languages`, which follows
-// the app's preferred localizations), falling back to English. Keys are the English text's
-// role; values keep product names (cmux) and placeholders ({n}) intact.
-const en = {
-  "search.title": "Search chats",
-  "search.placeholder": "Search chats",
-  "search.chats": "Chats",
-  "search.quick": "Quick actions",
-  "search.newChat": "New chat",
-  "search.none": "No results",
-  "search.close": "Close search",
-  "turn.previous.one": "1 previous message",
-  "turn.previous.other": "{n} previous messages",
-  "turn.worked": "Worked for {time}",
-  "turn.stopped": "You stopped after {time}",
-  "approval.title": "How should the agent's actions be approved?",
-  "effort.title": "Effort",
-  "host.retry": "Retry",
-  "host.retryQueued": "Retrying…",
-  "host.retrying": "cmux tries again on its own. Your prompt stays here until acpmux connects.",
-  "composer.sendTooltip": "Send (Return)",
-  "dictation.start": "Dictate",
-  "dictation.stop": "Stop dictation",
-  "dictation.dismiss": "Dismiss",
-  "dictation.unavailable": "Dictation is not available.",
-  "dictation.openSettings": "Open System Settings",
-  "picker.recent": "Recent",
-  "picker.more": "More…",
-  "picker.moreModels": "More models",
-  "picker.allModels": "All models",
-  "picker.reasoning": "Reasoning",
-  "picker.harness": "Harness",
-  "picker.provider": "Provider",
-  "picker.family": "Family",
-  "picker.newChat": "New chat",
-  "picker.search": "Type to search models",
-  "picker.noMatches": "No matching models",
-  "picker.back": "Back",
-  "trust.ask": "{agent} can edit and run code in {folder}",
-  "trust.trust": "Trust",
-  "trust.distrust": "Don't trust",
-  "trust.trusted": "Trusted {folder}",
-  "trust.untrusted": "Won't trust {folder}",
-  "trust.undo": "Undo",
-  "trust.failed": "Couldn't save that. Try again.",
-  "trust.agent": "The agent",
-  "files.search": "Search files",
-  "files.hint": "Type to search for files",
-  "files.searching": "Searching…",
-  "files.none": "No matching files",
-  "files.failed": "Couldn't search files",
-  "files.outside": "This folder isn't in a git repository",
-  "files.more": "Showing the first {count}; type more to narrow it",
-  "project.label": "Project",
-  "project.choose": "Choose project",
-  "project.search": "Search projects",
-  "project.none": "No matching projects",
-  "project.usePath": "Use {path}",
-  "project.browse": "Browse…",
-  "newtab.importAndSync": "Import and sync",
-  "link.copyChat": "Copy chat link",
-  "link.sessionMissing": "This chat isn't available. It was deleted, or it's on a machine that isn't connected.",
-  "permission.required": "Permission required",
-  "permission.title": "Tool permissions",
-  "permission.toolRequest": "Tool request",
-  "permission.noInput": "No additional input was provided.",
-  "permission.coverageDetail": "Only actions the agent requests through ACP are covered. Host isolation is unverified.",
-  "permission.coverage": "ACP requests only · Isolation unverified",
-  "permission.chatAllowed": "Future eligible tool requests are allowed in this chat. Deny rules still apply.",
-  "permission.revoke": "Revoke",
-  "permission.count.one": "{n} request from this turn",
-  "permission.count.other": "{n} requests from this turn",
-  "permission.expand": "Expand details",
-  "permission.collecting": "Collecting requests…",
-  "permission.chatScope": "Allow for this chat also approves future eligible requests until this chat stops.",
-  "permission.denyOnly": "An item has no single-use approval option. This group can only be denied.",
-  "permission.allowOnce": "Allow once",
-  "permission.allowChat": "Allow for this chat",
-  "permission.deny": "Deny",
-  "permission.cancelled": "Tool requests cancelled",
-  "permission.answered": "Tool requests answered",
-  "permission.checkRetry": "Check and retry",
-  "permission.refresh": "Refresh",
-  "permission.itemResolved": "resolved",
-  "permission.itemCancelled": "cancelled",
-  "permission.error.failed": "Permission request failed",
-  "permission.error.unavailable": "Grouped permissions are unavailable.",
-  "permission.error.selectSession": "Select a session first.",
-  "permission.error.wrongSession": "The permission server returned a group for another session.",
-  "permission.error.awaitingRetry": "Another permission decision is awaiting retry.",
-  "permission.error.busy": "A permission decision is already being sent.",
-  "permission.error.readRequired": "Read the current permission groups before answering.",
-  "permission.error.selectionChanged": "The selected session changed. Read its permissions before answering.",
-  "permission.error.answerUncertain": "The permission answer may have been applied. Read before retrying.",
-  "permission.error.wrongGroup": "The permission answer returned a different group. Read before retrying.",
-  "permission.error.readResult": "Read the current result before retrying this permission answer.",
-  "permission.error.invalidRevision": "Invalid group revision.",
-  "permission.error.notFound": "Permission group was not found.",
-  "permission.error.noRetry": "There is no permission decision to retry.",
-  "permission.error.noLongerAvailable": "Permission group is no longer available. Review the current groups.",
-  "permission.error.groupChanged": "The permission group changed. Review it again before retrying.",
-  "permission.error.disconnected": "Permission groups are disconnected. Refresh before answering.",
-  "quick.keys": "Keyboard shortcuts",
-  "quick.send": "send",
-  "quick.openInWindow": "open in window",
-  "quick.close": "close",
-  "tools.ran": "Ran {n} commands",
-  "tools.running": "Running {n} commands",
-  "tools.read.one": "Read 1 file",
-  "tools.read.other": "Read {n} files",
-  "tools.searched": "Ran {n} searches",
-  "tools.edited.file": "Edited {file}",
-  "tools.edited.files": "Edited {n} files",
-  "tools.exit": "Exit {code}",
-  "tools.failed": "failed",
-  "tools.failedCount": "{n} failed",
-  "duration.ms": "{n}ms",
-  "duration.s": "{n}s",
-  "duration.m": "{m}m {s}s",
-  "shell.label": "Shell",
-  "shell.exit": "Exit code {code}",
-  "message.self": "This agent",
-  "message.unknown": "Unknown recipient",
-  "message.noText": "No message text",
-  "message.more": "Show more",
-  "message.less": "Show less",
-  "message.label": "Message from {from} to {to}",
-  "message.channel.coordinator": "Coordinator",
-  "message.channel.terminal": "cmux send",
-  "message.channel.mailbox": "Mailbox",
-  "message.channel.agent": "SendMessage",
-  "summary.open": "Chat summary",
-  "summary.scheduled": "Scheduled",
-  "summary.pullRequests": "Pull requests",
-  "summary.outputs": "Outputs",
-  "summary.subagents": "Subagents",
-  "summary.sources": "Sources",
-  "summary.viewAll": "View all {n}",
-  "summary.showFewer": "Show fewer",
-  "summary.empty": "Pull requests, files, subagents and sources from this chat show here.",
-  "summary.subagents.done": "{n} done",
-  "summary.subagents.running": "{n} running",
-  "summary.subagents.failed": "{n} failed",
-  "summary.pr.merged": "merged",
-  "summary.pr.closed": "closed",
-  "turn.checkpoint.missing": "No checkpoint for this turn. Showing the agent's edits.",
-  "turn.checkpoint.failed": "Couldn't load this turn's checkpoint. Showing the agent's edits.",
-  "turn.checkpoint.incomplete": "This turn's checkpoint left files out. Showing the agent's edits.",
-  "turn.checkpoint.pending": "Showing the agent's edits until your Keep and Undo choices are sent.",
-  "turn.outside": "Outside tool calls",
-  "turn.outside.title": "Changed during the turn, but not by the agent's edits. Read-only.",
-  "turn.outside.card": "Includes changes outside tool calls",
-  "diff.keys": "Changes view keys",
-  "diff.keys.files": "files",
-  "diff.keys.changes": "changes",
-  "diff.keys.back": "back",
-  "hunk.reject": "Reject",
-  "hunk.accept": "Accept",
-  "hunk.undo": "Undo",
-  "hunk.rejectAt": "Reject change at {line}",
-  "hunk.acceptAt": "Accept change at {line}",
-  "hunk.undoAt": "Undo, {line}",
-  "hunk.accepted": "Accepted",
-  "hunk.rejected": "Rejected",
-  "hunk.revertRequested": "Revert requested",
-  "revert.count.one": "1 change rejected",
-  "revert.count.other": "{n} changes rejected",
-  "revert.noteLabel": "Note for the agent",
-  "revert.notePlaceholder": "Add a note (optional)",
-  "revert.send": "Ask agent to revert",
-  "edited.one": "Edited 1 file",
-  "edited.view": "View changes",
-  "edited.more.one": "Show 1 more file",
-  "edited.more.other": "Show {n} more files",
-  "edited.fewer": "Show fewer files",
-  "edited.undo": "Undo",
-  "edited.undoLabel": "Ask the agent to undo this turn's changes",
-  "edited.undoRequested": "Undo requested",
-  "turn.copy": "Copy",
-  "turn.copied": "Copied",
-  "turn.fork": "Fork from here",
-  "turn.retry": "Retry",
-  "turn.retryLabel": "Send this prompt again",
-  "turn.failed": "The turn failed",
-  "preview.open": "Open in tab",
-  "preview.openLabel": "Open {address} in a browser tab",
-} as const;
+// The agent pane's strings, in every language the app ships. They come from
+// acpmux/Localizable.xcstrings through the pages' generator (scripts/pages/gen-strings.mjs writes
+// generated/strings.json); no string lives only in TypeScript. The shipped pane does not bundle
+// that table: build-agent-pane-web.sh splits it into locales/<code>.js beside index.html, and the
+// page's <head> loads English plus the app's language synchronously, before the pane's module
+// runs, into `window.__cmuxPaneStrings`. Tests (test/preload.ts) and the dev server (dev.tsx)
+// install the whole table there. The language is the first of the app's languages
+// (`navigator.languages`, which follows the app's preferred localizations) that is loaded.
+//
+// The language is a reactive value: a small store that follows `languagechange` (and
+// `setPaneLanguage`). Components read strings through `useT()`, so a language change
+// re-renders them under either React Compiler; a module-level function read during render
+// would look constant to the compiler and keep memoized strings stale. `translate` is for
+// code outside render (event handlers, clients), where the current language is read once.
+import { useSyncExternalStore } from "react";
+import { resolveLanguage } from "../../pages/shared/i18n";
 
-export type StringKey = keyof typeof en;
+type Catalog = typeof import("./generated/strings.json");
+type CatalogKey = keyof Catalog["en"];
+/** A pane string's key (the new tab screen's keys are newtab/strings.ts's, under `newTab.`). */
+export type StringKey = Exclude<CatalogKey, `newTab.${string}`>;
+type Table = Partial<Record<CatalogKey, string>>;
 
-const ja: Record<StringKey, string> = {
-  "search.title": "チャットを検索",
-  "search.placeholder": "チャットを検索",
-  "search.chats": "チャット",
-  "search.quick": "クイックアクション",
-  "search.newChat": "新しいチャット",
-  "search.none": "結果なし",
-  "search.close": "検索を閉じる",
-  "turn.previous.one": "以前のメッセージ 1 件",
-  "turn.previous.other": "以前のメッセージ {n} 件",
-  "turn.worked": "{time} 作業しました",
-  "turn.stopped": "{time} 後に停止しました",
-  "approval.title": "エージェントの操作をどのように承認しますか？",
-  "effort.title": "推論の強さ",
-  "host.retry": "再試行",
-  "host.retryQueued": "再試行中…",
-  "host.retrying": "cmux は自動で再試行します。acpmux に接続するまで、プロンプトはここに残ります。",
-  "composer.sendTooltip": "送信 (Return)",
-  "dictation.start": "音声入力",
-  "dictation.stop": "音声入力を停止",
-  "dictation.dismiss": "閉じる",
-  "dictation.unavailable": "音声入力は利用できません。",
-  "dictation.openSettings": "システム設定を開く",
-  "picker.recent": "最近使ったモデル",
-  "picker.more": "その他…",
-  "picker.moreModels": "その他のモデル",
-  "picker.allModels": "すべてのモデル",
-  "picker.reasoning": "推論",
-  "picker.harness": "ハーネス",
-  "picker.provider": "プロバイダ",
-  "picker.family": "ファミリー",
-  "picker.newChat": "新しいチャット",
-  "picker.search": "入力してモデルを検索",
-  "picker.noMatches": "一致するモデルはありません",
-  "picker.back": "戻る",
-  "trust.ask": "{agent} は {folder} でコードを編集・実行できます",
-  "trust.trust": "信頼する",
-  "trust.distrust": "信頼しない",
-  "trust.trusted": "{folder} を信頼しました",
-  "trust.untrusted": "{folder} を信頼しないことにしました",
-  "trust.undo": "元に戻す",
-  "trust.failed": "保存できませんでした。もう一度お試しください。",
-  "trust.agent": "エージェント",
-  "files.search": "ファイルを検索",
-  "files.hint": "入力してファイルを検索",
-  "files.searching": "検索中…",
-  "files.none": "一致するファイルはありません",
-  "files.failed": "ファイルを検索できませんでした",
-  "files.outside": "このフォルダは git リポジトリにありません",
-  "files.more": "最初の {count} 件を表示しています。絞り込むには続けて入力してください",
-  "project.label": "プロジェクト",
-  "project.choose": "プロジェクトを選択",
-  "project.search": "プロジェクトを検索",
-  "project.none": "一致するプロジェクトはありません",
-  "project.usePath": "{path} を使用",
-  "project.browse": "参照…",
-  "newtab.importAndSync": "インポートして同期",
-  "link.copyChat": "チャットのリンクをコピー",
-  "link.sessionMissing": "このチャットは利用できません。削除されたか、接続されていないマシン上にあります。",
-  "permission.required": "許可が必要です",
-  "permission.title": "ツールの権限",
-  "permission.toolRequest": "ツールのリクエスト",
-  "permission.noInput": "追加の入力はありません。",
-  "permission.coverageDetail": "対象はエージェントが ACP 経由で要求する操作のみです。ホストの隔離は未検証です。",
-  "permission.coverage": "ACP リクエストのみ · 隔離は未検証",
-  "permission.chatAllowed":
-    "このチャットでは今後の対象ツールリクエストを許可します。拒否ルールは引き続き適用されます。",
-  "permission.revoke": "取り消す",
-  "permission.count.one": "このターンのリクエスト {n} 件",
-  "permission.count.other": "このターンのリクエスト {n} 件",
-  "permission.expand": "詳細を表示",
-  "permission.collecting": "リクエストを収集中…",
-  "permission.chatScope": "「このチャットで許可」は、チャットが停止するまで今後の対象リクエストも承認します。",
-  "permission.denyOnly": "1 回限りの承認ができない項目があります。このグループは拒否のみ可能です。",
-  "permission.allowOnce": "1 回だけ許可",
-  "permission.allowChat": "このチャットで許可",
-  "permission.deny": "拒否",
-  "permission.cancelled": "ツールリクエストをキャンセルしました",
-  "permission.answered": "ツールリクエストに回答しました",
-  "permission.checkRetry": "確認して再試行",
-  "permission.refresh": "更新",
-  "permission.itemResolved": "回答済み",
-  "permission.itemCancelled": "キャンセル済み",
-  "permission.error.failed": "権限リクエストに失敗しました",
-  "permission.error.unavailable": "グループ権限は利用できません。",
-  "permission.error.selectSession": "先にセッションを選択してください。",
-  "permission.error.wrongSession": "権限サーバーが別のセッションのグループを返しました。",
-  "permission.error.awaitingRetry": "別の権限回答が再試行を待っています。",
-  "permission.error.busy": "権限回答を送信中です。",
-  "permission.error.readRequired": "回答する前に現在の権限グループを取得してください。",
-  "permission.error.selectionChanged": "選択中のセッションが変わりました。回答する前に権限を取得してください。",
-  "permission.error.answerUncertain": "権限回答が適用された可能性があります。再試行する前に結果を取得してください。",
-  "permission.error.wrongGroup": "権限回答が別のグループを返しました。再試行する前に結果を取得してください。",
-  "permission.error.readResult": "この権限回答を再試行する前に現在の結果を取得してください。",
-  "permission.error.invalidRevision": "グループのリビジョンが無効です。",
-  "permission.error.notFound": "権限グループが見つかりません。",
-  "permission.error.noRetry": "再試行する権限回答はありません。",
-  "permission.error.noLongerAvailable": "権限グループは利用できなくなりました。現在のグループを確認してください。",
-  "permission.error.groupChanged": "権限グループが変わりました。再試行する前にもう一度確認してください。",
-  "permission.error.disconnected": "権限グループとの接続が切れています。回答する前に更新してください。",
-  "quick.keys": "キーボードショートカット",
-  "quick.send": "送信",
-  "quick.openInWindow": "ウィンドウで開く",
-  "quick.close": "閉じる",
-  "tools.ran": "{n} 件のコマンドを実行しました",
-  "tools.running": "{n} 件のコマンドを実行中",
-  "tools.read.one": "1 件のファイルを読みました",
-  "tools.read.other": "{n} 件のファイルを読みました",
-  "tools.searched": "{n} 回検索しました",
-  "tools.edited.file": "{file} を編集しました",
-  "tools.edited.files": "{n} 件のファイルを編集しました",
-  "tools.exit": "終了 {code}",
-  "tools.failed": "失敗",
-  "tools.failedCount": "{n} 件失敗",
-  "duration.ms": "{n}ミリ秒",
-  "duration.s": "{n}秒",
-  "duration.m": "{m}分{s}秒",
-  "shell.label": "シェル",
-  "shell.exit": "終了コード {code}",
-  "message.self": "このエージェント",
-  "message.unknown": "宛先不明",
-  "message.noText": "メッセージ本文なし",
-  "message.more": "もっと見る",
-  "message.less": "表示を減らす",
-  "message.label": "{from} から {to} へのメッセージ",
-  "message.channel.coordinator": "コーディネーター",
-  "message.channel.terminal": "cmux send",
-  "message.channel.mailbox": "メールボックス",
-  "message.channel.agent": "SendMessage",
-  "summary.open": "チャットの概要",
-  "summary.scheduled": "スケジュール",
-  "summary.pullRequests": "プルリクエスト",
-  "summary.outputs": "出力",
-  "summary.subagents": "サブエージェント",
-  "summary.sources": "ソース",
-  "summary.viewAll": "{n} 件すべて表示",
-  "summary.showFewer": "折りたたむ",
-  "summary.empty": "このチャットのプルリクエスト、ファイル、サブエージェント、ソースがここに表示されます。",
-  "summary.subagents.done": "{n} 件完了",
-  "summary.subagents.running": "{n} 件実行中",
-  "summary.subagents.failed": "{n} 件失敗",
-  "summary.pr.merged": "マージ済み",
-  "summary.pr.closed": "クローズ済み",
-  "turn.checkpoint.missing": "このターンのチェックポイントはありません。エージェントの編集を表示しています。",
-  "turn.checkpoint.failed": "このターンのチェックポイントを読み込めませんでした。エージェントの編集を表示しています。",
-  "turn.checkpoint.incomplete":
-    "このターンのチェックポイントには含まれないファイルがあります。エージェントの編集を表示しています。",
-  "turn.checkpoint.pending": "保持と取り消しの選択を送信するまで、エージェントの編集を表示しています。",
-  "turn.outside": "ツール呼び出し以外",
-  "turn.outside.title": "ターン中に変更されましたが、エージェントの編集によるものではありません。読み取り専用です。",
-  "turn.outside.card": "ツール呼び出し以外の変更を含みます",
-  "diff.keys": "変更ビューのキー",
-  "diff.keys.files": "ファイル",
-  "diff.keys.changes": "変更",
-  "diff.keys.back": "戻る",
-  "hunk.reject": "却下",
-  "hunk.accept": "承認",
-  "hunk.undo": "元に戻す",
-  "hunk.rejectAt": "{line} の変更を却下",
-  "hunk.acceptAt": "{line} の変更を承認",
-  "hunk.undoAt": "元に戻す、{line}",
-  "hunk.accepted": "承認済み",
-  "hunk.rejected": "却下済み",
-  "hunk.revertRequested": "取り消しを依頼しました",
-  "revert.count.one": "1 件の変更を却下",
-  "revert.count.other": "{n} 件の変更を却下",
-  "revert.noteLabel": "エージェントへのメモ",
-  "revert.notePlaceholder": "メモを追加（任意）",
-  "revert.send": "エージェントに取り消しを依頼",
-  "edited.one": "1 件のファイルを編集しました",
-  "edited.view": "変更を表示",
-  "edited.more.one": "さらに 1 件のファイルを表示",
-  "edited.more.other": "さらに {n} 件のファイルを表示",
-  "edited.fewer": "表示するファイルを減らす",
-  "edited.undo": "元に戻す",
-  "edited.undoLabel": "このターンの変更を元に戻すようエージェントに依頼",
-  "edited.undoRequested": "取り消しを依頼済み",
-  "turn.copy": "コピー",
-  "turn.copied": "コピーしました",
-  "turn.fork": "ここから分岐",
-  "turn.retry": "再試行",
-  "turn.retryLabel": "このプロンプトをもう一度送信",
-  "turn.failed": "ターンが失敗しました",
-  "preview.open": "タブで開く",
-  "preview.openLabel": "{address} をブラウザタブで開く",
-};
-
-const tables: Record<string, Record<StringKey, string>> = { en, ja };
-
-/** The pane's language: the first of the app's languages the pane has strings for. */
-export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): "en" | "ja" {
-  for (const language of languages) {
-    const base = language.toLowerCase().split("-")[0];
-    if (base === "ja") return "ja";
-    if (base === "en") return "en";
-  }
-  return "en";
+declare global {
+  // eslint-disable-next-line no-var
+  var __cmuxPaneStrings: Record<string, Table> | undefined;
 }
 
-/** A pane string, with `{name}` placeholders filled. */
-export function t(key: StringKey, values: Record<string, string | number> = {}, language = paneLanguage()): string {
-  const text = tables[language]?.[key] ?? en[key];
+const tables = (): Record<string, Table> => globalThis.__cmuxPaneStrings ?? {};
+
+/** An Apple localization code the pane has strings for (`en`, `ja`, `pt-BR`, `zh-Hant`, ...). */
+export type PaneLanguage = string;
+export type StringValues = Record<string, string | number>;
+/** A pane string in one language, with `{name}` placeholders filled. */
+export type Translate = (key: StringKey, values?: StringValues) => string;
+
+/** The pane's language: the first of the app's languages the pane has strings for. */
+export function paneLanguage(languages: readonly string[] = globalThis.navigator?.languages ?? []): PaneLanguage {
+  return resolveLanguage(languages, Object.keys(tables()));
+}
+
+let active: PaneLanguage = paneLanguage();
+const listeners = new Set<() => void>();
+
+/** The language the pane renders in now. */
+export function currentLanguage(): PaneLanguage {
+  return active;
+}
+
+/** Switches the pane's language; every component that reads strings through `useT()` re-renders. */
+export function setPaneLanguage(next: PaneLanguage): void {
+  if (next === active) return;
+  active = next;
+  for (const listener of listeners) listener();
+}
+
+/** Calls `listener` after each language change; returns the unsubscribe function. */
+export function subscribeLanguage(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+globalThis.window?.addEventListener("languagechange", () => setPaneLanguage(paneLanguage()));
+
+/** A catalog string in `lang` (English when it has none), with `{name}` placeholders filled. */
+export function translateKey(key: CatalogKey, values: StringValues, lang: PaneLanguage): string {
+  const text = tables()[lang]?.[key] ?? tables().en?.[key] ?? key;
   return text.replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 }
 
-/** Every key of every language, for tests that keep the tables complete. */
-export const STRING_TABLES = tables;
+/** A pane string, with `{name}` placeholders filled. Outside render only; components use `useT()`. */
+export function translate(key: StringKey, values: StringValues = {}, lang: PaneLanguage = active): string {
+  return translateKey(key, values, lang);
+}
+
+// One translator per language, so `useT()` returns a value that changes exactly when the
+// language does (a memoized string depends on it, and stays cached otherwise).
+const translators = new Map<PaneLanguage, Translate>();
+
+/** The translator for `lang`, for code that already holds a language. */
+export function translatorFor(lang: PaneLanguage): Translate {
+  let translator = translators.get(lang);
+  if (!translator) {
+    translator = (key, values) => translate(key, values, lang);
+    translators.set(lang, translator);
+  }
+  return translator;
+}
+
+/** The pane's language as React state. */
+export function usePaneLanguage(): PaneLanguage {
+  return useSyncExternalStore(subscribeLanguage, currentLanguage, currentLanguage);
+}
+
+/** The translator for the pane's current language; re-renders the caller when it changes. */
+export function useT(): Translate {
+  return translatorFor(usePaneLanguage());
+}
+
+/** Every loaded language's table, for tests that keep the tables complete. */
+export const STRING_TABLES: Record<string, Record<string, string>> = tables() as Record<string, Record<string, string>>;

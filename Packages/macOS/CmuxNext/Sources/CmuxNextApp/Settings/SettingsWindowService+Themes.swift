@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettingsWindow
 
 /// The Settings theme picker acts on the window Settings was opened from
@@ -11,8 +12,6 @@ extension SettingsWindowService {
         let personal = services.machines.local.supports(DaemonCapabilities.shared.profiles)
         return (personal ? [.room, .workspace] : []) + [.terminal]
     }
-
-    var themeNames: [String] { services.themes.catalog.names }
 
     func theme(at level: SettingsThemeLevel) -> String? {
         let current = services.themes.currentChoice(Self.action(level, reset: false), target: nil)

@@ -28,7 +28,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
-| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌘[ / ⌘] / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
+| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌃- / ⌃⇧- / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
 | (history) | Recently Focused / Recently Closed lists | — | M | cmuxApp+HistoryMenu:65,90 |
 | palette.openTaskManager | Task Manager | — | PM | VCP:31, cmuxApp:1080 |
 | palette.sleepyMode | Sleepy Mode | — | PM | VCP:37 |
@@ -52,7 +52,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | moveWorkspaceUp / Down | Move Workspace Up / Down | ⌃⌥⌘[ / ⌃⌥⌘] | PKMC | KSS:133, CV:7993, SWR:590 |
 | palette.moveWorkspaceToTop | Move to Top | — | PMC | CV:8013, SWR:602 |
 | selectWorkspaceByNumber | Workspace 1…9 | ⌘1…9 | KM | KSS:137, cmuxApp:1268 |
-| space.selectByNumber | Space 1…9 | ⌃1…9 | KM | cmux-next ProfileActionCatalog |
+| space.selectByNumber | Space 1…9 | ⌃⌥1…9 | KM | cmux-next ProfileActionCatalog |
 | moveWorkspaceToWindow | Move Workspace to Window ▸ | — | MC | cmuxApp:1561, SWR:613 |
 | renameWorkspace | Rename Workspace… | ⇧⌘R | PKMC | KSS:139, CV:7899, SWR:481 |
 | palette.clearWorkspaceName | Clear Workspace Name | — | PMC | CV:7919, SWR:488 |
@@ -94,7 +94,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
 | equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
-| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J | PKM | KSS:171-174, RSP:117 |
+| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⌘←→↑↓ or ⌃⌘H/L/K/J | PKM | KSS:171-174, RSP:117 |
 | focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
 | triggerFlash | Flash Focused Panel | ⇧⌘H | PKC | KSS:120, GTV:9254 |
@@ -125,7 +125,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | moveSurfaceLeft / Right | Reorder Tab Left / Right | ⇧⌥⌘[ / ⇧⌥⌘] | KM | KSS:124 |
 | moveSurfaceToPreviousPane / NextPane | Move Tab to Previous / Next Pane | ⌃⇧⌘[ / ⌃⇧⌘] | PKM | KSS:125 |
 | moveSurfaceToPaneLeft/Right/Up/Down | Move Tab to Pane (dir) | ⇧⌥⌘←→↑↓ | PKMC | KSS:126-127, TIV:1444 |
-| selectSurfaceByNumber | Tab 1…9 | ⌃⌥1…9 | K | KSS:128 |
+| selectSurfaceByNumber | Tab 1…9 | ⌃1…9 | K | KSS:128 |
 | palette.moveTabToNewWorkspace | Move Tab to New Workspace | — | PC | ContentView+MoveTabToNewWorkspace:13 |
 | palette.toggleTabPin / toggleTabUnread | Pin Tab / Mark Tab Unread | — | PC | CV:8104, 8115 |
 | palette.toggleFullWidthTab | Full Width Tab | — | PC | CV:8626 |
@@ -204,7 +204,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| palette.newAgentChat | New agent chat | ⇧⌘I (#16620) | P | ContentView+AgentChatCommandPalette:31 |
+| palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
 | palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |

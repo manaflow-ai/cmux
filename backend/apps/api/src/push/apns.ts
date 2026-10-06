@@ -40,7 +40,7 @@ export const providerToken = async (config: ApnsConfig, now: number): Promise<st
  * `category` lets the iPhone offer answer actions for the kind.
  */
 /** Cuts text to at most `max` code points (never inside a surrogate pair). */
-const cut = (text: string, max: number) => Array.from(text).slice(0, max).join("")
+export const cut = (text: string, max: number) => Array.from(text).slice(0, max).join("")
 
 /** APNs refuses payloads over 4 KB; text is cut well below it. */
 export const APNS_MAX_PAYLOAD_BYTES = 4096
@@ -67,7 +67,29 @@ export const payloadText = (item: FeedItem): string => {
   return JSON.stringify({ aps: { alert: { title: cut(item.title, 100) }, sound: "default" }, cmux: { feed_item: item.id } })
 }
 
-export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, now: number): Request => {
+/**
+ * One alert for APNs, independent of who decided it (FeedDO for feed items, UserDO for Home
+ * messages): the JSON body (under APNS_MAX_PAYLOAD_BYTES), the collapse id, the priority and
+ * when APNs may drop it.
+ */
+export interface ApnsMessage {
+  readonly body: string
+  readonly collapseId: string
+  readonly priority: "5" | "10"
+  /** Unix ms. */
+  readonly expiresAt: number
+}
+
+/** The message for one feed item. */
+export const feedMessage = (item: FeedItem, now: number): ApnsMessage => ({
+  body: payloadText(item),
+  collapseId: item.id.slice(0, 64),
+  priority: item.priority === "low" ? "5" : "10",
+  // An item stops mattering when it closes or expires; APNs drops it after that.
+  expiresAt: Math.min(item.expires_at, now + 24 * 3600_000)
+})
+
+export const apnsMessageRequest = (target: PushTarget, message: ApnsMessage, token: string): Request => {
   const host = target.environment === "production" ? "api.push.apple.com" : "api.sandbox.push.apple.com"
   return new Request(`https://${host}/3/device/${target.token}`, {
     method: "POST",
@@ -75,15 +97,16 @@ export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, n
       authorization: `bearer ${token}`,
       "apns-topic": target.topic,
       "apns-push-type": "alert",
-      "apns-priority": item.priority === "low" ? "5" : "10",
-      // An item stops mattering when it closes or expires; APNs drops it after that.
-      "apns-expiration": String(Math.floor(Math.min(item.expires_at, now + 24 * 3600_000) / 1000)),
-      "apns-collapse-id": item.id.slice(0, 64),
+      "apns-priority": message.priority,
+      "apns-expiration": String(Math.floor(message.expiresAt / 1000)),
+      "apns-collapse-id": message.collapseId.slice(0, 64),
       "content-type": "application/json"
     },
-    body: payloadText(item)
+    body: message.body
   })
 }
+
+export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, now: number): Request => apnsMessageRequest(target, feedMessage(item, now), token)
 
 /** What to do with a target after one APNs answer. */
 export type ApnsOutcome = "sent" | "drop_target" | "retry_later" | "failed"
@@ -102,14 +125,14 @@ export interface SendResult {
   readonly reason?: string
 }
 
-/** Sends one item to every target; never throws (each answer is classified). */
-export const sendApns = async (config: ApnsConfig, targets: ReadonlyArray<PushTarget>, item: FeedItem, now: number, fetcher: typeof fetch = fetch): Promise<ReadonlyArray<SendResult>> => {
+/** Sends one message to every target; never throws (each answer is classified). */
+export const sendApnsMessage = async (config: ApnsConfig, targets: ReadonlyArray<PushTarget>, message: ApnsMessage, now: number, fetcher: typeof fetch = fetch): Promise<ReadonlyArray<SendResult>> => {
   if (targets.length === 0) return []
   const token = await providerToken(config, now)
   return Promise.all(
     targets.map(async (t) => {
       try {
-        const res = await fetcher(apnsRequest(t, item, token, now))
+        const res = await fetcher(apnsMessageRequest(t, message, token))
         const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
         // A refused provider token is minted again on the next send.
         if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()
@@ -120,3 +143,7 @@ export const sendApns = async (config: ApnsConfig, targets: ReadonlyArray<PushTa
     })
   )
 }
+
+/** Sends one feed item to every target; never throws. */
+export const sendApns = (config: ApnsConfig, targets: ReadonlyArray<PushTarget>, item: FeedItem, now: number, fetcher: typeof fetch = fetch): Promise<ReadonlyArray<SendResult>> =>
+  sendApnsMessage(config, targets, feedMessage(item, now), now, fetcher)

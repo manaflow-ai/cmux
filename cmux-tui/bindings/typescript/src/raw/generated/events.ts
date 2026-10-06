@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 84a8bdedab4401d4d1a43451141a2dfe7029536563f6701d04ae2d02374fc8c2. */
+/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
 
 
 import type * as T from "./types.js";
@@ -62,6 +62,55 @@ export type ClientDetachedEvent = { event: "client-detached" } & {
 
 /** Protocol v9; emission: serialized-never-emitted; streams: subscribe. */
 export type ClientListInvalidatedEvent = { event: "client-list-invalidated" } & {
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationChangedEvent = { event: "cloud-conversation-changed" } & {
+  "account"?: string;
+  "change": (T.JsonValue) | null;
+  "conversation": string;
+  "rev": bigint;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudConversationResyncedEvent = { event: "cloud-conversation-resynced" } & {
+  "account"?: string;
+  "conversation": string;
+  "messages": (T.JsonValue) | null;
+  "rev": bigint;
+  "seq": bigint;
+  "summary": (T.JsonValue) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxChangedEvent = { event: "cloud-inbox-changed" } & {
+  "account"?: string;
+  "entries": (T.JsonValue) | null;
+  "seq": bigint;
+  "transaction": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudInboxResetEvent = { event: "cloud-inbox-reset" } & {
+  "account"?: string;
+  "seq": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSessionNeededEvent = { event: "cloud-session-needed" } & {
+  "expires_at"?: (bigint) | null;
+  "reason": string;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type CloudSubscriptionStateEvent = { event: "cloud-subscription-state" } & {
+  "account"?: string;
+  "conversation"?: (string) | null;
+  "reason"?: (string) | null;
+  "scope": string;
+  "state": string;
 };
 
 /** Protocol v6; emission: emitted; streams: attach-byte. */
@@ -373,6 +422,19 @@ export type TabRenamedEvent = { event: "tab-renamed" } & {
   "workspace": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadEvent = { event: "terminal-clipboard-read" } & {
+  "host": T.TerminalClipboardHost;
+  "location": T.TerminalClipboardLocation;
+  "request_id": string;
+  "terminal_id": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type TerminalClipboardReadCancelledEvent = { event: "terminal-clipboard-read-cancelled" } & {
+  "request_id": string;
+};
+
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type TerminalReapedEvent = { event: "terminal-reaped" } & {
   "grace_ms": bigint;
@@ -495,6 +557,12 @@ export type KnownCmuxEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
@@ -533,6 +601,8 @@ export type KnownCmuxEvent =
   | TabChangedEvent
   | TabClosedEvent
   | TabRenamedEvent
+  | TerminalClipboardReadEvent
+  | TerminalClipboardReadCancelledEvent
   | TerminalReapedEvent
   | TerminalRegistryChangedEvent
   | TitleChangedEvent
@@ -558,6 +628,12 @@ export type KnownSubscribeEvent =
   | ClientAttachedEvent
   | ClientChangedEvent
   | ClientDetachedEvent
+  | CloudConversationChangedEvent
+  | CloudConversationResyncedEvent
+  | CloudInboxChangedEvent
+  | CloudInboxResetEvent
+  | CloudSessionNeededEvent
+  | CloudSubscriptionStateEvent
   | ConfigReloadRequestedEvent
   | ConversationChangedEvent
   | ConversationTypingEvent

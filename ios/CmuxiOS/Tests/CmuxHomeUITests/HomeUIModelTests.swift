@@ -50,6 +50,17 @@ import Testing
         #expect(byID[group]?.preview == "You: Status?")
     }
 
+    @Test func attachmentOnlyPreviewIsALocalizedLabel() {
+        let id = ConversationID("conv_group")
+        let photo = AttachmentRef(hash: "h1", name: "a.jpg", mimeType: "image/jpeg", byteCount: 10, width: 4, height: 3)
+        let photo2 = AttachmentRef(hash: "h2", name: "b.jpg", mimeType: "image/jpeg", byteCount: 10, width: 4, height: 3)
+        let last = Message(id: MessageID("msg_5"), conversation: id, seq: 5, clientMessageID: IdempotencyKey("key_5"), author: leo.id,
+                           parts: [.attachment(photo), .attachment(photo2)], createdAt: epoch)
+        let row = rows([ConversationSummary(id: id, title: "Core", participants: [me, leo, chief], lastSeq: 5, createdAt: epoch,
+                                            updatedAt: epoch, lastMessage: last, readCursors: [me.id: 5])])[0]
+        #expect(ConversationRowModel(row: row, me: me.id).preview == "Leo: 2 photos", "no file names, a counted kind")
+    }
+
     @Test func newIncomingAnnouncesOnlyLaterMessagesFromOthers() throws {
         let id = ConversationID("conv_group")
         let window = TranscriptWindow(messages: [

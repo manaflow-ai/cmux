@@ -42,7 +42,7 @@ function ShortcutRow({ shortcut, locale }: { shortcut: Shortcut; locale: string 
       <div className="flex shrink-0 items-center gap-3">
         {shortcut.combos.map((combo, idx) => (
           <span key={`${shortcut.id}-combo-${idx}`} className="inline-flex items-center">
-            {idx > 0 && (
+            {idx > 0 && !shortcut.sequence && (
               <span className="mr-3 select-none font-mono text-[11px] text-muted/30">
                 /
               </span>
@@ -68,14 +68,14 @@ export function KeyboardShortcuts() {
     return shortcutCategories.map((cat) => ({
       ...cat,
       shortcuts: cat.shortcuts.filter((shortcut) => {
-        const catTitle = t(`cat.${cat.titleKey}`);
+        const catTitle = localizedShortcutText(cat.title, locale);
         const description = localizedShortcutText(shortcut.description, locale);
         const note = shortcut.note ? localizedShortcutText(shortcut.note, locale) : "";
         const combos = shortcut.combos.map(comboToText).join(" ");
         return normalize(`${catTitle} ${combos} ${description} ${note}`).includes(q);
       }),
     })).filter((cat) => cat.shortcuts.length > 0);
-  }, [locale, query, t]);
+  }, [locale, query]);
 
   return (
     <div className="mb-12 mt-2">
@@ -112,7 +112,7 @@ export function KeyboardShortcuts() {
                 href={`#${cat.id}`}
                 className="text-[13px] text-muted transition-colors hover:text-foreground"
               >
-                {t(`cat.${cat.titleKey}`)}
+                {localizedShortcutText(cat.title, locale)}
               </a>
               {idx < shortcutCategories.length - 1 && (
                 <span className="mx-2.5 select-none text-[10px] text-border">
@@ -135,11 +135,8 @@ export function KeyboardShortcuts() {
             <section key={cat.id} id={cat.id} className="scroll-mt-20">
               <div className="mb-3">
                 <div className="text-[13px] font-medium text-muted/60">
-                  {t(`cat.${cat.titleKey}`)}
+                  {localizedShortcutText(cat.title, locale)}
                 </div>
-                {cat.blurbKey && (
-                  <p className="mt-1 text-[13px] text-muted/50">{t(`cat.${cat.blurbKey}`)}</p>
-                )}
               </div>
               <div className="overflow-hidden rounded-xl border border-border">
                 <div className="divide-y divide-border/60">

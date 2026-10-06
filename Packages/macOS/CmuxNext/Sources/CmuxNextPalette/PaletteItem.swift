@@ -1,4 +1,5 @@
 public import CmuxNextActions
+public import CmuxNextDesign
 
 /// One row of palette results.
 public struct PaletteItem: Identifiable {
@@ -10,6 +11,10 @@ public struct PaletteItem: Identifiable {
     public var accessory: String?
     /// SF Symbol name.
     public var symbol: String?
+    /// An agent brand id (CmuxAgentBrands, such as "claude"): the row draws that brand's
+    /// mark in the symbol's place, tinted like the symbol. Nil, or a brand without a mark,
+    /// draws `symbol`.
+    public var brand: String?
     /// Shortcut keycaps shown at the right edge, one badge per entry.
     public var keycaps: [String]?
     public var section: PaletteSection
@@ -41,6 +46,15 @@ public struct PaletteItem: Identifiable {
     /// The row's typed commands, primary first (`palette.run`). Empty for a
     /// row that only the palette UI can run.
     public var actionRefs: [PaletteActionRef] = []
+    /// Real colors drawn in the icon's place (a color setting's value, a
+    /// theme's colors; R98). Empty draws `symbol`.
+    public var swatches: [ThemeRGB] = []
+    /// The row matches only a query that starts with this text, and never
+    /// shows for an empty query (the picker's hidden files: `.`).
+    public var queryPrefix: String?
+    /// The row shows for an empty query only, never as a match (the
+    /// picker's Locations).
+    public var hidesWhenTyping = false
 
     public init(
         id: String,
@@ -48,6 +62,7 @@ public struct PaletteItem: Identifiable {
         subtitle: String? = nil,
         accessory: String? = nil,
         symbol: String? = nil,
+        brand: String? = nil,
         keycaps: [String]? = nil,
         section: PaletteSection = .results,
         keywords: [String] = [],
@@ -65,6 +80,7 @@ public struct PaletteItem: Identifiable {
         self.subtitle = subtitle
         self.accessory = accessory
         self.symbol = symbol
+        self.brand = brand
         self.keycaps = keycaps
         self.section = section
         self.keywords = keywords

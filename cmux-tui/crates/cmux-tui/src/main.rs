@@ -20,6 +20,8 @@ mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
+mod cloud_conversations_backend;
+#[cfg(unix)]
 mod coderouter_usage;
 mod config;
 mod headless;
@@ -29,8 +31,11 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+#[cfg(unix)]
+mod link;
 mod local_owner;
 mod localization;
+mod loopback_policy;
 mod machine;
 #[cfg(unix)]
 mod machine_agent;
@@ -71,12 +76,18 @@ mod remote_runtime;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod startup_env;
 #[cfg(all(test, unix))]
 mod test_exec;
+#[cfg(test)]
+mod test_wait;
 mod ui;
 
 use headless::run_headless;
 pub(crate) use headless::wake_headless;
+#[cfg(unix)]
+use loopback_policy::deny_daemon_listener_ports;
+use loopback_policy::loopback_forward_policy;
 
 #[cfg(target_os = "linux")]
 use std::ffi::CStr;
@@ -491,65 +502,7 @@ fn harden_provider_secret_process() -> io::Result<()> {
     Ok(())
 }
 
-const USAGE: &str = "\
-cmux - terminal multiplexer and resource client
-
-USAGE
-  cmux [OPTIONS]           Start a session
-{lifecycle_usage}
-  cmux attach [OPTIONS]    Attach to a session or one terminal
-  cmux relay [OPTIONS]     Relay protocol bytes over stdio
-  {machine_agent_usage}
-  cmux <scope> --help      Discover resource commands
-
-START OPTIONS
-  --session <name>   Session name (default: main). Determines the socket path.
-  --socket <path>    Explicit control socket path.
-  --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
-  --state <path>     Durable session-state root (default: platform state dir).
-  --ephemeral        Keep workspace state in memory for this run only.
-  --machine-provider <path>
-                     Use a dynamic machine provider Unix socket.
-  --machine-provider-command <program> [arg ...] --
-                     Run a provider command directly, appending control or stream.
-  --cloud            Connect through the built-in cmux.cloud SSH provider.
-  --cloud-host <host>       Cloud SSH host (default: cmux.cloud).
-  --cloud-user <user>       Cloud SSH user.
-  --cloud-port <port>       Cloud SSH port.
-  --cloud-identity <path>   Cloud SSH identity file.
-  --headless         Run only the control socket, no TUI.
-  --ws <addr>        Also listen for WebSocket clients (default: off).
-  --ws-token <token> Allow a static-token bypass for interactive pairing.
-  --ws-insecure-bind Allow a non-loopback WebSocket bind (no TLS; use a proxy).
-  --ws-allow-origin <origin>  Also accept this browser Origin (repeatable).
-  --ws-allow-host <host>      Also accept this Host name, e.g. a tailnet name.
-  --remote          Run the authenticated remote daemon with this session.
-  --remote-ws <addr> Listen for direct remote WebSocket links.
-  --remote-ws-insecure-bind  Allow plaintext remote WebSocket off loopback.
-  --remote-ws-trusted-carrier  Grant every remote WebSocket link carrier auth (no
-                    enrollment): only behind a private network whose members are
-                    all authorized. Also CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1.
-  --remote-http <addr> Listen for bearer-authenticated workspace HTTP RPC on loopback.
-  --remote-state-dir <path>  Override remote identity and runtime state.
-  --remote-link-socket <path> Override the local authenticated link socket.
-  --remote-admin-socket <path> Override the owner-only admin socket.
-  --remote-resume-lease-seconds <seconds>
-                    Retain crashed-client replay state for 1-86400 seconds.
-  --relay <url> --relay-slot <routing-key>
-                    Register with a relay; repeat up to four groups.
-  --relay-ticket-file <path>  Refresh the relay ticket from a file.
-  --relay-ticket-command <program> [--relay-ticket-command-arg <arg>]
-                    Refresh the relay ticket from an argv-based command.
-  --iroh            Publish an Iroh route for NAT traversal and mobile use.
-  --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: keep the outer terminal's
-                     xterm-ghostty, else xterm-256color).
-  --terminal-reap-grace-seconds <seconds>
-                     End a terminal with no tab after this long unless it is
-                     kept (default: never; 0 ends it at once; at most 604800).
-  -h, --help         Show this help.
-  -V, --version      Print the cmux version.
-";
+const USAGE: &str = include_str!("usage.txt");
 
 fn usage_for(catalog: &localization::Catalog) -> String {
     usage_for_platform(catalog, cfg!(unix))
@@ -591,6 +544,7 @@ struct Args {
     ws_token: Option<String>,
     ws_insecure_bind: bool,
     ws_access: cmux_tui_core::server::WebSocketAccess,
+    link_entry: bool,
     remote: bool,
     remote_ws: Option<String>,
     remote_ws_insecure_bind: bool,
@@ -609,9 +563,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
-    /// Private launch contract of `local_owner`: a descriptor to write one
-    /// byte to once this headless owner accepts clients.
+    /// Private launch contract of `local_owner`: readiness and install key pipes.
     owner_ready_fd: Option<i32>,
+    owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
 }
 
@@ -640,6 +594,7 @@ impl Args {
             && ws_addr.is_none()
             && ws_token.is_none()
             && !self.ws_insecure_bind
+            && !self.link_entry
             && self.ws_access.origins.is_empty()
             && self.ws_access.hosts.is_empty()
             && !self.remote
@@ -700,6 +655,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         ws_token: None,
         ws_insecure_bind: false,
         ws_access: Default::default(),
+        link_entry: false,
         remote: false,
         remote_ws: None,
         remote_ws_insecure_bind: false,
@@ -719,6 +675,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_host_fg: None,
         owner_host_bg: None,
         owner_ready_fd: None,
+        owner_install_key_fd: None,
         terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
@@ -813,6 +770,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     Some(args.next().ok_or_else(|| "--ws-token needs a value".to_string())?);
             }
             "--ws-insecure-bind" => out.ws_insecure_bind = true,
+            "--link-entry" => out.link_entry = true,
             "--ws-allow-origin" => {
                 let origin = args.next().ok_or("--ws-allow-origin needs a value")?;
                 let origin = cmux_tui_core::server::parse_websocket_origin(&origin).ok_or(
@@ -969,12 +927,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
-            local_owner::OWNER_READY_FD_ARG => {
-                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
-                let fd = local_owner::claim_ready_fd(&value)?;
-                if out.owner_ready_fd.replace(fd).is_some() {
-                    return Err(format!("{arg} may be supplied only once"));
-                }
+            local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
+                local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -1382,6 +1336,9 @@ fn validate_provider_process_args(args: &Args) -> anyhow::Result<()> {
     if args.ws_insecure_bind {
         conflicts.push("--ws-insecure-bind");
     }
+    if args.link_entry {
+        conflicts.push("--link-entry");
+    }
     if !args.ws_access.origins.is_empty() || !args.ws_access.hosts.is_empty() {
         conflicts.push("--ws-allow-origin/--ws-allow-host");
     }
@@ -1466,6 +1423,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--owner-host-fg",
     "--owner-host-bg",
     local_owner::OWNER_READY_FD_ARG,
+    local_owner::OWNER_INSTALL_KEY_FD_ARG,
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -1549,6 +1507,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
             | "--cloud"
             | "--headless"
             | "--ws-insecure-bind"
+            | "--link-entry"
             | "--remote"
             | "--remote-ws-insecure-bind"
             | "--remote-ws-trusted-carrier"
@@ -1657,8 +1616,9 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
 }
 
 fn main() -> std::process::ExitCode {
-    // One binary ships as `cmux` (this CLI and mux) and as `acpmux` through a
-    // symlink, so both always have the same version.
+    // SAFETY: the first statement of main: no other thread runs yet (G4).
+    unsafe { startup_env::take_link_token_from_env() };
+    // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
     #[cfg(unix)]
     if std::env::args_os()
         .next()
@@ -1677,9 +1637,8 @@ fn main() -> std::process::ExitCode {
         return hook_helper::run_cli(arguments.collect(), &[agent_hook_install::HOOK_MODE_ARG]);
     }
     run_main();
-    // Reached only by the normal return paths, which never call
-    // client_log::exit; flush so the last queued records (final status,
-    // shutdown diagnostics) reach the client log on every platform.
+    // Reached only by the normal return paths (never client_log::exit): flush
+    // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
 }
@@ -1694,31 +1653,9 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Read the Cloud template settings and remove them from this process's
-/// environment, so no terminal host, shell, agent, or plugin it spawns
-/// inherits them. Must run before any thread starts.
-fn take_cloud_template_env() {
-    const KEYS: [&str; 3] = [
-        "CMUX_TUI_ADOPT_TEMPLATE_TERMINAL",
-        "CMUX_TUI_TEMPLATE_BOUND_FILE",
-        "CMUX_TUI_TEMPLATE_WORKSPACE_NAME",
-    ];
-    let settings = CloudTemplateEnv {
-        adopt: std::env::var(KEYS[0]).is_ok_and(|value| value == "1"),
-        bound_file: std::env::var_os(KEYS[1]).filter(|value| !value.is_empty()).map(PathBuf::from),
-        workspace_name: std::env::var(KEYS[2]).ok().filter(|value| !value.is_empty()),
-    };
-    for key in KEYS {
-        // SAFETY: called first in run_main, before this process starts any
-        // thread, so no other thread can read the environment concurrently.
-        unsafe { std::env::remove_var(key) };
-    }
-    let _ = CLOUD_TEMPLATE_ENV.set(settings);
-}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
-    take_cloud_template_env();
+    startup_env::take_cloud_template_env();
     // The pane's `claude` shim lands here. Dispatch before the signal
     // handlers and argv decoding: the wrapper execs Claude with arguments
     // that need not be UTF-8 or valid cmux-tui flags.
@@ -1756,6 +1693,11 @@ fn run_main() {
         discard_provider_secret_environment();
         let args = std::env::args_os().skip(2).collect();
         client_log::exit(acp::run(args));
+    }
+    #[cfg(unix)]
+    if raw_args.first().map(String::as_str) == Some("link") {
+        discard_provider_secret_environment();
+        client_log::exit(link::run(&raw_args[1..]));
     }
     if config::is_ghostty_config_helper_invocation(&raw_args) {
         if let Err(error) = harden_provider_secret_process() {
@@ -2154,37 +2096,6 @@ impl Drop for LocalOwnerEventLoop {
 }
 
 /// Starts the session server: surface environment, state root, mux, and listeners.
-/// `server.loopback_forward` from cmux-tui.json. An invalid value turns
-/// forwarding off instead of widening access.
-fn loopback_forward_policy(
-    value: Option<&serde_json::Value>,
-) -> cmux_tui_core::server::LoopbackForwardPolicy {
-    use cmux_tui_core::server::LoopbackForwardPolicy;
-    let Some(value) = value else { return LoopbackForwardPolicy::default() };
-    match LoopbackForwardPolicy::from_config_value(value) {
-        Ok(policy) => policy,
-        Err(error) => {
-            crate::client_log::stderr_log!(
-                "startup",
-                "cmux-tui: server.loopback_forward is invalid ({error}); loopback forwarding is off"
-            );
-            LoopbackForwardPolicy::disabled()
-        }
-    }
-}
-
-/// Denies loopback forwarding to ports this daemon listens on, so a forwarded
-/// page can never reach the daemon itself. Port 0 (not yet bound) is skipped.
-#[cfg(unix)]
-fn deny_daemon_listener_ports<const N: usize>(
-    policy: &mut cmux_tui_core::server::LoopbackForwardPolicy,
-    addresses: [Option<std::net::SocketAddr>; N],
-) {
-    for address in addresses.into_iter().flatten().filter(|address| address.port() != 0) {
-        policy.deny_port(address.port());
-    }
-}
-
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
@@ -2277,8 +2188,7 @@ fn run_server(
     if let Some(term) = args.term {
         surface_options.term = term;
     }
-    surface_options.extra_env.push(("CMUX_TUI_SOCKET".into(), socket_path.display().to_string()));
-    surface_options.extra_env.push(("CMUX_MUX_SOCKET".into(), socket_path.display().to_string()));
+    cmux_tui_core::daemon_env::add_daemon_socket_env(&socket_path, &mut surface_options);
     #[cfg(unix)]
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
@@ -2291,9 +2201,7 @@ fn run_server(
     // `claude` resolves to a shim that adds the session's agent hooks, even
     // under launchers with their own settings and config directory.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
+    claude_wrapper::configure_pane_path(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None
@@ -2369,6 +2277,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    local_owner::install_key_from_fd(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it
     // only to fill unspecified config values before any surface is created.
@@ -2378,6 +2287,7 @@ fn run_server(
     ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     mux.configure_journal_plugin(config.agents.plugin.clone());
+    mux.configure_browser_host(&socket_path);
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
         .map(|listener| cmux_tui_core::provider_management::serve(listener, mux.clone()))
@@ -2398,6 +2308,10 @@ fn run_server(
             return Err(error);
         }
     };
+    // Kept alive until this function returns; dropping it removes the socket.
+    #[cfg(unix)]
+    let _link_entry = link::start_link_entry(args.link_entry, &mux, &socket_path)
+        .inspect_err(|_| mux.shutdown())?;
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -2498,6 +2412,8 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    #[cfg(unix)]
+    cloud_conversations_backend::install(&mux);
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
     // has always left the terminal running unplaced, and clients built
@@ -2852,6 +2768,7 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
+        install_key: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {

@@ -6,8 +6,28 @@ public nonisolated enum SidebarSectionsSetting {
     public static let lookPath = ["sidebar", "sectionLook"]
     public static let topSharePath = ["sidebar", "topBandMaxShare"]
     public static let bottomSharePath = ["sidebar", "bottomBandMaxShare"]
-    public static let scrollPath = ["sidebar", "stickyBandsScroll"]
+    public static let scrollPath = ["sidebar", "pinnedBandsScroll"]
+    /// R87: the key nightly-next builds wrote before the rename, read for
+    /// one release when `sidebar.pinnedBandsScroll` is absent. Remove after it.
+    static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
+    public static let minimalModePath = ["sidebar", "minimalMode"]
+
+    static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(minimalModePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.minimalMode", "Minimal Mode"),
+                          help: SettingsText.keyed("settings.sidebar.minimalMode.help",
+                                                   "Hides the chosen sections until the pointer is over the sidebar."),
+                          kind: .choice([
+                              SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                              SettingChoice(SidebarMinimalMode.bottom.rawValue,
+                                            SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
+                              SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
+                              SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                          ]),
+                          default: .string(SidebarSectionsPreferences.defaults.minimalMode.rawValue),
+                          keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"])
+    }
 
     static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
@@ -40,11 +60,20 @@ public nonisolated enum SidebarSectionsSetting {
             result.topBandMaxShare *= scale
             result.bottomBandMaxShare *= scale
         }
-        if let value = root.value(at: scrollPath) {
+        let scroll = ColumnLayoutSettings.path(root, scrollPath, legacy: legacyScrollPath)
+        if let value = root.value(at: scroll) {
             if let flag = value.boolValue {
-                result.stickyBandsScroll = flag
+                result.pinnedBandsScroll = flag
             } else {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.stickyBandsScroll", message: "expected true or false"))
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: scroll.joined(separator: "."), message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: minimalModePath) {
+            if let text = value.stringValue, let mode = SidebarMinimalMode(rawValue: text) {
+                result.minimalMode = mode
+            } else {
+                let choices = SidebarMinimalMode.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.minimalMode", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: showWorkspaceTabsPath) {

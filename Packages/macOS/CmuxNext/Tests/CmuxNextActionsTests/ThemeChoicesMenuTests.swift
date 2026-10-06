@@ -54,6 +54,17 @@ import Testing
         #expect(ran.first?["theme"]?.stringValue == "Vesper")
     }
 
+    /// A choices row uses the menu's effective context like every other row:
+    /// right-clicking a page shows Browser Theme even while a terminal is
+    /// focused (the page menu implies browserFocused).
+    @Test func choicesRowUsesTheMenusImpliedContext() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("browserTheme") { _ in }
+        registry.context = [.terminalFocused]
+        let menu = registry.makeContextMenu(for: .browserPage, target: ActionTargetRef(kind: .pane, id: "p1"))
+        #expect(try themeItem(menu, registry, "browserTheme").submenu != nil)
+    }
+
     /// Any text reaches the handler (it validates against every Ghostty
     /// theme); the palette and menus offer the known ones.
     @Test func themeArgumentTakesAnyTextWithSuggestions() throws {

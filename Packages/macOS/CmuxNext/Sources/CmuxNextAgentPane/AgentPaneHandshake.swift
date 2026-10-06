@@ -4,27 +4,33 @@ public import Foundation
 /// pane (`webviews/src/agent-session/acpmux`). Everything above it, the
 /// acpmux WebSocket protocol, session state and rendering, is TypeScript.
 ///
-/// The page asks for it with `ready` over the `agentSession` message handler
-/// and connects to `endpoint` with `?token=` itself. Field names match the
-/// TypeScript `AcpmuxHostConfig`; bump ``currentVersion`` for any change a
-/// page of the old version would misread.
+/// The page asks for it with `ready` over the `agentSession` message handler.
+/// The page never gets the daemon's endpoint or either token: the host owns
+/// the socket (``AgentPaneTransport``) and the page talks to it through the
+/// bridge (`transport.open`, `transport.send`, `transport.close`). Field names
+/// match the TypeScript `AcpmuxHostConfig`; bump ``currentVersion`` for any
+/// change a page of the old version would misread.
 public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
-    public static let currentVersion = 1
+    /// 2: the socket moved to the host (`acpmux-bridge`); no endpoint or token.
+    public static let currentVersion = 2
 
     public nonisolated enum Transport: String, Codable, Sendable {
-        /// Direct connection to acpmux's authenticated loopback WebSocket.
-        case acpmuxWebSocket = "acpmux-websocket"
+        /// acpmux through the host's socket and the page bridge.
+        case acpmuxBridge = "acpmux-bridge"
         /// No daemon: the page runs its in-memory mock transcript.
         case mock
     }
 
+    /// The coded fields: everything but ``connection``, which never reaches the page.
+    private enum CodingKeys: String, CodingKey {
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, harness, adopt, surface,
+             linkScheme, sessionMustExist, revealTurn
+    }
+
     public var protocolVersion: Int
     public var transport: Transport
-    /// `ws://127.0.0.1:<port>/` without the token.
-    public var endpoint: String?
-    /// The daemon's bearer token; the page sends it as the `token` query item
-    /// because WKWebView cannot set an Authorization header on a WebSocket.
-    public var token: String?
+    /// The host's socket to open on `transport.open`. Not coded: the page never sees it.
+    public var connection: AcpmuxConnection? = nil
     /// The session this pane shows, if it has one.
     public var sessionId: String?
     /// True for a pane opened as a new chat: the page does not fall back to
@@ -41,6 +47,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The harness a new chat starts on before `prompt` is sent. Pages that
+    /// predate it ignore it (the chat starts on the default harness).
+    public var harness: String?
     /// An outside chat the page resumes on connect. Pages that predate it
     /// ignore it and open an empty chat, so the version stays the same.
     public var adopt: AgentPaneAdopt?
@@ -61,22 +70,19 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// seconds. Handed out once.
     public var revealTurn: String?
 
-    public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
+    public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion
         self.transport = transport
-        self.endpoint = endpoint
-        self.token = token
+        self.connection = connection
         self.sessionId = sessionId
         self.newSession = newSession
     }
 
     public static let mock = AgentPaneHandshake(transport: .mock)
 
-    /// A handshake for a live daemon endpoint.
-    public static func acpmux(_ endpoint: AcpmuxWebEndpoint, sessionId: String?) -> AgentPaneHandshake {
-        AgentPaneHandshake(
-            transport: .acpmuxWebSocket, endpoint: endpoint.url.absoluteString, token: endpoint.token,
-            sessionId: sessionId, newSession: sessionId == nil ? true : nil
-        )
+    /// A handshake for a live daemon: the page gets the bridge transport, the host keeps `connection`.
+    public static func acpmux(_ connection: AcpmuxConnection, sessionId: String?) -> AgentPaneHandshake {
+        AgentPaneHandshake(transport: .acpmuxBridge, connection: connection,
+                           sessionId: sessionId, newSession: sessionId == nil ? true : nil)
     }
 }

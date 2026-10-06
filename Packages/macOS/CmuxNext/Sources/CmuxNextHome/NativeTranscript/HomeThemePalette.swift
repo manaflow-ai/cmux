@@ -13,7 +13,12 @@ enum HomeThemePalette {
             foreground: color(Palette.textPrimary, opaque: true),
             accent: color(accentOverride ?? Palette.textPrimary, opaque: true),
             failure: color(Palette.danger, opaque: true))
-        return HomePalette.themed(theme, active: active)
+        var palette = HomePalette.themed(theme, active: active)
+        // One window background (plans/cmux-next/windows.md): the scene
+        // paints the pane's fill, never a tint of its own, active or not,
+        // unless the user set Home's background (`appearance.surfaces.home`).
+        palette.background = color(Palette.fill(for: .home, default: Palette.paneFill), opaque: false)
+        return palette
     }
 
     private static func color(_ c: NSColor, opaque: Bool) -> HomeColor {

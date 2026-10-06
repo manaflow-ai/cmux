@@ -57,14 +57,17 @@ public final class TasksHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            let background = Palette.contentBackground
-            layer?.backgroundColor = background.cgColor
+            // The glyph knock-out color stays opaque; the page itself
+            // paints the pane's fill (`Palette.paneFill`).
+            let background = (Palette.surfaceOverride(.internalPage) ?? Palette.contentBackground).withAlphaComponent(1)
+            layer?.backgroundColor = nil
             let tokens = themeTokens
             let ansi = tokens.ansi.map { rgb in
                 Self.color(ThemeTokens.readable(rgb, over: tokens.contentBackground, minimum: ThemeTokens.minimumMarkContrast).nsColor)
             }
             return TasksColors(
-                background: Self.color(background), elevated: Self.color(Palette.elevatedBackground),
+                background: Self.color(background), surface: Self.color(Palette.surfaceOverride(.internalPage) ?? Palette.paneFill),
+                surfaceIsOpaque: (Palette.surfaceOverride(.internalPage) ?? Palette.paneFill).alphaComponent >= 1, elevated: Self.color(Palette.elevatedBackground),
                 primary: Self.color(Palette.textPrimary), secondary: Self.color(Palette.textSecondary),
                 tertiary: Self.color(Palette.textTertiary), hover: Self.color(Palette.hoverFill),
                 selection: Self.color(Palette.selectionFill), separator: Self.color(Palette.separator),

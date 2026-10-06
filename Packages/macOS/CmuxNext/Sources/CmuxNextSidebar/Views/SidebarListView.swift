@@ -127,8 +127,7 @@ final class SidebarListView: NSView {
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        applyKeepingViewport(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)),
-                             animated: animated)
+        applyKeepingViewport(displayLayout(), animated: animated)
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
@@ -211,7 +210,8 @@ final class SidebarListView: NSView {
             }
         }
         let pillFrame = activePillFrame(in: layout)
-        let gapFrame = layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) }
+        // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setPill(pillFrame, animated: animate)
         decorations.setGap(gapFrame, animated: animate)
@@ -228,14 +228,14 @@ final class SidebarListView: NSView {
         }
         // Existing rows move, new rows (group expand, insert) appear, and
         // removed rows (group collapse, close) leave faster still.
-        Motion.animate(.move, moves)
-        Motion.animate(.appear) {
+        Motion.animate(.move, in: self, moves)
+        Motion.animate(.appear, in: self) {
             for (view, target) in appearing {
                 view.animator().frame = target
                 view.animator().alphaValue = 1
             }
         }
-        Motion.animate(.disappear, {
+        Motion.animate(.disappear, in: self, {
             for view in leaving {
                 view.animator().alphaValue = 0
                 view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)

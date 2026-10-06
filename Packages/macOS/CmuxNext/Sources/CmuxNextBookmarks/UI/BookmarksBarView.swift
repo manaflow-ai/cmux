@@ -127,7 +127,7 @@ public final class BookmarksBarView: NSView {
 
     public override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.windowBackground.cgColor
+            layer?.backgroundColor = Palette.paneFill.cgColor
             emptyLabel.textColor = Palette.textTertiary
             otherButton.contentTintColor = Palette.textSecondary
             overflow.contentTintColor = Palette.textSecondary

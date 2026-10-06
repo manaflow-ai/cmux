@@ -26,16 +26,29 @@ nonisolated enum SettingsSchemaSamples {
         case .sound, .theme, .fontFamily:
             // Valid names depend on the machine; only the shape is portable.
             return ([], [.number(1), .bool(true), .null])
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            return ([.string(""), .string("https://search.example/?q=%s"), .string("https://search.example/find?q={searchTerms}")],
+                    [.string("https://search.example/"), .string("search.example"), .string("not a url %s"), .number(1)])
         case .url:
             return ([.string(""), .string("https://cmux.com"), .string("example.com/path"), .string("about:blank"), .string("file:///tmp/a.html")],
                     [.string("not a url"), .string("ftp://example.com"), .string("localhost"), .number(1)])
         case .hostList:
             return ([.array([]), .array([.string("localhost"), .string("*.example.com")])],
                     [.string("localhost"), .array([.number(1)])])
+        case .folderList:
+            return ([.array([]), .array([.string("/Users/ada/src"), .string("~/notes")])],
+                    [.string("/Users/ada/src"), .array([.string("relative/path")]), .array([.number(1)])])
         case .timeRange:
             return ([.object(["start": .string("22:00"), "end": .string("07:30")])],
                     [.object(["start": .string("25:00"), "end": .string("07:00")]), .object(["start": .string("22:00")]),
                      .string("22:00-07:00")])
+        case .numberList(let number):
+            let low = number.range.lowerBound, high = number.range.upperBound, span = max(high - low, 1)
+            return ([.array([]), .array([.number(low), .number(high)])],
+                    [.number(low), .array([.number(low - span)]), .array([.number(high + span)]), .array([.string("1")])])
+        case .stringMap:
+            return ([.object([:]), .object(["*": .string("★"), "Work": .string("")])],
+                    [.string("★"), .array([]), .object(["Work": .number(1)])])
         }
     }
 

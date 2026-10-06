@@ -32,7 +32,7 @@ FW_NAME="Chromium Embedded Framework.framework"
 FW_BINARY="Chromium Embedded Framework"
 source "$SCRIPT_DIR/cef-locale-allowlist.sh"
 # Bump when the embedded layout changes so existing app bundles are redone.
-LAYOUT="versioned-3-locale-fallback-allowlist"
+LAYOUT="versioned-3-locale-fallback-allowlist-credits-license"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
@@ -68,7 +68,9 @@ ensure_args=(--optional)
 [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]] && ensure_args=()
 arm_dir=""; x86_dir=""
 if (( want_arm )); then
-  arm_dir="$("$SCRIPT_DIR/ensure-cef.sh" "${ensure_args[@]}")"
+  # `${a[@]+...}`: bash 3.2 (Xcode's /bin/bash) treats an empty array as
+  # unset under `set -u`, so CMUX_NEXT_REQUIRE_CEF=1 failed here.
+  arm_dir="$("$SCRIPT_DIR/ensure-cef.sh" ${ensure_args[@]+"${ensure_args[@]}"})"
 fi
 if (( want_x86 )); then
   # Optional even with CMUX_NEXT_REQUIRE_CEF while the x86_64 engine is new:
@@ -163,6 +165,20 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
     ditto "$cef_dir/$FW_NAME/$item" "$fw/Versions/A/$item"
   done
   prune_cef_locales "$fw/Versions/A/Resources"
+  # Chromium's CREDITS.html (license notices), before signing seals Resources:
+  # the artifact's own file, else the INTERIM stock credits for the pinned
+  # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
+  chromium_version="$(/usr/bin/python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["chromium"])' "$SCRIPT_DIR/cef-manifest.json")"
+  if ! "$SCRIPT_DIR/install-cef-credits.sh" "$cef_dir" "$fw/Versions/A/Resources" "$chromium_version"; then
+    if [[ "${CMUX_NEXT_REQUIRE_CEF:-0}" == "1" ]]; then
+      echo "error: no Chromium CREDITS.html for this CEF; a release must ship it" >&2
+      exit 1
+    fi
+    echo "warning: no Chromium CREDITS.html for this CEF; this dev build ships without it"
+  fi
+  # CEF's own LICENSE.txt (BSD-3-Clause): the artifact's, else the pinned stock
+  # copy (cef-license/README.md). Release gate: bundle-map.json.
+  "$SCRIPT_DIR/install-cef-license.sh" "$cef_dir" "$fw/Versions/A/Resources"
   ln -s A "$fw/Versions/Current"
   for item in "$FW_BINARY" Libraries Resources; do
     ln -s "Versions/Current/$item" "$fw/$item"

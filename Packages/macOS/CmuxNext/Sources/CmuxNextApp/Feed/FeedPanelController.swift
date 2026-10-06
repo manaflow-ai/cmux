@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextFeed
 
-/// The feed panel (`feed.show`, ⌘I; FD8: the list view by default, the inbox
+/// The feed panel (`feed.show`, ⇧⌘I; FD8: the list view by default, the inbox
 /// view by the `feed.layout` tunable) at the top right of the active window.
 /// It shows the `FeedService` mirror; answers and triage go out as intents
 /// with origin user from the panel's own controls.
@@ -52,7 +52,7 @@ final class FeedPanelController {
 
     private func makePanel(model: FeedModel) -> FeedPanel {
         let panel = FeedPanel()
-        panel.contentView = FeedHostView(model: model)
+        panel.contentView = FeedHostView(model: model, floating: true)
         panel.onEscape = { [weak self] in self?.close() }
         return panel
     }

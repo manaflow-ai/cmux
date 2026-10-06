@@ -146,7 +146,7 @@ public final class UpdateIndicatorView: NSView {
         case .checking, .downloading, .installing:
             showsRing = true
             ring.strokeEnd = 0.8
-        case .hidden, .ready, .note:
+        case .hidden, .available, .ready, .note:
             showsRing = false
         }
         let spins = phase.spins

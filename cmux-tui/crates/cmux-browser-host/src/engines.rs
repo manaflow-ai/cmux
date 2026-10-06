@@ -9,7 +9,7 @@
 use crate::cdp::CdpDriver;
 use crate::driver::{Driver, EventSink};
 use crate::protocol::{DriverError, ErrorCode};
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -38,13 +38,120 @@ pub fn chromium_candidates() -> Vec<PathBuf> {
     out
 }
 
+/// The app's provider connection, set by the provider listener.
+#[cfg(unix)]
+pub type ProviderSlot = Arc<std::sync::Mutex<Option<Arc<crate::provider_link::ProviderDriver>>>>;
+
+/// How long a webkit or cef session waits for the app to connect as the
+/// provider (a host the daemon just started on an agent connect, before the
+/// app's link is up).
+pub const PROVIDER_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub struct HostEngines {
     agent_source: Arc<str>,
+    #[cfg(unix)]
+    provider: ProviderSlot,
+    /// Notified after the provider connected or left (with the slot's lock).
+    #[cfg(unix)]
+    provider_changed: Arc<std::sync::Condvar>,
+    #[cfg(unix)]
+    provider_wait: std::time::Duration,
 }
 
 impl HostEngines {
     pub fn new(agent_source: impl Into<Arc<str>>) -> HostEngines {
-        HostEngines { agent_source: agent_source.into() }
+        HostEngines {
+            agent_source: agent_source.into(),
+            #[cfg(unix)]
+            provider: Arc::default(),
+            #[cfg(unix)]
+            provider_changed: Arc::default(),
+            #[cfg(unix)]
+            provider_wait: PROVIDER_WAIT,
+        }
+    }
+
+    /// The wait for a provider (default [`PROVIDER_WAIT`]).
+    #[cfg(unix)]
+    pub fn with_provider_wait(mut self, wait: std::time::Duration) -> HostEngines {
+        self.provider_wait = wait;
+        self
+    }
+
+    /// Where the provider listener puts the app's connection.
+    #[cfg(unix)]
+    pub fn provider_slot(&self) -> ProviderSlot {
+        self.provider.clone()
+    }
+
+    /// Wakes sessions that wait for a provider; call after the slot changed.
+    #[cfg(unix)]
+    pub fn provider_changed(&self) {
+        // Taking the lock orders this after the change a waiter checks.
+        drop(self.provider.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        self.provider_changed.notify_all();
+    }
+
+    #[cfg(unix)]
+    fn provider(
+        &self,
+        engine: &str,
+        events: EventSink,
+        session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
+        // Signal-driven bounded wait: the app may connect right after an
+        // agent connect started this host.
+        let deadline = std::time::Instant::now() + self.provider_wait;
+        let mut slot = self.provider.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let provider = loop {
+            if let Some(provider) =
+                slot.clone().filter(|provider| provider.closed_reason().is_none())
+            {
+                break provider;
+            }
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return Err(unavailable(
+                    engine,
+                    "the cmux app is not connected to the browser host",
+                ));
+            };
+            slot = self
+                .provider_changed
+                .wait_timeout(slot, left)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        };
+        drop(slot);
+        let lease = crate::lease::LeaseCaller {
+            session: session.name.clone(),
+            actor: session.caller.actor.clone(),
+            on_behalf_of: session.caller.on_behalf_of.clone(),
+            origin: session.caller.origin.clone(),
+            label: session.label.clone(),
+            // Host::open refused an unnamed cef/webkit session already.
+            implicit_session: false,
+            engine: engine.to_owned(),
+        };
+        // The session's automation.input events also reach the app (`input` frames).
+        let events = crate::provider_link::tee_inputs(events, &provider, &session.name);
+        let engine = crate::provider_engine::ProviderEngine::new(
+            provider,
+            engine,
+            self.agent_source.clone(),
+            events,
+            lease,
+        )?;
+        Ok(Arc::new(engine))
+    }
+
+    #[cfg(not(unix))]
+    fn provider(
+        &self,
+        engine: &str,
+        _events: EventSink,
+        _session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
+        Err(unavailable(engine, "the cmux app is not connected to the browser host"))
     }
 }
 
@@ -67,15 +174,37 @@ impl Driver for HeadlessDriver {
     fn capabilities(&self) -> Vec<&'static str> {
         self.driver.capabilities()
     }
+
+    // Without these the trait defaults applied: no request filter (every
+    // call under a domain policy failed closed) and no end of session.
+    fn set_request_filter(&self, filter: Option<crate::driver::RequestFilter>) -> bool {
+        self.driver.set_request_filter(filter)
+    }
+
+    fn end_session(&self) {
+        self.driver.end_session();
+    }
+
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<crate::driver::Reply, DriverError> {
+        self.driver.call_reply_announced(method, params, announce)
+    }
 }
 
 impl crate::host::Engines for HostEngines {
-    fn driver(&self, engine: &str, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
+    fn driver(
+        &self,
+        engine: &str,
+        events: EventSink,
+        session: &crate::host::SessionContext,
+    ) -> Result<Arc<dyn Driver>, DriverError> {
         match engine {
             "auto" | "headless" => self.headless(events),
-            "cef" | "webkit" => {
-                Err(unavailable(engine, "the cmux app is not connected to the browser host"))
-            }
+            "cef" | "webkit" => self.provider(engine, events, session),
             other => Err(DriverError::invalid(format!(
                 "engine: expected auto, headless, cef or webkit, got {other:?}"
             ))),
@@ -86,29 +215,108 @@ impl crate::host::Engines for HostEngines {
 impl HostEngines {
     #[cfg(unix)]
     fn headless(&self, events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
-        use crate::cdp::pipe::{HeadlessChromium, HeadlessOptions};
+        use crate::cdp::pipe::HeadlessChromium;
         let Some(binary) = chromium_candidates().into_iter().find(|p| p.is_file()) else {
             return Err(unavailable(
                 "headless",
                 "no Chromium found (set CMUX_BROWSER_HOST_CHROMIUM)",
             ));
         };
-        let browser = HeadlessChromium::launch(&HeadlessOptions {
-            binary,
-            user_data_dir: None,
-            extra_args: Vec::new(),
-        })
-        .map_err(|e| unavailable("headless", &e.to_string()))?;
+        let browser = HeadlessChromium::launch(&headless_options(binary))
+            .map_err(|e| unavailable("headless", &e.to_string()))?;
         let driver = CdpDriver::attach_browser(
             browser.connection().clone(),
             self.agent_source.clone(),
             events,
         )?;
+        // Chromium opens a start tab; it is no session's tab, so the session
+        // starts with none (headless Chromium keeps running without tabs).
+        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+            for tab in tabs {
+                if let Some(target) = tab["targetId"].as_str() {
+                    let _ = driver.call("tabs.close", &json!({"targetId": target}));
+                }
+            }
+        }
         Ok(Arc::new(HeadlessDriver { driver, _browser: browser }))
     }
 
     #[cfg(not(unix))]
     fn headless(&self, _events: EventSink) -> Result<Arc<dyn Driver>, DriverError> {
         Err(unavailable("headless", "headless Chromium over a pipe needs a Unix host"))
+    }
+}
+
+/// Launch options from the environment: `CMUX_BROWSER_HOST_HEADLESS=0` runs
+/// headful (Cloud user tabs), `CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE=0`
+/// lets Chromium throttle background tabs.
+#[cfg(unix)]
+fn headless_options(binary: PathBuf) -> crate::cdp::pipe::HeadlessOptions {
+    let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "0");
+    let mut options = crate::cdp::pipe::HeadlessOptions::new(binary);
+    options.headless = !off("CMUX_BROWSER_HOST_HEADLESS");
+    options.full_rate_background = !off("CMUX_BROWSER_HOST_BACKGROUND_FULL_RATE");
+    options
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod provider_wait_tests {
+    use super::*;
+    use crate::host::{Caller, Host};
+    use serde_json::json;
+    use std::time::{Duration, Instant};
+
+    fn caller() -> Caller {
+        Caller {
+            actor: "uid:501".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+            locality: Default::default(),
+        }
+    }
+
+    /// A host the daemon just started on an agent connect: a webkit session
+    /// opened before the app's provider link is up waits for it (bounded),
+    /// instead of failing at once with engine_unavailable.
+    #[test]
+    fn a_webkit_session_waits_for_the_app_to_connect() {
+        let engines = Arc::new(HostEngines::new(crate::host::agent_bundle()));
+        let host = Host::new(engines.clone(), "/tmp");
+        let opened = std::thread::spawn(move || {
+            host.dispatch(
+                &caller(),
+                "browser.repl.open",
+                &json!({"session": "w", "engine": "webkit"}),
+            )
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        let (app, host_end) = std::os::unix::net::UnixStream::pair().unwrap();
+        let driver = crate::provider_link::ProviderDriver::start(
+            host_end.try_clone().unwrap(),
+            host_end,
+            crate::driver::discard_events(),
+            Vec::new(),
+        )
+        .unwrap();
+        *engines.provider_slot().lock().unwrap() = Some(driver);
+        engines.provider_changed();
+        let result = opened.join().unwrap();
+        assert!(result.is_ok(), "the session opened once the app connected: {result:?}");
+        drop(app);
+    }
+
+    #[test]
+    fn without_an_app_the_session_fails_after_the_wait() {
+        let wait = Duration::from_millis(150);
+        let engines =
+            Arc::new(HostEngines::new(crate::host::agent_bundle()).with_provider_wait(wait));
+        let host = Host::new(engines, "/tmp");
+        let started = Instant::now();
+        let error = host
+            .dispatch(&caller(), "browser.repl.open", &json!({"session": "w", "engine": "webkit"}))
+            .unwrap_err();
+        assert!(started.elapsed() >= wait, "it waited");
+        assert!(error.message.contains("engine_unavailable"), "{error:?}");
     }
 }

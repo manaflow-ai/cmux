@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # Installs the cmux-tui binary into an app bundle as Contents/Resources/bin/cmux, the
 # cmux CLI, with bin/cmux-tui and bin/acpmux as relative symlinks to it (the binary
-# picks its program from argv[0]; plans/cmux-next/cli.md). The app carries the exact
-# client that talks to cmux Cloud machines, so the Machines panel needs no separate install.
+# picks its program from argv[0]; plans/cmux-next/cli.md). When the manifest publishes
+# cmux-tui-app-host-<target>, the app host goes to Contents/Resources/bin/cmux-app-host,
+# where the daemon looks for it; cmux-tui-cloud-server-<target> (the first-party Cloud
+# app server, cmux/cloud) goes beside it as bin/cmux-cloud. The app carries the exact client that talks to cmux
+# Cloud machines, so the Machines panel needs no separate install.
+# cmux-tui-browser-host-<target> goes beside bin/cmux as bin/cmux-browser-host, where
+# the daemon looks for it (the sibling of its own executable), but only once
+# scripts/cmux-next/notices/bundle-map.json maps that path: release and nightly
+# bundles fail check_bundle_notices.py on an unmapped Mach-O, and the map's test
+# requires its THIRD_PARTY_LICENSES.md section. Until then it is not installed.
 #
 # The build comes from the artifacts manifest the cmux-tui-artifacts workflow publishes
 # (rolling `latest` by default; a commit-addressed manifest pins one build). Both
@@ -160,9 +168,29 @@ check_acpmux() {
   echo "warning: installed binary does not run acpmux through bin/acpmux ($version); the agent chat pane falls back to acpmux on PATH" >&2
 }
 
+# The companions this bundle may carry: the browser host only once its license
+# notices are mapped (see the header).
+COMPANIONS=(cmux-app-host cmux-cloud)
+BUNDLE_MAP="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/notices/bundle-map.json"
+if python3 -c 'import json,sys; sys.exit(0 if any(e.get("path") == "Contents/Resources/bin/cmux-browser-host" for e in json.load(open(sys.argv[1]))["entries"]) else 1)' "$BUNDLE_MAP" 2>/dev/null; then
+  COMPANIONS+=(cmux-browser-host)
+  SHIP_BROWSER_HOST=1
+else
+  SHIP_BROWSER_HOST=0
+  echo "note: bin/cmux-browser-host is not installed: $BUNDLE_MAP does not map it (no license notices yet)"
+fi
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install_binary "$CMUX_TUI_CLIENT_LOCAL"
+  # A local client brings its app host and app servers when they sit beside it.
+  rm -f "$DEST_DIR/cmux-browser-host"
+  for companion in "${COMPANIONS[@]}"; do
+    rm -f "$DEST_DIR/$companion"
+    if [[ -f "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" ]]; then
+      install -m 755 "$(dirname "$CMUX_TUI_CLIENT_LOCAL")/$companion" "$DEST_DIR/$companion"
+    fi
+  done
   verify_probe
   check_acpmux
   echo "Installed local cmux-tui client at $DEST"
@@ -257,6 +285,45 @@ case "$ARCH" in
     ;;
 esac
 install_binary "$CLIENT"
+# The app host (apps-v1) and the first-party app servers ship from the same build when
+# the manifest has them. Older builds have none; then none is bundled (the app reports
+# that it needs a newer cmux-tui, and the supervisor answers apps.server_missing).
+manifest_has() {
+  python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2]) else 1)' "$MANIFEST" "$1"
+}
+# install_companion <artifact prefix> <installed name>: both darwin slices, lipo'd
+# like the client, sha256-verified by fetch_slice.
+install_companion() {
+  local prefix="$1" name="$2" dest="$DEST_DIR/$2" binary arm x64 arch
+  if ! { manifest_has "$prefix-aarch64-apple-darwin" && manifest_has "$prefix-x86_64-apple-darwin"; }; then
+    rm -f "$dest"
+    echo "note: cmux-tui ${COMMIT:0:10} publishes no $name"
+    return 0
+  fi
+  case "$ARCH" in
+    arm64) binary="$(fetch_slice "$prefix-aarch64-apple-darwin")" ;;
+    x86_64) binary="$(fetch_slice "$prefix-x86_64-apple-darwin")" ;;
+    universal)
+      arm="$(fetch_slice "$prefix-aarch64-apple-darwin")"
+      x64="$(fetch_slice "$prefix-x86_64-apple-darwin")"
+      binary="$BUILD_DIR/$name-universal"
+      if [[ ! -f "$binary" ]]; then
+        lipo -create "$arm" "$x64" -output "$binary.tmp"
+        mv -f "$binary.tmp" "$binary"
+      fi
+      ;;
+  esac
+  rm -f "$dest"
+  install -m 755 "$binary" "$dest"
+  for arch in "${VERIFY_ARCHS[@]}"; do lipo "$dest" -verify_arch "$arch"; done
+}
+install_companion cmux-tui-app-host cmux-app-host
+install_companion cmux-tui-cloud-server cmux-cloud
+if [[ "$SHIP_BROWSER_HOST" == 1 ]]; then
+  install_companion cmux-tui-browser-host cmux-browser-host
+else
+  rm -f "$DEST_DIR/cmux-browser-host"
+fi
 # One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
 # arch after -verify_arch and read the second as an extra input file, failing
 # with "requires exactly one input file".

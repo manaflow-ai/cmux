@@ -267,3 +267,75 @@ async fn permission_groups_fixture_deny_without_option_records_cancellation() {
         "cancelled"
     );
 }
+
+/// A Web client of `hub`; the fake harness's `normal` mode counts as asking.
+async fn web_client(hub: &Arc<Hub>) -> TestClient {
+    hub.config.write().await.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        hub.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Web,
+    ));
+    TestClient { tx: in_tx, rx: out_rx, next: 0 }
+}
+
+/// ACP-REMOTE-GUARD (f): the chat allowance the local user granted never
+/// answers in a turn a Web prompt started; it still answers a local turn.
+#[tokio::test]
+async fn the_chat_allowance_never_answers_in_a_web_turn() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "chat-web").await;
+    let mut r = connect(&hub).await;
+    let mut web = web_client(&hub).await;
+    // The local user grants "allow for this chat".
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    // A local turn: the same permission is auto-approved.
+    let autos = |hub: &Arc<Hub>| find(&hub.events(&id, 0, 5000).unwrap(), "permission_auto").len();
+    let before = autos(&hub);
+    c.request(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await.unwrap();
+    assert_eq!(autos(&hub), before + 1, "the local turn used the allowance");
+    // A Web turn: it asks.
+    let wid = web.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    assert_eq!(autos(&hub), before + 1, "no auto-approval in the Web turn");
+    r.request(RESPOND, decision(&id, &g, "local-answer", "allow_once")).await.unwrap();
+    assert!(web.response(wid).await.0.is_ok());
+}
+
+/// ACP-REMOTE-GUARD (f): a Web answer allows once or denies once; an
+/// always option or the chat allowance is a lasting grant and is refused.
+#[tokio::test]
+async fn a_web_answer_never_makes_a_lasting_grant() {
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "lasting").await;
+    let mut web = web_client(&hub).await;
+    let mut r = connect(&hub).await;
+    // Only an allow_always option is offered.
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: unsafe-option", None)).await;
+    let g = ready(&mut c).await;
+    let item = &g["items"][0];
+    let always = json!({"sessionId": id, "permissionId": item["permissionId"],
+        "optionId": item["request"]["options"][0]["optionId"]});
+    assert_eq!(item["request"]["options"][0]["kind"], "allow_always", "{item}");
+    let e = web.request(method::MUX_PERMISSION_RESPOND, always.clone()).await.unwrap_err();
+    assert!(e.contains("lasting grant"), "{e}");
+    // The unix socket may still choose it.
+    r.request(method::MUX_PERMISSION_RESPOND, always).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    // "Allow for this chat" from the Web is refused; allow once is not.
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
+    let g = ready(&mut c).await;
+    let e = web.request(RESPOND, decision(&id, &g, "web-chat", "allow_chat")).await.unwrap_err();
+    assert!(e.contains("lasting grant"), "{e}");
+    let state = r.request(GROUPS, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(state["chatAllowance"]["active"], false, "{state}");
+    web.request(RESPOND, decision(&id, &g, "web-once", "allow_once")).await.unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+}

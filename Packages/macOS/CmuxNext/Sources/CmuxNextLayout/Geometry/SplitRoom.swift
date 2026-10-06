@@ -44,15 +44,17 @@ public nonisolated enum SplitRoom {
             return fits(need, in: viewport) ? .split : .refused(.notEnoughRoom)
         case let .columns(columns):
             guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .split }
-            // The column's real frame: a sticky column is capped, docked
-            // strip columns are shares of the strip (sticky-column.md S3, S4).
+            // The column's real frame: a docked column is capped, docked
+            // strip columns are shares of the strip (dock-column.md S3, S4).
             let geometry = ScreenGeometry.compute(layout, viewport: viewport, style: style, scale: 2)
             // A band or a strip that a band shortened is not the viewport's height.
-            let frame = geometry.columns[columns[index].id]
+            // In a column of rows the split stays inside the pane's row.
+            let row = columns[index].hasRows ? columns[index].row(containing: pane) : nil
+            let frame = row.flatMap { geometry.rowStacks[columns[index].id]?.frame(of: $0.id) } ?? geometry.columns[columns[index].id]
             let container = CGSize(width: frame?.width ?? viewport.width, height: frame?.height ?? viewport.height)
-            let need = minimumSize(splitting: pane, axis: axis, in: columns[index].root, removing: removing, style: style)
+            let need = minimumSize(splitting: pane, axis: axis, in: row?.root ?? columns[index].root, removing: removing, style: style)
             if fits(need, in: container) { return .split }
-            // A sticky column never grows a neighbor column.
+            // A docked column never grows a neighbor column.
             if geometry.fixedPanes.contains(pane) { return .refused(.notEnoughRoom) }
             if axis == .horizontal, fits(style.minimumPaneSize, in: CGSize(width: max(1, viewport.width - style.stripGap * 2), height: viewport.height)) {
                 return .newColumn

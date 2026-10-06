@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Context;
 use cmux_conversation::{
-    ConversationHead, CreateRequest, Message, Op, OpRequest, Participant, Reject, Summary,
+    ConversationHead, CreateRequest, Message, Op, OpRequest, Origin, Participant, Reject, Summary,
     encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -64,6 +64,9 @@ pub(crate) struct OpResult {
     pub seq: Option<u64>,
     /// The wire change object (`conversation-changed.change`).
     pub change: Value,
+    /// `remote` for an op a paired install committed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Origin>,
 }
 
 /// A committed or replayed `conversation-op`.
@@ -342,6 +345,11 @@ impl ConversationStore {
         load_page(&transaction, conversation, before_seq, limit)
     }
 
+    /// The head of `conversation`, or `None` when it does not exist.
+    pub(crate) fn head(&mut self, conversation: &str) -> anyhow::Result<Option<ConversationHead>> {
+        load_head(&self.connection, conversation)
+    }
+
     /// Validate a typing indicator. Typing is never stored.
     pub(crate) fn check_typing(&mut self, conversation: &str, actor: &str) -> anyhow::Result<()> {
         let head = load_head(&self.connection, conversation)?
@@ -359,82 +367,134 @@ impl ConversationStore {
         actor: &str,
         op: &Op,
     ) -> anyhow::Result<OpOutcome> {
-        validate_idempotency_key(idempotency_key)?;
-        let fingerprint = fingerprint(&json!({"actor": actor, "op": op}))?;
-        let now_ms = crate::workspace_registry::unix_epoch_ms()?;
-        let new_message_id = if op.is_send() { new_id("msg_", now_ms)? } else { String::new() };
-        let now = format_rfc3339_millis(now_ms);
         let transaction =
             self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let head = load_head(&transaction, conversation)?
-            .ok_or_else(|| rejected(Reject::UnknownConversation))?;
-        let existing: Option<(String, String)> = transaction
-            .query_row(
-                "SELECT fingerprint, result_json FROM op_ledger_v2
-                 WHERE conversation = ?1 AND actor = ?2 AND idempotency_key = ?3",
-                params![conversation, actor, idempotency_key],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()?;
-        if let Some((stored, result)) = existing {
-            if stored != fingerprint {
-                return Err(rejected(Reject::IdempotencyConflict));
-            }
-            let result = serde_json::from_str(&result).context("conversation ledger is corrupt")?;
-            return Ok(OpOutcome { result, replayed: true });
-        }
-        let target = match op.target_message_id() {
-            Some(id) => load_message_by_id(&transaction, id)?,
-            None => None,
-        };
-        let reply_target = match op.reply_to() {
-            Some(reply_to) => load_message_by_id(&transaction, &reply_to.message_id)?,
-            None => None,
-        };
-        let last_message = load_message_by_seq(&transaction, conversation, head.last_seq)?;
-        let commit = cmux_conversation::apply(
-            &head,
-            &OpRequest {
-                actor,
-                idempotency_key,
-                op,
-                now: &now,
-                new_message_id: &new_message_id,
-                target: target.as_ref(),
-                reply_target: reply_target.as_ref(),
-                last_message: last_message.as_ref(),
-            },
-        )
-        .map_err(rejected)?;
-        if let Op::MessageSend { parts, .. } = op {
-            // After every reducer rule (the conformance corpus order), over the
-            // head's loop-guard counters (no row window to fill with work cards).
-            cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
-        }
-        write_head(&transaction, &commit.head)?;
-        if let Some(message) = &commit.message {
-            write_message(&transaction, message)?;
-        }
-        let result = OpResult {
-            rev: commit.head.rev,
-            seq: commit.message.as_ref().map(|message| message.seq),
-            change: serde_json::to_value(&commit.change)?,
-        };
-        transaction.execute(
-            "INSERT INTO op_ledger_v2(conversation, actor, idempotency_key, fingerprint,
-                                      result_json)
-             VALUES(?1, ?2, ?3, ?4, ?5)",
-            params![
-                conversation,
-                actor,
-                idempotency_key,
-                fingerprint,
-                serde_json::to_string(&result)?,
-            ],
-        )?;
+        let outcome = apply_op_in(&transaction, conversation, idempotency_key, actor, op)?;
         transaction.commit()?;
-        Ok(OpOutcome { result, replayed: false })
+        Ok(outcome)
     }
+
+    /// Apply every op in one transaction: all commit or none does (pairing a
+    /// device into every conversation of its person).
+    pub(crate) fn apply_ops_atomically(
+        &mut self,
+        ops: &[(String, String, String, Op)],
+    ) -> anyhow::Result<Vec<OpOutcome>> {
+        let transaction =
+            self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut outcomes = Vec::with_capacity(ops.len());
+        for (conversation, idempotency_key, actor, op) in ops {
+            outcomes.push(apply_op_in(&transaction, conversation, idempotency_key, actor, op)?);
+        }
+        transaction.commit()?;
+        Ok(outcomes)
+    }
+}
+
+/// One op inside `transaction`: ledger check, reducer, head and message
+/// writes, ledger row. The caller commits.
+fn apply_op_in(
+    transaction: &Transaction<'_>,
+    conversation: &str,
+    idempotency_key: &str,
+    actor: &str,
+    op: &Op,
+) -> anyhow::Result<OpOutcome> {
+    validate_idempotency_key(idempotency_key)?;
+    let fingerprint = fingerprint(&json!({"actor": actor, "op": op}))?;
+    let now_ms = crate::workspace_registry::unix_epoch_ms()?;
+    let new_message_id = if op.is_send() { new_id("msg_", now_ms)? } else { String::new() };
+    let now = format_rfc3339_millis(now_ms);
+    let head = load_head(transaction, conversation)?
+        .ok_or_else(|| rejected(Reject::UnknownConversation))?;
+    let existing: Option<(String, String)> = transaction
+        .query_row(
+            "SELECT fingerprint, result_json FROM op_ledger_v2
+             WHERE conversation = ?1 AND actor = ?2 AND idempotency_key = ?3",
+            params![conversation, actor, idempotency_key],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    if let Some((stored, result)) = existing {
+        if stored != fingerprint {
+            return Err(rejected(Reject::IdempotencyConflict));
+        }
+        let result = serde_json::from_str(&result).context("conversation ledger is corrupt")?;
+        return Ok(OpOutcome { result, replayed: true });
+    }
+    let target = match op.target_message_id() {
+        Some(id) => load_message_by_id(transaction, id)?,
+        None => None,
+    };
+    let reply_target = match op.reply_to() {
+        Some(reply_to) => load_message_by_id(transaction, &reply_to.message_id)?,
+        None => None,
+    };
+    let last_message = load_message_by_seq(transaction, conversation, head.last_seq)?;
+    let mut commit = cmux_conversation::apply(
+        &head,
+        &OpRequest {
+            actor,
+            idempotency_key,
+            op,
+            now: &now,
+            new_message_id: &new_message_id,
+            target: target.as_ref(),
+            reply_target: reply_target.as_ref(),
+            last_message: last_message.as_ref(),
+        },
+    )
+    .map_err(rejected)?;
+    if let Op::MessageSend { parts, .. } = op {
+        // After every reducer rule (the conformance corpus order), over the
+        // head's loop-guard counters (no row window to fill with work cards).
+        cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
+    }
+    let origin = stamp_origin(&mut commit, actor, op);
+    write_head(transaction, &commit.head)?;
+    if let Some(message) = &commit.message {
+        write_message(transaction, message)?;
+    }
+    let result = OpResult {
+        rev: commit.head.rev,
+        seq: commit.message.as_ref().map(|message| message.seq),
+        change: serde_json::to_value(&commit.change)?,
+        origin,
+    };
+    transaction.execute(
+        "INSERT INTO op_ledger_v2(conversation, actor, idempotency_key, fingerprint,
+                                  result_json)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![
+            conversation,
+            actor,
+            idempotency_key,
+            fingerprint,
+            serde_json::to_string(&result)?,
+        ],
+    )?;
+    Ok(OpOutcome { result, replayed: false })
+}
+
+/// The owner stamps the origin of an op from its actor, never from the
+/// request: every op of a `remote_<install>` actor is remote on its ledger
+/// row, and the message it sends is remote (server-remote-conversations.md
+/// section 5).
+fn stamp_origin(commit: &mut cmux_conversation::Commit, actor: &str, op: &Op) -> Option<Origin> {
+    let install = actor.strip_prefix("remote_")?;
+    let origin = Origin::Remote { install: install.to_string() };
+    // Only the message a device sends is remote. A reaction, edit or retract
+    // changes someone's message (maybe a local one): its origin stays.
+    if !op.is_send() {
+        return Some(origin);
+    }
+    if let Some(message) = commit.message.as_mut() {
+        message.origin = Some(origin.clone());
+    }
+    if let cmux_conversation::Change::Message { message } = &mut commit.change {
+        message.origin = Some(origin.clone());
+    }
+    Some(origin)
 }
 
 fn validate_idempotency_key(key: &str) -> anyhow::Result<()> {
@@ -660,6 +720,8 @@ pub(crate) struct ConversationHost {
     pub(crate) publish: Mutex<()>,
     /// The participant each connection bound with an agent token (memory only).
     pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
+    /// Remote-relay peers, pairing records and revocation limits.
+    pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
 
 #[cfg(test)]
@@ -675,6 +737,7 @@ mod tests {
                 display_name: "Me".to_string(),
                 agent_class: None,
                 acp_session: None,
+                person: None,
             },
             Participant {
                 id: "agent_mux".to_string(),
@@ -682,6 +745,7 @@ mod tests {
                 display_name: "mux".to_string(),
                 agent_class: Some(cmux_conversation::AgentClass::Mux),
                 acp_session: Some("mux".to_string()),
+                person: None,
             },
         ]
     }

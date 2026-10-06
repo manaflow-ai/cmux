@@ -70,7 +70,7 @@ final class AppOnboardingServices: OnboardingServices {
             // Both through the validated `setSetting`, as the Settings window
             // and the palette write them.
             if themeName != current {
-                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string))
+                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string), by: .user)
             }
             // Compact applies when the file has no density (`SettingsApplier`).
             let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
@@ -80,7 +80,7 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func scanAgentProjects() async -> [AgentProject] {
-        await Task.detached { AgentProjectScan.live().run() }.value
+        await Task.detached { RecentProjectScan.live().run() }.value
     }
 
     func chooseFolder() async -> URL? {

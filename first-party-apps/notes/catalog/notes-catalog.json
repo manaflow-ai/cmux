@@ -17,7 +17,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes new-note",
+        "path": "new-note",
         "visible": true
       },
       "mcp": {
@@ -57,7 +57,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/notes capture",
+        "path": "capture",
         "visible": true
       },
       "mcp": {
@@ -101,7 +101,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes list",
+        "path": "list",
         "visible": true
       },
       "mcp": {
@@ -133,7 +133,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/notes read",
+        "path": "read",
         "visible": true
       },
       "mcp": {
@@ -175,7 +175,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes create",
+        "path": "create",
         "visible": true
       },
       "mcp": {
@@ -215,7 +215,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/notes append",
+        "path": "append",
         "visible": true
       },
       "mcp": {
@@ -253,7 +253,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/notes search",
+        "path": "search",
         "visible": true
       },
       "mcp": {
@@ -284,7 +284,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes export",
+        "path": "export",
         "visible": true
       },
       "mcp": {
@@ -314,7 +314,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes import",
+        "path": "import",
         "visible": true
       },
       "mcp": {
@@ -350,7 +350,7 @@
         ]
       },
       "cli": {
-        "path": "apps run cmux/notes open",
+        "path": "open",
         "visible": true
       },
       "mcp": {
@@ -376,7 +376,7 @@
         "required": []
       },
       "cli": {
-        "path": "apps run cmux/notes cycle-variant",
+        "path": "cycle-variant",
         "visible": false
       },
       "mcp": {

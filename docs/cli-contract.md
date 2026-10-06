@@ -47,6 +47,26 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+`--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
+`forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
+`/tmp/cmux-debug-<tag>.sock` is the app control socket: pass it with
+`--app-socket` to an app verb (`cmux --app-socket <path> app identify`).
+To call one app control method of a DEV or tagged build (for example a
+`debug.*` read), use `app call`:
+
+```text
+cmux --app-socket /tmp/cmux-debug-<tag>.sock app call debug.surfaces '{}'
+```
+
+`app call METHOD [JSON_OBJECT]` first asks the app `system.identify` and
+refuses (exit 1, `app.call_debug_only`) any app that is not a debug build
+(`com.cmuxterm.app.debug[.<tag>]`). The params are sent as given, with the
+CLI's `origin` (`cli` or `script`) over any `origin` in the JSON, so
+person-only operations stay refused. JSON that is not one object is a usage
+error (exit 2); the app's own error passes through with its code (exit 1).
+Inside a tagged app's terminal, or through `CMUX_TAG=<tag>
+scripts/cmux-debug-cli.sh`, the socket is found without `--app-socket`.
+
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
 finds (see [Discovery](#discovery)), so a script that lists and then closes
@@ -419,12 +439,18 @@ cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
 cmux settings get [<path>]
-cmux settings set <path> <value>
-cmux settings unset <path>
+cmux settings set <path> <value> [--confirm]
+cmux settings reset <path> [--confirm]
+cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
+`unset` is an alias of `reset`. A key only the person may change answers
+`setting_user_only` (exit 1) with a hint. `--confirm` asks the person at the
+Mac on a native sheet and waits for the answer with no client deadline; a
+declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
+`cmux settings set <path> -- --confirm` sets the string "--confirm".
 `events` streams JSON lines until interrupted.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or

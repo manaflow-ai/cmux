@@ -39,6 +39,7 @@
     "main": "dist/main.js"
   },
   "catalog": "catalog/inbox-catalog.json",
+  "cli": { "name": "inbox" },
   "implements": {
     "cmux.section/1": {
       "export": "renderInbox",

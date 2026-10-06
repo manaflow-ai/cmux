@@ -132,6 +132,52 @@ session.delete_window_record("install-a", "window-1", Some(record.value.revision
 # }
 ```
 
+Home: `Session::ensure_home` returns the session's one home workspace
+(`workspace-kind-v1`; created on the first call, `replayed` after that).
+A connection that calls `ConnectedClient::declare_capabilities` with
+`CONVERSATION_TABS_CAPABILITY` reads a conversation tab as
+`TabContentKind::Conversation` (its content ID is a `Browser` ID); any other
+connection reads it as `Browser` in `session.snapshot` and `session.events`
+alike. The raw `conversation-*` and `new-conversation-tab` commands return
+typed results (`ConversationSummary`, `ConversationMessage`,
+`ConversationChange`, ...), generated from spec/sdk-schema.json. Their
+discriminators (part `type`, change `kind`, participant `kind`, reaction
+kinds) are strings with documented known values, and these objects keep
+unknown fields in `additional`, so a newer daemon's new variant decodes.
+
+```rust,no_run
+use cmux::{CONVERSATION_TABS_CAPABILITY, Selector};
+# fn home(session: cmux::Session) -> cmux::Result<()> {
+session.connected_client(Selector::current()).declare_capabilities([CONVERSATION_TABS_CAPABILITY])?;
+let home = session.ensure_home()?.resource;
+# let _ = home;
+# Ok(())
+# }
+```
+
+Personal workspace groups and the personal sidebar order have typed calls:
+`Session::workspace_groups`, `create_workspace_group`, `update_workspace_group`,
+`move_workspace_group`, `delete_workspace_group`, `workspace_placements`, and
+`Workspace::place` (`group: Update::Set(id)` puts the workspace into a group,
+`Update::Clear` ungroups it, `index` is its final position). Group ids are
+daemon state ids (`grp_…`); a placement names its workspace by session and
+durable reference, plus `workspace_id` when it is a live workspace of this
+session. The same snapshots arrive on `session.events` as `state_upsert`
+changes of `workspace_group` and `workspace_placement`.
+
+```rust,no_run
+use cmux::{Update, WorkspaceGroupCreateOptions, WorkspacePlaceOptions};
+# fn groups(session: cmux::Session) -> cmux::Result<()> {
+let group = session.create_workspace_group(WorkspaceGroupCreateOptions::new("Work"))?.value;
+let place = WorkspacePlaceOptions { group: Update::Set(group.id.clone()), index: Some(0) };
+session.current_workspace().place(place)?;
+for placement in session.workspace_placements()? {
+    println!("{} {:?}", placement.index, placement.group_id);
+}
+# Ok(())
+# }
+```
+
 All eight creation option types expose `correlation_key`. Values contain 1 to
 128 UTF-8 bytes and remain stable across creation attempts.
 

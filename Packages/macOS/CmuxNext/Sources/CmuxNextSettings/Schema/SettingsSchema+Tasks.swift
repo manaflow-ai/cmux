@@ -1,6 +1,7 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum TaskSettingsSchema {
     /// The Tasks pane (plans/cmux-next/tasks.md section 9).
-    static var tasks: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.tasks", "Tasks")
         return [
             SettingDescriptor(

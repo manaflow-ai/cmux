@@ -77,6 +77,7 @@ from .models import (
     FrontendProjectionSnapshot,
     JsonObject,
     LayoutColumn,
+    LayoutColumnDock,
     LayoutDocument,
     LayoutLeaf,
     LayoutNode,
@@ -560,6 +561,20 @@ def _size(value: Any) -> Size:
     )
 
 
+def _layout_column_dock(value: Any) -> Optional[LayoutColumnDock]:
+    """An omitted or null flag reads as None (the column scrolls)."""
+    if value is None:
+        return None
+    dock = _mapping(value, "layout column dock")
+    _strict_object(dock, ("edge", "mode"), "layout column dock")
+    edge, mode = dock.get("edge"), dock.get("mode")
+    if edge not in ("left", "right", "top", "bottom"):
+        raise ProtocolError(f"layout column dock edge {edge!r} is not known")
+    if mode not in ("docked", "overlay"):
+        raise ProtocolError(f"layout column dock mode {mode!r} is not known")
+    return LayoutColumnDock(edge, mode)
+
+
 def _layout_node(value: Any) -> LayoutNode:
     payload = _mapping(value, "layout node")
     kind = _required_string(payload, "kind")
@@ -642,9 +657,12 @@ def _layout_node(value: Any) -> LayoutNode:
             column = _mapping(value, "layout column")
             _strict_object(
                 column,
-                ("column_id", "width", "root"),
+                ("column_id", "width", "root", "dock", "sticky"),
                 "layout column",
             )
+            # `sticky` is the pre-R87 name of `dock`: a replayed or older
+            # result still decodes; `dock` wins when both are present.
+            dock = column["dock"] if "dock" in column else column.get("sticky")
             width = _required_number(column, "width")
             if not 0.1 <= width <= 1:
                 raise ProtocolError(
@@ -655,6 +673,7 @@ def _layout_node(value: Any) -> LayoutNode:
                     _required_id(column, ("column_id",), SplitId),
                     width,
                     _layout_node(column.get("root")),
+                    _layout_column_dock(dock),
                 )
             )
         base_width = _required_number(payload, "base_width")
@@ -4034,7 +4053,7 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
         self,
         column: str,
         *,
-        sticky: Optional[bool] = None,
+        dock: Optional[bool] = None,
         edge: Optional[str] = None,
         mode: Optional[str] = None,
         width: Optional[float] = None,
@@ -4043,12 +4062,12 @@ class Screen(_Handle[ScreenId, ScreenSnapshot]):
     ) -> MutationResult["Screen"]:
         """Pin, unpin, or resize one viewport column (``column.update``).
 
-        ``column`` is the column's split ID. Pass ``sticky``, ``width``, or
-        both; ``edge`` ("left" or "right") and ``mode`` ("docked" or
-        "overlay") apply only with ``sticky=True``.
+        ``column`` is the column's split ID. Pass ``dock``, ``width``, or
+        both; ``edge`` ("left", "right", "top" or "bottom") and ``mode``
+        ("docked" or "overlay") apply only with ``dock=True``.
         """
         params: Dict[str, Any] = {**self._params(), "column": column}
-        for name, value in (("sticky", sticky), ("edge", edge), ("mode", mode), ("width", width)):
+        for name, value in (("dock", dock), ("edge", edge), ("mode", mode), ("width", width)):
             if value is not None:
                 params[name] = value
         return self._client._mutation_handle(

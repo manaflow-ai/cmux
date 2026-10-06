@@ -5,7 +5,7 @@ import Testing
 
 @Suite struct ControlRouterTests {
     func makeRouter(_ executor: RecordingExecutor = RecordingExecutor(), settings: (any ControlSettingsStore)? = nil) -> ControlRouter {
-        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings)
+        let router = ControlRouter(identity: testIdentity(), executor: executor, settings: settings, configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         return router
     }

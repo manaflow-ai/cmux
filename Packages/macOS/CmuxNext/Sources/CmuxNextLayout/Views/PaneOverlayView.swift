@@ -30,6 +30,7 @@ final class PaneOverlayView: NSView {
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
     private var headerHeight: CGFloat = 0
+    private var footerHeight: CGFloat = 0
     private var focusRing = FocusRingSettings()
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
@@ -92,11 +93,13 @@ final class PaneOverlayView: NSView {
         applyColors()
     }
 
-    func setShape(padding: CGFloat, cornerRadius: CGFloat, headerHeight: CGFloat) {
-        guard padding != self.padding || cornerRadius != self.cornerRadius || headerHeight != self.headerHeight else { return }
+    func setShape(padding: CGFloat, cornerRadius: CGFloat, headerHeight: CGFloat, footerHeight: CGFloat = 0) {
+        guard padding != self.padding || cornerRadius != self.cornerRadius || headerHeight != self.headerHeight
+            || footerHeight != self.footerHeight else { return }
         self.padding = padding
         self.cornerRadius = cornerRadius
         self.headerHeight = headerHeight
+        self.footerHeight = footerHeight
         layoutLayers()
     }
 
@@ -118,7 +121,7 @@ final class PaneOverlayView: NSView {
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
         let padded = PaneChromeGeometry.contentRect(forCell: bounds, style: style)
-        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight)
+        let rect = PaneChromeGeometry.roundedRect(inPadded: padded, headerHeight: headerHeight, footerHeight: footerHeight)
         let radius = PaneChromeGeometry.cornerRadius(for: rect, style: style)
         let ringRadius = focusRing.cornerRadius.map { min($0, min(rect.width, rect.height) / 2) } ?? radius
         CATransaction.begin()
@@ -133,11 +136,13 @@ final class PaneOverlayView: NSView {
         }
         dimLayer.frame = padded
         dimLayer.cornerRadius = radius
-        // With a header, only the content area's (bottom) corners round.
-        // The view is flipped, so its layers are too: maxY is the bottom.
-        dimLayer.maskedCorners = headerHeight > 0
-            ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+        // The dim covers the whole padded rect: only the corners the content
+        // area shares with it round (a header squares the top ones, a footer
+        // the bottom ones). The view is flipped, so maxY is the bottom.
+        var corners: CACornerMask = []
+        if headerHeight <= 0 { corners.formUnion([.layerMinXMinYCorner, .layerMaxXMinYCorner]) }
+        if footerHeight <= 0 { corners.formUnion([.layerMinXMaxYCorner, .layerMaxXMaxYCorner]) }
+        dimLayer.maskedCorners = corners
         glow.frame = glowClip.bounds
         glow.cornerRadius = ringRadius
         border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
@@ -150,7 +155,7 @@ final class PaneOverlayView: NSView {
 
     /// `showsRing`: this pane is focused and the ring should mark it.
     /// `attention`: the pane's unread mark, nil when none.
-    /// Hides the overlay inside `rects` (its own coordinates): a sticky
+    /// Hides the overlay inside `rects` (its own coordinates): a docked
     /// column covering this strip pane. Empty removes the mask.
     func setExcluded(_ rects: [CGRect]) {
         let rects = rects.map { $0.intersection(bounds) }.filter { !$0.isNull && $0.width > 0.5 && $0.height > 0.5 }
@@ -227,7 +232,10 @@ final class PaneOverlayView: NSView {
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? Palette.attention
             attention.borderColor = attentionColor.cgColor
             border.borderColor = (borderStyle.color?.nsColor ?? Palette.paneBorder).cgColor
-            dimLayer.backgroundColor = Palette.contentBackground.withAlphaComponent(1).cgColor
+            // In glass windows the root backdrop owns the ground. An opaque
+            // inactive-pane veil would hide the painting and reintroduce the
+            // History/terminal mismatch; paneFill is clear in that mode.
+            dimLayer.backgroundColor = Palette.paneFill.cgColor
         }
     }
 }

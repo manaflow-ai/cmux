@@ -126,3 +126,44 @@ test("host relay serves typed requests over a Unix socket", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("snapshot restore posts the snapshot to the account restore route", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    catalog: relayCatalog,
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ id: "vm_restored", status: "running" }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  await broker.request("vm.snapshot.restore", { snapshot_id: "snap_fixture" }, "restore-key");
+  assert.equal(calls[0].url, "https://cloud.test/api/vm/restore");
+  assert.equal(calls[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(calls[0].init.body), { snapshot_id: "snap_fixture" });
+  assert.equal(calls[0].init.headers["idempotency-key"], "restore-key");
+});
+
+test("every relay operation calls the method and path that its catalog binding declares", async () => {
+  const params = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com", path: "/tmp" };
+  const values = { vm_id: "vm_x", snapshot_id: "snap_x", id: "pub_x", name: "example.com" };
+  for (const [operation, entry] of Object.entries(relayCatalog.operations)) {
+    const binding = entry.transport?.http;
+    assert.ok(binding, `${operation} has an http binding`);
+    const calls = [];
+    const broker = createCloudBroker({
+      apiUrl: "https://cloud.test",
+      bearerToken: "fixture-secret",
+      catalog: relayCatalog,
+      fetchImpl: async (url, init) => {
+        calls.push({ url, init });
+        return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+      },
+    });
+    await broker.request(operation, { ...params }, entry.class === "mutation" ? `key-${operation}` : undefined);
+    const expected = binding.path.replace(/:([a-z_]+)/g, (_, field) => encodeURIComponent(values[field]));
+    const actual = new URL(calls[0].url);
+    assert.equal(`${calls[0].init.method} ${actual.pathname}`, `${binding.method} ${expected}`, operation);
+  }
+});

@@ -26,6 +26,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
     @ObservationIgnored private let container: WebKitPageContainer
+    /// Web Inspector's visibility, for the toolbar's DevTools button.
+    @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
@@ -36,10 +38,19 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
-    @ObservationIgnored var downloads: [ObjectIdentifier: BrowserDownload] = [:]
+    /// This tab's downloads (`WebKitDownloads`).
+    @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
+    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The site of the page that started the current main-frame navigation.
+    @ObservationIgnored var navigationSourceSite: String?
+    /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
+    @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
+    /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
+    @ObservationIgnored var rateReshow: Task<Void, Never>?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -50,6 +61,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
+        inspectorWatch.attach(webView: webView, container: container)
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -70,6 +82,8 @@ public final class WebKitTab: NSObject, BrowserTab {
             forMainFrameOnly: false
         ))
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
+        WebKitContextHit.install(self, into: controller)
+        WebKitPasskeyInstaller.install(self, into: controller)
 
         observeWebView()
         if configuration.zoom != 1 {
@@ -79,6 +93,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+        rateReshow?.cancel()
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -99,7 +114,10 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     // MARK: Navigation commands
 
-    public func load(_ url: URL) { startLoad(url) }
+    public func load(_ url: URL) {
+        automaticDownloads.userGesture()
+        startLoad(url)
+    }
     public func goBack() { startGoBack() }
     public func goForward() { startGoForward() }
     public func reload() { startReload() }
@@ -223,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        rateReshow?.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
@@ -357,10 +376,8 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
-        var security = BrowserTabStateMachine.security(for: webView.url)
-        if security == .secure, !webView.hasOnlySecureContent {
-            security = .mixedContent
-        }
-        apply(.securityChanged(security))
+        apply(.securityChanged(BrowserTabStateMachine.security(
+            for: webView.url, hasOnlySecureContent: webView.hasOnlySecureContent,
+            certificateBypassed: engine?.loadedPastCertificateWarning(self) ?? false)))
     }
 }

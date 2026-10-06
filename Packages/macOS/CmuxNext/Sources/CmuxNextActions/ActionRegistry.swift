@@ -45,6 +45,9 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// App and keybindings.json entries, after the defaults and cmux.json (`KeyBindingLoader`).
+    public internal(set) var keyBindingLayers = KeyBindingLayers() { didSet { shortcutIndex = nil } }
+
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
     /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
@@ -81,8 +84,8 @@ public final class ActionRegistry {
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
 
-    /// Sees every `refuse(_:)` reason (the App logs it and beeps).
-    @ObservationIgnored public var refusalObserver: (@MainActor (String) -> Void)?
+    /// Sees every `refuse(_:quiet:)` reason and whether it is quiet (the App logs it; a loud one shows the HUD).
+    @ObservationIgnored public var refusalObserver: (@MainActor (_ reason: String, _ quiet: Bool) -> Void)?
 
     /// Confirms destructive actions run from the keyboard, menu, or palette
     /// (`ActionRegistry+Confirmation`). Nil refuses them.
@@ -113,11 +116,6 @@ public final class ActionRegistry {
     public init(catalog: [ActionDescriptor], aliases: [ActionID: ActionID] = [:]) {
         self.aliases = aliases
         seed(catalog)
-    }
-
-    /// A registry seeded with the full cmux catalog and legacy aliases.
-    public static func standard() -> ActionRegistry {
-        ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
     }
 
     // MARK: - Catalog
@@ -165,6 +163,18 @@ public final class ActionRegistry {
 
     // MARK: - Binding
 
+    /// Ids bound twice without an `unbind` (two owners; the newer silently wins). Checked by the
+    /// `noActionIsBoundTwice` test, never trapped; the app logs a fault. A real bind replacing a
+    /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
+    public private(set) var duplicateBindings: [ActionID] = []
+    private var placeholders: Set<ActionID> = []
+
+    func noteBinding(_ id: ActionID, placeholder: Bool) {
+        let canonical = canonicalID(for: id)
+        if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
+        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+    }
+
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
@@ -210,6 +220,7 @@ public final class ActionRegistry {
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
+        noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
             title: descriptor.title,
@@ -225,6 +236,7 @@ public final class ActionRegistry {
     /// Removes the handler for `id`. The descriptor stays in the catalog.
     public func unbind(_ id: ActionID) {
         let id = canonicalID(for: id)
+        placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
         indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })
@@ -251,7 +263,7 @@ public final class ActionRegistry {
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
     /// implies (`ActionContext.implied(by:)`).
     public func isAvailable(_ id: ActionID, for invocation: ActionInvocation) -> Bool {
-        isAvailable(id, in: context.union(ActionContext.implied(by: invocation)))
+        isAvailable(id, in: (invocation.keyContext ?? context).union(ActionContext.implied(by: invocation)))
     }
 
     public static func isAvailable(_ descriptor: ActionDescriptor, in context: ActionContext) -> Bool {
@@ -310,57 +322,6 @@ public final class ActionRegistry {
     /// asserts this is empty.
     public func unboundActionIDs() -> [ActionID] {
         descriptors.map(\.id).filter { !isBound($0) }
-    }
-
-    /// Performs the best action for a key-down event. Called by the window
-    /// before the event reaches the terminal.
-    public func performShortcut(for event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
-        var keys: [String] = []
-        if let key = event.charactersIgnoringModifiers?.lowercased() { keys.append(key) }
-        // With shift held, charactersIgnoringModifiers can return the shifted
-        // character ("}" for Shift-]); also try the unmodified key.
-        if let base = event.characters(byApplyingModifiers: [])?.lowercased(), !keys.contains(base) {
-            keys.append(base)
-        }
-        for key in keys {
-            if let resolved = resolve(Shortcut(key, modifiers: flags)) {
-                return run(resolved)
-            }
-        }
-        return false
-    }
-
-    /// Runs whatever `shortcut` resolves to. Returns whether an action ran.
-    @discardableResult
-    public func performShortcut(_ shortcut: Shortcut) -> Bool {
-        guard let resolved = resolve(shortcut) else { return false }
-        return run(resolved)
-    }
-
-    /// The action `shortcut` triggers in the current context, plus the digit
-    /// for numbered families. Among several candidates the one with the most
-    /// specific required context wins, then catalog order.
-    public func resolve(_ shortcut: Shortcut) -> (id: ActionID, argument: String?)? {
-        let index = currentShortcutIndex()
-        if let id = bestCandidate(index.byShortcut[shortcut] ?? []) {
-            return (id, nil)
-        }
-        if shortcut.key.count == 1, let digit = shortcut.key.first, ("1"..."9").contains(digit) {
-            let familyKey = Shortcut("1", modifiers: shortcut.modifiers)
-            if let id = bestCandidate(index.digitFamilies[familyKey] ?? []) {
-                return (id, String(digit))
-            }
-        }
-        return nil
-    }
-
-    private func run(_ resolved: (id: ActionID, argument: String?)) -> Bool {
-        if let argument = resolved.argument {
-            return perform(resolved.id, argument: argument)
-        }
-        return perform(resolved.id)
     }
 
     func bestCandidate(_ ids: [ActionID]) -> ActionID? {

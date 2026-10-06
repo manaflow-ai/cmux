@@ -26,7 +26,7 @@ impl Hub {
                         hub.on_agent_request(s, id, m, params, epoch, turn_id).await
                     });
                 }
-                Inbound::Stderr(line) => {
+                Inbound::Stderr(line, host_seq) => {
                     let line = short_text(&line, 4000);
                     tracing::debug!(session = %session.id, "stderr: {line}");
                     if !line.trim().is_empty() {
@@ -36,9 +36,12 @@ impl Hub {
                         }
                         tail.push_back(line.clone());
                     }
-                    self.append(&session, "mux", "stderr", json!({"text": line}));
+                    // An agent host's stderr was logged before its ack.
+                    if host_seq.is_none() {
+                        self.append(&session, "mux", "stderr", json!({"text": line}));
+                    }
                 }
-                Inbound::Exited { pid, code } => {
+                Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
                         // A late exit from a process that was already replaced
@@ -52,12 +55,15 @@ impl Hub {
                     self.revoke_permission_chat(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    self.append(
-                        &session,
-                        "mux",
-                        if intentional { "stopped" } else { "exited" },
-                        json!({"code": code}),
-                    );
+                    // An agent host's exit was logged before its ack.
+                    if host_seq.is_none() {
+                        self.append(
+                            &session,
+                            "mux",
+                            if intentional { "stopped" } else { "exited" },
+                            json!({"code": code}),
+                        );
+                    }
                     if !intentional {
                         self.set_status(&session, SessionStatus::Disconnected);
                     }
@@ -71,6 +77,8 @@ impl Hub {
             return;
         };
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        // A mode or option change goes through the one setter below.
+        let mut mode_write = None;
         let mut m = session.meta.lock().unwrap();
         match kind {
             "agent_message_chunk" => {
@@ -92,16 +100,10 @@ impl Hub {
             }
             "usage_update" => m.usage = Some(update.clone()),
             "current_mode_update" => {
-                if let Some(mode_id) = update.get("currentModeId").cloned()
-                    && let Some(modes) = m.modes.as_mut()
-                {
-                    modes["currentModeId"] = mode_id;
-                }
+                mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
-                if let Some(opts) = update.get("configOptions") {
-                    m.config_options = Some(opts.clone());
-                }
+                mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -109,6 +111,11 @@ impl Hub {
                 }
             }
             _ => {}
+        }
+        drop(m);
+        // Default deny on drift: also a mode the harness changes by itself.
+        if let Some(w) = mode_write {
+            self.write_mode_state(session, [w]);
         }
     }
 
@@ -128,7 +135,8 @@ impl Hub {
         };
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let result = self.handle_permission(&session, params, epoch, turn_id).await;
+            let result =
+                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id)).await;
             let _ = child.respond(id, Ok(result)).await;
             return;
         }
@@ -279,6 +287,20 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
     ) -> Value {
+        self.handle_permission_for(session, request, epoch, turn_id, None).await
+    }
+
+    /// `handle_permission` for the agent's own `session/request_permission`
+    /// with JSON-RPC id `agent_request_id`, recorded so a controller that
+    /// adopts the agent's host can still answer it.
+    pub(super) async fn handle_permission_for(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        request: Value,
+        epoch: u64,
+        turn_id: Option<String>,
+        agent_request_id: Option<&Id>,
+    ) -> Value {
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
@@ -336,9 +358,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
+            // The chat allowance never answers in a Web turn.
             let chat_option = if state.chat_allowed
                 && !denied
-                && session.turn().is_some()
+                && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {
                 super::permission_groups::option(&request, "allow_once")
@@ -387,7 +410,7 @@ impl Hub {
                 permission_id.clone(),
                 PendingPermission { request: request.clone(), reply: tx },
             );
-            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id}));
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id,"agentRequestId":agent_request_id}));
             let prev = session.status();
             self.set_status(session, SessionStatus::Waiting);
             (rx, prev, grouping, permission_id)
@@ -428,7 +451,10 @@ impl Hub {
         permission_id: &str,
         option_id: Option<String>,
         answers: Option<Value>,
+        control: Control,
     ) -> Result<(), RpcError> {
+        // Checked again here, at the answer, not only in the remote guard.
+        self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
         let pending = {
             let mut state = session.permissions.lock().unwrap();
@@ -450,8 +476,12 @@ impl Hub {
                         "option {o:?} was not uniquely offered for permission {permission_id}"
                     )));
                 }
-                let is_reject =
-                    matches!(offered[0]["kind"].as_str(), Some("reject_once" | "reject_always"));
+                let kind = offered[0]["kind"].as_str();
+                // A Web answer allows once or denies once: never a lasting grant.
+                if control == Control::Web && !matches!(kind, Some("allow_once" | "reject_once")) {
+                    return Err(super::web_control::lasting_grant_refused(kind.unwrap_or("?")));
+                }
+                let is_reject = matches!(kind, Some("reject_once" | "reject_always"));
                 let denied = self.policy_for(session, cfg.permission_policy)
                     == PermissionPolicy::DenyAll
                     || session
