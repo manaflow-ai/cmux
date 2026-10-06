@@ -188,7 +188,7 @@ class GitHub:
             if value is not None:
                 args += ["-F", f"{key}={value}"]
         completed = self.gh(*args, check=False)
-        if completed.returncode != 0 and re.search(r"HTTP 5\d\d", completed.stderr):
+        if completed.returncode != 0 and re.search(r"HTTP 5\d\d|unexpected end of JSON input", completed.stderr):
             time.sleep(10)  # a gateway timeout on a large query; once
             completed = self.gh(*args, check=False)
         if completed.returncode != 0:
