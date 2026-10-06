@@ -80,8 +80,12 @@ enum DebugFilePages {
                              "newest_closed": daemon.store.closedItems.first.map { .string($0.id) } ?? .null])
                 }),
                 "last_reopen": undo.lastReopen.map { reopen -> JSONValue in
-                    func ms(_ duration: Duration) -> JSONValue { .number(Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15) }
-                    return .object(["id": .string(reopen.id), "reply_ms": ms(reopen.reply), "applied_ms": reopen.applied.map(ms) ?? .null])
+                    func ms(_ duration: Duration?) -> JSONValue {
+                        duration.map { .number(Double($0.components.seconds) * 1000 + Double($0.components.attoseconds) / 1e15) } ?? .null
+                    }
+                    return .object(["id": .string(reopen.id), "tabs": .array(reopen.tabs.map(JSONValue.string)), "reply_ms": ms(reopen.reply),
+                                    "applied_ms": ms(reopen.applied), "tabs_in_store_at_applied": reopen.tabsInStoreAtApplied.map(JSONValue.bool) ?? .null,
+                                    "tabs_arrived_ms": ms(reopen.tabsArrived)])
                 } ?? .null,
                 "closed_items": .array(undo.recentDaemonItems.map { .object(["id": .string($0.id), "pane": $0.pane.map(JSONValue.string) ?? .null,
                                                                             "tabs": .number(Double($0.tabs)), "matched": .bool($0.matched)]) }),
