@@ -9,7 +9,8 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - It has none of the labels `hold`, `exploration`, `needs a call`, `default call`, `do-not-merge` or `wip`.
 - Its head commit is less than 5 days old.
 - It doesn't change `.github/workflows/`. Those PRs land by hand.
-- No check is red outside the heavy tier. Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
+- No check is red outside the heavy tier, except web formatting (`web / react-apps-check`, `web / Web status`) on a PR that changes `webviews/`. Before landing such a PR, the queue runs `bun run check:fix` (formatter and lint autofix) on its head in `regen-linux` and pushes the fix to its branch. gh-merge-green then waits for the rerun.
+- Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
 
 To keep a PR out, add `hold`. A PR the queue dropped at its current head stays out until you push.
 

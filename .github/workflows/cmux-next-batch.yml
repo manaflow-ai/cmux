@@ -60,7 +60,7 @@ on:
         required: false
         default: ""
       kinds:
-        description: "regen-linux: the generators to run (web, sdk)"
+        description: "regen-linux: the generators to run (format, web, sdk)"
         required: false
         default: ""
       nonce:
@@ -289,6 +289,12 @@ jobs:
             exit 0
           }
           names=()
+          # Formatting first: the bundles are then built from formatted sources.
+          if [[ " $KINDS " == *" format "* ]]; then
+            (cd webviews && bun install --frozen-lockfile && bun run check:fix) \
+              || echo "check:fix left issues it cannot fix; keeping what it fixed"
+            names+=("webviews formatting")
+          fi
           if [[ " $KINDS " == *" web "* ]]; then
             sh scripts/cmux-next/regenerate-web-bundles.sh || fail "regenerate-web-bundles.sh"
             names+=("web bundles")

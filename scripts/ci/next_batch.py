@@ -75,6 +75,9 @@ HEAVY_CHECKS = frozenset({
     "cmux-next generated files",
     "wait for the same-tree cmux-tui",
 })
+# Web formatting and lint autofix (`bun run check:fix` in webviews). The queue
+# fixes these on the PR's own branch before landing, so they never block one.
+FORMAT_CHECKS = frozenset({"web / react-apps-check", "web / Web status"})
 RED = frozenset({"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale", "error"})
 PASS = frozenset({"success", "neutral", "skipped"})
 
@@ -283,9 +286,19 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
     return prs
 
 
+def touches_webviews(pr: PullRequest) -> bool:
+    return any(path.startswith("webviews/") for path in pr.files)
+
+
 def red_fast_checks(pr: PullRequest) -> list[str]:
+    fixable = FORMAT_CHECKS if touches_webviews(pr) else frozenset()
     return sorted({name for name, status, conclusion in pr.checks
-                   if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS})
+                   if status == "completed" and conclusion in RED and name not in HEAVY_CHECKS | fixable})
+
+
+def red_format_checks(pr: PullRequest) -> list[str]:
+    return sorted({name for name, status, conclusion in pr.checks
+                   if status == "completed" and conclusion in RED and name in FORMAT_CHECKS})
 
 
 def batch_authors() -> frozenset[str]:
@@ -818,6 +831,33 @@ class Controller:
                 stack.regenerated.append(kinds)
         return True
 
+    def format_pr(self, pr: PullRequest, branch: str) -> str:
+        """Run the web formatter and lint autofix on the PR's head on a
+        runner, and push the fix to the PR's branch. Returns the new head, or
+        "" when there was nothing to fix. A push the owner raced fails, and
+        the PR waits for the next batch."""
+        _, result = self.mini("regen-linux", branch, pr.sha, {"kinds": "format"})
+        if not result.get("ok"):
+            raise RuntimeError(f"formatting #{pr.number} failed: {result.get('error')}")
+        patch = result.get("patch")
+        if not patch:
+            return ""
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / "pr"
+            self.git("worktree", "add", "--quiet", "--detach", str(checkout), pr.sha)
+            try:
+                completed = subprocess.run(["git", "am", "--quiet", "--keep-cr"], cwd=checkout,
+                                           input=patch, capture_output=True)
+                if completed.returncode != 0:
+                    raise RuntimeError(f"the format patch for #{pr.number} did not apply: "
+                                       f"{completed.stderr.decode(errors='replace')[-300:]}")
+                sha = self.git("rev-parse", "HEAD", cwd=checkout)
+            finally:
+                self.git("worktree", "remove", "--force", str(checkout))
+        self.git("push", "--quiet", "origin", f"{sha}:refs/heads/{pr.head_ref}")
+        log(f"#{pr.number}: pushed formatting {sha[:12]}")
+        return sha
+
     def fleet_build(self, branch: str, sha: str, tag: str) -> dict:
         """A fleet --production build of `sha`: from a mini, or with this
         host's cmux-ci when it serves locally (it is on the tailnet)."""
@@ -978,6 +1018,15 @@ class Controller:
             if self.args.dry_run or self.args.no_land:
                 landed.append((pr, "validated; landing disabled for this run"))
                 continue
+            if red_format_checks(current):
+                try:
+                    if self.format_pr(current, validation.branch):
+                        self.comment_once(pr, "formatted", (
+                            "Batch queue: pushed `bun run check:fix` output (web formatting and lint "
+                            "autofix) to this branch; landing once its checks rerun."))
+                except RuntimeError as error:
+                    landed.append((pr, f"not landed: {error}"))
+                    continue
             self.comment_once(pr, "landing", (
                 f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
                 f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
