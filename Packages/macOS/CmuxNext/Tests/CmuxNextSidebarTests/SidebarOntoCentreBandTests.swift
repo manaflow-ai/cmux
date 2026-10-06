@@ -67,6 +67,18 @@ import Testing
         #expect(Set(made[0].workspaces.map(\.id)) == [id("x"), id("y")])
     }
 
+    /// The daemon refuses a group without a name ("group name cannot be
+    /// empty"; sbmix-v4 GUI run): an onto-drop group gets a default name.
+    @Test func anOntoDropGroupHasAName() throws {
+        let (model, list, window) = harness(fixture(), active: "a")
+        defer { window.close() }
+        try drag(list, from: "y", to: "x", fraction: 0.5)
+        list.finishDrag()
+        let made = groups(model, model.sections[2].id)
+        try #require(made.count == 1)
+        #expect(!made[0].name.isEmpty, "the new group has a name")
+    }
+
     /// Past the band: the card centre in the top 30% of the row above
     /// reorders, and the loose row makes way under the card.
     @Test func aCardCentrePastTheTopOfTheBandReorders() throws {
