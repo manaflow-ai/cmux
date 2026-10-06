@@ -11,6 +11,7 @@ mod closed_roots;
 mod connection;
 mod cookies;
 mod cors;
+mod dispatch;
 mod downloads;
 mod driver;
 mod evaluate;

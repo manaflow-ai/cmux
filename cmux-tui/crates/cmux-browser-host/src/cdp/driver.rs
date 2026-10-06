@@ -8,9 +8,9 @@
 //! setup threads, never while the state lock is held.
 
 use super::connection::{CdpConnection, CdpEvent};
+use super::dispatch::Dispatch;
 use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
-use crate::protocol::DriverEvent;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
 use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
@@ -32,7 +32,7 @@ pub(super) struct Inner {
     pub(super) agent_source: Arc<str>,
     /// Driver events go to the sink from a dispatcher thread, in order, so a
     /// sink that answers an event with a driver call cannot block the reader.
-    events: Mutex<mpsc::Sender<Dispatch>>,
+    pub(super) events: Mutex<mpsc::Sender<Dispatch>>,
     state: Mutex<State>,
     pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
@@ -116,20 +116,7 @@ impl Inner {
         hidden_viewport: Option<(i64, i64)>,
         intercept_choosers: bool,
     ) -> Result<Arc<Inner>, DriverError> {
-        let (event_tx, event_rx) = mpsc::channel::<Dispatch>();
-        std::thread::Builder::new()
-            .name("cmux-browser-host-cdp-events".into())
-            .spawn(move || {
-                for item in event_rx {
-                    match item {
-                        Dispatch::Event(event) => events(event),
-                        Dispatch::Flush(done) => {
-                            let _ = done.send(());
-                        }
-                    }
-                }
-            })
-            .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        let event_tx = super::dispatch::start(events)?;
         let request_filter = Arc::new(Mutex::new(None));
         let cors: Arc<Mutex<super::cors::Cors>> = Arc::default();
         let paused =
@@ -387,13 +374,6 @@ impl Driver for CdpDriver {
     }
 }
 
-/// What the event thread gets: an event for the sink, or a flush to answer
-/// once the events before it went to the sink.
-enum Dispatch {
-    Event(DriverEvent),
-    Flush(mpsc::SyncSender<()>),
-}
-
 /// A ready tab's session.
 pub(super) struct Session {
     pub(super) target_id: String,
@@ -403,22 +383,6 @@ pub(super) struct Session {
 impl Inner {
     pub(super) fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// Sends a driver event made off the reader thread (a follow-up's).
-    pub(super) fn emit(&self, event: DriverEvent) {
-        let _ =
-            self.events.lock().unwrap_or_else(PoisonError::into_inner).send(Dispatch::Event(event));
-    }
-
-    /// Waits (at most `wait`) until the sink took every event sent so far.
-    pub(super) fn flush_events(&self, wait: Duration) {
-        let (done, flushed) = mpsc::sync_channel(1);
-        let sent =
-            self.events.lock().unwrap_or_else(PoisonError::into_inner).send(Dispatch::Flush(done));
-        if sent.is_ok() {
-            let _ = flushed.recv_timeout(wait);
-        }
     }
 
     fn handle_event(self: &Arc<Self>, event: CdpEvent) {
