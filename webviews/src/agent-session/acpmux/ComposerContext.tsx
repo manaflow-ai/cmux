@@ -44,20 +44,17 @@ export function ComposerContext({
   const initialComputer = computerId(summary);
   const [selectedComputer, setSelectedComputer] = useState(initialComputer);
   useEffect(() => setSelectedComputer(initialComputer), [summary?.sessionId, initialComputer]);
-  const folders = useMemo(
-    () => {
-      const known = availableFolders(summary, sessions, selectedComputer);
-      if (selectedComputer !== "local" || !projectChoices) return known;
-      const projects = projectChoices.map((project) => ({
-        id: project.cwd.replace(/\/+$/, ""),
-        label: project.label,
-        detail: project.cwd,
-      }));
-      const seen = new Set(projects.map((project) => project.id));
-      return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-    },
-    [summary, sessions, selectedComputer, projectChoices],
-  );
+  const folders = useMemo(() => {
+    const known = availableFolders(summary, sessions, selectedComputer);
+    if (selectedComputer !== "local" || !projectChoices) return known;
+    const projects = projectChoices.map((project) => ({
+      id: project.cwd.replace(/\/+$/, ""),
+      label: project.label,
+      detail: project.cwd,
+    }));
+    const seen = new Set(projects.map((project) => project.id));
+    return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
+  }, [summary, sessions, selectedComputer, projectChoices]);
   const currentFolder =
     summary?.cwd && computerId(summary) === selectedComputer
       ? summary.cwd
