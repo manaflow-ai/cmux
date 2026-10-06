@@ -5,8 +5,30 @@ use super::*;
 
 pub(super) fn handle(mux: &Mux, client: u64, cmd: Command) -> anyhow::Result<Value> {
     match cmd {
-    Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
-        handle_browser_mouse_command(
+        Command::BrowserMouse { surface, kind, x_px, y_px, button, click_count, frame_seq } => {
+            handle_browser_mouse_command(
+                mux,
+                client,
+                BrowserMouseCommand {
+                    surface,
+                    kind: &kind,
+                    x_px,
+                    y_px,
+                    button: button.as_deref(),
+                    click_count,
+                    frame_seq,
+                },
+            )
+        }
+        Command::BrowserMouseGuarded {
+            surface,
+            kind,
+            x_px,
+            y_px,
+            button,
+            click_count,
+            frame_seq,
+        } => handle_browser_mouse_command(
             mux,
             client,
             BrowserMouseCommand {
@@ -16,96 +38,74 @@ pub(super) fn handle(mux: &Mux, client: u64, cmd: Command) -> anyhow::Result<Val
                 y_px,
                 button: button.as_deref(),
                 click_count,
-                frame_seq,
+                frame_seq: Some(frame_seq),
             },
-        )
-    }
-    Command::BrowserMouseGuarded {
-        surface,
-        kind,
-        x_px,
-        y_px,
-        button,
-        click_count,
-        frame_seq,
-    } => handle_browser_mouse_command(
-        mux,
-        client,
-        BrowserMouseCommand {
+        ),
+        Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
+            handle_browser_wheel_command(mux, client, surface, x_px, y_px, delta_y_px, frame_seq)
+        }
+        Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
+            handle_browser_wheel_command(
+                mux,
+                client,
+                surface,
+                x_px,
+                y_px,
+                delta_y_px,
+                Some(frame_seq),
+            )
+        }
+        Command::BrowserKey {
             surface,
-            kind: &kind,
-            x_px,
-            y_px,
-            button: button.as_deref(),
-            click_count,
-            frame_seq: Some(frame_seq),
-        },
-    ),
-    Command::BrowserWheel { surface, x_px, y_px, delta_y_px, frame_seq } => {
-        handle_browser_wheel_command(mux, client, surface, x_px, y_px, delta_y_px, frame_seq)
-    }
-    Command::BrowserWheelGuarded { surface, x_px, y_px, delta_y_px, frame_seq } => {
-        handle_browser_wheel_command(
-            mux,
-            client,
-            surface,
-            x_px,
-            y_px,
-            delta_y_px,
-            Some(frame_seq),
-        )
-    }
-    Command::BrowserKey {
-        surface,
-        kind,
-        key,
-        code,
-        windows_virtual_key_code,
-        modifiers,
-        text,
-    } => {
-        let surface = get_surface(mux, surface)?;
-        require_browser(mux, &surface)?;
-        let event_type = match kind.as_str() {
-            "down" => "keyDown",
-            "up" => "keyUp",
-            other => anyhow::bail!("bad browser key kind {other:?}"),
-        };
-        surface.browser_key_event(
-            event_type,
-            &key,
-            &code,
+            kind,
+            key,
+            code,
             windows_virtual_key_code,
             modifiers,
-            text.as_deref(),
-        )?;
-        Ok(json!({}))
-    }
-    Command::BrowserKeyPress {
-        surface,
-        key,
-        code,
-        windows_virtual_key_code,
-        modifiers,
-        text,
-    } => {
-        let surface = get_surface(mux, surface)?;
-        require_browser(mux, &surface)?;
-        surface.browser_key_press(
-            &key,
-            &code,
+            text,
+        } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(mux, &surface)?;
+            let event_type = match kind.as_str() {
+                "down" => "keyDown",
+                "up" => "keyUp",
+                other => anyhow::bail!("bad browser key kind {other:?}"),
+            };
+            surface.browser_key_event(
+                event_type,
+                &key,
+                &code,
+                windows_virtual_key_code,
+                modifiers,
+                text.as_deref(),
+            )?;
+            Ok(json!({}))
+        }
+        Command::BrowserKeyPress {
+            surface,
+            key,
+            code,
             windows_virtual_key_code,
             modifiers,
-            text.as_deref(),
-        )?;
-        Ok(json!({}))
-    }
-    Command::BrowserInsertText { surface, text } => {
-        let surface = get_surface(mux, surface)?;
-        require_browser(mux, &surface)?;
-        surface.browser_insert_text(&text)?;
-        Ok(json!({}))
-    }
+            text,
+        } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(mux, &surface)?;
+            surface.browser_key_press(
+                &key,
+                &code,
+                windows_virtual_key_code,
+                modifiers,
+                text.as_deref(),
+            )?;
+            Ok(json!({}))
+        }
+        Command::BrowserInsertText { surface, text } => {
+            let surface = get_surface(mux, surface)?;
+            require_browser(mux, &surface)?;
+            surface.browser_insert_text(&text)?;
+            Ok(json!({}))
+        }
         _ => anyhow::bail!("not a browser input command"),
     }
 }
