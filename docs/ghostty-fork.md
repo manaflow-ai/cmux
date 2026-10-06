@@ -156,8 +156,11 @@ When we change the fork, update this document and the parent submodule SHA.
   `ideograph fallback sizing fills two primary cells` plus
   `ideograph fallback sizing keeps the primary ASCII height by default`.
   The test-only commit fails with `expected 1.25, found 1.75`; the fixed head
-  passes 75 tests locally. Hosted GhosttyKit and tagged cmux rendering
-  verification are pending.
+  passes 75 tests locally. Hosted [run 37437551741](https://github.com/manaflow-ai/cmux/actions/runs/37437551741)
+  passed the Ghostty filters and published GhosttyKit.
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5f0ae5e41a7101dc223dc26ae34aed7eee188183-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `0c7931561c142a0b3384cf9f82d8bdd7f0bb77418c25d5be6463ccfe96587a0a`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
 - Conflict note: preserve the distinction between `icWidth()` for the
   height-capped Chinese/Japanese target and `fallbackIcWidth()` for the
   Hangul fallback target. Fallback entries retain their adjustment so a face
@@ -176,13 +179,21 @@ When we change the fork, update this document and the parent submodule SHA.
 - SHA-256 `98697b9a49b36e835e900f716ac054cf2476d97bf40ea2742454e735ac5aa3a9`
   is pinned in `scripts/ghosttykit-checksums.txt`.
 
-The submodule pinned by this branch is `9c1e67c07`, a merge of `c318e7825` (the
-133;P prompt and wrap padding fix, section 16, manaflow-ai/ghostty#247) and
-`559740279` (the VT replay blank-cell style fix, manaflow-ai/ghostty#249),
-landed on fork main by manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again;
-see [#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-9c1e67c073cce77d7c2bb2592b2bf84d502bb74e-crashsubdir-cmux-crash-sentry-off-noi18n-v2
-has SHA-256 `4538cfea411ca43a420055594b96bcaf7e7b9bea70cb68fb669e2f1242e098d4`, pinned in
+The submodule pinned by this branch is `5f0ae5e41`, the script-aware CJK fallback
+sizing fix on top of `e2a26bc94` (the layer display teardown fix,
+manaflow-ai/ghostty#258). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5f0ae5e41a7101dc223dc26ae34aed7eee188183-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `0c7931561c142a0b3384cf9f82d8bdd7f0bb77418c25d5be6463ccfe96587a0a`, pinned in
+`scripts/ghosttykit-checksums.txt`.
+The previous pin `e2a26bc94` is the layer display teardown fix
+([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)) on
+top of `9c1e67c07`, the merge of `c318e7825` (the 133;P prompt and wrap padding
+fix, section 16, manaflow-ai/ghostty#247) and `559740279` (the VT replay
+blank-cell style fix, manaflow-ai/ghostty#249), landed on fork main by
+manaflow-ai/ghostty#250. It carries `e1b8bf5f4` again; see
+[#16040](https://github.com/manaflow-ai/cmux/issues/16040). Artifact
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+has SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`, pinned in
 `scripts/ghosttykit-checksums.txt`.
 Earlier: the submodule pinned by this branch is `559740279`, the VT replay blank-cell
 style fix (manaflow-ai/ghostty#249) on top of `9d8d40319`, which is `9961d09be`
