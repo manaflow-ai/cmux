@@ -57,7 +57,7 @@ public struct TabStripMetrics: Equatable, Sendable {
     public var scrollFadeWidth: CGFloat
     /// Inset of the tab background from the tab frame, so neighbors read as separate.
     public var tabBackgroundInset: CGFloat
-    /// Height of the 1 px separator between inactive tabs.
+    /// Height of the 1 px separator between tabs.
     public var separatorHeight: CGFloat
     /// Vertical distance outside the strip that hands a dragged tab to the drag session.
     public var tearOffDistance: CGFloat
