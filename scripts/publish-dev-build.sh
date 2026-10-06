@@ -75,10 +75,10 @@ upload() {
 }
 
 upload "$named_archive" "$immutable_prefix/$archive_name" application/zip 1
-# Keep one non-track-specific recovery alias valid for updater failures where
-# the app does not retain its track metadata. The per-track immutable URL
-# remains the canonical link shown on the stable page.
-upload "$named_archive" "cmux-dev/latest.zip" application/zip 0
+# Keep a track-specific recovery alias valid for updater failures where the
+# app only retains its feed URL. Never let classic and next overwrite one
+# another's manual-download target.
+upload "$named_archive" "cmux-dev/${CMUX_DEV_BUILD_TRACK}/latest.zip" application/zip 0
 upload "$appcast" "cmux-dev/${CMUX_DEV_BUILD_TRACK}/appcast.xml" application/xml 0
 
 metadata="$work_dir/build.json"
@@ -86,8 +86,9 @@ title="${CMUX_DEV_BUILD_TITLE:-}"
 if [[ -z "$title" ]]; then
   title="$(git -C "$ROOT_DIR" show -s --format=%s "$CMUX_DEV_BUILD_SHA" 2>/dev/null || true)"
 fi
+archive_url="$download_prefix$archive_name"
 CMUX_DEV_BUILD_METADATA_OUT="$metadata" \
-  CMUX_DEV_BUILD_ARCHIVE_URL="$download_prefix$archive_name" \
+  CMUX_DEV_BUILD_ARCHIVE_URL="$archive_url" \
   CMUX_DEV_BUILD_APPCAST_URL="$public_root/appcast.xml" \
   CMUX_DEV_BUILD_VERSION="$version" \
   CMUX_DEV_BUILD_SHORT_VERSION="$short_version" \
@@ -120,8 +121,19 @@ PY
 # Each track owns its small index. The stable top-level page is static and
 # reads both indexes, so classic and next jobs never overwrite one another.
 existing="$work_dir/existing.json"
-if ! curl --fail --silent --show-error --max-time 15 "$public_root/index.json" -o "$existing"; then
+fetch_status="$work_dir/index-status"
+fetch_error="$work_dir/index-error"
+fetch_rc=0
+curl --silent --show-error --max-time 15 \
+  "$public_root/index.json" -o "$existing" -w '%{http_code}' \
+  >"$fetch_status" 2>"$fetch_error" || fetch_rc=$?
+http_status="$(cat "$fetch_status")"
+if [[ "$http_status" == 404 ]]; then
   printf '{"track":%s,"builds":[]}' "$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$CMUX_DEV_BUILD_TRACK")" > "$existing"
+elif ((fetch_rc != 0)) || [[ "$http_status" != 2* ]]; then
+  cat "$fetch_error" >&2
+  echo "error: unable to read existing dev index (HTTP ${http_status:-unknown})" >&2
+  exit 1
 fi
 index="$work_dir/index.json"
 python3 - "$existing" "$metadata" "$index" <<'PY'
@@ -168,7 +180,13 @@ const translations = {
   uk: {heading:'Розробницькі збірки cmux',subtitle:'Збірки флоту з успішних злиттів. Кожен канал оновлюється через Sparkle.',loading:'Завантаження…',commit:'Коміт',title:'Назва',published:'Опубліковано',download:'Завантажити',zip:'zip'}
 };
 const requested = (navigator.languages || [navigator.language || 'en']).map(x => x.replace('_','-'));
-const locale = requested.find(x => translations[x]) || requested.map(x => x.split('-')[0]).find(x => translations[x]) || 'en';
+let locale = 'en';
+for (const language of requested) {
+  const exact = language;
+  const base = language.split('-')[0];
+  if (translations[exact]) { locale = exact; break; }
+  if (translations[base]) { locale = base; break; }
+}
 const text = translations[locale];
 document.documentElement.lang = locale;
 document.querySelector('#page-title').textContent = text.heading;
@@ -184,4 +202,4 @@ HTML
 upload "$page" cmux-dev/index.html text/html 0
 
 cp -p "$metadata" "$METADATA_PATH"
-echo "Published cmux dev ${CMUX_DEV_BUILD_TRACK} ${CMUX_DEV_BUILD_SHA:0:12}: ${CMUX_DEV_BUILD_ARCHIVE_URL}"
+echo "Published cmux dev ${CMUX_DEV_BUILD_TRACK} ${CMUX_DEV_BUILD_SHA:0:12}: ${archive_url}"
