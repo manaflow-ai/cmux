@@ -117,8 +117,28 @@
   // Building it reads every <label> of the tree, which the page sets the
   // number of, so each one is charged to the read's budget (the snapshot's,
   // else a page-read budget of its own). An index the budget cut short
-  // answers null, and that control has no labels in this read.
+  // answers null, and that control has no labels in this read. The labels
+  // are read one at a time, never listed whole first: a document's from its
+  // live <label> collection; a shadow root (which has no such collection)
+  // by a walk of its elements, each one also counted against MAX_NODES.
   let labelBudget = null;
+  function* treeLabels(root, cut) {
+    if (root.nodeType === 9 /* DOCUMENT_NODE */) {
+      const labels = root.getElementsByTagName("label");
+      for (let i = 0, label = labels[0]; label; label = labels[++i]) yield label;
+      return;
+    }
+    if (root.nodeType !== 11 /* DOCUMENT_FRAGMENT_NODE */) return;
+    let left = MAX_NODES;
+    const walker = document.createTreeWalker(root, 1 /* NodeFilter.SHOW_ELEMENT */);
+    for (let el = walker.nextNode(); el; el = walker.nextNode()) {
+      if (--left < 0) {
+        cut.done = true;
+        return;
+      }
+      if (el.localName === "label") yield el;
+    }
+  }
   function createLabelIndex() {
     const byRoot = new Map();
     return (el) => {
@@ -127,10 +147,10 @@
       if (map === undefined) {
         map = new Map();
         const b = labelBudget || (labelBudget = readBudget());
-        const labels = root.querySelectorAll ? root.querySelectorAll("label") : [];
-        for (const label of labels) {
+        const cut = { done: false };
+        for (const label of treeLabels(root, cut)) {
           if (!spend(b, 1)) {
-            map = null;
+            cut.done = true;
             break;
           }
           const control = label.control;
@@ -138,6 +158,7 @@
           if (!map.has(control)) map.set(control, []);
           map.get(control).push(label);
         }
+        if (cut.done) map = null;
         byRoot.set(root, map);
       }
       return map === null ? null : map.get(el) || [];
