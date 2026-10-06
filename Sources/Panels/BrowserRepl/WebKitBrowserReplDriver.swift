@@ -2510,6 +2510,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
         }
         let world = sessionWorld.agent
+        let frameGate = frameGate
         try await withWindow(panel) { webView, _ in
             try await BrowserReplNativeInput.insertText(
                 text,
@@ -2517,7 +2518,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 world: world,
                 // Also asked right before the commit: a tab moved out of the
                 // session's workspace meanwhile gets no text.
-                isCurrent: { [weak panel, frameGate] in
+                isCurrent: { [weak panel] in
                     panel?.webView === webView && (try? frameGate.checkTab(in: webView)) != nil
                 },
                 checkTarget: checkTarget
