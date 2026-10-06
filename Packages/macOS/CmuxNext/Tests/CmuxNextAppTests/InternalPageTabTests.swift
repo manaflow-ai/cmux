@@ -72,6 +72,28 @@ struct InternalPageTabTests {
         #expect(ControlSnapshotPublisher.topology(services).focus.tabID == key)
     }
 
+    /// Lawrence: "cmd f in settings needs to focus search properly". Cmd-F
+    /// through the key dispatcher on a focused Settings page sends the page
+    /// its focusSearch command (the page focuses and selects its search
+    /// field); it was refused as "not a terminal".
+    @Test func commandFOnAFocusedSettingsPageFocusesItsSearch() async throws {
+        let (services, window, pane) = try await world()
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation()))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+        await BrowserTabTests.settle { services.keyRouter.focusedPage(in: window) != nil }
+        let page = try #require(services.keyRouter.focusedPage(in: window))
+        final class Sent { var items: [CmuxNextSettings.JSONValue] = [] }
+        let sent = Sent()
+        page.router.send = { sent.items.append($0) }
+        _ = await page.router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageCommand)])
+        let shell = try #require(window.window)
+        let event = try KeyInterceptionTests.key("f", keyCode: 3, [.command])
+        #expect(services.keyRouter.interceptKeyDown(event, in: shell))
+        let commands = sent.items.compactMap { $0["data"]?["command"]?.stringValue }
+        #expect(commands == ["focusSearch"])
+    }
+
     @Test func openSettingsOpensATabNotAWindow() async throws {
         let (services, window, pane) = try await world()
         let windowsBefore = NSApp.windows.count

@@ -1,7 +1,7 @@
 //! x264 through the C shim in csrc/x264_shim.c (feature `x264`): zerolatency, infinite GOP,
 //! IDR on request, ABR with a one-frame VBV whose target follows congestion control.
 
-use crate::convert::I420;
+use cmux_encode::I420;
 use crate::encoder::H264Encoder;
 use crate::Res;
 use std::ffi::{c_char, c_int, CStr, CString};

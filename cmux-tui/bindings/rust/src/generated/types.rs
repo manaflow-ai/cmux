@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 56e683cdaa8a84744ef4bfb6270e0e58946c906370b046026d0cdc78cef45d30.
+// cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -451,7 +451,7 @@ pub struct ConversationSummary {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ConversationTabRecord {
-    /// Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.
+    /// Agent session source (agent-session-tabs-v1); exclusive with the other sources.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub agent_session: Option<AgentSessionSource>,
     /// Conversation source: a conv_ id, with owner.
@@ -460,6 +460,9 @@ pub struct ConversationTabRecord {
     /// Conversation source: local or cloud.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub page: Option<String>,
 }
 
 #[rustfmt::skip]

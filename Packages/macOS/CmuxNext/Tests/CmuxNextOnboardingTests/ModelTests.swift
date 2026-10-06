@@ -99,6 +99,20 @@ import Testing
         #expect(services.plans.count == 1, "Done after an import does not run it again")
     }
 
+    @Test func fullDiskAccessProfilesStayVisibleUntilAccessIsGranted() async {
+        let services = MockOnboardingServices()
+        let safari = BrowserSourceProfile(browser: .safari, directoryName: "Safari", displayName: "Safari",
+                                          path: URL(fileURLWithPath: "/tmp/Safari"),
+                                          availability: [:])
+        services.sources = [BrowserSource(browser: .safari, appURL: nil, profiles: [safari], needsFullDiskAccess: true)]
+        let model = OnboardingModel(services: services, start: .importData)
+        model.stepDidAppear()
+        await settle { model.importer.phase == .ready }
+        #expect(model.importer.profiles == [safari])
+        #expect(model.importer.selectedProfiles == [safari.id])
+        #expect(model.importer.plan.items.isEmpty)
+    }
+
     @Test func nothingCheckedContinuesWithoutImporting() async {
         let services = MockOnboardingServices()
         let work = profile("Profile 1")

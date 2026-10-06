@@ -2267,6 +2267,11 @@ Result<Json> Codec<ConversationTabRecord>::encode(const ConversationTabRecord& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("owner", std::move(encoded).value());
     }
+    if (value.page) {
+        auto encoded = encode_value(*value.page);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -2291,6 +2296,12 @@ Result<ConversationTabRecord> Codec<ConversationTabRecord>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_owner);
         if (!decoded) return std::move(decoded).error();
         result.owner = std::move(decoded).value();
+    }
+    const Json* field_page = value.find("page");
+    if (field_page) {
+        auto decoded = decode_value<std::string>(*field_page);
+        if (!decoded) return std::move(decoded).error();
+        result.page = std::move(decoded).value();
     }
     return result;
 }
@@ -19102,6 +19113,11 @@ Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRe
         if (!encoded) return std::move(encoded).error();
         object.emplace("owner", std::move(encoded).value());
     }
+    if (!value.page.is_absent()) {
+        auto encoded = encode_value(value.page);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page", std::move(encoded).value());
+    }
     if (!value.pane.is_absent()) {
         auto encoded = encode_value(value.pane);
         if (!encoded) return std::move(encoded).error();
@@ -19187,6 +19203,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
             auto decoded = decode_value<std::string>(*field_owner);
             if (!decoded) return std::move(decoded).error();
             result.owner = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_page = value.find("page");
+    if (field_page) {
+        if (field_page->is_null()) {
+            result.page = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_page);
+            if (!decoded) return std::move(decoded).error();
+            result.page = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_pane = value.find("pane");
@@ -32626,8 +32652,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand118FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand122FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand122FieldRequirements{{
     {"agent_session", 0U, "agent-session-tabs-v1"},
+    {"page", 0U, "page-tabs-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand124FieldRequirements{{
