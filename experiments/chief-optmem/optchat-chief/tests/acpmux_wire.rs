@@ -223,6 +223,7 @@ fn a_turn_over_the_acpmux_wire() {
         &Interrupt::new(),
         &|_| {},
         &|_, _| {},
+        &optchat_chief::trace::Trace::off(),
     );
     assert_eq!(outcome.reply.as_deref(), Some("x is 1."));
     assert_eq!(outcome.error, None);
