@@ -257,7 +257,7 @@ before it unzips it in a blank page. An export of more than 10,000
 entries fails with `limit`. Every header, name and data range must lie
 inside the archive, else the read fails with `unexpected` (also for an
 encrypted entry or a compression method other than stored or deflate).
-A wanted entry that declares more than 32 MiB uncompressed, or wanted
+A wanted entry that declares more than 64 MiB uncompressed, or wanted
 entries that together declare more than 64 MiB (the size of one driver
 result, which carries the text back), fail with `limit` before anything
 is decompressed. Compressed data goes into `DecompressionStream` 16 KiB at

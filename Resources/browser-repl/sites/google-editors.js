@@ -112,8 +112,8 @@
 
   // Bounds of unzipExport. The total matches the 64 MiB a driver result may
   // carry (driver-protocol.md, driverCall), which the unzipped text returns
-  // through; one entry may take half of it.
-  const UNZIP_LIMITS = Object.freeze({ entries: 10000, entryBytes: 32 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 });
+  // through; one entry may take all of it, so a large real sheet still reads.
+  const UNZIP_LIMITS = Object.freeze({ entries: 10000, entryBytes: 64 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 });
 
   const xmlText = (s) => S.decodeEntities(String(s).replace(/<[^>]*>/g, ""));
   const colIndex = (letters) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
