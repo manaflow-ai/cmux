@@ -559,4 +559,34 @@ import Testing
                 "a link the page activated with the agent's lingering gesture went to the external browser")
         #expect(users.handsLinkToExternalBrowser(user, now: start.advanced(by: BrowserReplTabOwnership.agentGestureLingering)))
     }
+
+    /// Every way a navigation or window leaves the browser (the configured
+    /// external browser, the system browser rule, a signed-in cmux app link
+    /// that opens a split, another app's URL scheme) asks the one
+    /// user-gesture decision. In a tab a session drives, an agent's or the
+    /// page's activation never leaves: a web link loads in the tab under
+    /// its guards, and another app's scheme opens nothing.
+    @Test func everyExternalSideEffectAsksTheUserGestureDecision() {
+        let now = ContinuousClock.now
+        let page = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: false)
+        let user = BrowserReplLinkActivation(userIsWorkingInTab: true, isUserInitiated: true)
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        for target in BrowserReplExternalTarget.allCases {
+            #expect(users.externalDecision(target, page, now: now) != .handOff,
+                    "a page's activation in a driven tab reached \(target)")
+            #expect(users.externalDecision(target, user, now: now) == .handOff,
+                    "the user's own activation did not reach \(target)")
+        }
+        #expect(users.externalDecision(.otherApp, page, now: now) == .refuse)
+        #expect(users.externalDecision(.appLink, page, now: now) == .loadInTab)
+        #expect(users.externalDecision(.systemBrowser, page, now: now) == .loadInTab)
+        #expect(users.externalDecision(.configuredBrowser, page, now: now) == .loadInTab)
+
+        users.beginInput(sessionID: "agent")
+        for target in BrowserReplExternalTarget.allCases {
+            #expect(users.externalDecision(target, user, now: now) != .handOff,
+                    "an agent's click reached \(target)")
+        }
+    }
 }
