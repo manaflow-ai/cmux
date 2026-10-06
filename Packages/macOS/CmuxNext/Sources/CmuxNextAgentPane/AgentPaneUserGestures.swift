@@ -27,6 +27,18 @@ import Synchronization
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
+    /// The record for logs and the DEBUG `debug.agent_pane gesture_state` verb: whether a gesture
+    /// is available, its age in seconds, and the outstanding tickets. Never a ticket value.
+    public var debugState: (available: Bool, ageSeconds: Double?, tickets: Int) {
+        (isAvailable, last.map { now() - $0 }, tickets.count)
+    }
+
+    /// ``debugState`` as one log field.
+    public var debugDescription: String {
+        let age = last.map { String(format: "%.3f", now() - $0) } ?? "none"
+        return "gestureAvailable=\(isAvailable) gestureAge=\(age) tickets=\(tickets.count)"
+    }
+
     /// How long a reserved gesture waits for its frame (a pick held while a harness starts).
     public static let ticketLifetime: TimeInterval = 60
 

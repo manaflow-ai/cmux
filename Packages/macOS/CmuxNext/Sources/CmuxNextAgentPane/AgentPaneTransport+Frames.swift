@@ -202,7 +202,10 @@ extension AgentPaneTransport {
             } else {
                 granted = !facts.needsGesture || gestures.consume()
             }
-            if !granted { return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket) }
+            if !granted {
+                Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
+                return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
+            }
         }
         // R2 and P2: a mode, or a config option that is not free, needs the user's native
         // confirmation unless the daemon says that the value keeps the session asking.
@@ -251,8 +254,10 @@ extension AgentPaneTransport {
 
     /// Records what a sent frame starts, or opens by the user's gesture. An attach alone adds
     /// nothing: only an attach the user made (a click in the session list) brings a session in.
+    /// An attach is not a grant, so it reads the gesture and never spends it: the prompt the
+    /// same click sends still has it.
     func noteSent(_ facts: Facts, relayID: Int?) {
-        if let session = facts.attachSession, !sessions.contains(session), gestures.consume() {
+        if let session = facts.attachSession, !sessions.contains(session), gestures.isAvailable {
             sessions.add(session)
         }
         if let method = facts.method, AcpmuxPaneSessions.starting.contains(method) {
