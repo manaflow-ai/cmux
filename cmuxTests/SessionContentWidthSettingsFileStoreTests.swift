@@ -153,24 +153,68 @@ struct SessionContentWidthSettingsFileStoreTests {
         let directory = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appendingPathComponent("cmux.json")
+        let ghosttyDirectory = directory.appendingPathComponent(".config/ghostty", isDirectory: true)
+        try FileManager.default.createDirectory(at: ghosttyDirectory, withIntermediateDirectories: true)
+        try "sidebar-font-size = 11\nsurface-tab-bar-font-size = 9\n"
+            .write(
+                to: ghosttyDirectory.appendingPathComponent("config.ghostty"),
+                atomically: true,
+                encoding: .utf8
+            )
+        let originalFixedHome = getenv("CFFIXED_USER_HOME").map { String(cString: $0) }
+        setenv("CFFIXED_USER_HOME", directory.path, 1)
+        defer {
+            if let originalFixedHome { setenv("CFFIXED_USER_HOME", originalFixedHome, 1) }
+            else { unsetenv("CFFIXED_USER_HOME") }
+        }
         try #"{"sidebar":{"fontSize":13.5},"surfaceTabBar":{"fontSize":12.0}}"#
             .write(to: file, atomically: true, encoding: .utf8)
         let (updates, continuation) = AsyncStream<Void>.makeStream()
+        let (diagnostics, diagnosticContinuation) = AsyncStream<[String]>.makeStream()
         defer { continuation.finish() }
+        defer { diagnosticContinuation.finish() }
+        var reportedInvalidFont = false
         let store = KeyboardShortcutSettingsFileStore(
             primaryPath: file.path,
             fallbackPath: nil,
             additionalFallbackPaths: [],
             userDefaults: defaults,
             startWatching: true,
-            onWatchedFileReload: { _ in continuation.yield() }
+            onWatchedFileReload: { _ in continuation.yield() },
+            onConfigurationIssue: { messages in
+                diagnosticContinuation.yield(messages)
+            }
         )
         #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 13.5) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 12.0) < 0.001)
         try #"{"sidebar":{"fontSize":15.0},"surfaceTabBar":{"fontSize":10.0}}"#
             .write(to: file, atomically: true, encoding: .utf8)
         var iterator = updates.makeAsyncIterator()
         _ = await iterator.next()
         #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 15.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        try #"{"sidebar":{},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 11.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
+        try #"{"sidebar":{"fontSize":14.0},"surfaceTabBar":{}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 14.0) < 0.001)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 9.0) < 0.001)
+        try #"{"sidebar":{"fontSize":999.0},"surfaceTabBar":{"fontSize":10.0}}"#
+            .write(to: file, atomically: true, encoding: .utf8)
+        _ = await iterator.next()
+        var diagnosticIterator = diagnostics.makeAsyncIterator()
+        while let messages = await diagnosticIterator.next() {
+            if messages.contains(where: { $0.contains("sidebar.fontSize") }) {
+                reportedInvalidFont = true
+                break
+            }
+        }
+        #expect(reportedInvalidFont)
+        #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).sidebarFontSize - 14.0) < 0.001)
         #expect(abs(GhosttyConfig.loadForCmux(useCache: false, defaults: defaults).surfaceTabBarFontSize - 10.0) < 0.001)
         withExtendedLifetime(store) {}
     }
