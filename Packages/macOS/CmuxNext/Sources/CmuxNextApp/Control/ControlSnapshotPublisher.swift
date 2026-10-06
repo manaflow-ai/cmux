@@ -141,8 +141,11 @@ final class ControlSnapshotPublisher {
         }
         if let active = windows.active {
             let pane = active.focusedPane
+            // The strip's selected tab: a daemon tab, or an internal page
+            // (Settings, Keyboard Shortcuts) or session browser tab the
+            // daemon does not hold, as debug.focus reports it (nxdog53).
             topology.focus = ControlFocus(windowID: active.state.id, workspaceID: active.state.workspaceID,
-                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id)
+                                          paneID: pane?.pane.id, tabID: pane?.selectedTab?.id ?? pane?.stripModel.selectedID?.rawValue)
         }
         return topology
     }
