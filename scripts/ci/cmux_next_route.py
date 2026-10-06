@@ -260,6 +260,10 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.generated = True
     if result.webview:
         result.scheme = True
+    if "dev-build" in labels and result.native:
+        # The dogfood artifact a dev-build PR publishes is the scheme compile's app.
+        result.scheme = True
+        result.reasons.append("labeled dev-build: the scheme compile builds the dogfood app")
     return result
 
 
