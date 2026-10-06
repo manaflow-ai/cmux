@@ -4833,6 +4833,19 @@
       "zh-Hant": "Nightly is the invariant cmux build channel name."
     }
   },
+  "update.popover.channel.nightly": {
+    "source": "Nightly",
+    "identityLocales": {
+      "ar": "Nightly is the invariant cmux build channel name.",
+      "de": "Nightly is the invariant cmux build channel name.",
+      "es": "Nightly is the invariant cmux build channel name.",
+      "fr": "Nightly is the invariant cmux build channel name.",
+      "ja": "Nightly is the invariant cmux build channel name.",
+      "ko": "Nightly is the invariant cmux build channel name.",
+      "zh-Hans": "Nightly is the invariant cmux build channel name.",
+      "zh-Hant": "Nightly is the invariant cmux build channel name."
+    }
+  },
   "cloudTree.device.build.rc": {
     "source": "RC",
     "identityLocales": {

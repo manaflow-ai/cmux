@@ -78,34 +78,36 @@ public struct UpdatePopoverView: View {
 
 private struct UpdateMetadataView: View {
     let item: SUAppcastItem
-    let labelWidth: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(String(localized: "update.popover.version", defaultValue: "Version:"))
-                    .foregroundColor(.secondary)
-                    .frame(width: labelWidth, alignment: .trailing)
-                Text(item.displayVersionString)
-            }
-            .cmuxFont(size: 11)
-
-            if item.contentLength > 0 {
-                HStack(spacing: 6) {
-                    Text(String(localized: "update.popover.size", defaultValue: "Size:"))
-                        .foregroundColor(.secondary)
-                        .frame(width: labelWidth, alignment: .trailing)
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(item.contentLength), countStyle: .file))
-                }
+        let summary = UpdateSummary(item: item)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(summary.headline)
                 .cmuxFont(size: 11)
-            }
+                .foregroundColor(.secondary)
 
-            if let date = item.date {
-                HStack(spacing: 6) {
-                    Text(String(localized: "update.popover.released", defaultValue: "Released:"))
-                        .foregroundColor(.secondary)
-                        .frame(width: labelWidth, alignment: .trailing)
-                    Text(date.formatted(date: .abbreviated, time: .omitted))
+            if !summary.changes.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(summary.changes.enumerated()), id: \.offset) { _, change in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("•")
+                                .foregroundColor(.secondary)
+                            Text(change)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    if summary.remainingCount > 0 {
+                        let remaining = summary.remainingCount
+                        let label = String(localized: "update.popover.andMore", defaultValue: "and \(remaining) more")
+                        if let url = item.fullReleaseNotesURL ?? UpdateState.ReleaseNotes(displayVersionString: item.displayVersionString)?.url {
+                            Link(label, destination: url)
+                        } else {
+                            Text(label)
+                                .foregroundColor(.secondary)
+                        }
+                    }
                 }
                 .cmuxFont(size: 11)
             }
@@ -143,8 +145,6 @@ private struct DetectedBackgroundUpdateView: View {
     let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
-    private let labelWidth: CGFloat = 60
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -152,7 +152,7 @@ private struct DetectedBackgroundUpdateView: View {
                     Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
                         .cmuxFont(size: 13, weight: .semibold)
 
-                    UpdateMetadataView(item: item, labelWidth: labelWidth)
+                    UpdateMetadataView(item: item)
                 }
 
                 HStack(spacing: 8) {
@@ -287,8 +287,6 @@ private struct UpdateAvailableView: View {
     let actions: any UpdateActionsHost
     let dismiss: () -> Void
 
-    private let labelWidth: CGFloat = 60
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
@@ -296,7 +294,7 @@ private struct UpdateAvailableView: View {
                     Text(String(localized: "update.popover.updateAvailable", defaultValue: "Update Available"))
                         .cmuxFont(size: 13, weight: .semibold)
 
-                    UpdateMetadataView(item: update.appcastItem, labelWidth: labelWidth)
+                    UpdateMetadataView(item: update.appcastItem)
                 }
 
                 HStack(spacing: 8) {

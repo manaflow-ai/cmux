@@ -757,5 +757,11 @@
     "arguments": [
       1
     ]
+  },
+  "update.popover.changeCount": {
+    "source": "%lld changes",
+    "arguments": [
+      1
+    ]
   }
 }
