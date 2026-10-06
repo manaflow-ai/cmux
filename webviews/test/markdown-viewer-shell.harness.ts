@@ -65,7 +65,7 @@ export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markd
   const body = Array.from(dom.window.document.querySelectorAll("script"))
     .map((script) => `${script.textContent ?? ""}\n;if (typeof hljs !== "undefined") { win.hljs = hljs; }\n`)
     .join("\n");
-  // eslint-disable-next-line no-new-func
+  // oxlint-disable-next-line no-implied-eval -- runs the shell's scripts inside the fake window.
   new Function("win", `with (win) {\n${body}\n}`)(win);
   const window = win as unknown as { __cmuxRenderMarkdown(md: string): void };
   return {
@@ -94,10 +94,30 @@ export function unsafeNodes(root: Node): string[] {
     const name = element.localName.toLowerCase();
     if (
       [
-        "script", "noscript", "noembed", "noframes", "xmp", "plaintext", "iframe", "object", "embed",
-        "template", "style", "textarea", "title", "animate", "set", "animatetransform", "animatemotion",
-        "foreignobject", "form", "base", "link", "meta",
-      ].includes(name) && !element.closest(".cmux-mermaid")
+        "script",
+        "noscript",
+        "noembed",
+        "noframes",
+        "xmp",
+        "plaintext",
+        "iframe",
+        "object",
+        "embed",
+        "template",
+        "style",
+        "textarea",
+        "title",
+        "animate",
+        "set",
+        "animatetransform",
+        "animatemotion",
+        "foreignobject",
+        "form",
+        "base",
+        "link",
+        "meta",
+      ].includes(name) &&
+      !element.closest(".cmux-mermaid")
     ) {
       findings.push(`element:${name}`);
     }

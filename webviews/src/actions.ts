@@ -116,10 +116,7 @@ const GIT_APPLY_DELIMITER_PREFIX = "CMUX_DIFF_PATCH_";
  * anywhere in the patch, so no patch line (split on CRLF, CR, or LF) can end the
  * heredoc early.
  */
-export function buildGitApplyCommand(
-  patchText: string,
-  randomToken: () => string = randomDelimiterToken,
-): string {
+export function buildGitApplyCommand(patchText: string, randomToken: () => string = randomDelimiterToken): string {
   if (UNSAFE_SHELL_PASTE_CONTROL.test(patchText)) {
     throw new Error("Patch contains control characters");
   }
