@@ -12,7 +12,7 @@ test("known environment failures match exactly", () => {
   const both = [differs("select-all-delete"), differs("trusted-types")];
   assert.match(knownFailure("cmux-dev", "05-input", both, "linux"), /Meta\+A/);
   assert.equal(knownFailure("cmux-dev", "05-input", both, "darwin"), null, "only on Linux");
-  assert.equal(knownFailure("host-headless", "05-input", both, "linux"), null, "only for the listed backends");
+  assert.equal(knownFailure("host-webkit", "05-input", both, "linux"), null, "only for the listed backends");
   assert.equal(knownFailure("cmux-dev", "05-input", [both[0]], "linux"), null, "every listed key must differ");
   assert.equal(knownFailure("cmux-dev", "05-input", [...both, differs("other")], "linux"), null);
   assert.equal(knownFailure("cmux-dev", "05-input", [both[0], 'unexpected "__error__:1": boom'], "linux"), null);
