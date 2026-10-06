@@ -1,6 +1,40 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "home.engine.answeredBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recent replies, answered by:"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近の返信と回答したエンジン:"
+          }
+        }
+      }
+    },
+    "home.engine.avatar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avatar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アバター"
+          }
+        }
+      }
+    },
     "home.engine.brain": {
       "extractionState": "manual",
       "localizations": {
@@ -99,6 +133,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "モデル"
+          }
+        }
+      }
+    },
+    "home.engine.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
           }
         }
       }

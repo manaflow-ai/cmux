@@ -102,6 +102,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.host.paneHeader.onContact = newValue }
     }
 
+    /// The header avatar's text (one or two characters, an emoji); nil
+    /// shows the conversation's initials.
+    public var avatarText: String? {
+        get { projection.initialsOverride }
+        set { projection.initialsOverride = newValue }
+    }
+
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)

@@ -165,6 +165,10 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     ActionArgument(name: "cwd", title: String(localized: "argument.agent.cwd", defaultValue: "Folder", bundle: .module),
                                    kind: .string, isRequired: false),
                 ],
+                // It starts the workspace's terminal: action.run waits the
+                // terminal start deadline, not 2 s, so the caller's run ends
+                // once the workspace exists (it renames it later by key).
+                startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .exempt(.noObject), contextMenuExemption: .noObject)
             ),
             // The Home Chief's settings sidebar (the header's name pill does the same).

@@ -9,11 +9,16 @@ import Observation
 enum AgentTabPersistence {
     /// Once the daemon's tree loads: reopens the recorded agent tabs, then records every change.
     static func start(_ services: AppServices) {
-        guard let windowState = services.daemon.windowState else { return }
+        // The window state store exists only once the daemon connects, which
+        // is after launch (DaemonService sets it before the store loads):
+        // read it when the tree has loaded. Reading it here at launch found
+        // nil, so no agent tab was ever recorded (subagent tabs of the Home
+        // Chief, 2026-10-06).
         let store = services.daemon.store
         // task-owner: one-shot, ends after the first load
         Task {
             for await loaded in Observations({ store.isLoaded }) where loaded {
+                guard let windowState = services.daemon.windowState else { return }
                 let document = (try? await windowState.load()) ?? WindowStateDocument()
                 let tabs = services.agentTabs
                 // A pane gone by now (closed while the app was quit) drops its tabs when the live

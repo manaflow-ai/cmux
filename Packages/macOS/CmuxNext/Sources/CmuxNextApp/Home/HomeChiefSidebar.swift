@@ -18,7 +18,14 @@ final class HomeChiefSidebar: NSView {
     private let model = NSPopUpButton(frame: .zero, pullsDown: false)
     private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
     private let stats = NSTextField(wrappingLabelWithString: "")
+    private let replies = NSTextField(wrappingLabelWithString: "")
+    private let nameField = NSTextField(string: "")
+    private let avatarField = NSTextField(string: "")
     private let stack = NSStackView()
+    /// Renames the Chief conversation (the daemon's set-title op).
+    var onRename: (String) -> Void = { _ in }
+    /// The header avatar's text changed (nil: the initials).
+    var onAvatar: (String?) -> Void = { _ in }
 
     static let harnesses = ["claude-sr", "codex"]
     static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
@@ -38,6 +45,21 @@ final class HomeChiefSidebar: NSView {
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.addArrangedSubview(title)
+        // Name and avatar of this Chief.
+        for (field, label, action) in [(nameField, HomeEngineStrings.name, #selector(renamed)),
+                                       (avatarField, HomeEngineStrings.avatar, #selector(avatarChanged))] {
+            let caption = NSTextField(labelWithString: label)
+            caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+            caption.textColor = .secondaryLabelColor
+            field.target = self
+            field.action = action
+            field.setAccessibilityLabel(label)
+            field.placeholderString = label
+            stack.addArrangedSubview(caption)
+            stack.addArrangedSubview(field)
+            field.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+        }
+        avatarField.stringValue = Self.readAvatar(muxHome) ?? ""
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
             button.action = #selector(picked(_:))
@@ -56,6 +78,9 @@ final class HomeChiefSidebar: NSView {
         stats.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         stats.textColor = .secondaryLabelColor
         stack.addArrangedSubview(stats)
+        replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        replies.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(replies)
         let brain = NSTextField(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
         brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         brain.textColor = .secondaryLabelColor
@@ -63,7 +88,7 @@ final class HomeChiefSidebar: NSView {
         let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
-        for view in [note, stats, brain] {
+        for view in [note, stats, replies, brain] {
             view.preferredMaxLayoutWidth = Self.width - 32
         }
         addSubview(stack)
@@ -78,6 +103,40 @@ final class HomeChiefSidebar: NSView {
     override func layout() {
         super.layout()
         stack.frame = CGRect(x: 0, y: 0, width: Self.width, height: bounds.height)
+    }
+
+    /// The conversation's title, shown in the name field.
+    func setName(_ name: String) {
+        if nameField.currentEditor() == nil { nameField.stringValue = name }
+    }
+
+    @objc private func renamed() {
+        let name = nameField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !name.isEmpty { onRename(name) }
+    }
+
+    /// The avatar text (at most 2 characters, an emoji counts as one), kept
+    /// in `<mux home>/optchat/profile.json` beside this Chief's settings.
+    @objc private func avatarChanged() {
+        let text = String(avatarField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2))
+        avatarField.stringValue = text
+        let file = muxHome.appendingPathComponent("optchat/profile.json")
+        var profile = (try? Data(contentsOf: file)).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        if text.isEmpty { profile.removeValue(forKey: "avatar") } else { profile["avatar"] = text }
+        if let data = try? JSONSerialization.data(withJSONObject: profile, options: [.prettyPrinted, .sortedKeys]) {
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
+        }
+        onAvatar(text.isEmpty ? nil : text)
+    }
+
+    /// This Chief's avatar text from its profile.json.
+    static func readAvatar(_ muxHome: URL) -> String? {
+        let file = muxHome.appendingPathComponent("optchat/profile.json")
+        guard let data = try? Data(contentsOf: file),
+              let profile = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let avatar = profile["avatar"] as? String, !avatar.isEmpty else { return nil }
+        return avatar
     }
 
     @objc private func openTraces() {
@@ -100,6 +159,9 @@ final class HomeChiefSidebar: NSView {
         fill(model, Self.models, current: choice["model"] as? String)
         fill(effort, Self.efforts, current: choice["effort"] as? String)
         stats.stringValue = lastTurn().map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
+        // Which engine answered each recent reply (the trace's turn.end).
+        let recent = recentTurns(limit: 5)
+        replies.stringValue = recent.isEmpty ? "" : HomeEngineStrings.answeredBy + "\n" + recent.map(HomeEngineStrings.reply).joined(separator: "\n")
     }
 
     /// `values` with a "default" first and the current value kept even
@@ -147,8 +209,11 @@ final class HomeChiefSidebar: NSView {
         }
     }
 
-    /// The trace's last `turn.end` (today's file, else yesterday's).
-    private func lastTurn() -> HomeEngineTurn? {
+    private func lastTurn() -> HomeEngineTurn? { recentTurns(limit: 1).first }
+
+    /// The trace's last `turn.end`s, newest first (today's file, then yesterday's).
+    private func recentTurns(limit: Int) -> [HomeEngineTurn] {
+        var found: [HomeEngineTurn] = []
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         for offset in [0, -1] {
@@ -156,10 +221,11 @@ final class HomeChiefSidebar: NSView {
             let file = traceDirectory.appendingPathComponent("\(day).jsonl")
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             for line in text.split(separator: "\n").reversed() where line.contains("\"turn.end\"") {
-                if let turn = HomeEngineTurn(line: String(line)) { return turn }
+                if let turn = HomeEngineTurn(line: String(line)) { found.append(turn) }
+                if found.count >= limit { return found }
             }
         }
-        return nil
+        return found
     }
 }
 
@@ -172,6 +238,8 @@ struct HomeEngineTurn: Equatable {
     var toolErrors: Int
     var hitRate: Double?
     var cost: Double?
+    /// The reply's first characters (the trace keeps no more).
+    var reply: String?
 
     init?(line: String) {
         guard let data = line.data(using: .utf8),
@@ -183,6 +251,7 @@ struct HomeEngineTurn: Equatable {
         tools = object["tools"] as? Int ?? 0
         toolErrors = object["tool_errors"] as? Int ?? 0
         cost = object["cost_usd"] as? Double
+        reply = (object["reply"] as? [String: Any])?["prefix"] as? String
         if let usage = object["usage"] as? [String: Any] {
             let read = usage["cache_read"] as? Double ?? 0
             let total = read + (usage["cache_write"] as? Double ?? 0) + (usage["input"] as? Double ?? 0)
@@ -205,6 +274,16 @@ nonisolated enum HomeEngineStrings {
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
     static var defaultValue: String { String(localized: "home.engine.default", defaultValue: "Default", table: "Home", bundle: .module) }
+    static var name: String { String(localized: "home.engine.name", defaultValue: "Name", table: "Home", bundle: .module) }
+    static var avatar: String { String(localized: "home.engine.avatar", defaultValue: "Avatar", table: "Home", bundle: .module) }
+    static var answeredBy: String { String(localized: "home.engine.answeredBy", defaultValue: "Recent replies, answered by:", table: "Home", bundle: .module) }
+
+    /// "“Both subagents are done…” claude-sr, claude-opus-5-5".
+    static func reply(_ turn: HomeEngineTurn) -> String {
+        let engine = [turn.harness, turn.model].compactMap { $0 }.joined(separator: ", ")
+        return "\u{201C}\(turn.reply ?? "")\u{201D} \(engine)"
+    }
+
     static var noTurn: String { String(localized: "home.engine.noTurn", defaultValue: "No turn yet", table: "Home", bundle: .module) }
 
     /// "Last turn: claude-sr, claude-opus-5-5, 7.8 s, 1 tool call, 50% cached, $0.144".

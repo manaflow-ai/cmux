@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHome
 
@@ -32,6 +33,17 @@ final class HomeHostView: NSView {
         addSubview(sidebar)
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
+        transcript.avatarText = HomeChiefSidebar.readAvatar(HomeBrainHost.muxHome(tag: services.environment.tag))
+        sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
+        sidebar.onRename = { [weak service] name in
+            guard let connection = service?.connection else { return }
+            // task-owner: one op; ends with its reply
+            Task {
+                let key = "home-chief-rename-\(UUID().uuidString.lowercased())"
+                _ = try? await CmuxNextDaemon.ConversationClient(connection).op(
+                    CmuxNextDaemon.ConversationOpRequest(conversation: conversation, idempotencyKey: key, transaction: nil, op: .setTitle(name)))
+            }
+        }
         toggleObserver = NotificationCenter.default.addObserver(forName: Self.toggleSettings, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.toggleSidebar() }
         }
@@ -40,12 +52,14 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _) in Observations({ () -> (Bool, Int) in
-                let chief = store.rows.first { $0.summary.id == id }?.summary.participants.contains { $0.agentClass == .chief } ?? false
-                return (chief, store.transcriptVersion[id] ?? 0)
+            for await (isChief, _, title) in Observations({ () -> (Bool, Int, String) in
+                let row = store.rows.first { $0.summary.id == id }
+                let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
+                return (chief, store.transcriptVersion[id] ?? 0, row?.summary.title ?? "")
             }) {
                 guard let self else { return }
                 self.isChief = isChief
+                sidebar.setName(title)
                 if !isChief, sidebarOpen { toggleSidebar() }
                 if sidebarOpen { sidebar.refresh() }
             }

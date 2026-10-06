@@ -104,6 +104,12 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.onNamePill = newValue }
     }
 
+    /// The header avatar's text; nil shows the conversation's initials.
+    public var avatarText: String? {
+        get { transcript.avatarText }
+        set { transcript.avatarText = newValue }
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 

@@ -180,9 +180,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
+    /// A chosen avatar text (the Home Chief's avatar), over the initials.
+    var initialsOverride: String? { didSet { applyHeader() } }
+
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
-        controller.host.paneHeader.initials = HomeMapping.initials(shownSummary, me: me)
+        controller.host.paneHeader.initials = initialsOverride ?? HomeMapping.initials(shownSummary, me: me)
     }
 
     // MARK: Projection -> HomeStore (intents)
