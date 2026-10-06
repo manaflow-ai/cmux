@@ -353,6 +353,52 @@ test("markdown { main: true }: <main> and <article> candidates are read one at a
   }
 });
 
+test("markdown: a slot's assigned nodes are read one at a time within the budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so an assignedNodes
+  // the page installs records the largest list the read asks for. The
+  // host holds 260,000 slotted children; the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<i>x</i>'.repeat(260000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await page.markdown(); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 250000, `the Markdown read listed ${r.value} assigned nodes at once with a budget of 250,000 nodes`);
+      // Below the budget, slots still show what is assigned to them, in
+      // order, flattened through a nested slot, with fallback content
+      // where nothing is assigned, in open and closed shadow roots.
+      const md = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="open"><span slot="b">Bee one</span> Text default <span>Elem default</span><span slot="b">Bee two</span><span slot="zz">Unplaced</span></div><div id="closed"><span slot="c">Closed bee</span></div>';
+          const open = document.getElementById("open").attachShadow({ mode: "open" });
+          open.innerHTML = '<p>A[<slot name="a">Fallback a</slot>]</p><p>B[<slot name="b"></slot>]</p><p>D[<slot></slot>]</p><p>B2[<slot name="b">never</slot>]</p><div id="inner"><span slot="n"><slot name="b2"></slot></span></div>';
+          const inner = open.getElementById("inner").attachShadow({ mode: "open" });
+          inner.innerHTML = '<p>N[<slot name="n"></slot>]</p>';
+          document.getElementById("open").insertAdjacentHTML("beforeend", '<span slot="b2">Nested bee</span>');
+          document.getElementById("closed").attachShadow({ mode: "closed" }).innerHTML = '<p>C[<slot name="c"></slot>]</p>';
+        });
+        console.log("@@" + JSON.stringify(await page.markdown()));`);
+      const text = JSON.parse(md.value).replace(/\s+/g, " ");
+      assert.match(text, /A\[Fallback a\]/);
+      assert.match(text, /B\[Bee one ?Bee two\]/);
+      assert.match(text, /D\[ ?Text default Elem default ?\]/);
+      assert.match(text, /B2\[never\]/);
+      assert.match(text, /N\[Nested bee\]/);
+      assert.match(text, /C\[Closed bee\]/);
+      assert.doesNotMatch(text, /Unplaced/);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
   const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
   const server = http.createServer((req, res) => {
