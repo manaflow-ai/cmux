@@ -2,7 +2,7 @@
 //! sidebar mixed order): a group has a slot among the loose workspaces and
 //! keeps it when other workspaces move or go away.
 
-use super::*;
+use super::super::*;
 
 const S: &str = "00000000-0000-4000-8000-0000000000aa";
 const OTHER: &str = "00000000-0000-4000-8000-0000000000bb";
