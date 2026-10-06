@@ -595,3 +595,51 @@ fn turns_run_at_medium_effort_on_both_engines() {
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(inner.specs[0].effort.as_deref(), Some("medium"));
 }
+
+/// Section 8 for a view of any size: our one marker sits at the end of the
+/// stable older part of the view (a line end on a fixed grid, counted from
+/// the view's start), and the next turn's request has a block boundary at
+/// that same offset with the same bytes before it, so the API's lookback
+/// from the next marker reads it. Measured 2026-10-06 on cmux-lawrence-2: a
+/// small view had no marker, and each turn wrote the whole view again
+/// (~8,000 tokens) while 90% of it was unchanged.
+#[test]
+fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary() {
+    let mut h = harness_with(settings);
+    h.agents.inner.lock().unwrap().system_prompts = true;
+    fill(&h.chat, 120);
+    h.connect();
+    h.say("user_local", "one");
+    h.settle();
+    h.say("user_local", "two");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 2);
+    // (offset of each block end, the text before it) over the view blocks.
+    let ends = |blocks: &[Value]| -> Vec<(usize, String)> {
+        let t = texts(blocks);
+        let mut acc = String::new();
+        t[..t.len() - 1]
+            .iter()
+            .map(|piece| {
+                acc.push_str(piece);
+                (acc.len(), acc.clone())
+            })
+            .collect()
+    };
+    let first = &inner.prompts[0];
+    let marked = markers(first);
+    assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
+    let at = marked[0];
+    assert!(at + 1 < first.len() - 1, "the marker leaves the view's newest lines out");
+    let (offset, prefix) = ends(first)[at].clone();
+    assert!(prefix.ends_with('\n'), "the marked piece ends at a line end");
+    let second = ends(&inner.prompts[1]);
+    assert!(
+        second.iter().any(|(o, p)| *o == offset && *p == prefix),
+        "the next turn has a block boundary at the marker with the same bytes before it"
+    );
+    // And its own marker is at or after the first turn's.
+    let next = markers(&inner.prompts[1])[0];
+    assert!(second[next].0 >= offset);
+}
