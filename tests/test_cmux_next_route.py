@@ -93,6 +93,35 @@ class PullRequestTiers(unittest.TestCase):
         self.assertIn("CmuxNextAppTests", result["swift_targets"].split())
         self.assertNotIn("CmuxNextDaemonTests", result["swift_targets"].split())
 
+    def test_app_ffi_sources_run_the_pin_check(self):
+        """check-app-ffi-pin.sh and the reducer cargo test live in swift test."""
+        for path in ("cmux-tui/crates/cmux-layout-reducer/src/lib.rs", "cmux-tui/rust-toolchain.toml",
+                     "scripts/cmux-next/build-app-ffi.sh", "cmux-tui/crates/cmux-rd-core/src/lib.rs"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["swift"], "true")
+
+    def test_every_routed_input_triggers_the_workflow(self):
+        """A path the router acts on but the pull_request paths filter misses never runs."""
+        import fnmatch
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        patterns = workflow[True]["pull_request"]["paths"]
+        import cmux_next_route as route_module
+        inputs = list(route_module.FULL_INPUTS) + list(route_module.DAEMON_PATHS) + list(route_module.SWIFT_JOB_INPUTS)
+        inputs += [p + "x" if p.endswith("/") else p for p in route_module.tree_input_paths(ROOT)]
+        for directory in GRAPH["packages"].values():
+            inputs.append(directory + "/Sources/x.swift")
+        from select_package_tests import input_prefixes, package_dirs
+        dirs = package_dirs(ROOT)
+        for directory in GRAPH["packages"].values():
+            for prefix in input_prefixes(ROOT, Path(directory).name, dirs):
+                inputs.append(prefix + "x")
+        for target in GRAPH["targets"].values():
+            inputs += [read + "x" if read.endswith("/") else read for read in target.get("reads", [])]
+        for path in sorted(set(inputs)):
+            with self.subTest(path=path):
+                self.assertTrue(any(fnmatch.fnmatch(path, pattern.replace("**", "*")) for pattern in patterns), path)
+
     def test_web_and_docs_need_no_mac(self):
         result = tiers(["web/app/page.tsx", "docs/cmux-next.md"])
         self.assertEqual(result["macos"], "false")

@@ -239,6 +239,12 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
         self.assertIn('"$current" != "$HEAD_SHA"', run)
         self.assertNotIn("--force", run)
+        # Never a bot push to a protected branch.
+        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
+        # The regenerated files are copied onto the head, not patched against
+        # the merge commit, whose context the head may not have.
+        self.assertNotIn("git apply \"$patch\"", run)
+        self.assertIn("git add", run)
 
     def test_red_push_runs_name_their_pull_requests(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
