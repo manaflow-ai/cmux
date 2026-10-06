@@ -406,11 +406,18 @@ nw.addEventListener("keydown", (e) => {
       const { start, cells } = rangeCells(data.range);
       if (action === "clear") for (const { r, c } of cells) sheet.cells.delete(colName(c) + (r + 1));
       else
-        data.tsv.replace(/\n$/, "").split("\n").forEach((line, dr) => line.split("\t").forEach((v, dc) => {
+      {
+        // As Sheets' paste parser: CR, LF and CRLF each end a row.
+        const lines = data.tsv.replace(/(\r\n|\r|\n)$/, "").split(/\r\n|\r|\n/);
+        lines.forEach((line, dr) => line.split("\t").forEach((v, dc) => {
           const ref = colName(start.c + dc) + (start.r + dr + 1);
           if (v === "") sheet.cells.delete(ref);
           else sheet.cells.set(ref, v);
         }));
+        // pasteSpill: an editor whose paste also changes the cell under the
+        // pasted block (a parser quirk the tools cannot see in the TSV).
+        if (data.via === "paste" && file.pasteSpill) sheet.cells.set(colName(start.c) + (start.r + lines.length + 1), file.pasteSpill);
+      }
     }
   }
   // The googleusercontent host that serves binary exports (no CORS headers).
