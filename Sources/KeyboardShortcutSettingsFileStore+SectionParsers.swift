@@ -10,6 +10,9 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        // One section value for every toggle below. A `SettingCatalog()` per call is a whole
+        // catalog per stack slot in a debug build, which is enough to overflow a worker thread.
+        let betaFeatures = BetaFeaturesCatalogSection()
         if let integrations = root["integrations"] as? [String: Any] {
             parseIntegrationsSection(integrations, sourcePath: sourcePath, snapshot: &snapshot)
         } else if root.keys.contains("integrations") {
@@ -19,42 +22,42 @@ extension CmuxSettingsFileStore {
         parseBetaToggle(
             root["rightSidebar"] as? [String: Any],
             nestedPath: ["beta", "feed", "enabled"],
-            setting: SettingCatalog().betaFeatures.rightSidebarFeed,
+            setting: betaFeatures.rightSidebarFeed,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["extensions"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.extensions,
+            setting: betaFeatures.extensions,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["customSidebars"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.customSidebars,
+            setting: betaFeatures.customSidebars,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["cloud"] as? [String: Any],
             nestedPath: ["beta", "machines", "enabled"],
-            setting: SettingCatalog().betaFeatures.cloudMachines,
+            setting: betaFeatures.cloudMachines,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["remoteTmux"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.remoteTmux,
+            setting: betaFeatures.remoteTmux,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["remoteTmux"] as? [String: Any],
             nestedPath: ["beta", "newWorkspaceOnHost", "enabled"],
-            setting: SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost,
+            setting: betaFeatures.remoteTmuxNewWorkspaceOnHost,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
