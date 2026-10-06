@@ -79,12 +79,15 @@ struct BrowserReplSecretRedactionTests {
         #expect(output.contains("masked true 255 128"), "\(output)")
     }
 
+    /// The source itself is refused to `fs` (r19 entry#1); a copy made
+    /// outside the session is read masked.
     @Test("fs.readFile returns a loaded secret's value masked, from text and from bytes")
     func readFileIsRedacted() async throws {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-redaction-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("notes.json"))
         var blob = Data([0xff, 0x00])
         blob.append(Data(Self.value.utf8))
         blob.append(Data([0x80]))
@@ -94,7 +97,7 @@ struct BrowserReplSecretRedactionTests {
         let result = await run(session, """
         const fs = await import("node:fs");
         secrets.load("./secrets.json");
-        const text = fs.readFileSync("./secrets.json", "utf8");
+        const text = fs.readFileSync("./notes.json", "utf8");
         console.log(text.split("").join(" "));
         const bytes = fs.readFileSync("./blob.bin");
         const latin = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
@@ -116,8 +119,11 @@ struct BrowserReplSecretRedactionTests {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
         let values = ["v4lue-deleted-1", "v4lue-cleared-2", "v4lue-replaced-3"]
-        try Data(#"{"example.com":{"gone":"\#(values[0])","later":"\#(values[1])","swapped":"\#(values[2])"}}"#.utf8)
-            .write(to: work.appendingPathComponent("secrets.json"))
+        let json = Data(#"{"example.com":{"gone":"\#(values[0])","later":"\#(values[1])","swapped":"\#(values[2])"}}"#.utf8)
+        try json.write(to: work.appendingPathComponent("secrets.json"))
+        // fs does not read the source itself (r19 entry#1); a copy made
+        // outside the session holds the same values.
+        try json.write(to: work.appendingPathComponent("notes.json"))
         let driver = ScriptedPageDriver()
         let session = try #require(makeSession(driver, cwd: work.path))
         defer { session.close() }
@@ -126,9 +132,9 @@ struct BrowserReplSecretRedactionTests {
         secrets.load("./secrets.json");
         secrets.delete("gone");
         secrets.set("swapped", "another-value-4", { domains: ["example.com"] });
-        const afterDelete = fs.readFileSync("./secrets.json", "utf8");
+        const afterDelete = fs.readFileSync("./notes.json", "utf8");
         secrets.clear();
-        const afterClear = fs.readFileSync("./secrets.json", "utf8");
+        const afterClear = fs.readFileSync("./notes.json", "utf8");
         console.log(afterDelete.split("").join(" "));
         console.log(afterClear.split("").join(" "));
         console.log("masked", afterClear.includes("<secret:gone>"), afterClear.includes("<secret:later>"), afterClear.includes("<secret:swapped>"));
@@ -291,10 +297,15 @@ struct BrowserReplSecretRedactionTests {
         let json = #"{"example.com":{"pw":"\#(Self.value)"}}"#
         var utf16 = Data([0xff, 0xfe])
         utf16.append(json.data(using: .utf16LittleEndian) ?? Data())
-        try utf16.write(to: work.appendingPathComponent("utf16.json"))
-        try (json.data(using: .utf32BigEndian) ?? Data()).write(to: work.appendingPathComponent("utf32.json"))
+        // Each file twice: fs does not read a source secrets.load opened
+        // (r19 entry#1), so the read-back is of a copy made outside the
+        // session, with the same bytes.
+        for name in ["utf16.json", "copy-utf16.json"] { try utf16.write(to: work.appendingPathComponent(name)) }
+        for name in ["utf32.json", "copy-utf32.json"] { try (json.data(using: .utf32BigEndian) ?? Data()).write(to: work.appendingPathComponent(name)) }
         // 4271, each digit escaped.
-        try Data(#"{"example.com":{"pin":"\u0034\u0032\u0037\u0031"}}"#.utf8).write(to: work.appendingPathComponent("escaped.json"))
+        for name in ["escaped.json", "copy-escaped.json"] {
+            try Data(#"{"example.com":{"pin":"\u0034\u0032\u0037\u0031"}}"#.utf8).write(to: work.appendingPathComponent(name))
+        }
         // How agent code decodes each file's bytes (`b`, a Buffer).
         let cases: [(file: String, decode: String, value: String)] = [
             ("utf16.json", #"b.toString("utf16le")"#, Self.value),
@@ -308,7 +319,7 @@ struct BrowserReplSecretRedactionTests {
             const fs = await import("node:fs");
             let loaded = true;
             try { secrets.load("./\(item.file)"); } catch (e) { loaded = false; console.log("refused: " + e.message); }
-            const b = fs.readFileSync("./\(item.file)");
+            const b = fs.readFileSync("./copy-\(item.file)");
             console.log("loaded " + loaded);
             if (loaded) console.log((\(item.decode)).split("").join(" "));
             """)

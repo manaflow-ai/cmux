@@ -91,8 +91,10 @@ value comes from a file or from code it writes.
 What `secrets.load(path)` protects: the native session reads the file (it
 must be inside the session directory or its own temporary directory, like any
 `fs` path), so the values never enter the runtime, and every value is
-masked wherever the session hands text back, including `fs.readFile` of the
-file (text or bytes). It does not hide the file before the load: the
+masked wherever the session hands text back. From the load on, no
+session's `fs` reads or copies the file (`denied`, the loading session's
+too, since only it knows the values to mask); `stat` and `readdir` still
+see it. It does not hide the file before the load: the
 agent's own `fs` calls can read it then, and a value the agent's code
 holds that way and transforms (splits, reverses, re-encodes) is not masked. `secrets.set(name, value)`
 puts a value the agent's code already holds in the store; it protects later

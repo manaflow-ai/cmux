@@ -447,7 +447,12 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     /// Whether the file at `path` (links followed) is one `secrets.load` read.
     func contains(path: String) -> Bool {
         guard let identity = BrowserReplFileIdentity(path: path) else { return false }
-        return lock.withLock { identities.contains(identity) }
+        return contains(identity)
+    }
+
+    /// Whether `identity` is a file `secrets.load` read.
+    func contains(_ identity: BrowserReplFileIdentity) -> Bool {
+        lock.withLock { identities.contains(identity) }
     }
 }
 

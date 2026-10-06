@@ -189,7 +189,10 @@ public struct BrowserReplFileSystem: Sendable {
             let (file, size) = try openFile(try locate(.read), display: display, opened: opened)
             guard size <= Self.maxReadFileBytes else { throw Self.fileTooLarge(size) }
             do {
-                return try readAll(file, display: display).browserReplBase64EncodedString(isCancelled: isCancelled)
+                let data = try readAll(file, display: display)
+                // A secrets.load that protected the file while it was read.
+                if opened == nil { try Self.refuseSecretSource(file, display: display, syscall: "read") }
+                return try data.browserReplBase64EncodedString(isCancelled: isCancelled)
             } catch is CancellationError {
                 throw Self.cancelledError(syscall: "read", display: display)
             }
@@ -351,6 +354,8 @@ public struct BrowserReplFileSystem: Sendable {
                 guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
+                // A secrets.load that protected the source while it was copied.
+                try Self.refuseSecretSource(source, display: fromDisplay, syscall: "copyfile")
                 try Self.publish(staging, as: name, in: destination, holding: copy, display: pair)
             } catch {
                 // Left in place when its directory was moved out of the root.
@@ -775,7 +780,27 @@ public struct BrowserReplFileSystem: Sendable {
             throw Self.posixError(number, syscall: syscall, display: display)
         }
         let file = BrowserReplDescriptor(descriptor)
-        return (file, try Self.requireRegularFile(file, display: display, syscall: syscall))
+        let size = try Self.requireRegularFile(file, display: display, syscall: syscall)
+        if opened == nil { try Self.refuseSecretSource(file, display: display, syscall: syscall) }
+        return (file, size)
+    }
+
+    /// Fails with `denied` when the open `file` is one `secrets.load` read
+    /// (``BrowserReplSecretSources``), under any name and for every session,
+    /// the one that loaded it too: only the loading session knows its
+    /// values to mask them, and only `secrets.load` (the read with
+    /// `opened`) reads it. `stat`, `lstat`, `exists` and `readdir` still
+    /// see it. A read checks once it opened the file and again once it read
+    /// it (a copy before it publishes), so a `secrets.load` of the same file
+    /// meanwhile fails the read too.
+    private static func refuseSecretSource(_ file: BrowserReplDescriptor, display: String, syscall: String) throws {
+        var info = stat()
+        guard fstat(file.fd, &info) == 0 else { throw posixError(errno, syscall: syscall, display: display) }
+        guard BrowserReplSecretSources.shared.contains(BrowserReplFileIdentity(info)) else { return }
+        throw BrowserReplFileSystemError(
+            code: "denied",
+            message: "denied: '\(display)' holds secrets loaded by secrets.load, so fs does not read or copy it in any session (only secrets.load reads it; stat and readdir still see it), \(syscall) '\(display)'"
+        )
     }
 
     /// The size of the open regular file; anything else fails.
