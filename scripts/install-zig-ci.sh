@@ -288,7 +288,12 @@ download_zig_artifact() {
   local mirror_url
   local partial_output
   local mirrors_remaining=4
+  local verification_shares=0
   local remaining mirror_budget mirror_deadline
+
+  if [ -z "$suffix" ]; then
+    verification_shares=1
+  fi
 
   # Each mirror gets its own resumable file. A failed transfer can therefore
   # resume from the same mirror, while a fallback starts with that mirror's
@@ -297,9 +302,10 @@ download_zig_artifact() {
   for mirror_name in primary secondary tertiary official; do
     remaining="$(download_seconds_remaining)" || return 1
     # Share the remaining time across untried mirrors and reserve one share
-    # for the checksum index/signature. Retries share this source deadline:
+    # for the checksum index/signature after the archive. The signature is the
+    # final download, so it needs no reserve. Retries share this source deadline:
     # a slow primary must not consume the official fallback's entire budget.
-    mirror_budget=$((remaining / (mirrors_remaining + 1)))
+    mirror_budget=$((remaining / (mirrors_remaining + verification_shares)))
     if [ "$mirror_budget" -lt 1 ]; then
       mirror_budget=1
     fi
