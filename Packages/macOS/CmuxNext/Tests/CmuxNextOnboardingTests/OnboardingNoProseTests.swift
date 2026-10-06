@@ -8,7 +8,8 @@ import Testing
 /// where data goes or what a profile becomes.
 @MainActor
 @Suite(.serialized) struct OnboardingNoProseTests {
-    static let prose = ["Sign-ins cmux found", "Nothing is uploaded", "Nothing leaves this Mac", "Each profile becomes"]
+    static let prose = ["Sign-ins cmux found", "Nothing is uploaded", "Nothing leaves this Mac", "Each profile becomes",
+                         "macOS asks before"]
 
     static func shownText(_ view: NSView) -> [String] {
         var found: [String] = []
