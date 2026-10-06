@@ -58,9 +58,13 @@ final class HomeDirectory {
     /// `chief.create` with a display name; the new Chief's main conversation
     /// reaches the inbox through the owner (UserDO's outbox).
     func createChief(named name: String) async throws -> HomeChiefRecord {
-        let body: [String: Any] = ["op": "chief.create", "params": ["display_name": name],
-                                   "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
-        let value = try await ensuringUser { try Self.value(try await self.call("v1/ops", body)) }
+        // A new key per attempt: the owner keeps a refused key's answer, so a
+        // retry after user.ensure under the same key would replay the refusal.
+        let value = try await ensuringUser {
+            let body: [String: Any] = ["op": "chief.create", "params": ["display_name": name],
+                                       "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
+            return try Self.value(try await self.call("v1/ops", body))
+        }
         guard let record = Self.chief(value) else { throw FeedServiceError.badReply }
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
