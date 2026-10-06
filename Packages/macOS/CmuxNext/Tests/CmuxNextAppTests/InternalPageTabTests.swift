@@ -147,19 +147,20 @@ struct InternalPageTabTests {
     }
 
     /// Leo (2026-10-06): the footer gear on Home opened Settings as a tab
-    /// behind the Home page, so nothing seemed to happen. A user run leaves
-    /// the page and shows the Settings tab.
-    @Test func openSettingsFromATopPageShowsTheTab() async throws {
-        let (services, window, pane) = try await world()
+    /// behind the Home page (or waited for a pane Home never mounts), so
+    /// nothing seemed to happen. Over a top page a user run shows Settings
+    /// as a top page, on the section it asked for.
+    @Test func openSettingsFromATopPageShowsSettings() async throws {
+        let (services, window, _) = try await world()
         let route = try #require([TopPageRoute.home, .page(.history), .page(.bookmarks)].first {
             TopPages.show($0, services: services, in: window.state) != nil && window.shownTopPage == $0
         })
         #expect(window.shownTopPage == route)
         #expect(services.registry.perform("openSettings", invocation: ActionInvocation()))
-        let key = try #require(services.pages.keys(of: .settings).first)
-        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
-        #expect(window.shownTopPage == nil, "the Settings tab is not left behind the page")
-        #expect(pane.stripModel.selectedID?.rawValue == key)
+        #expect(window.shownTopPage == .page(.settings), "Settings shows instead of opening behind the page")
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("machines")])))
+        #expect(window.shownTopPage == .page(.settings))
+        #expect(services.settingsWindow.currentRoute?.contains("machines") == true)
     }
 
     @Test func automationOpensTheTabWithoutTakingTheSelection() async throws {
