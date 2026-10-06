@@ -514,7 +514,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   later session of the same name.
   The open tabs hold at most 4,096 such values (one per tab and distinct
   value; the same value typed into the tab again, also after the session
-  that typed it ended, is the record it already has): past that the driver refuses to type
+  that typed it ended, is the record it already has, and its captures
+  mask it on every domain it was typed for, since an older frame may still
+  show it; a record whose domains together would pass 1,024 stays beside
+  the new one): past that the driver refuses to type
   another (`invalid`) until tabs close, since a value it typed is never
   dropped while its tab is open.
   A capture takes those masks before it waits for the page, so one during
