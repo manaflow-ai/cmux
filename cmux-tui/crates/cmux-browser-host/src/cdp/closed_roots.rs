@@ -39,6 +39,13 @@ impl WalkStats {
     }
 }
 
+/// DOM events after a read that turn the domain off: about 2 s of a page
+/// that changes 50 nodes every 16 ms (6,400 events/s on the Testbox).
+pub const DOM_EVENT_BUDGET: u64 = 12_000;
+/// The domain also turns off at the first event that comes this long after
+/// the last read.
+pub const DOM_IDLE_AFTER_READ: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// One CDP session's closed roots, from its last `DOM.getDocument`.
 #[derive(Debug, Clone, Default)]
 pub struct SessionRoots {
@@ -48,6 +55,11 @@ pub struct SessionRoots {
     by_frame: HashMap<String, Vec<(i64, i64)>>,
     /// (frame id, context id) that adopted this walk's roots.
     adopted: HashSet<(String, i64)>,
+    /// Whether the DOM domain is on in this session (a walk turns it on).
+    dom_on: bool,
+    /// DOM events since the last walk, and when that walk ran.
+    events_since_read: u64,
+    last_read: Option<Instant>,
 }
 
 impl SessionRoots {
@@ -239,7 +251,68 @@ impl Inner {
 
 #[cfg(test)]
 mod tests {
+    use super::super::state::State;
     use super::*;
+    use crate::cdp::CdpEvent;
+    use std::time::Duration;
+
+    /// A tab whose session `S` was read `ago` before now (domain on).
+    fn read_state(ago: Duration) -> State {
+        let mut state = State::default();
+        let mut tab =
+            super::super::state::TabState::new("S".into(), "u".into(), String::new(), None);
+        tab.closed_roots.insert(
+            "S".into(),
+            SessionRoots {
+                fresh: true,
+                dom_on: true,
+                last_read: Instant::now().checked_sub(ago),
+                ..SessionRoots::default()
+            },
+        );
+        state.tabs.insert("T".into(), tab);
+        state.sessions.insert("S".into(), "T".into());
+        state
+    }
+
+    fn dom_event(state: &mut State) -> String {
+        let applied = state.apply(&CdpEvent {
+            session_id: Some("S".into()),
+            method: "DOM.characterDataModified".into(),
+            params: json!({"nodeId": 7, "characterData": "x"}),
+        });
+        format!("{:?}", applied.follow_ups)
+    }
+
+    fn roots(state: &State) -> &SessionRoots {
+        &state.tabs["T"].closed_roots["S"]
+    }
+
+    #[test]
+    fn a_churning_page_turns_dom_events_off_after_the_event_budget() {
+        let mut state = read_state(Duration::from_secs(1));
+        for _ in 1..DOM_EVENT_BUDGET {
+            assert!(!dom_event(&mut state).contains("DisableDom"));
+        }
+        assert!(roots(&state).dom_on);
+        assert!(
+            dom_event(&mut state).contains("DisableDom"),
+            "the budget's last event turns it off"
+        );
+        assert!(!roots(&state).dom_on);
+        assert!(!roots(&state).fresh, "roots are stale once the domain is off");
+        assert!(!dom_event(&mut state).contains("DisableDom"), "turned off once");
+    }
+
+    #[test]
+    fn the_first_event_long_after_a_read_turns_dom_events_off() {
+        let mut state = read_state(DOM_IDLE_AFTER_READ + Duration::from_secs(1));
+        assert!(dom_event(&mut state).contains("DisableDom"));
+        assert!(!roots(&state).dom_on && !roots(&state).fresh);
+        let mut recent = read_state(Duration::from_secs(1));
+        assert!(!dom_event(&mut recent).contains("DisableDom"));
+        assert!(roots(&recent).dom_on && !roots(&recent).fresh);
+    }
 
     #[test]
     fn closed_roots_are_grouped_by_their_frame() {
