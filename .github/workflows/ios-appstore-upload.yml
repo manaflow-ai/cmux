@@ -263,6 +263,12 @@ jobs:
           CMUX_CI_MAX_MACOS_SDK_MAJOR: "26"
         run: ./scripts/select-ci-xcode.sh
 
+      - name: Set up Go for the Cloud tunnel extension
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Install asc CLI
         run: brew list asc >/dev/null 2>&1 || brew install asc
 
@@ -371,6 +377,7 @@ jobs:
         env:
           IOS_PROD_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROD_PROVISIONING_PROFILE_BASE64 }}
           IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
+          IOS_APPSTORE_ENABLE_CLOUD_VPN: "1"
           IOS_APPSTORE_KEYCHAIN_NAME: ios-appstore.keychain
         run: ./.github/scripts/install-app-store-provisioning-profile.sh
 
@@ -623,7 +630,7 @@ jobs:
     # job fail. Notes timeouts must not turn an accepted upload into a failure.
     if: ${{ !cancelled() && needs.upload.result == 'success' && needs.upload.outputs.notes_artifact_id != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 20
+    timeout-minutes: 40
     continue-on-error: true
     permissions:
       contents: read
