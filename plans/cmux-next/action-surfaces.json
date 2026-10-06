@@ -4912,6 +4912,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -4955,6 +4956,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -4998,6 +5000,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -5041,6 +5044,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
+          "shift",
           "cmd"
         ]
       },
@@ -5070,9 +5074,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
-          "opt",
+          "ctrl",
           "cmd"
         ]
       },
@@ -5102,9 +5106,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
-          "opt",
+          "ctrl",
           "cmd"
         ]
       },
@@ -5134,9 +5138,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "k",
         "modifiers" : [
-          "opt",
+          "ctrl",
           "cmd"
         ]
       },
@@ -5166,9 +5170,9 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "j",
         "modifiers" : [
-          "opt",
+          "ctrl",
           "cmd"
         ]
       },
