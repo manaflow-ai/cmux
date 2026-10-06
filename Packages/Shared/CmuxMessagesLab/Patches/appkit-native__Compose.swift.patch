@@ -34,17 +34,17 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -117,7 +130,8 @@
-     static func height(lines: Int, chips: Bool) -> CGFloat {
-         30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) + (chips ? 30 : 0)
-     }
+@@ -115,7 +128,8 @@
+     var onSendPulse: ((CFTimeInterval) -> Void)?
+ 
+     static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
 -    static var textWidth: CGFloat { fieldWidth(Metrics.current.width) - 24 }
 +    /// cmux: per view (several Home tabs), from this compose bar's width.
 +    var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      static let maxLines = 8
-@@ -130,8 +144,8 @@
+@@ -128,8 +142,8 @@
          default: return .limited
          }
      }()
@@ -55,7 +55,7 @@
      }
      private var dx: CGFloat { bounds.width - Fixture.windowWidth }
      private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-@@ -329,11 +343,11 @@
+@@ -327,11 +341,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -66,10 +66,10 @@
          waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
 -            NSColor(white: 144 / 255, alpha: 1).setFill()
 +            Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
-             let c = CGPoint(x: 30 - 19.3 - 6, y: 30 - 15.25)
-             for (i, hh) in ([4.7, 10.8, 15, 10.8, 4.7] as [CGFloat]).enumerated() {
-                 let x = c.x + CGFloat(i - 2) * 3.65
-@@ -355,7 +369,7 @@
+             // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
+             // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
+             // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
+@@ -356,7 +370,7 @@
                  let font = NSFont.systemFont(ofSize: 11, weight: .medium)
                  let w = min(200, TextDraw.width(a.fileName, font: font) + 34)
                  let r = CGRect(x: x, y: 5, width: w, height: 22)
@@ -78,7 +78,7 @@
                  UIBezierPath(roundedRect: r, cornerRadius: 11).fill()
                  TextDraw.line(a.fileName, font: font, color: Fixture.incomingText, x: r.minX + 10, baseline: r.minY + 15, in: ctx.cgContext)
                  TextDraw.line("\u{2715}", font: .systemFont(ofSize: 9, weight: .bold), color: Fixture.secondaryText, x: r.maxX - 16,
-@@ -397,7 +411,7 @@
+@@ -398,7 +412,7 @@
          placeholderLayer.opacity = text.isEmpty ? 1 : 0
          waveLayer.opacity = text.isEmpty ? 1 : 0
          CATransaction.commit()
@@ -87,7 +87,7 @@
          let old = fieldHeight
          fieldHeight = h
          place(height: h)
-@@ -473,7 +487,7 @@
+@@ -474,7 +488,7 @@
              alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
          }
          let f = fieldRect

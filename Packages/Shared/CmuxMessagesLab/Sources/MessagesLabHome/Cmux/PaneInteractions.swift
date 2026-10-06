@@ -1,6 +1,7 @@
 import AppKit
 
-/// MessagesLab 7f1a811's interaction parity (Host.swift), for the pane
+/// MessagesLab 7f1a811's interaction parity (menu and picker chrome from
+/// 69f4256 are in PaneMenu.swift) (Host.swift), for the pane
 /// controller: press and hold on a message opens the tapback picker over a
 /// dimmed pane (Esc or a click outside closes it), a double-click selects the
 /// word under the cursor, and the context menu starts with the two tapback
@@ -68,8 +69,9 @@ final class PickerDimView: NSView {
 /// palettes at the top, the six tapbacks, then recent emoji and the emoji
 /// picker.
 enum TapbackMenuRows {
-    /// The second row's emoji (the real app shows the user's recent ones).
-    static let recentEmoji = ["\u{1F440}", "\u{2705}", "\u{1F602}", "\u{2764}\u{FE0F}", "\u{1F60D}"]
+    /// The second row's emoji (the real app shows the user's recent ones; MessagesLab
+    /// 69f4256: the strip's two extras moved out of this row).
+    static let recentEmoji = ["\u{1F602}", "\u{2764}\u{FE0F}", "\u{1F60D}", "\u{1F612}", "\u{1F44C}"]
 
     static func items(current: Reaction.Kind?, react: @escaping (Reaction.Kind) -> Void, emojiPicker: @escaping () -> Void) -> [NSMenuItem] {
         func palette(_ entries: [(NSImage, String, Reaction.Kind?)]) -> NSMenuItem {
@@ -86,7 +88,7 @@ enum TapbackMenuRows {
             return item
         }
         return [
-            palette(TapbackGlyph.all.map { (TapbackPickerView.glyph($0, on: false), Strings.tapbackName($0), Reaction.Kind.tapback($0)) }),
+            palette(TapbackGlyph.all.map { (TapbackPickerView.stripGlyph(.tapback($0), on: false), Strings.tapbackName($0), Reaction.Kind.tapback($0)) }),
             palette(recentEmoji.map { (emojiImage($0), $0, Reaction.Kind.emoji($0)) }
                     + [(NSImage(systemSymbolName: "face.smiling.inverse", accessibilityDescription: nil) ?? NSImage(), Strings.menuTapback, nil)]),
         ]

@@ -38,7 +38,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private(set) var morphs: [String: MorphBubble] = [:]
     private let thumb = UIView()
     private let threadLayer = UIView()
+    /// The blurred, darkened transcript under an open thread or reply (ThreadBackdrop).
     private let threadDim = UIView()
+    private let threadBackdrop = ThreadBackdrop()
+    /// Thread rows' source frames in the transcript, by row key, for the return flight.
+    private var threadSources: [String: CGRect] = [:]
+    private var threadClosing = 0
     private var threadViews: [CanvasView] = []
     private var threadSpecs: [RowSpec] = []
     /// The collection view starts 80 pt above the window, so rows under the
@@ -107,7 +112,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             r.count = { [unowned self] in self.model.count }
         }
 
-        threadDim.backgroundColor = UIColor(white: 0, alpha: 0.78)
+        threadDim.backgroundColor = .clear
+        threadDim.layer.addSublayer(threadBackdrop.root)
         threadLayer.addSubview(threadDim)
         threadLayer.isHidden = true
         addSubview(threadLayer)
@@ -221,6 +227,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         chrome.frame = bounds
         threadLayer.frame = bounds
         threadDim.frame = bounds
+        threadBackdrop.frame = bounds
         morphView.frame = bounds
         placeMask(animated: false, element: nil, begin: 0, oldTop: fieldTop)
     }
@@ -488,7 +495,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         case let .react(ref, _, _):
             guard let i = index(ref.messageId) else { return nil }
             idx.append(i)
-        case let .edit(id, _), let .unsend(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id):
             guard let i = index(id) else { return nil }
             idx.append(i)
             if let r = msgs[i].replyTo, let ri = index(r.messageId) { idx.append(ri) }
@@ -981,29 +988,85 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Thread view
 
+    /// Thread and reply view (measured on macOS 27 Messages, lossless references
+    /// thread-open-esc and swipe-full, 2026-10-05). The transcript blurs and darkens
+    /// (ThreadBackdrop); the thread's rows (date separator, root, replies) are laid out
+    /// alone, centered in the transcript area, drawn in the elevated palette, and fly there
+    /// from their places in the transcript (exponential approach, tau 0.095 s; back on
+    /// close with tau 0.075 s). A row that is not on screen fades in.
+    /// Content center (window 1041 pt): measured 523 on thread-open-esc and swipe-full.
+    static let threadCenterY: CGFloat = 523
+    static let threadOpenTau: Double = 0.095, threadCloseTau: Double = 0.075
+
     private func rebuildThread(_ s: AppState, at t: Double) {
         guard let root = s.ui.openThread, let rm = s.message(root.messageId) else {
-            if !threadViews.isEmpty { threadViews.forEach { $0.removeFromSuperview() }; threadViews = []; threadSpecs = [] }
-            threadLayer.isHidden = true
+            guard !threadViews.isEmpty, threadClosing == 0 else { return }
+            closeThreadView()
             return
         }
         let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
         let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width)
+        let opening = threadLayer.isHidden || threadClosing > 0
         threadLayer.isHidden = false
-        guard rows != threadSpecs else { return }
+        guard rows != threadSpecs || opening else { return }
+        let wasOpen = !threadSpecs.isEmpty && !opening
         threadSpecs = rows
         threadViews.forEach { $0.removeFromSuperview() }
-        var y = anchorY
-        threadViews = rows.reversed().map { spec in
-            y -= spec.total
+        threadClosing = 0
+        // Source frames: the same rows' cells in the transcript, where they are visible.
+        var sources: [String: CGRect] = [:]
+        for case let cell as RowCell in collection.visibleCells where !cell.isHidden {
+            if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self) }
+        }
+        let total = rows.reduce(0) { $0 + $1.total }
+        var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
+        threadViews = rows.map { spec in
             let top = y + spec.gap - RowDraw.margin
+            y += spec.total
             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { ctx, _ in
+                Fixture.elevated = true
                 RowDraw.drawStatic(spec, ctx, windowY: top)
+                Fixture.elevated = false
             }
             threadLayer.addSubview(v)
             return v
         }
-        threadViews.reverse()
+        threadSources = [:]
+        for (v, spec) in zip(threadViews, threadSpecs) {
+            if let src = sources[spec.key] { threadSources[spec.key] = src }
+            guard !wasOpen else { continue }
+            if let src = threadSources[spec.key] {
+                ThreadBackdrop.fly(v.layer, fromY: src.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau, delay: ThreadBackdrop.openDelay)
+            } else {
+                ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.28, delay: ThreadBackdrop.openDelay)
+            }
+        }
+        if !wasOpen { threadBackdrop.animate(open: true) }
+    }
+
+    private func closeThreadView() {
+        threadClosing += 1
+        let token = threadClosing
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, self.threadClosing == token else { return }
+            self.threadViews.forEach { $0.removeFromSuperview() }
+            self.threadViews = []; self.threadSpecs = []; self.threadSources = [:]
+            self.threadLayer.isHidden = true
+            self.threadClosing = 0
+        }
+        for (v, spec) in zip(threadViews, threadSpecs) {
+            if let src = threadSources[spec.key] {
+                let from = v.frame.midY
+                v.frame.origin.y += src.midY - from
+                ThreadBackdrop.fly(v.layer, fromY: from, toY: v.frame.midY, tau: MessagesWindowView.threadCloseTau)
+            } else {
+                v.layer.opacity = 0
+                ThreadBackdrop.fade(v.layer, from: 1, to: 0, duration: 0.25)
+            }
+        }
+        threadBackdrop.animate(open: false)
+        CATransaction.commit()
     }
 
     var threadOpen: Bool { store.state.ui.openThread != nil }
@@ -1032,8 +1095,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     func repliesHit(_ p: CGPoint) -> PartRef? {
         guard !threadOpen else { return nil }
         for case let cell as RowCell in collection.visibleCells {
-            if let spec = cell.spec, case let .replies(_, root, _) = spec.kind,
-               cell.convert(cell.bounds, to: self).insetBy(dx: 0, dy: RowDraw.margin).contains(p) { return root }
+            guard let spec = cell.spec, cell.convert(cell.bounds, to: self).insetBy(dx: 0, dy: RowDraw.margin).contains(p) else { continue }
+            if case let .replies(_, root, _) = spec.kind { return root }
+            // A thread preview (its outlined root copy, stub and "N Replies") opens the thread too.
+            if case let .threadPreview(pv) = spec.kind {
+                let r = cell.convert(cell.bounds, to: self)
+                if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+            }
         }
         return nil
     }
@@ -1059,5 +1127,93 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         guard model.count > 0 else { return nil }
         let i = firstVisibleRow
         return (model.rows[i].spec.key, windowY(contentY: layout.contentTop(i)), model.rows.filter(\.spec.estimated).count)
+    }
+}
+
+
+/// The transcript under an open thread or reply view, blurred and darkened, live: a
+/// CABackdropLayer with a Gaussian blur and a dark tint (private QuartzCore classes, as the
+/// header's backdrop; looked up at run time; without them only the tint). Fitted on the
+/// lossless macOS 27 references (thread-open-esc, swipe-full): out = 5.5 + 0.384 *
+/// gaussian(in, sigma 9 pt), the same in both; it ramps in 0.28 s ease-in-out from the first
+/// frame of the change (open) and back in 0.27 s (close).
+final class ThreadBackdrop {
+    let root = CALayer()
+    private let blur: CALayer?
+    private let tint = CALayer()
+    /// CAFilter inputRadius 10 gives sigma 9.5 pt (refit live on cmux-lawrence-2 against swipe-full).
+    static var radius: CGFloat = {
+        let a = ProcessInfo.processInfo.arguments
+        return a.firstIndex(of: "--thread-blur-r").flatMap { $0 + 1 < a.count ? Double(a[$0 + 1]).map { CGFloat($0) } : nil } ?? 10.0
+    }()
+    static let gain: CGFloat = 0.384, base: CGFloat = 5.5
+    static let openDuration: CFTimeInterval = 0.28, closeDuration: CFTimeInterval = 0.27
+    /// Messages starts the open about 45 ms later than our click handling does (row
+    /// flight onset 135 ms after the click there, 90 ms here): the open waits for it.
+    static let openDelay: CFTimeInterval = 0.045
+
+    init() {
+        root.actions = ["bounds": NSNull(), "position": NSNull(), "sublayers": NSNull()]
+        tint.backgroundColor = UIColor(white: ThreadBackdrop.base / 255 / (1 - ThreadBackdrop.gain), alpha: 1).cgColor
+        tint.opacity = 0
+        blur = ThreadBackdrop.makeBlur()
+        for l in [blur, tint].compactMap({ $0 }) {
+            l.actions = ["bounds": NSNull(), "position": NSNull()]
+            root.addSublayer(l)
+        }
+    }
+    var frame: CGRect = .zero { didSet { CATransaction.begin(); CATransaction.setDisableActions(true); root.frame = frame; blur?.frame = root.bounds; tint.frame = root.bounds; CATransaction.commit() } }
+
+    static func makeBlur() -> CALayer? {
+        guard let cls = NSClassFromString("CABackdropLayer") as? CALayer.Type,
+              let fc = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
+        let sel = NSSelectorFromString("filterWithType:")
+        guard fc.responds(to: sel), let f = fc.perform(sel, with: "gaussianBlur")?.takeUnretainedValue() as? NSObject else { return nil }
+        f.setValue("gaussianBlur", forKey: "name")
+        f.setValue(0, forKey: "inputRadius")
+        f.setValue(true, forKey: "inputNormalizeEdges")
+        let l = cls.init()
+        l.filters = [f]
+        if l.responds(to: NSSelectorFromString("setScale:")) { l.setValue(1.0, forKey: "scale") }
+        return l
+    }
+
+    func animate(open: Bool) {
+        let d = open ? ThreadBackdrop.openDuration : ThreadBackdrop.closeDuration
+        let fn = CAMediaTimingFunction(name: .easeInEaseOut)
+        let a0: Float = open ? 0 : Float(1 - ThreadBackdrop.gain), a1: Float = open ? Float(1 - ThreadBackdrop.gain) : 0
+        let r0: CGFloat = open ? 0 : ThreadBackdrop.radius, r1: CGFloat = open ? ThreadBackdrop.radius : 0
+        tint.opacity = a1
+        let delay = open ? ThreadBackdrop.openDelay : 0
+        let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
+        t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards
+        tint.add(t, forKey: "thread")
+        if let blur {
+            blur.setValue(r1, forKeyPath: "filters.gaussianBlur.inputRadius")
+            let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
+            b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards
+            blur.add(b, forKey: "thread")
+        }
+    }
+
+    /// A row's flight between two vertical centers: exponential approach (render server).
+    static func fly(_ layer: CALayer, fromY: CGFloat, toY: CGFloat, tau: Double, delay: CFTimeInterval = 0) {
+        let n = 40, dur = tau * 6
+        let k = CAKeyframeAnimation(keyPath: "position.y")
+        let base = layer.position.y - toY   // position.y = center + base (anchor in the middle: 0)
+        k.values = (0...n).map { i in
+            let f = 1 - exp(-Double(i) / Double(n) * dur / tau)
+            return NSNumber(value: Double(base + fromY + (toY - fromY) * CGFloat(i == n ? 1 : f)))
+        }
+        k.duration = dur
+        k.calculationMode = .linear
+        if delay > 0 { k.beginTime = CACurrentMediaTime() + delay; k.fillMode = .backwards }
+        layer.add(k, forKey: "thread.fly")
+    }
+    static func fade(_ layer: CALayer, from: Float, to: Float, duration: CFTimeInterval, delay: CFTimeInterval = 0) {
+        let f = CABasicAnimation(keyPath: "opacity"); f.fromValue = from; f.toValue = to; f.duration = duration
+        if delay > 0 { f.beginTime = CACurrentMediaTime() + delay; f.fillMode = .backwards }
+        f.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        layer.add(f, forKey: "thread.fade")
     }
 }

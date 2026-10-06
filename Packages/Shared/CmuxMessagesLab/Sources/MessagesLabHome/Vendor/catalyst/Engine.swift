@@ -43,6 +43,8 @@ enum Action {
     case closeThread
     case edit(ID, String)
     case unsend(ID)
+    /// Delete… in the menu: the message leaves this device's transcript (no row stays).
+    case delete(ID)
     case attach(Attachment)
     case removeDraftAttachment(ID)
     case typing(ID, Bool)
@@ -112,6 +114,11 @@ enum Reducer {
             s.conversation.messages[i].parts = []
             s.conversation.messages[i].reactions = []
             s.conversation.messages[i].retractedAt = stamp
+        case let .delete(id):
+            guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }) else { break }
+            s.conversation.messages[i].deletedAt = stamp
+            s.conversation.messages[i].reactions = []
+            if s.ui.openThread?.messageId == id { s.ui.openThread = nil }
         case let .attach(a):
             s.ui.draft.attachments.append(a)
         case let .removeDraftAttachment(id):
@@ -194,7 +201,7 @@ extension Reducer {
             w.append(s.message(m.id) ?? m)
         case let .react(ref, _, _):
             if let m = s.message(ref.messageId) { w.update(m) }
-        case let .edit(id, _), let .unsend(id):
+        case let .edit(id, _), let .unsend(id), let .delete(id):
             if let m = s.message(id) { w.update(m) }
         case let .status(id, st):
             // A status can arrive after a jump moved its message out of the window.

@@ -12,18 +12,18 @@
          let ts = CTTypesetterCreateWithAttributedString(attr)
          let len = (text as NSString).length
          var lines: [Line] = []
-@@ -56,6 +59,10 @@
+@@ -55,6 +58,10 @@
+             if r.mention != nil { traits.insert(.traitBold) }
              if !traits.isEmpty, let d = Fixture.bodyFont.fontDescriptor.withSymbolicTraits(traits) {
                  a.addAttribute(.font, value: UIFont(descriptor: d, size: Fixture.bodyFont.pointSize), range: range)
-             }
++            }
 +            // cmux: inline code and code blocks (HomeMarkdown) in the monospaced system font, one point smaller like Messages' body.
 +            if r.style?.contains("code") == true {
 +                a.addAttribute(.font, value: UIFont.monospacedSystemFont(ofSize: Fixture.bodyFont.pointSize - 1, weight: .regular), range: range)
-+            }
+             }
              if r.link != nil {
                  a.addAttributes([.foregroundColor: linkColor, .underlineStyle: NSUnderlineStyle.single.rawValue], range: range)
-             }
-@@ -590,7 +597,8 @@
+@@ -613,7 +620,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -33,7 +33,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -647,7 +655,7 @@
+@@ -670,7 +678,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -42,7 +42,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -656,7 +664,7 @@
+@@ -679,7 +687,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -51,7 +51,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -675,45 +683,47 @@
+@@ -698,56 +706,58 @@
      static func duration(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
  }
  
@@ -97,6 +97,17 @@
 -    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy") }
 -    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit") }
 -    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send") }
+-    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…") }
+-    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…") }
+-    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…") }
+-    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…") }
+-    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…") }
+-    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks") }
+-    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks") }
+-    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?") }
+-    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.") }
+-    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete") }
+-    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel") }
 -    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback") }
 +    // cmux: not "iMessage" (Apple's service name).
 +    static var placeholder: String { String(localized: "compose.placeholder", defaultValue: "Message", bundle: .module) }
@@ -105,6 +116,17 @@
 +    static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
 +    static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
 +    static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
++    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…", bundle: .module) }
++    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…", bundle: .module) }
++    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…", bundle: .module) }
++    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…", bundle: .module) }
++    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…", bundle: .module) }
++    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks", bundle: .module) }
++    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks", bundle: .module) }
++    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?", bundle: .module) }
++    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.", bundle: .module) }
++    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete", bundle: .module) }
++    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel", bundle: .module) }
 +    static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
      static func tapbackName(_ t: String) -> String {
          switch t {

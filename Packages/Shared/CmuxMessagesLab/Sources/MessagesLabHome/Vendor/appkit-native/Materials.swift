@@ -221,42 +221,83 @@ final class TapbackPickerView: NSGlassEffectView {
     private let selected: Reaction.Kind?
     private let pick: (Reaction.Kind) -> Void
     static let item: CGFloat = 34
+    /// Real Messages (macOS 27, press-and-hold reference, lossless): a glass strip 286 x 42 pt
+    /// with its left edge at the bubble's, 6 pt above it; the six tapbacks then recent emoji
+    /// (the last one clipped by the strip's end), 37.8 pt apart, the first centered 21 pt in,
+    /// glyphs 20 pt.
+    static let size = NSSize(width: 286, height: 42)
+    static let pitch: CGFloat = 37.8, firstCenter: CGFloat = 21, glyphSize: CGFloat = 20
+    static let extras = ["\u{1F440}", "\u{2705}"]
 
     init(ref: PartRef, selected: Reaction.Kind?, pick: @escaping (Reaction.Kind) -> Void) {
         self.ref = ref
         self.selected = selected
         self.pick = pick
         super.init(frame: .zero)
-        cornerRadius = 21
+        cornerRadius = Self.size.height / 2
         style = .regular
         stack.orientation = .horizontal
         stack.spacing = 0
-        stack.edgeInsets = NSEdgeInsets(top: 4, left: 6, bottom: 4, right: 6)
-        for (i, t) in TapbackGlyph.all.enumerated() {
+        stack.alignment = .centerY
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: Self.firstCenter - Self.pitch / 2, bottom: 0, right: 0)
+        let kinds: [(Reaction.Kind, String, Int)] = TapbackGlyph.all.enumerated().map { (.tapback($1), Strings.tapbackName($1), $0) }
+            + Self.extras.enumerated().map { (.emoji($1), $1, 100 + $0) }
+        for (kind, label, tag) in kinds {
             let b = NSButton()
             b.isBordered = false
             b.imagePosition = .imageOnly
-            b.image = Self.glyph(t, on: selected == .tapback(t))
-            b.tag = i
+            b.image = Self.stripGlyph(kind, on: selected == kind)
+            b.tag = tag
             b.target = self
             b.action = #selector(tapped(_:))
-            b.setAccessibilityLabel(Strings.tapbackName(t))
-            b.toolTip = Strings.tapbackName(t)
-            b.widthAnchor.constraint(equalToConstant: Self.item).isActive = true
-            b.heightAnchor.constraint(equalToConstant: Self.item).isActive = true
+            b.setAccessibilityLabel(label)
+            b.toolTip = label
+            b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
+            b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
             stack.addArrangedSubview(b)
         }
-        contentView = stack
+        let clip = NSView()
+        clip.wantsLayer = true
+        clip.layer?.masksToBounds = true
+        clip.addSubview(stack)
+        stack.frame = NSRect(x: 0, y: 0, width: Self.firstCenter - Self.pitch / 2 + Self.pitch * CGFloat(kinds.count), height: Self.size.height)
+        contentView = clip
         setAccessibilityLabel(Strings.menuTapback)
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    override var fittingSize: NSSize { NSSize(width: CGFloat(TapbackGlyph.all.count) * Self.item + 12, height: Self.item + 8) }
+    override var fittingSize: NSSize { Self.size }
 
-    @objc private func tapped(_ b: NSButton) { pick(.tapback(TapbackGlyph.all[b.tag])) }
+    @objc private func tapped(_ b: NSButton) {
+        pick(b.tag >= 100 ? .emoji(Self.extras[b.tag - 100]) : .tapback(TapbackGlyph.all[b.tag]))
+    }
 
     func rescale() {
-        for case let b as NSButton in stack.arrangedSubviews { b.image = Self.glyph(TapbackGlyph.all[b.tag], on: selected == .tapback(TapbackGlyph.all[b.tag])) }
+        for case let b as NSButton in stack.arrangedSubviews {
+            let kind: Reaction.Kind = b.tag >= 100 ? .emoji(Self.extras[b.tag - 100]) : .tapback(TapbackGlyph.all[b.tag])
+            b.image = Self.stripGlyph(kind, on: selected == kind)
+        }
+    }
+
+    /// The strip's glyphs (macOS 27): color emoji, a pink heart for Love, blue HA HA,
+    /// a purple question mark.
+    static func stripGlyph(_ kind: Reaction.Kind, on: Bool) -> NSImage {
+        NSImage(size: NSSize(width: pitch, height: size.height), flipped: true) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            if on {
+                Fixture.outgoing.setFill()
+                NSBezierPath(ovalIn: CGRect(x: r.midX - 16, y: r.midY - 16, width: 32, height: 32)).fill()
+            }
+            let g = CGRect(x: r.midX - glyphSize / 2, y: r.midY - glyphSize / 2, width: glyphSize, height: glyphSize)
+            switch kind {
+            case .tapback("love"): PartRenderer.drawEmoji("\u{1FA77}", in: g, ctx: ctx)
+            case .tapback("laugh"): TapbackGlyph.draw("laugh", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.33, green: 0.64, blue: 1, alpha: 1), ctx: ctx)
+            case .tapback("question"): TapbackGlyph.draw("question", in: g.insetBy(dx: 1, dy: 1), color: NSColor(srgbRed: 0.62, green: 0.45, blue: 1, alpha: 1), ctx: ctx)
+            case let .tapback(t): if let e = TapbackGlyph.emoji(t) { PartRenderer.drawEmoji(e, in: g, ctx: ctx) }
+            case let .emoji(e): PartRenderer.drawEmoji(e, in: g, ctx: ctx)
+            }
+            return true
+        }
     }
 
     /// The row's own tapback drawing (emoji, or the HA HA glyph), as a

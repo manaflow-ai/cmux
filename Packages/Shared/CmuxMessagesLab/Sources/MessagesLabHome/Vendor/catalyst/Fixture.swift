@@ -70,7 +70,10 @@ enum Fixture {
         theme.map { pick(inactive ? $0.inactive : $0.active) }
     }
     static var background: UIColor { themed(\.background) ?? UIColor(white: 30 / 255, alpha: 1) }
-    static var incoming: UIColor { themed(\.incoming) ?? p3(59, 59, 61) }
+    static var incoming: UIColor { themed(\.incoming) ?? (elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
+    /// Rows of an open thread or reply view are drawn lighter (macOS 27, measured 76, 76, 78;
+    /// lossless thread-open-esc reference). Set only around those rows' drawing (main thread).
+    static var elevated = false
     // cmux: a theme without an accent keeps the measured blue and its gradient.
     private static var themedAccent: Bool { theme.map { !$0.measuredAccent } ?? false }
     static var outgoing: UIColor { (themedAccent ? themed(\.outgoing) : nil) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
@@ -114,7 +117,7 @@ enum Fixture {
         return measuredGradient
     }
     /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
-    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: 225 / 255, alpha: 1) }
+    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: (elevated ? 242 : 225) / 255, alpha: 1) }
     static var outgoingText: UIColor { (themedAccent ? themed(\.outgoingText) : nil) ?? UIColor.white }
     static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 154 / 255, alpha: 1) }
     // cmux: the field and typing colours MessagesLab draws as fixed dark

@@ -1,27 +1,27 @@
-# MessagesLab commit 0c8147b (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
+# MessagesLab commit 69f4256 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
 catalyst/Sources/Model.swift	Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 catalyst/Sources/Engine.swift	Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
-catalyst/Sources/Layout.swift	Sources/MessagesLabHome/Vendor/catalyst/Layout.swift	7f1a811
-catalyst/Sources/Transcript.swift	Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift	4173e9f
+catalyst/Sources/Layout.swift	Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
+catalyst/Sources/Transcript.swift	Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 catalyst/Sources/Recycler.swift	Sources/MessagesLabHome/Vendor/catalyst/Recycler.swift
-catalyst/Sources/RowDrawing.swift	Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift	4173e9f
+catalyst/Sources/RowDrawing.swift	Sources/MessagesLabHome/Vendor/catalyst/RowDrawing.swift
 catalyst/Sources/Springs.swift	Sources/MessagesLabHome/Vendor/catalyst/Springs.swift
-catalyst/Sources/Morph.swift	Sources/MessagesLabHome/Vendor/catalyst/Morph.swift	d163ddf
-catalyst/Sources/Shapes.swift	Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift	25b2ad9
-catalyst/Sources/Fixture.swift	Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift	7f1a811
-catalyst/Sources/Header.swift	Sources/MessagesLabHome/Vendor/catalyst/Header.swift	7f1a811
+catalyst/Sources/Morph.swift	Sources/MessagesLabHome/Vendor/catalyst/Morph.swift
+catalyst/Sources/Shapes.swift	Sources/MessagesLabHome/Vendor/catalyst/Shapes.swift
+catalyst/Sources/Fixture.swift	Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
+catalyst/Sources/Header.swift	Sources/MessagesLabHome/Vendor/catalyst/Header.swift
 catalyst/Sources/WindowView.swift	Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 catalyst/Sources/Replay.swift	Sources/MessagesLabHome/Vendor/catalyst/Replay.swift
 appkit-port/Sources/Shim/UIKitNames.swift	Sources/MessagesLabHome/Vendor/appkit-port/UIKitNames.swift
 appkit-port/Sources/Shim/RoundedRect.swift	Sources/MessagesLabHome/Vendor/appkit-port/RoundedRect.swift
 appkit-port/Sources/Shim/LayerViews.swift	Sources/MessagesLabHome/Vendor/appkit-port/LayerViews.swift
-appkit-native/Sources/Compose.swift	Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift	7f1a811
-appkit-native/Sources/Materials.swift	Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift	4173e9f
+appkit-native/Sources/Compose.swift	Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift
+appkit-native/Sources/Materials.swift	Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
 appkit-native/Sources/NativeScroll.swift	Sources/MessagesLabHome/Vendor/appkit-native/NativeScroll.swift
 appkit-native/Sources/HeaderBackdrop.swift	Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
 appkit-native/Sources/HeaderBar.swift	Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
-appkit-native/Sources/TranscriptAccess.swift	Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift	4173e9f
-appkit-native/Sources/SwipeReply.swift	Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift
+appkit-native/Sources/TranscriptAccess.swift	Sources/MessagesLabHome/Vendor/appkit-native/TranscriptAccess.swift
+appkit-native/Sources/SwipeReply.swift	Sources/MessagesLabHome/Vendor/appkit-native/SwipeReply.swift	0c8147b
 appkit-native/Sources/FlightRecorder.swift	Sources/MessagesLabHome/Vendor/appkit-native/FlightRecorder.swift
 catalyst/springs.json	Sources/MessagesLabHome/Resources/springs.json
 catalyst/Resources/Localizable.xcstrings	Sources/MessagesLabHome/Resources/Localizable.xcstrings

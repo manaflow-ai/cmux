@@ -106,7 +106,7 @@ final class ComposeView: UIView {
     /// Capture mode: the text view's drawing, placed where the text view is
     /// (the NSTextView is not in the layer tree that captures render).
     let textSnapshot = CALayer()
-    private(set) var fieldHeight: CGFloat = 30
+    private(set) var fieldHeight: CGFloat = ComposeMetrics.oneLine
     private(set) var chips: [Attachment] = []
     private(set) var text = ""
     private var placeholder = Strings.placeholder
@@ -127,9 +127,7 @@ final class ComposeView: UIView {
     /// The send's field opacity pulse (begin), for the live glass view.
     var onSendPulse: ((CFTimeInterval) -> Void)?
 
-    static func height(lines: Int, chips: Bool) -> CGFloat {
-        30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) + (chips ? 30 : 0)
-    }
+    static func height(lines: Int, chips: Bool) -> CGFloat { ComposeMetrics.height(lines: lines, chips: chips) }
     /// cmux: per view (several Home tabs), from this compose bar's width.
     var textWidth: CGFloat { ComposeView.fieldWidth(bounds.width) - 24 }
     static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
@@ -149,10 +147,10 @@ final class ComposeView: UIView {
     }
     private var dx: CGFloat { bounds.width - Fixture.windowWidth }
     private var dy: CGFloat { bounds.height - Fixture.windowSize.height }
-    var anchorBase: CGFloat { 984 + dy }
-    var fieldBottom: CGFloat { 1030.25 + dy }
+    var anchorBase: CGFloat { ComposeMetrics.anchorBase + dy }
+    var fieldBottom: CGFloat { ComposeMetrics.fieldBottom + dy }
     static let fieldX: CGFloat = 51
-    static let firstBaseline: CGFloat = 19.75
+    static let firstBaseline: CGFloat = ComposeMetrics.firstBaseline
 
     static var typing: [NSAttributedString.Key: Any] {
         let p = NSMutableParagraphStyle()
@@ -348,10 +346,13 @@ final class ComposeView: UIView {
         placeholderLayer.contentsScale = fmt.scale
         waveLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 24, height: 30), format: fmt).image { _ in
             Fixture.waveform.setFill()  // cmux: themed (with the placeholder above)
-            let c = CGPoint(x: 30 - 19.3 - 6, y: 30 - 15.25)
-            for (i, hh) in ([4.7, 10.8, 15, 10.8, 4.7] as [CGFloat]).enumerated() {
-                let x = c.x + CGFloat(i - 2) * 3.65
-                UIBezierPath(roundedRect: CGRect(x: x - 0.7, y: c.y - hh / 2, width: 1.4, height: hh), cornerRadius: 0.7).fill()
+            // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
+            // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
+            // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
+            let c = CGPoint(x: 10.5, y: 14.5)
+            for (i, hh) in ([3.613, 7.25, 14.522, 7.25, 3.613] as [CGFloat]).enumerated() {
+                let x = c.x + CGFloat(i - 2) * 3.636
+                UIBezierPath(roundedRect: CGRect(x: x - 0.909, y: c.y - hh / 2, width: 1.818, height: hh), cornerRadius: 0.909).fill()
             }
         }.cgImage
         waveLayer.contentsScale = fmt.scale
@@ -503,25 +504,15 @@ final class ComposeView: UIView {
         ctx.translateBy(x: 0, y: -(995 + dy))
         Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
         Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
-        let cfg = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        // Fitted to the lossless stills: plus 15.5 pt medium, emoji.face.grinning 15.5 pt medium.
+        let cfg = UIImage.SymbolConfiguration(pointSize: 15.5, weight: .medium)
         if let img = UIImage(systemName: "plus", withConfiguration: cfg)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
             let s = img.size, c = CGPoint(x: 26, y: 1015.25 + dy)
             img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }
-        let c = CGPoint(x: 601.875 + dx, y: 1014.875 + dy)
-        NSColor.white.setFill()
-        UIBezierPath(ovalIn: CGRect(x: c.x - 7.5, y: c.y - 7.5, width: 15, height: 15)).fill()
-        NSColor(white: 51 / 255, alpha: 1).setFill()
-        for ex in [-2.9, 2.9] as [CGFloat] {
-            UIBezierPath(ovalIn: CGRect(x: c.x + ex - 1.1, y: c.y - 4.6, width: 2.2, height: 3.2)).fill()
+        if let img = FieldChrome.emojiGlyph() {
+            let s = img.size, c = CGPoint(x: 601.875 + dx, y: 1014.875 + dy)
+            img.draw(in: CGRect(x: c.x - s.width / 2, y: c.y - s.height / 2, width: s.width, height: s.height))
         }
-        let mouth = UIBezierPath()
-        mouth.move(to: CGPoint(x: c.x - 5.2, y: c.y + 0.6))
-        mouth.addLine(to: CGPoint(x: c.x + 5.2, y: c.y + 0.6))
-        mouth.addCurve(to: CGPoint(x: c.x - 5.2, y: c.y + 0.6), controlPoint1: CGPoint(x: c.x + 4.8, y: c.y + 7.4),
-                       controlPoint2: CGPoint(x: c.x - 4.8, y: c.y + 7.4))
-        mouth.fill()
-        NSColor.white.setFill()
-        UIRectFill(CGRect(x: c.x - 4.2, y: c.y + 0.6, width: 8.4, height: 1.3))
     }
 }

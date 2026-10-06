@@ -162,6 +162,19 @@ struct RowSpec: Hashable {
     enum LabelColor: Hashable { case secondary, failure, link }
 }
 
+/// Compose bar geometry shared by every app (catalyst, ios, appkit-native). Measured on
+/// macOS 27 Messages (lossless references, 2026-10-05; macOS 26 values in brackets): the
+/// one-line field is 31 pt tall [30] with its bottom unchanged, so the transcript ends 1 pt
+/// higher (983 [984]); 2 and 3 lines are 47 and 63 pt; the text stays centered (first
+/// baseline 20.25 pt below the field top [19.75]).
+enum ComposeMetrics {
+    static func height(lines: Int, chips: Bool) -> CGFloat { 31 + 16 * CGFloat(lines - 1) + (chips ? 30 : 0) }
+    static let oneLine: CGFloat = 31
+    static let anchorBase: CGFloat = 983
+    static let fieldBottom: CGFloat = 1030.25
+    static let firstBaseline: CGFloat = 20.25
+}
+
 struct ThreadPreview: Hashable {
     var root: PartRef
     /// The root part, when it is loaded (else a generic preview).
@@ -220,8 +233,9 @@ struct ThreadPreview: Hashable {
     }
     /// Row content height: box, stub.
     /// Box to stub: 3.5 pt under a card, 5.5 pt under a thumbnail (its tail is between).
-    var stubGap: CGFloat { isThumbnail || isText ? 5.5 : ThreadPreview.stubGap }
-    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 11.25 : ThreadPreview.stubHeight }
+    /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
+    var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
+    var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.25 : ThreadPreview.stubHeight }
     var height: CGFloat { box.height + stubGap + stubHeight }
 }
 
@@ -445,7 +459,7 @@ final class MeasureCache: @unchecked Sendable {
     private let lock = NSLock()
     private(set) var hits = 0, misses = 0, estimates = 0
 
-    static func version(_ m: Message) -> Int { (m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1) }
+    static func version(_ m: Message) -> Int { ((m.edits?.count ?? 0) * 2 + (m.retractedAt == nil ? 0 : 1)) * 2 + (m.deletedAt == nil ? 0 : 1) }
 
     /// The part's size at `width`. With `estimate`, a miss does not run Core
     /// Text: it scales a measurement taken at another width (no text layout;
@@ -531,7 +545,10 @@ enum RowBuilder {
         var prev: Message? = span.lowerBound > 0 ? messages[span.lowerBound - 1] : nil
         for idx in span {
             let m = messages[idx]
-            let next = idx + 1 < messages.count ? messages[idx + 1] : nil
+            if m.deletedAt != nil { continue }
+            var nextIndex = idx + 1
+            while nextIndex < messages.count, messages[nextIndex].deletedAt != nil { nextIndex += 1 }
+            let next = nextIndex < messages.count ? messages[nextIndex] : nil
             let outgoing = m.senderId == me
             var gap: CGFloat
             var connector: String?
@@ -544,7 +561,9 @@ enum RowBuilder {
                 // label row, 4 pt under a receipt.
                 let lastKind = rows.last?.kind ?? previousRow
                 switch lastKind {
-                case .part: gap = 2.5
+                // In a thread or reply view the root is its own group (tail) and the first
+                // reply sits 8 pt under it (macOS 27, thread-open-esc reference).
+                case .part: gap = threadMode ? 8 : 2.5
                 case .receipt: gap = 4
                 default: gap = 3.5
                 }
@@ -556,6 +575,10 @@ enum RowBuilder {
             } else {
                 gap = 12
             }
+            // Under a receipt ("Delivered", "Read") the receipt row takes the place of the gap:
+            // the next bubble sits 4 pt under it (body to body 20 pt), for a sender change too
+            // (macOS 27, lossless send-typed and send-typed-media references; it was 16 + 32).
+            if case .receipt = rows.last?.kind ?? previousRow, gap > 4 { gap = 4 }
             // A reply whose root is not directly above (and that does not
             // continue the same thread) gets a preview of the root.
             if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
@@ -603,7 +626,7 @@ enum RowBuilder {
                 }
                 if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
                     rows.append(RowSpec(key: "replies:\(m.id)", kind: .replies(count: n, root: PartRef(messageId: m.id, partIndex: 0),
-                                                                               outgoing: outgoing), gap: 0, height: 21.5))
+                                                                               outgoing: outgoing), gap: 0, height: 22))
                 }
                 if let r = receipts[m.id] {
                     rows.append(RowSpec(key: "receipt:\(m.id)", kind: .receipt(bold: r.0, rest: r.1), gap: 0, height: 16))
@@ -638,7 +661,7 @@ enum RowBuilder {
     static func receiptTargets(_ messages: [Message], me: ID) -> [ID: (String, String)] {
         var lastRead: (Int, Message, String)?
         var lastDelivered: (Int, Message)?
-        for (i, m) in messages.enumerated() where m.senderId == me && m.retractedAt == nil {
+        for (i, m) in messages.enumerated() where m.senderId == me && m.retractedAt == nil && m.deletedAt == nil {
             switch m.status {
             case let .read(at): lastRead = (i, m, at)
             case .delivered: lastDelivered = (i, m)
@@ -712,6 +735,17 @@ enum Strings {
     static var menuCopy: String { String(localized: "menu.copy", defaultValue: "Copy", bundle: .module) }
     static var menuEdit: String { String(localized: "menu.edit", defaultValue: "Edit", bundle: .module) }
     static var menuUndoSend: String { String(localized: "menu.undoSend", defaultValue: "Undo Send", bundle: .module) }
+    static var menuReplyEllipsis: String { String(localized: "menu.replyEllipsis", defaultValue: "Reply…", bundle: .module) }
+    static var menuTapbackDetails: String { String(localized: "menu.tapbackDetails", defaultValue: "Tapback Details…", bundle: .module) }
+    static var menuAttachSticker: String { String(localized: "menu.attachSticker", defaultValue: "Attach Sticker…", bundle: .module) }
+    static var menuShare: String { String(localized: "menu.share", defaultValue: "Share…", bundle: .module) }
+    static var menuDelete: String { String(localized: "menu.delete", defaultValue: "Delete…", bundle: .module) }
+    static var tapbackDetailsTitle: String { String(localized: "tapback.details.title", defaultValue: "Tapbacks", bundle: .module) }
+    static var tapbackDetailsNone: String { String(localized: "tapback.details.none", defaultValue: "No Tapbacks", bundle: .module) }
+    static var deleteConfirmTitle: String { String(localized: "delete.confirm.title", defaultValue: "Delete this message?", bundle: .module) }
+    static var deleteConfirmInfo: String { String(localized: "delete.confirm.info", defaultValue: "It is deleted from this Mac.", bundle: .module) }
+    static var deleteConfirmButton: String { String(localized: "delete.confirm.button", defaultValue: "Delete", bundle: .module) }
+    static var deleteConfirmCancel: String { String(localized: "delete.confirm.cancel", defaultValue: "Cancel", bundle: .module) }
     static var menuTapback: String { String(localized: "menu.tapback", defaultValue: "Tapback", bundle: .module) }
     static func tapbackName(_ t: String) -> String {
         switch t {

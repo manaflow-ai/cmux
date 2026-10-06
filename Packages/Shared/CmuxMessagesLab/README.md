@@ -53,7 +53,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
 | Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
-| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage |
+| Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; the 69f4256 menu and delete strings carry all 21 app languages (upstream has en and ja) |
 | Layout | a failed send that reached the owner unanswered says May Not Have Been Delivered (`CmuxStrings`, Resources/CmuxHome.xcstrings in every app language) |
 | Engine, Materials | Xcode 26.6 compile fixes (`self.` capture; a macOS 27 SDK property by key) |
 | SwipeReply | the pane controller's window is optional |
@@ -76,18 +76,22 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current per-file pins (2026-10-05): Fixture, Header,
-Layout and appkit-native Compose at 7f1a811 (Display P3 palette and measured
-colours, wide-colour caret, text thread preview); RowDrawing and Transcript at
-4173e9f (colours, WideBitmap); Morph at d163ddf; Materials and TranscriptAccess
-at 4173e9f (compose glyphs: plus 15.5 pt, the private emoji.face.grinning
-symbol; double-click word selection, P3 selection); Shapes at 25b2ad9 (which
-reverts 7dea554's tail refit). Not taken: 4173e9f's catalyst Layout,
-Fixture and WindowView and appkit-native Compose (ComposeMetrics' 31 pt field
-and the thread work are unfinished there), and every SwipeReply change. Host.swift
-is not vendored: 7f1a811's press and hold, picker dim and Esc, double-click
-word and menu tapback rows are carried in Cmux/PaneInteractions.swift and
-PaneHost; its layout-before-field-chrome fix was already PaneHost's. For the
+that are wip checkpoints. Current pins (2026-10-05): every file at 69f4256
+(macOS 27 geometry: ComposeMetrics' 31 pt field, the receipt row in place of
+the gap below it, the 22 pt "N Replies" row, text thread previews; the 5-bar
+mic and compose glyphs; the shared `.delete`; the live thread backdrop; the
+real tapback strip; the receipt ghost kept after the row it followed) except
+SwipeReply at 0c8147b (no SwipeReply change is taken: it is not installed
+while HomeOp has no reply). Host.swift is not vendored: 7f1a811's press and
+hold, picker dim and Esc, double-click word and menu tapback rows are carried
+in Cmux/PaneInteractions.swift and PaneHost, and 69f4256's menu (Tapback
+Details…, Attach Sticker…, Share… for text and links), target highlight,
+lifted bubble and the picker's emoji bubble in Cmux/PaneMenu.swift. Not
+offered in Home: Reply… (no reply op), Delete… (MessagesLab's `.delete`
+hides a message on this device; HomeStore has no local hide and HomeOp no
+delete), Edit and Undo Send. Threads never open in Home, so the thread
+backdrop and 69f4256's thread Esc and outside-click handling are not wired.
+For the
 harness oracle, build MessagesLab from the pin with each pinned file overlaid. Then run the harness on cmux-lawrence-2
 (`scripts/cmux-next/home-messageslab-harness.sh`, header): the Home path must
 commit MessagesLab's animations byte for byte, and the vendored files must

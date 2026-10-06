@@ -240,6 +240,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var picker: TapbackPickerView?
     private var pickerDim: PickerDimView?
     private var pickerKeys: Any?
+    /// The pressed bubble lifted above the dim, and the picker's emoji bubble (PaneMenu).
+    private var pickerLift: NSView?
+    private var pickerEmoji: NSView?
+    /// The context menu's target highlight, alive while its menu is (the menu's delegate).
+    var menuHighlight: MenuHighlight?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
@@ -441,7 +446,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.takeAttachments(from: sender.draggingPasteboard) ?? false
     }
 
-    private func showEmojiPicker() {
+    func showEmojiPicker() {
         focusCompose()
         NSApp.orderFrontCharacterPalette(nil)
     }
@@ -526,8 +531,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
         dim.onClick = { [weak self] in self?.closePicker() }
         host.addSubview(dim, positioned: .below, relativeTo: host.above)
         pickerDim = dim
+        // MessagesLab 69f4256: the pressed bubble stays bright above the dim.
+        if let lift = pickerLift(for: hit) {
+            host.addSubview(lift, positioned: .below, relativeTo: host.above)
+            pickerLift = lift
+        }
         host.addSubview(p, positioned: .below, relativeTo: host.above)
         picker = p
+        let emoji = pickerEmojiButton(under: p)
+        host.addSubview(emoji, positioned: .below, relativeTo: host.above)
+        pickerEmoji = emoji
         // Esc closes the picker wherever the key focus is (the press may have
         // left it on the transcript, not the field).
         pickerKeys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
@@ -539,42 +552,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func closePicker() {
         picker?.removeFromSuperview(); picker = nil
         pickerDim?.removeFromSuperview(); pickerDim = nil
+        pickerLift?.removeFromSuperview(); pickerLift = nil
+        pickerEmoji?.removeFromSuperview(); pickerEmoji = nil
         if let m = pickerKeys { NSEvent.removeMonitor(m); pickerKeys = nil }
     }
 
-    // MARK: Context menu
-
-    func menu(at p: CGPoint) -> NSMenu? {
-        guard let hit = demo?.hit(p) else { return nil }
-        let ref = hit.row.ref
-        let current = hit.row.reactions.first { $0.senderId == store.state.me }?.kind
-        let menu = NSMenu()
-        if intents?.canReact == true {
-            // MessagesLab 7f1a811: the two tapback palette rows at the top.
-            TapbackMenuRows.items(current: current, react: { [weak self] in self?.intents?.react(ref, $0) },
-                                  emojiPicker: { [weak self] in self?.showEmojiPicker() }).forEach(menu.addItem)
-            menu.addItem(.separator())
-        }
-        if case let .text(text, _) = hit.row.part {
-            menu.addItem(MenuAction(title: Strings.menuCopy, symbol: "doc.on.doc") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) })
-        }
-        // cmux: a video plays in place; opening it in an app is only here.
-        if case let .attachment(a) = hit.row.part {
-            if a.kind == "video", let intents {
-                let playing = intents.videoState(ref) == .playing
-                menu.addItem(MenuAction(title: playing ? CmuxStrings.pauseVideo : CmuxStrings.playVideo,
-                                        symbol: playing ? "pause.fill" : "play.fill") { [weak self] in self?.intents?.toggleVideo(ref, a.id) })
-            }
-            menu.addItem(MenuAction(title: CmuxStrings.openInDefaultApp, symbol: "arrow.up.forward.app") { [weak self] in
-                self?.intents?.openAttachment(ref.messageId, a.id)
-            })
-        }
-        // cmux: lane 16's Cancel Upload, only while the send can be cancelled.
-        if intents?.canCancelSend(ref.messageId) == true {
-            menu.addItem(MenuAction(title: CmuxStrings.cancelUpload, symbol: "xmark.circle") { [weak self] in self?.intents?.cancelSend(ref.messageId) })
-        }
-        return menu.items.isEmpty ? nil : menu
-    }
+    // Context menu: PaneMenu.swift (MessagesLab 69f4256).
 
     // MARK: Window
 

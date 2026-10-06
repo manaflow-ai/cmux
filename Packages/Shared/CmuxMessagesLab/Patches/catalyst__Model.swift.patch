@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Model.swift
-@@ -210,7 +210,13 @@
+@@ -213,7 +213,13 @@
      }()
      /// Timestamps keep the conversation's offset (-07:00) so rendering is
      /// independent of the machine's zone.
@@ -15,7 +15,7 @@
      private static let writer: ISO8601DateFormatter = {
          let f = ISO8601DateFormatter()
          f.formatOptions = [.withInternetDateTime]
-@@ -261,7 +267,9 @@
+@@ -264,7 +270,9 @@
  enum Fixtures {
      /// conversation.json and assets/ from shared/ are bundled (not copied
      /// into this variant's sources).

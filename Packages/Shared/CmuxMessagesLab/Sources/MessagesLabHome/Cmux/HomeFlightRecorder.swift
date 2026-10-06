@@ -32,32 +32,33 @@ public enum HomeFlightRecorder {
 
     // MARK: Helpers from MessagesLab files that are not vendored
 
-    /// FlashCheck.coverageGaps(_:minGap:presented: true), except that the
-    /// empty space above the loaded transcript's first row is no gap: a
-    /// conversation shorter than the pane leaves it (MessagesLab's checks run
-    /// on a full fixture transcript; a new Chief conversation dumped on its
+    /// FlashCheck.coverageGaps(_:minGap:presented: true). Since MessagesLab
+    /// 69f4256 the space above the conversation's first message is no gap
+    /// (a short or new conversation; a new Chief conversation dumped on its
     /// first send).
     static func coverageGaps(_ view: MessagesWindowView, minGap: CGFloat = 40) -> [(CGFloat, CGFloat)] {
         let top = Fixture.headerHeight, bottom = view.fieldTop - 4
-        let firstKey = view.model.rows.first?.spec.key
-        var showsFirst = false
         var spans: [(CGFloat, CGFloat)] = []
+        // The space above the conversation's first message is empty by design
+        // (a short or new conversation): coverage starts at that row.
+        let firstKey = view.store.state.windowStart == 0 ? view.model.rows.first?.spec.key : nil
+        if view.store.state.windowStart == 0 && view.model.count == 0 { return [] }
+        var start = top
         for case let cell as RowCell in view.collection.visibleCells where !cell.isHidden {
-            if cell.spec?.key == firstKey { showsFirst = true }
             let l = cell.layer.presentation() ?? cell.layer
             let f = l.convert(l.bounds, to: view.layer.presentation() ?? view.layer)
             spans.append((f.minY, f.maxY))
+            if let firstKey, cell.spec?.key == firstKey { start = max(top, f.minY) }
         }
         spans.sort { $0.0 < $1.0 }
         var gaps: [(CGFloat, CGFloat)] = []
-        var y = top
+        var y = start
         for (a, b) in spans where b > y {
             if a - y > minGap, a > top { gaps.append((y, min(a, bottom))) }
             y = max(y, b)
             if y >= bottom { break }
         }
         if bottom - y > minGap { gaps.append((y, bottom)) }
-        if showsFirst { gaps.removeAll { $0.0 == top } }
         return gaps.filter { $0.1 - $0.0 > minGap }
     }
 

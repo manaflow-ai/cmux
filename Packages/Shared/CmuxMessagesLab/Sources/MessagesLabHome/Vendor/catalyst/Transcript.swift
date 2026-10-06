@@ -52,17 +52,29 @@ final class TranscriptModel {
             oi += 1
         }
         // Ghosts that are still fading keep their place too.
+        let previous = rows
         let fading = rows.filter(\.ghost)
         rows = result
-        for g in fading where index(ofKey: g.spec.key) == nil { insertGhost(g) }
+        for g in fading where index(ofKey: g.spec.key) == nil { insertGhost(g, previous) }
         rebuild()
     }
 
     private func index(ofKey key: String) -> Int? { rows.firstIndex { $0.spec.key == key } }
 
-    /// Put an older ghost back near its old neighbours (end of the list if none).
-    private func insertGhost(_ g: Row) {
-        rows.append(g)
+    /// Put a ghost that is still fading back right after the row it followed
+    /// (the first row if none). It used to be appended at the end: a second
+    /// change during a collapse (a send whose Delivered, Read and typing
+    /// arrive within 50 ms) moved the older "Read" ghost to the end of the
+    /// list, and its spring slid it down across the new rows ("row receipt
+    /// jumps 15-37 pt", cmux-next flight recorder, 2026-10-05).
+    private func insertGhost(_ g: Row, _ previous: [Row]) {
+        guard let k = previous.firstIndex(where: { $0.spec.key == g.spec.key }) else { rows.append(g); return }
+        var j = k - 1
+        while j >= 0 {
+            if let at = index(ofKey: previous[j].spec.key) { rows.insert(g, at: at + 1); return }
+            j -= 1
+        }
+        rows.insert(g, at: 0)
     }
 
     /// Paging splice (no animation): replace rows at the two ends.

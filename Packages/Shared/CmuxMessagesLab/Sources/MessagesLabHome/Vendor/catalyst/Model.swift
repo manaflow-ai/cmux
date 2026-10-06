@@ -51,6 +51,9 @@ struct Message: Codable, Equatable {
     var edits: [Edit]?
     var retractedAt: String?
     var reactions: [Reaction]
+    /// Deleted on this device (Delete… in the menu): no row is drawn. A tombstone, so
+    /// paged indices stay valid.
+    var deletedAt: String? = nil
 
     struct Edit: Codable, Equatable { var text: String; var at: String }
 

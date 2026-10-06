@@ -1,12 +1,11 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
-@@ -61,14 +61,24 @@
+@@ -61,17 +61,27 @@
      static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
          UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
      }
 -    static var background: UIColor { UIColor(white: 30 / 255, alpha: 1) }
--    static var incoming: UIColor { p3(59, 59, 61) }
--    static let outgoing = UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1)
+-    static var incoming: UIColor { elevated ? p3(76, 76, 78) : p3(59, 59, 61) }
 +    /// cmux: the app theme's colours (the cmux-next Ghostty theme and the
 +    /// user's accent), set by the Home host; a change bumps
 +    /// `paletteGeneration`. nil keeps the measured Messages palette below
@@ -16,7 +15,11 @@
 +        theme.map { pick(inactive ? $0.inactive : $0.active) }
 +    }
 +    static var background: UIColor { themed(\.background) ?? UIColor(white: 30 / 255, alpha: 1) }
-+    static var incoming: UIColor { themed(\.incoming) ?? p3(59, 59, 61) }
++    static var incoming: UIColor { themed(\.incoming) ?? (elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
+     /// Rows of an open thread or reply view are drawn lighter (macOS 27, measured 76, 76, 78;
+     /// lossless thread-open-esc reference). Set only around those rows' drawing (main thread).
+     static var elevated = false
+-    static let outgoing = UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1)
 +    // cmux: a theme without an accent keeps the measured blue and its gradient.
 +    private static var themedAccent: Bool { theme.map { !$0.measuredAccent } ?? false }
 +    static var outgoing: UIColor { (themedAccent ? themed(\.outgoing) : nil) ?? UIColor(red: 2 / 255, green: 132 / 255, blue: 254 / 255, alpha: 1) }
@@ -32,7 +35,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -81,13 +91,40 @@
+@@ -84,13 +94,40 @@
          (1500, 68.8, 145.8), (1800, 65.2, 144.1), (2082, 62.8, 142)]
      /// A gradient colour (red, green from the stops) in Display P3.
      static func gradientColor(_ r: CGFloat, _ g: CGFloat) -> UIColor { p3(r, g, gradientBlue) }
@@ -60,10 +63,10 @@
 +        return measuredGradient
 +    }
      /// Text colours measured with screencapture -l (macOS 27, 2026-10-05).
--    static let incomingText = UIColor(white: 225 / 255, alpha: 1)
+-    static var incomingText: UIColor { UIColor(white: (elevated ? 242 : 225) / 255, alpha: 1) }
 -    static let outgoingText = UIColor.white
 -    static let secondaryText = UIColor(white: 154 / 255, alpha: 1)
-+    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: 225 / 255, alpha: 1) }
++    static var incomingText: UIColor { themed(\.incomingText) ?? UIColor(white: (elevated ? 242 : 225) / 255, alpha: 1) }
 +    static var outgoingText: UIColor { (themedAccent ? themed(\.outgoingText) : nil) ?? UIColor.white }
 +    static var secondaryText: UIColor { themed(\.secondaryText) ?? UIColor(white: 154 / 255, alpha: 1) }
 +    // cmux: the field and typing colours MessagesLab draws as fixed dark
