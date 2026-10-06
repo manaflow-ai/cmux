@@ -5016,18 +5016,6 @@ struct CMUXCLI {
            shouldDispatchCmuxSubcommandHelp(command: command, commandArgs: commandArgs),
            preSeparatorArgs.contains(where: { $0 == "--help" || $0 == "-h" }) {
             if dispatchSubcommandHelp(command: command, commandArgs: commandArgs) {
-                // Help stays offline; only a socket the caller pinned (inside a
-                // cmux terminal or with --socket) is asked who it is.
-                if let pinned = explicitSocketPath ?? (try? CLISocketEnvironment.socketPath(in: processEnv)),
-                   let note = CLIVersionSkew.helpNote(
-                       socketPath: pinned,
-                       cliVersion: versionSummary(),
-                       cliShortVersion: resolvedVersionInfo()["CFBundleShortVersionString"],
-                       cliPath: resolvedExecutableURL()?.path
-                   ) {
-                    print("")
-                    print(note)
-                }
                 return
             }
             throw unknownCommandError(command)

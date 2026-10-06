@@ -116,42 +116,6 @@ enum CLIVersionSkew {
         return ([header] + details + ["(\(original))"]).joined(separator: "\n")
     }
 
-    /// The note `cmux <command> --help` appends when the app on the socket
-    /// is another build, so the listed commands may not all work there. Nil
-    /// when the builds match or the app cannot be identified.
-    static func helpNote(
-        socketPath: String,
-        cliVersion: String,
-        cliShortVersion: String?,
-        cliPath: String?
-    ) -> String? {
-        guard FileManager.default.fileExists(atPath: socketPath) else { return nil }
-        let client = SocketClient(path: socketPath)
-        defer { client.close() }
-        let identify: [String: Any]
-        do {
-            try client.connect(deadline: Date.now.addingTimeInterval(0.3))
-            identify = try client.sendV2(method: "system.identify", responseTimeout: 0.3)
-        } catch {
-            return nil
-        }
-        guard let details = details(
-            cliVersion: cliVersion,
-            cliShortVersion: cliShortVersion,
-            cliPath: cliPath,
-            peer: Peer(identify: identify)
-        ) else { return nil }
-        let header = String(
-            format: String(
-                localized: "cli.versionSkew.helpHeader",
-                defaultValue: "Note: the app on %@ is a different build from this CLI. Some commands above may not work there."
-            ),
-            locale: .current,
-            socketPath
-        )
-        return ([header] + details).joined(separator: "\n")
-    }
-
     /// The CLI line, app line, and fix, or nil when there is no skew.
     private static func details(
         cliVersion: String,

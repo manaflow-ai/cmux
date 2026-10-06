@@ -49,30 +49,6 @@ struct CLIVersionSkewErrorTests {
         #expect(!outcome.stderr.contains("is not supported by the app on"), Comment(rawValue: outcome.stderr))
     }
 
-    @Test("Command help pinned to another build's socket says which commands may not work")
-    func helpMarksSkewedApp() throws {
-        let peerCLI = "/Applications/cmux-next.app/Contents/Resources/bin/cmux"
-        let outcome = try run(
-            identify: ["app": "cmux-next", "version": "0.3.0", "build": "42", "app_cli_path": peerCLI],
-            arguments: ["workspace", "--help"]
-        )
-        #expect(outcome.status == 0, Comment(rawValue: outcome.stderr))
-        #expect(outcome.stdout.contains("Subcommands:"), Comment(rawValue: outcome.stdout))
-        #expect(outcome.stdout.contains("is a different build from this CLI"), Comment(rawValue: outcome.stdout))
-        #expect(outcome.stdout.contains("cmux-next 0.3.0 (42)"), Comment(rawValue: outcome.stdout))
-        #expect(outcome.stdout.contains(peerCLI), Comment(rawValue: outcome.stdout))
-    }
-
-    @Test("Command help for the same build adds no note")
-    func helpForSameBuildHasNoNote() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: CLITestBundleAnchor.self)
-        let version = try BundledCLITestSupport.appVersion(cliPath: cliPath)
-        let outcome = try run(identify: ["app": "cmux", "version": version], arguments: ["workspace", "--help"])
-        #expect(outcome.status == 0, Comment(rawValue: outcome.stderr))
-        #expect(outcome.stdout.contains("Subcommands:"), Comment(rawValue: outcome.stdout))
-        #expect(!outcome.stdout.contains("is a different build from this CLI"), Comment(rawValue: outcome.stdout))
-    }
-
     // MARK: - Harness
 
     private struct Outcome {

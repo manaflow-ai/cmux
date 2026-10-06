@@ -1,65 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "cli.versionSkew.helpHeader": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Note: the app on %@ is a different build from this CLI. Some commands above may not work there."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hinweis: Die App an %@ ist ein anderer Build als diese CLI. Einige der oben genannten Befehle funktionieren dort möglicherweise nicht."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remarque : l’app sur %@ est un build différent de cette CLI. Certaines commandes ci-dessus risquent de ne pas y fonctionner."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ملاحظة: التطبيق على %@ إصدار مختلف عن واجهة سطر الأوامر هذه. قد لا تعمل بعض الأوامر أعلاه هناك."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nota: la app en %@ es una compilación distinta de esta CLI. Es posible que algunos comandos de arriba no funcionen allí."
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "注意：%@ 上的 App 與此 CLI 為不同的建置版本，上方部分指令在該處可能無法使用。"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "注意：%@ 上的 App 与此 CLI 为不同的构建版本，上方部分命令在该处可能无法使用。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "참고: %@의 앱은 이 CLI와 다른 빌드입니다. 위의 일부 명령은 해당 앱에서 작동하지 않을 수 있습니다."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "注意: %@ のアプリはこの CLI とは異なるビルドです。上記の一部のコマンドはそのアプリでは動作しない場合があります。"
-          }
-        }
-      }
-    },
     "cli.versionSkew.header": {
       "extractionState": "manual",
       "localizations": {
