@@ -181,15 +181,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
-        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
-        snapshot.browserShowBookmarksBar = showBar
-        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
-        let (keepLocation, keepLocationDiagnostic) = HomeKeepLocationSetting.parse(root)
-        snapshot.homeKeepLocation = keepLocation
-        if let keepLocationDiagnostic { snapshot.diagnostics.append(keepLocationDiagnostic) }
-        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
-        snapshot.previewFeatures = preview
-        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
+        snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics

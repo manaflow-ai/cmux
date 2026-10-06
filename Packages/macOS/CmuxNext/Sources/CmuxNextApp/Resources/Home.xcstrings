@@ -657,134 +657,264 @@
         }
       }
     },
-    "home.chief.mergeBlocked": {
-      "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
+    "home.chief.archive.default": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quit older cmux DEV builds to merge Chief history"
+            "value": "Make another Chief the default before archiving this one."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أغلق إصدارات cmux DEV الأقدم لدمج سجل Chief"
+            "value": "اجعل Chief آخر هو الافتراضي قبل أرشفة هذا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zatvorite starije cmux DEV verzije da spojite historiju Chiefa"
+            "value": "Postavite drugog Chiefa kao zadanog prije arhiviranja ovog."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Afslut ældre cmux DEV-builds for at samle Chief-historikken"
+            "value": "Gør en anden Chief til standard, før du arkiverer denne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Beende ältere cmux-DEV-Builds, um den Chief-Verlauf zusammenzuführen"
+            "value": "Lege zuerst einen anderen Chief als Standard fest, bevor du diesen archivierst."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cierra las compilaciones antiguas de cmux DEV para unir el historial de Chief"
+            "value": "Haz que otro Chief sea el predeterminado antes de archivar este."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quittez les anciennes versions cmux DEV pour fusionner l’historique de Chief"
+            "value": "Définissez un autre Chief par défaut avant d’archiver celui-ci."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chiudi le build cmux DEV meno recenti per unire la cronologia di Chief"
+            "value": "Imposta un altro Chief come predefinito prima di archiviare questo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chief の履歴を統合するには、古い cmux DEV ビルドを終了してください"
+            "state": "needs_review",
+            "value": "このChiefをアーカイブする前に、別のChiefをデフォルトにしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទកំណែ cmux DEV ចាស់ៗ ដើម្បីបញ្ចូលប្រវត្តិ Chief"
+            "value": "កំណត់ Chief ផ្សេងជាលំនាំដើម មុនពេលទុក Chief នេះក្នុងបណ្ណសារ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief 기록을 병합하려면 이전 cmux DEV 빌드를 종료하세요"
+            "value": "이 Chief를 보관하기 전에 다른 Chief를 기본값으로 지정하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Avslutt eldre cmux DEV-bygg for å slå sammen Chief-historikken"
+            "value": "Gjør en annen Chief til standard før du arkiverer denne."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zamknij starsze kompilacje cmux DEV, aby scalić historię Chief"
+            "value": "Przed zarchiwizowaniem tego Chiefa ustaw innego jako domyślnego."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Feche as builds antigas do cmux DEV para mesclar o histórico do Chief"
+            "value": "Defina outro Chief como padrão antes de arquivar este."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закройте старые сборки cmux DEV, чтобы объединить историю Chief"
+            "value": "Перед архивацией сделайте основным другого Chief."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปิด cmux DEV รุ่นเก่าเพื่อรวมประวัติของ Chief"
+            "value": "ตั้ง Chief อื่นเป็นค่าเริ่มต้นก่อนเก็บ Chief นี้ถาวร"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief geçmişini birleştirmek için eski cmux DEV derlemelerini kapatın"
+            "value": "Bunu arşivlemeden önce başka bir Chief’i varsayılan yapın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрийте старі збірки cmux DEV, щоб об’єднати історію Chief"
+            "value": "Перед архівуванням зробіть основним іншого Chief."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thoát các bản dựng cmux DEV cũ để hợp nhất lịch sử Chief"
+            "value": "Hãy đặt một Chief khác làm mặc định trước khi lưu trữ Chief này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "退出旧版 cmux DEV 构建以合并 Chief 历史记录"
+            "value": "归档此 Chief 前,请先将另一个 Chief 设为默认。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "結束舊版 cmux DEV 組建以合併 Chief 歷史紀錄"
+            "value": "封存此 Chief 前,請先將另一個 Chief 設為預設。"
+          }
+        }
+      }
+    },
+    "home.chief.archive.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Chief couldn’t be archived. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّرت أرشفة Chief. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief nije moguće arhivirati. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief kunne ikke arkiveres. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Chief konnte nicht archiviert werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo archivar el Chief. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’archiver le Chief. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile archiviare il Chief. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiefをアーカイブできませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចទុក Chief ក្នុងបណ្ណសារបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief를 보관할 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kunne ikke arkivere Chief. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się zarchiwizować Chiefa. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível arquivar o Chief. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось архивировать Chief. Повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บ Chief ถาวรไม่ได้ โปรดลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief arşivlenemedi. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося архівувати Chief. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể lưu trữ Chief. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法归档 Chief。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法封存 Chief。請再試一次。"
           }
         }
       }
@@ -2619,6 +2749,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Chief 設定"
+          }
+        }
+      }
+    },
+    "home.chief.mergeBlocked": {
+      "comment": "Home notice while older cmux DEV builds still run their own Chief, so its history cannot be merged yet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit older cmux DEV builds to merge Chief history"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أغلق إصدارات cmux DEV الأقدم لدمج سجل Chief"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatvorite starije cmux DEV verzije da spojite historiju Chiefa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afslut ældre cmux DEV-builds for at samle Chief-historikken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beende ältere cmux-DEV-Builds, um den Chief-Verlauf zusammenzuführen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cierra las compilaciones antiguas de cmux DEV para unir el historial de Chief"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quittez les anciennes versions cmux DEV pour fusionner l’historique de Chief"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi le build cmux DEV meno recenti per unire la cronologia di Chief"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief の履歴を統合するには、古い cmux DEV ビルドを終了してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទកំណែ cmux DEV ចាស់ៗ ដើម្បីបញ្ចូលប្រវត្តិ Chief"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief 기록을 병합하려면 이전 cmux DEV 빌드를 종료하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avslutt eldre cmux DEV-bygg for å slå sammen Chief-historikken"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij starsze kompilacje cmux DEV, aby scalić historię Chief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Feche as builds antigas do cmux DEV para mesclar o histórico do Chief"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закройте старые сборки cmux DEV, чтобы объединить историю Chief"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด cmux DEV รุ่นเก่าเพื่อรวมประวัติของ Chief"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chief geçmişini birleştirmek için eski cmux DEV derlemelerini kapatın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрийте старі збірки cmux DEV, щоб об’єднати історію Chief"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thoát các bản dựng cmux DEV cũ để hợp nhất lịch sử Chief"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "退出旧版 cmux DEV 构建以合并 Chief 历史记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "結束舊版 cmux DEV 組建以合併 Chief 歷史紀錄"
           }
         }
       }

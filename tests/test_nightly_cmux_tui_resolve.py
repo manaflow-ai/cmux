@@ -50,6 +50,58 @@ depth = re.search(r"fetch-depth: (\d+)", job)
 check(bool(depth) and (int(depth.group(1)) == 0 or int(depth.group(1)) > 50),
       "the checkout must hold the search window (fetch-depth > 50)")
 
+# Build at the resolved commit: app and daemon always come from the same commit.
+# Every job that checks out the source (except decide, the resolver itself and the
+# scheduled cache warmers, which ship nothing) checks out the resolver's build_sha.
+# main's NIGHTLY, RC and nightly-next all run these same jobs.
+RESOLVE = "resolve-nightly-cmux-tui-client"
+BUILD_SHA = "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}"
+jobs_text = text[text.index("\njobs:\n"):]
+blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", jobs_text, re.MULTILINE | re.DOTALL))
+exempt = {"decide", RESOLVE, "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission"}
+shipping = [name for name, body in blocks.items() if name not in exempt and "actions/checkout@" in body]
+for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightly", "build-nightly-ghostty-cli-helper"):
+    check(name in shipping, f"{name} must check out the source (guard setup)")
+for name in shipping:
+    body = blocks[name]
+    needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
+    check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
+    for ref in re.findall(r"^\s+ref: (.*)$", body, re.MULTILINE):
+        check(ref.strip() == BUILD_SHA, f"{name} checks out {ref.strip()}, not the resolved build commit")
+    for line in body.splitlines():
+        if "needs.decide.outputs.head_sha" in line or "needs.decide.outputs.short_sha" in line:
+            check("|| needs.decide.outputs.head_sha" in line,
+                  f"{name} still uses the tip outside a cache key: {line.strip()}")
+check(not re.search(r"^    if: .*build_only", blocks.get(RESOLVE, ""), re.MULTILINE),
+      "the resolver must run for build_only too, so every app build has a build commit")
+for output in ("build_sha", "build_short_sha", "tip_sha", "behind", "behind_hours"):
+    check(re.search(rf"^      {output}:", blocks.get(RESOLVE, ""), re.MULTILINE) is not None,
+          f"{RESOLVE} must output {output}")
+check('CMUX_TUI_TREE_MAX_AGE_HOURS: "24"' in blocks.get(RESOLVE, ""), "the resolver must bound the age at 24 h")
+publish = blocks.get("publish-nightly", "")
+for needle in ("outputs.tip_sha", "outputs.behind }}", "outputs.behind_hours"):
+    check(publish.count(needle) >= 2, f"both nightly release bodies must record {needle}")
+
+# The publication check compares the RESOLVED build commit, not the tip, with
+# the published marker: a run whose resolved commit is already published builds
+# nothing (the tip may move while its tree is unpublished). The app build keys
+# its Xcode compilation cache by the commit it builds.
+check(re.search(r"^      force: \$\{\{ steps\.decide\.outputs\.force \}\}", blocks.get("decide", ""), re.MULTILINE) is not None,
+      "decide must output force")
+check("setOutput('force'" in blocks.get("decide", ""), "decide must set its force output")
+resolver = blocks.get(RESOLVE, "")
+check(re.search(r"^      already_published: \$\{\{ steps\.build\.outputs\.already_published \}\}", resolver, re.MULTILINE) is not None,
+      f"{RESOLVE} must output already_published")
+check("needs.decide.outputs.published_sha" in resolver and "needs.decide.outputs.force" in resolver,
+      "already_published must compare build_sha with decide's published_sha and honor force")
+for name in ("build-nightly-ghostty-cli-helper", "build-nightly-app", "build-sign-notarize-nightly", "publish-nightly"):
+    job_if = re.search(r"^    if: (.*)$", blocks.get(name, ""), re.MULTILINE)
+    check(bool(job_if) and f"needs.{RESOLVE}.outputs.already_published != 'true'" in job_if.group(1),
+          f"{name} must skip a resolved commit that is already published")
+for line in blocks.get("build-nightly-app", "").splitlines():
+    if "key: xcode-compilation-release-" in line:
+        check(line.rstrip().endswith(BUILD_SHA), f"build-nightly-app cache key must use build_sha: {line.strip()}")
+
 test = ROOT / "scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh"
 result = subprocess.run(["bash", str(test)], capture_output=True, text=True)
 check(result.returncode == 0, f"{test.name} failed:\n{result.stdout}{result.stderr}")

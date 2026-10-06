@@ -87,7 +87,8 @@
 #        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | resolve-commit (the commit that published this tree; waits for it)
 #        | resolve-newest-published (nightly: newest verified published tree in the last
-#          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50; never waits)
+#          CMUX_TUI_TREE_SEARCH_COMMITS commits, default 50, and CMUX_TUI_TREE_MAX_AGE_HOURS,
+#          default 24; never waits)
 #        | wait (the cmux-next gate: wait for the tree; superseded=true output for a superseded commit)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
@@ -561,13 +562,20 @@ resolve_tree_commit() {
 # finish and a newer push replaces only the pending run, so under steady
 # pushes the tip's own tree may never publish (nightly-next run 37464320457).
 # Prints commit=, key=, source_commit= (the branch commit whose tree was
-# used), tip_key= and behind= lines, and appends them to GITHUB_STEP_SUMMARY.
+# used), tip_key=, behind= (commits) and behind_hours= lines, and appends them
+# to GITHUB_STEP_SUMMARY. The nightly builds the app at source_commit, so app and
+# daemon come from one commit. A tree more than CMUX_TUI_TREE_MAX_AGE_HOURS
+# (default 24) behind the tip, or none in the window, fails: never ship stale.
 resolve_newest_published_tree() {
-  local limit temp_dir rev key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
+  local limit max_age temp_dir rev rev_time tip_time behind_hours key commit manifest_sha published_sha tip tip_key behind=0 checked=0 seen=" " distinct=0
   limit="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
   [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_SEARCH_COMMITS must be a positive whole number" >&2; exit 2; }
   limit=$((10#$limit))
+  max_age="${CMUX_TUI_TREE_MAX_AGE_HOURS:-24}"
+  [[ "$max_age" =~ ^[1-9][0-9]*$ ]] || { echo "error: CMUX_TUI_TREE_MAX_AGE_HOURS must be a positive whole number" >&2; exit 2; }
+  max_age=$((10#$max_age))
   tip="$(git rev-parse HEAD)"
+  tip_time="$(git log -1 --format=%ct HEAD)"
   tip_key="$(tree_key HEAD 2>/dev/null || true)"
   # A depth-1 CI checkout holds no window; deepen once (best effort).
   if [[ "$(git rev-parse --is-shallow-repository)" == true ]] && (( $(git rev-list --count HEAD) < limit )); then
@@ -581,6 +589,13 @@ resolve_newest_published_tree() {
   # puts the previous branch tip on the second parent).
   while read -r rev; do
     checked=$((checked + 1))
+    rev_time="$(git log -1 --format=%ct "$rev")"
+    behind_hours=$(( (tip_time - rev_time) / 3600 ))
+    (( behind_hours < 0 )) && behind_hours=0
+    if (( tip_time - rev_time > max_age * 3600 )); then
+      echo "error: no published cmux-tui tree within ${max_age} h of the tip ${tip:0:12}: the newest candidate left, ${rev:0:12}, is ${behind_hours} h behind the tip (bound ${max_age} h, ${behind} commits). The nightly does not ship a stale build; publish a newer cmux-tui tree (pin-cmux-tui.sh --help)." >&2
+      exit 1
+    fi
     key="$(tree_key "$rev" 2>/dev/null)" || { behind=$((behind + 1)); continue; }
     if [[ "$seen" == *" $key "* ]]; then behind=$((behind + 1)); continue; fi
     seen+="$key "; distinct=$((distinct + 1))
@@ -601,13 +616,13 @@ resolve_newest_published_tree() {
       echo "warning: tree $key (${rev:0:12}) is published, but the manifest of its commit ${commit:0:12} does not carry its sha256 ${published_sha:0:12} (manifest: ${manifest_sha:-none}); skipping" >&2
       behind=$((behind + 1)); continue
     fi
-    echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
-    printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind"
+    echo "resolved cmux-tui tree $key from ${rev:0:12} ($behind commits and $behind_hours h behind the tip ${tip:0:12}, tip tree ${tip_key:-unknown}); published by $commit" >&2
+    printf 'commit=%s\nkey=%s\nsource_commit=%s\ntip_key=%s\nbehind=%s\nbehind_hours=%s\n' "$commit" "$key" "$rev" "$tip_key" "$behind" "$behind_hours"
     if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       {
         echo "### cmux-tui client"
         echo "- tree: \`$key\` (tip tree \`${tip_key:-unknown}\`)"
-        echo "- branch commit whose tree is used: \`$rev\` ($behind commits behind the tip \`$tip\`)"
+        echo "- build commit (app and daemon): \`$rev\` ($behind commits and $behind_hours h behind the tip \`$tip\`)"
         echo "- publishing commit (manifest sha256 verified): \`$commit\`"
       } >> "$GITHUB_STEP_SUMMARY"
     fi
