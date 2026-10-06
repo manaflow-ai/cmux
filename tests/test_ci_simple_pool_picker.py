@@ -173,15 +173,17 @@ class LiveRunnerReadTests(unittest.TestCase):
 
     def test_configured_aws_family_can_be_selected(self):
         aws_label = "glaeda-aws-std-xcode-26.3"
-        env = {**OWNED_ENV, "CI_OWNED_POOL_SLOTS": json.dumps({aws_label: 10})}
+        env = {**OWNED_ENV, "CMUX_CI_XCODE_APP_PR": "/Applications/Xcode_26.3.app",
+               "CI_OWNED_POOL_SLOTS": json.dumps({aws_label: 10})}
         aws = [runner(f"aws-{index}", [aws_label], busy=False) for index in range(10)]
         choice = picker.pick(observed(aws, {}, env=env))
         self.assertEqual(choice.label, aws_label)
         self.assertEqual(choice.xcode_app, "/Applications/Xcode_26.3.app")
 
     def test_aws_family_queue_does_not_charge_the_mini_family(self):
-        aws_label = "glaeda-aws-std-xcode-26.3"
-        env = {**OWNED_ENV, "CI_OWNED_POOL_SLOTS": json.dumps({STD: 8, aws_label: 8})}
+        aws_label = "glaeda-aws-std-xcode-26.6"
+        env = {**OWNED_ENV,
+               "CI_OWNED_POOL_SLOTS": json.dumps({STD: 8, aws_label: 8})}
         runners = [std_runner(index, busy=False) for index in range(8)]
         runners += [runner(f"aws-{index}", [aws_label], busy=False) for index in range(8)]
         state = observed(runners, {aws_label: {"queued": 8}}, env=env, jobs=1)
