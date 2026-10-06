@@ -15,10 +15,11 @@ extension SidebarView {
         isChromeRevealed = revealed
         cardStack.revealed = revealed
         let alpha: CGFloat = 1
-        let mode = DesignSettings.shared.sidebarSections.minimalMode
-        let above: CGFloat = revealed || !mode.hidesTop || holdsAccessory(aboveRegion) ? 1 : 0
-        let below: CGFloat = revealed || !mode.hidesBottom || holdsAccessory(belowRegion) ? 1 : 0
-        let hidden = (top: above == 0, bottom: below == 0)
+        // Section chrome, including the Settings footer row, stays present.
+        // Hover only affects paint and transient content inside the regions.
+        let above: CGFloat = 1
+        let below: CGFloat = 1
+        let hidden = (top: false, bottom: false)
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
         Motion.animate(.hover, in: self) {
