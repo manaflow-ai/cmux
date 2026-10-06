@@ -46,13 +46,8 @@ grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # transcript's math (conversation/Math.tsx).
 node scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"
 cat "$SRC/acpmux/styles.css" "$SRC/acpmux/conversation/conversation.css" "$SRC/acpmux/changes/changes.css" \
-<<<<<<< HEAD
-  "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
-=======
   "$SRC/acpmux/handoff/styles.css" "$SRC/acpmux/checkpoints/styles.css" "$SRC/acpmux/composerControls.css" "$SRC/acpmux/composerStates.css" "$SRC/acpmux/composerLocation.css" "$SRC/acpmux/searchChats.css" "$SRC/acpmux/markdownField.css" \
-  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
->>>>>>> origin/feat-cmux-next
+  "$SRC/acpmux/modelPicker.css" "$SRC/acpmux/keys.css" "$SRC/acpmux/summary/summary.css" "$SRC/acpmux/header/header.css" "$SRC/acpmux/newtab/screen.css" >> "$WORK/styles.css"
 
 # Same-origin script files only (no inline script, no eval) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web

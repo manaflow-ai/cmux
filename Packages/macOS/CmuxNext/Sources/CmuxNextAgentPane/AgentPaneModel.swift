@@ -371,13 +371,6 @@ public final class AgentPaneModel {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
-    /// The app actions the chat header runs on its tab (`pane.action`): the Terminal and Browser
-    /// splits and the "..." menu's tab verbs.
-    public static let headerActions: Set<String> = [
-        "splitRight", "splitBrowserRight", "renameTab", "palette.toggleTabPin",
-        "moveSurfaceToPaneRight", "palette.moveTabToNewWorkspace", "closeTab",
-    ]
-
     private static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }

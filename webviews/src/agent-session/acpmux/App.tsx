@@ -1730,7 +1730,14 @@ function AcpmuxPane() {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const chat: ChatMenuItem[] = [
       ...(forkable && lastForkSeq !== undefined
-        ? [{ key: "fork", label: t("chatMenu.fork"), icon: "agent.fork", onSelect: () => turnActions.fork?.(lastForkSeq) }]
+        ? [
+            {
+              key: "fork",
+              label: t("chatMenu.fork"),
+              icon: "agent.fork",
+              onSelect: () => turnActions.fork?.(lastForkSeq),
+            },
+          ]
         : []),
       ...(snapshot.canHandoff && handoffTargets.length > 0
         ? [
@@ -1748,11 +1755,24 @@ function AcpmuxPane() {
           ]
         : []),
       ...(checkpoints.supported
-        ? [{ key: "checkpoint", label: checkpointLabels.createCheckpoint, icon: "action.review", onSelect: checkpoints.show }]
+        ? [
+            {
+              key: "checkpoint",
+              label: checkpointLabels.createCheckpoint,
+              icon: "action.review",
+              onSelect: checkpoints.show,
+            },
+          ]
         : []),
     ];
     return [
-      { key: "rename", label: t("chatMenu.rename"), icon: "action.edit", shortcutAction: HEADER_ACTIONS.rename, onSelect: () => runHeaderAction(HEADER_ACTIONS.rename) },
+      {
+        key: "rename",
+        label: t("chatMenu.rename"),
+        icon: "action.edit",
+        shortcutAction: HEADER_ACTIONS.rename,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.rename),
+      },
       {
         key: "pin",
         label: tabPinned.current ? t("chatMenu.unpin") : t("chatMenu.pin"),
@@ -1774,10 +1794,28 @@ function AcpmuxPane() {
           ] as ChatMenuItem[])
         : []),
       "separator",
-      { key: "moveRight", label: t("chatMenu.moveRight"), icon: "pane.split.right", shortcutAction: HEADER_ACTIONS.moveRight, onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight) },
-      { key: "newWorkspace", label: t("chatMenu.newWorkspace"), icon: "workspace.new", shortcutAction: HEADER_ACTIONS.newWorkspace, onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace) },
+      {
+        key: "moveRight",
+        label: t("chatMenu.moveRight"),
+        icon: "pane.split.right",
+        shortcutAction: HEADER_ACTIONS.moveRight,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.moveRight),
+      },
+      {
+        key: "newWorkspace",
+        label: t("chatMenu.newWorkspace"),
+        icon: "workspace.new",
+        shortcutAction: HEADER_ACTIONS.newWorkspace,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.newWorkspace),
+      },
       "separator",
-      { key: "close", label: t("chatMenu.close"), icon: "tab.close", shortcutAction: HEADER_ACTIONS.close, onSelect: () => runHeaderAction(HEADER_ACTIONS.close) },
+      {
+        key: "close",
+        label: t("chatMenu.close"),
+        icon: "tab.close",
+        shortcutAction: HEADER_ACTIONS.close,
+        onSelect: () => runHeaderAction(HEADER_ACTIONS.close),
+      },
     ];
   };
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
