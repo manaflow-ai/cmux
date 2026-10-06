@@ -126,10 +126,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         // A row of the titlebar Back / Forward list: the click on the row is the gesture.
         .focusMove: [
-            "history.goTo",
-        ],
-        .guiOnly: [
-            "agent.openSessionWorkspace",
+            "history.goTo", "agent.openSessionWorkspace",
         ],
     ]
 
