@@ -602,6 +602,19 @@ impl State {
                     applied.events.push(event);
                 }
             }
+            // The page clipboard guard's writes (`clipboard.rs`).
+            "Runtime.bindingCalled"
+                if params.get("name").and_then(Value::as_str)
+                    == Some(super::clipboard::GUARD_BINDING) =>
+            {
+                let payload = params.get("payload").and_then(Value::as_str).unwrap_or("");
+                let items = serde_json::from_str::<Value>(payload).ok().and_then(|payload| {
+                    super::clipboard::clipboard_items(payload.get("items")).ok()
+                });
+                if let Some(items) = items.filter(|items| !items.is_empty()) {
+                    tab.clipboard = items;
+                }
+            }
             "Runtime.consoleAPICalled" => {
                 let text = params
                     .get("args")

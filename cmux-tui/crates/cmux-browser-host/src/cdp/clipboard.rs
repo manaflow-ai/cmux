@@ -207,8 +207,84 @@ impl Inner {
     }
 }
 
+/// The binding the page clipboard guard posts through (page world).
+pub(super) const GUARD_BINDING: &str = "__cmuxPageClipboard";
+
+/// js/page-clipboard.js, called with a `post` that hands `{ items }` to the
+/// binding (taken off the page's global before any page script runs).
+static GUARD_SOURCE: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "(() => {{ const g = globalThis; const send = g.{GUARD_BINDING}; if (typeof send !== 'function') return; \
+         try {{ delete g.{GUARD_BINDING}; }} catch {{}} \
+         ({})((payload) => {{ send(JSON.stringify(payload)); return Promise.resolve(); }}); }})();",
+        include_str!("../../js/page-clipboard.js").trim().trim_end_matches(';')
+    )
+});
+
+impl Inner {
+    /// Page clipboard guard (driver-protocol.md "Guards"): in every
+    /// document of a browser the driver owns, before the page's scripts,
+    /// `navigator.clipboard` and `execCommand("copy" | "cut")` write the
+    /// tab's clipboard (through [`GUARD_BINDING`]), never the browser's.
+    pub(super) fn guard_steps(&self, enabled: bool) -> Vec<(&'static str, Value)> {
+        if !enabled || !self.owns_browser {
+            return Vec::new();
+        }
+        vec![
+            ("Runtime.addBinding", json!({"name": GUARD_BINDING})),
+            (
+                "Page.addScriptToEvaluateOnNewDocument",
+                json!({"source": &*GUARD_SOURCE, "runImmediately": true}),
+            ),
+        ]
+    }
+}
+
+/// The browser refuses page script the clipboard permissions (async
+/// Clipboard API reads and writes, sanitized or not) in every origin of a
+/// store: the guard's second line, also for a document the guard missed
+/// and for isolated worlds.
+pub(super) fn deny_clipboard_permissions(
+    conn: &super::CdpConnection,
+    context: Option<&str>,
+) -> Result<(), DriverError> {
+    for permission in [
+        json!({"name": "clipboard-read"}),
+        json!({"name": "clipboard-write"}),
+        json!({"name": "clipboard-write", "allowWithoutSanitization": true}),
+    ] {
+        let mut params = json!({"permission": permission, "setting": "denied"});
+        if let Some(context) = context {
+            params["browserContextId"] = json!(context);
+        }
+        conn.call(None, "Browser.setPermission", params, super::driver::INTERNAL_TIMEOUT)?;
+    }
+    Ok(())
+}
+
+/// Raw `cdp` may not run the browser's own clipboard commands (an
+/// `Input.dispatchKeyEvent` with `copy`, `cut` or `paste` editing
+/// commands would read or write the browser's clipboard).
+pub(super) fn raw_refusal(method: &str, params: &Value) -> Option<DriverError> {
+    if method != "Input.dispatchKeyEvent" {
+        return None;
+    }
+    let clipboard = params.get("commands").and_then(Value::as_array).is_some_and(|commands| {
+        commands.iter().filter_map(Value::as_str).any(|command| {
+            let command = command.to_ascii_lowercase();
+            ["copy", "cut", "paste"].iter().any(|word| command.contains(word))
+        })
+    });
+    clipboard.then(|| {
+        DriverError::new(
+            ErrorCode::Forbidden,
+            "Input.dispatchKeyEvent: clipboard commands are not available to sessions; use clipboard.read/write and Meta+C/X/V",
+        )
+    })
+}
+
 /// Checks `[{ type, base64 }]` (bounded in size).
-fn clipboard_items(items: Option<&Value>) -> Result<Vec<Value>, DriverError> {
+pub(super) fn clipboard_items(items: Option<&Value>) -> Result<Vec<Value>, DriverError> {
     let list = items
         .and_then(Value::as_array)
         .ok_or_else(|| DriverError::invalid("clipboard.write: items must be an array"))?;

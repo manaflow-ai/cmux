@@ -141,17 +141,20 @@ fn page_scripts_never_reach_the_browser_clipboard() {
     let call = |method: &str, params: Value| -> Value {
         driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
     };
-    let target = call("tabs.open", json!({"url": format!("http://127.0.0.1:{port}/leak")}))
-        ["targetId"]
-        .as_str()
-        .unwrap()
-        .to_owned();
+    let target =
+        call("tabs.open", json!({"url": format!("http://127.0.0.1:{port}/leak")}))["targetId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
     let eval = |source: &str| {
         call("frame.evaluate", json!({"targetId": target, "world": "page", "source": source}))
     };
     let deadline = Instant::now() + Duration::from_secs(10);
     while driver
-        .call("frame.evaluate", &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}))
+        .call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "page", "source": "() => window.ready === true"}),
+        )
         .ok()
         != Some(json!(true))
     {
@@ -161,7 +164,12 @@ fn page_scripts_never_reach_the_browser_clipboard() {
     // The test's own CDP session: what is on the browser's clipboard shows
     // in a paste (the browser's own command, not the driver's).
     let raw = conn
-        .call(None, "Target.attachToTarget", json!({"targetId": target, "flatten": true}), Duration::from_secs(5))
+        .call(
+            None,
+            "Target.attachToTarget",
+            json!({"targetId": target, "flatten": true}),
+            Duration::from_secs(5),
+        )
         .unwrap()["sessionId"]
         .as_str()
         .unwrap()
@@ -213,8 +221,13 @@ fn page_scripts_never_reach_the_browser_clipboard() {
         assert!(Instant::now() < deadline, "the page's writes did not finish: {text}");
         std::thread::sleep(Duration::from_millis(20));
     };
-    assert_eq!(pasted(), "control-value", "a page write reached the browser's clipboard: {outcomes}");
-    // The guard sent the page's own API write to the tab's clipboard.
+    assert_eq!(
+        pasted(),
+        "control-value",
+        "a page write reached the browser's clipboard: {outcomes}"
+    );
+    // The guard sent the page's writes (also the fresh iframe's: the guard
+    // runs there too) to the tab's clipboard; the last one is there.
     let tab = call("clipboard.read", json!({"targetId": target}));
     let text = tab["items"]
         .as_array()
@@ -222,7 +235,10 @@ fn page_scripts_never_reach_the_browser_clipboard() {
         .and_then(|i| i["base64"].as_str())
         .and_then(cmux_browser_host::fs_sandbox::base64_decode)
         .map(|bytes| String::from_utf8_lossy(&bytes).into_owned());
-    assert_eq!(text.as_deref(), Some("leak-guarded"), "{tab} {outcomes}");
+    assert!(
+        matches!(text.as_deref(), Some("leak-guarded" | "leak-exec" | "leak-frame")),
+        "{tab} {outcomes}"
+    );
     // The agent's raw CDP cannot run the browser's clipboard commands.
     for name in ["copy", "cut", "paste"] {
         let refused = driver

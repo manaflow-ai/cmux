@@ -158,6 +158,7 @@ impl Inner {
 
 impl CdpDriver {
     fn set_up_browser(inner: &Arc<Inner>, conn: &Arc<CdpConnection>) -> Result<(), DriverError> {
+        super::clipboard::deny_clipboard_permissions(conn, None)?;
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
         conn.call(
             None,
@@ -245,6 +246,7 @@ impl CdpDriver {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(context.clone());
+        super::clipboard::deny_clipboard_permissions(&self.inner.conn, Some(&context))?;
         Ok(context)
     }
 
@@ -511,6 +513,7 @@ impl Inner {
             ]
             .into_iter()
             .chain(agent.into_iter().flatten())
+            .chain(self.guard_steps(!shell))
             // Request and response events (page.on("request"), ...).
             .chain([("Network.enable", json!({}))])
             // A popup's opener's session.configure options, before its first request.
@@ -565,6 +568,7 @@ impl Inner {
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
+            .chain(self.guard_steps(true))
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
@@ -868,6 +872,9 @@ impl Inner {
             ));
         }
         let args = params.get("params").cloned().unwrap_or_else(|| json!({}));
+        if let Some(refused) = super::clipboard::raw_refusal(method, &args) {
+            return Err(refused);
+        }
         self.send_until(&session, method, args, Instant::now() + timeout_of(params))
     }
 }

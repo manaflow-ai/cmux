@@ -109,8 +109,17 @@ clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
 design. A Copy or Cut the page has not finished within 5 s fails with
 `timeout` and its late result is dropped; the tab's web content process is
 not ended, because no clipboard outside the tab can be written (an
-intentional cmux-next difference from WebKit). File choosers on this
-browser are always intercepted (no person's Open panel).
+intentional cmux-next difference from WebKit). Page script never reaches
+the browser's clipboard either: the page clipboard guard
+(`js/page-clipboard.js`, through the page-world binding `__cmuxPageClipboard`,
+which it removes before any page script runs) is installed at document start
+in every frame, script-made `about:blank` frames included, so the page's
+`navigator.clipboard` and `execCommand("copy" | "cut")` write the tab's
+clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
+`clipboard-write`, sanitized or not) in every store, for a document or world
+the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
+with a copy, cut or paste editing command. File choosers on this browser are
+always intercepted (no person's Open panel).
 
 cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
