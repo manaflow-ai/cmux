@@ -3,19 +3,17 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// Lawrence 2026-10-05 ("make reordering of our workspace like how the video
-/// shows"), Leo 2026-10-06 (drop on a row did nothing, and reorder against
-/// drop-on was far too sensitive): the pointer resting in the middle half of
-/// a loose row groups the two. The row highlights after the dwell, the
-/// other rows hold still, and the drop sends one createGroup with both
-/// workspaces, a name and a color, then renames the new group in place.
-/// Cmd-Z puts the rows back.
+/// shows") and spec 1780d02, Leo 2026-10-06 (a drop on a row did nothing):
+/// the card's centre in a loose row's onto band groups the two at once. The
+/// row highlights, the other rows hold still, and the drop sends one
+/// createGroup with both workspaces, a name and a color, then renames the
+/// new group in place. Cmd-Z puts the rows back.
 @MainActor @Suite struct SidebarOntoGroupTests {
     final class Harness {
         let model = SidebarModel(sections: fixture(), activeWorkspaceID: id("a"))
         let sidebar: SidebarView
         let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 700, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        var now: TimeInterval = 100
         var list: SidebarListView { sidebar.list }
 
         init() {
@@ -34,7 +32,6 @@ import Testing
             let from = try frame(key), to = try frame(over)
             let press = NSPoint(x: from.minX + 40, y: from.midY)
             list.beginDrag(SidebarListView.Press(key: key, point: press))
-            list.drag?.clock = { [unowned self] in self.now }
             let goal = to.minY + to.height * fraction
             for step in 1...12 {
                 move(to: press.y + (goal - press.y) * CGFloat(step) / 12)
@@ -53,18 +50,13 @@ import Testing
         }
     }
 
-    @Test func aRowRestingOnALooseRowsMiddleGroupsTheTwo() throws {
+    @Test func aSquareDropOnALooseRowGroupsTheTwo() throws {
         let h = Harness()
         defer { h.window.close() }
         let x = try h.frame(.workspace(id("x")))
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.5)
-        #expect(h.list.drag?.target != .ontoWorkspace(id("x")), "no group before the dwell")
-        #expect(try h.frame(.workspace(id("x"))) == x, "the row under the pointer holds still while it waits")
-
-        h.now += SidebarGroupDwell.dwell
-        SidebarGroupDrop.dwellElapsed(h.list)
         let drag = try #require(h.list.drag)
-        #expect(drag.target == .ontoWorkspace(id("x")))
+        #expect(drag.target == .ontoWorkspace(id("x")), "no dwell")
         #expect((h.list.rowViews[.workspace(id("x"))] as? WorkspaceRowView)?.isDropTarget == true, "the target row highlights")
         #expect(try h.frame(.workspace(id("x"))) == x, "the target row holds still")
 
@@ -82,36 +74,36 @@ import Testing
         #expect(shape(h.model.sections, cloudSection) == "x y")
     }
 
-    @Test func aQuickPassOverTheMiddleReordersInstead() throws {
+    @Test func theBandsEdgesAreStickyOnceEntered() throws {
         let h = Harness()
         defer { h.window.close() }
-        // Through x's middle without stopping, into its top quarter.
+        try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.5)
+        let x = try h.frame(.workspace(id("x")))
+        h.move(to: x.minY + x.height * 0.8)
+        #expect(h.list.drag?.target == .ontoWorkspace(id("x")), "past the band's edge, still grouping")
+        h.list.cancelDrag()
+        #expect(h.groups(cloudSection).isEmpty, "Esc groups nothing")
+        #expect(shape(h.model.sections, cloudSection) == "x y")
+    }
+
+    @Test func theTopOfARowReorders() throws {
+        let h = Harness()
+        defer { h.window.close() }
         try h.drag(.workspace(id("y")), over: .workspace(id("x")), at: 0.1)
-        h.now += SidebarGroupDwell.dwell
-        SidebarGroupDrop.dwellElapsed(h.list)
         #expect(h.list.drag?.target == .position(DropPosition(section: cloudSection, index: 0)))
         h.list.finishDrag()
         #expect(h.groups(cloudSection).isEmpty)
         #expect(shape(h.model.sections, cloudSection) == "y x")
     }
 
-    @Test func aRowRestingOnAGroupHeaderJoinsItAndEscapeCancels() throws {
+    @Test func undoTakesAJoinedRowBackOut() throws {
         let h = Harness()
         defer { h.window.close() }
-        try h.drag(.workspace(id("c")), over: .group(g1), at: 0.5)
-        h.now += SidebarGroupDwell.dwell
-        SidebarGroupDrop.dwellElapsed(h.list)
-        #expect(h.list.drag?.target == .intoGroup(g1))
-        h.list.cancelDrag()
-        #expect(shape(h.model.sections, local).contains("G1[g1,g2,g3]"))
-
-        try h.drag(.workspace(id("c")), over: .group(g1), at: 0.5)
-        h.now += SidebarGroupDwell.dwell
-        SidebarGroupDrop.dwellElapsed(h.list)
-        h.list.finishDrag()
+        let origin = SidebarEdits.position(of: id("c"), in: h.model.sections)
+        SidebarGroupDrop.join(h.list, [id("c")], g1, origin: origin)
         #expect(shape(h.model.sections, local).contains("G1[g1,g2,g3,c]"))
         h.window.undoManager?.undo()
-        #expect(shape(h.model.sections, local).hasSuffix("c"))
         #expect(shape(h.model.sections, local).contains("G1[g1,g2,g3]"))
+        #expect(!shape(h.model.sections, local).contains("g3,c]"))
     }
 }

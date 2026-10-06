@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextWakeups
 
 /// One internal drag reorder in the workspace list (`SidebarListView.Drag`):
 /// the lifted rows, the card, and the slot or row the drop would take.
@@ -21,10 +20,8 @@ final class SidebarListDrag {
     /// (`ontoWorkspace`), the list keeps showing it, so nothing moves.
     private(set) var lastPosition: DropPosition?
     var lastWindowPoint: NSPoint = .zero
-    /// A workspace drag's group dwell and its clock.
-    var dwell = SidebarGroupDwell()
-    var clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    let dwellTimer = DemandTimer(owner: "sidebar.groupDwell")
+    /// A workspace drag's onto band (sticky edges).
+    var band = SidebarGroupBand()
     /// Where the dragged workspaces started (what Cmd-Z puts them back to).
     var origin: DropPosition?
     /// The last pointer y in the list and the drag's vertical direction.
