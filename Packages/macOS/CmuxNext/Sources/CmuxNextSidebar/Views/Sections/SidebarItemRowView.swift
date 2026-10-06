@@ -30,18 +30,8 @@ final class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
-    /// The trailing control was pressed (`SidebarItemInfo.accessory`).
-    var onAccessory: (() -> Void)?
-    /// The accessory draws (tests).
-    var isAccessoryShown: Bool { !accessoryView.isHidden }
-    /// The accessory's frame while it draws (tests).
-    var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
-    /// The glyph's tint (tests).
+    /// The glyph's tint (tests): secondary at rest, primary on hover.
     var glyphTint: NSColor? { icon.contentTintColor }
-    /// The accessory glyph's tint (tests).
-    var accessoryTint: NSColor? { accessoryView.contentTintColor }
-    /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
-    private let accessoryView = NSImageView()
     /// Modifier-aware activation for controls whose action has a one-shot
     /// Option override. Plain activations continue through `onPress`.
     var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
@@ -70,9 +60,7 @@ final class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        accessoryView.imageScaling = .scaleProportionallyDown
-        accessoryView.isHidden = true
-        [icon, title, badge, accessoryView].forEach(addSubview)
+        [icon, title, badge].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
     }
@@ -143,11 +131,11 @@ final class SidebarItemRowView: NSView {
             unread = info.badge.map(UnreadState.count) ?? UnreadState.none
         }
         badge.configure(unread)
-        configureAccessory(info.accessory)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.badge.map { String($0) })
-        // A tile's caption can truncate, so it keeps the full title as a tooltip.
-        toolTip = style.isIconOnly || style == .favorite ? info.title : nil
+        // An icon names itself (and its shortcut) in its tooltip; a tile's
+        // caption can truncate, so it keeps the full title.
+        toolTip = style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil
         setAccessibilityLabel(info.title)
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -165,11 +153,12 @@ final class SidebarItemRowView: NSView {
             let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
             chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
-            // Again here so a theme or appearance change recolors the update control.
-            if !accessoryView.isHidden { accessoryView.contentTintColor = Palette.highlight }
+            // An icon is secondary at rest and full strength under the pointer
+            // or keyboard focus (the footer's avatar and gear).
+            let strong = style == .icon && (isHovered || isPressed || isKeyFocused)
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
-                : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
+                : info.isActive || isRailButton || strong ? Palette.textPrimary : Palette.textSecondary
         }
     }
 
@@ -222,17 +211,12 @@ final class SidebarItemRowView: NSView {
             title.frame = .zero
             return
         }
-        // The accessory sits at the trailing edge, before any count badge.
-        let accessorySide = Metrics.smallIconSize
-        let accessoryX = b.width - Metrics.space2 - accessorySide
-        accessoryView.frame = accessoryView.isHidden ? .zero
-            : NSRect(x: accessoryX, y: (b.height - accessorySide) / 2, width: accessorySide, height: accessorySide)
-        let trailing = accessoryView.isHidden ? b.width : accessoryX - Metrics.space1
+        let trailing = b.width
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
         let badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
-            : (accessoryView.isHidden ? b.width - inset * 2 : trailing) - badgeWidth
+            : b.width - inset * 2 - badgeWidth
         badge.frame = NSRect(x: badgeX, y: (b.height - bh) / 2, width: badgeWidth, height: bh)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
@@ -263,7 +247,6 @@ final class SidebarItemRowView: NSView {
         title.frame = NSRect(x: 0, y: wellFrame.maxY + Metrics.space1, width: b.width, height: th)
         let dot = SidebarStyle.dotSize
         badge.frame = NSRect(x: wellFrame.maxX - dot / 2 - 1, y: wellFrame.minY - dot / 2 + 1, width: dot, height: dot)
-        accessoryView.frame = .zero
     }
 
     /// The caption's frame (tests).
@@ -292,37 +275,10 @@ final class SidebarItemRowView: NSView {
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         guard pill.frame.contains(point) else { return super.mouseDown(with: event) }
-        if hitsAccessory(point) { return onAccessory?() ?? () }
         isPressed = true
         pressLocation = event.locationInWindow
         pressModifiers = event.modifierFlags
         didDrag = false
-    }
-
-    /// The accessory takes a click a little outside its glyph.
-    private func hitsAccessory(_ point: NSPoint) -> Bool {
-        !accessoryView.isHidden && accessoryView.frame.insetBy(dx: -Metrics.space1, dy: -Metrics.space1).contains(point)
-    }
-
-    private func configureAccessory(_ accessory: SidebarItemAccessory?) {
-        guard let accessory else {
-            accessoryView.isHidden = true
-            setAccessibilityCustomActions(nil)
-            return
-        }
-        switch accessory {
-        case .update(let title):
-            accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: title)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
-            // The theme's call-to-action color: small, but noticeable.
-            accessoryView.contentTintColor = performWithTheme { Palette.highlight }
-            accessoryView.toolTip = title
-            accessoryView.isHidden = false
-            setAccessibilityCustomActions([NSAccessibilityCustomAction(name: title) { [weak self] in
-                self?.onAccessory?()
-                return true
-            }])
-        }
     }
 
     /// Past the drag threshold the region reorders in place (R77).
@@ -354,12 +310,43 @@ final class SidebarItemRowView: NSView {
 
     /// A press at `point` (this view's coordinates), as a click there (tests).
     func press(at point: NSPoint) {
-        if hitsAccessory(point) { return onAccessory?() ?? () }
         if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
     }
 
     override func accessibilityPerformPress() -> Bool {
         if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
+    }
+
+    // MARK: Keyboard
+
+    /// With Full Keyboard Access on (System Settings > Keyboard > Keyboard
+    /// navigation), Tab reaches the item and Space or Return presses it; the
+    /// system focus ring follows its pill.
+    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    /// The item has keyboard focus (its glyph draws at full strength).
+    private(set) var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
+
+    override func becomeFirstResponder() -> Bool {
+        isKeyFocused = true
+        return true
+    }
+
+    override func resignFirstResponder() -> Bool {
+        isKeyFocused = false
+        return true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
+              [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
+        _ = accessibilityPerformPress()
+    }
+
+    override var focusRingMaskBounds: NSRect { pill.frame }
+
+    override func drawFocusRingMask() {
+        NSBezierPath(roundedRect: pill.frame, xRadius: pill.cornerRadius, yRadius: pill.cornerRadius).fill()
     }
 }
