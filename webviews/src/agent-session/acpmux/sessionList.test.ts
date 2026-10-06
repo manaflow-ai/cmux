@@ -330,3 +330,12 @@ describe("archived chats", () => {
     expect(groups.flatMap((group) => group.sessions.map((session) => session.sessionId))).toEqual(["kept"]);
   });
 });
+
+describe("side chats", () => {
+  test("a fork tagged side stays beside its chat and off the lists", () => {
+    expect(sessionEntry({ sessionId: "f", tags: { side: "s" } }).side).toBe(true);
+    const { pinned, groups } = sidebarSections([entry("kept", "/p", 2), entry("aside", "/p", 1, { side: true })]);
+    expect(pinned).toEqual([]);
+    expect(groups.flatMap((group) => group.sessions.map((session) => session.sessionId))).toEqual(["kept"]);
+  });
+});
