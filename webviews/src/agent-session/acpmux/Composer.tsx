@@ -687,7 +687,6 @@ export function Composer({
               ]}
             />
           )}
-          <span className="acpmux-separator" aria-hidden="true" />
           <Chips snapshot={snapshot} />
           <span className="acpmux-composer-actions">
             {accessory}

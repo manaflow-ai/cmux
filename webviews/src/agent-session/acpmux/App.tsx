@@ -855,7 +855,8 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
       onMode={(modeId) => void callNative("chat.mode", { modeId })}
       onEffort={(configId, value) => void callNative("chat.effort", { configId, value })}
       onHarness={(harness) => void callNative("chat.new", { harness })}
-      showModePlan={false}
+      showPlan={false}
+      onCompact={() => void callNative("chat.send", { text: "/compact", attachments: [] })}
       // A prewarm hint for the direct client only: the native host has no daemon to warm.
       onHarnessHint={(harness) => void window.cmuxAcpmuxActions?.["chat.harness.hint"]?.({ harness })}
     />
