@@ -291,7 +291,8 @@ fn a_snapshot_with_an_image_attachment_part_decodes() {
     let mut conversation = summary();
     conversation["last_message"] = message.clone();
     let snapshot: ConversationSnapshotResult =
-        serde_json::from_value(json!({"conversation": conversation, "messages": [message]})).unwrap();
+        serde_json::from_value(json!({"conversation": conversation, "messages": [message]}))
+            .unwrap();
     let parts = &snapshot.messages[0].parts;
     assert_eq!(parts[0].type_, "attachment");
     assert_eq!(parts[0].preview.as_ref().unwrap()["hash"], "b".repeat(64));
