@@ -1183,6 +1183,17 @@ class SideLanes(unittest.TestCase):
         self.assertIn("stays on the side lane's owned label", rescue.next_attempt(target))
         self.assertIn("Blacksmith overflow", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
+    def test_a_cmux_next_job_queued_past_the_ci_budget_is_not_cancelled(self):
+        # 2026-10-06: main judged cmux-next on the 30 s CI budget and cancelled
+        # 13 of 20 PR runs whose Mac jobs were queued minutes on the minis.
+        clock = Clock()
+        api = FakeAPI(clock, side_run(started_at=180))
+        code, summary = run_main(api, clock, env_extra={"RESCUE_SECONDS": "30"},
+                                 payload=side_event(path=".github/workflows/cmux-next.yml"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("cancel", api.calls)
+        self.assertIn("the fleet accepted the side-lane jobs", summary)
+
     def test_side_lane_budget_is_ten_minutes_not_the_ninety_second_default(self):
         self.assertEqual(rescue.SIDE_DEFAULT_BUDGET_SECONDS, 600)
 
@@ -1319,6 +1330,21 @@ class Nightly(unittest.TestCase):
         failing = set()
         api.marked_runs("owned-pool-watch", 2, oldest, 2, log=logs.append)
         self.assertIn("without reaching", logs[-1])
+
+    def test_owned_reruns_lists_cmux_next_attempt_two(self):
+        """A sweep that adopted cmux-next attempt 1 by its marker returns after starting the re-run, and the run
+        is already in `seen`, so attempt 2 is found only through this listing."""
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        workflows = {"ci.yml": [], "cmux-next.yml": [
+            {"id": RUN_ID, "path": ".github/workflows/cmux-next.yml", "event": "pull_request", "run_attempt": 2,
+             "triggering_actor": {"login": rescue.RESCUE_ACTOR}}]}
+
+        def request(method, path, **_):
+            name = path.split("/actions/workflows/")[1].split("/")[0]
+            return {"workflow_runs": workflows[name] if "status=queued" in path else []}
+
+        api.request = request
+        self.assertEqual(api.owned_reruns(20), [(RUN_ID, 2)])
 
     def test_newer_unfinished_runs_reads_one_page_of_main_s_nightly_runs(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
