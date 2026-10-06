@@ -86,7 +86,13 @@ import Testing
     @Test func appearanceChangeWhileEditingKeepsTheEdit() async throws {
         for typed in ["exa", ""] {
             let h = Harness()
-            h.window.appearance = NSAppearance(named: .aqua)
+            // AppKit restarts an edit only in the key window, as in the app.
+            let window = KeyWindow(contentRect: h.window.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = h.chrome
+            window.appearance = NSAppearance(named: .aqua)
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
             await h.settle()
             h.bar.debugType("x")
             let editor = try #require(h.editor as? NSTextView)
@@ -95,12 +101,16 @@ import Testing
             await h.settle()
             #expect(h.editor?.string == typed)
             h.chrome.onOmnibarEvent = { h.events.append($0) }
-            h.window.appearance = NSAppearance(named: .darkAqua)
+            window.appearance = NSAppearance(named: .darkAqua)
             await h.settle()
             #expect(h.bar.isEditing)
             #expect(h.editor?.string == typed)
             #expect(h.events.isEmpty, "the edit never ended (typed: \(typed))")
         }
+    }
+
+    private final class KeyWindow: NSWindow {
+        override var canBecomeKey: Bool { true }
     }
 
     @Test func snapshots() async throws {
