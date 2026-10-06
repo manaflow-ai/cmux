@@ -8206,10 +8206,8 @@
     {
       "accepts" : [
         "",
-        "https://cmux.com",
-        "example.com/path",
-        "about:blank",
-        "file:///tmp/a.html"
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
@@ -8241,9 +8239,9 @@
         "search"
       ],
       "refuses" : [
-        "not a url",
-        "ftp://example.com",
-        "localhost",
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
         1
       ],
       "section" : "browser",
@@ -8251,15 +8249,13 @@
         "key" : "settings.browser.customSearch",
         "text" : "Custom Search Address"
       },
-      "validation" : "portable"
+      "validation" : "domain:search_template"
     },
     {
       "accepts" : [
         "",
-        "https://cmux.com",
-        "example.com/path",
-        "about:blank",
-        "file:///tmp/a.html"
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
       ],
       "agent_refusal" : "privacy",
       "agent_settable" : false,
@@ -8291,9 +8287,9 @@
         "suggest"
       ],
       "refuses" : [
-        "not a url",
-        "ftp://example.com",
-        "localhost",
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
         1
       ],
       "section" : "browser",
@@ -8301,7 +8297,7 @@
         "key" : "settings.browser.customSuggest",
         "text" : "Custom Suggestions Address"
       },
-      "validation" : "portable"
+      "validation" : "domain:search_template"
     },
     {
       "accepts" : [
@@ -11074,7 +11070,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "ea00d8b5186cb8d41b22f43ee0474cb936233e28204f2eba85bbe54e1183d1bb",
+  "schema_hash" : "3f47e173d2b2e66b26fa5b89991981a4b86822535337a9d7915419baa5ffb179",
   "sections" : [
     {
       "id" : "general",

@@ -109,13 +109,32 @@ pub struct Request {
     pub group_exit_fraction: f64,
     #[serde(default = "default_section_top_fraction")]
     pub section_top_fraction: f64,
+    /// The middle band of an ungrouped workspace row, as fractions of its
+    /// height, where a workspace drag drops onto that row (the two become a
+    /// new group) instead of opening a gap. The default, an empty band,
+    /// turns it off, so callers that do not send it keep the old rules.
+    #[serde(default)]
+    pub workspace_onto_start: f64,
+    #[serde(default)]
+    pub workspace_onto_end: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Target {
-    Position { section: SectionId, group: Option<String>, index: i32 },
-    IntoGroup { group: String },
+    Position {
+        section: SectionId,
+        group: Option<String>,
+        index: i32,
+    },
+    IntoGroup {
+        group: String,
+    },
+    /// Onto an ungrouped workspace row: the dragged workspaces and that one
+    /// become a new group.
+    OntoWorkspace {
+        workspace: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -423,6 +442,23 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
             let Some((section_index, _)) = locate_group(group, sections) else { return false };
             &sections[section_index]
         }
+        Target::OntoWorkspace { workspace: target } => {
+            // A loose workspace of a machine section, not one of the dragged.
+            if ids.contains(target) {
+                return false;
+            }
+            let Some(section) = sections.iter().find(|section| {
+                section.nodes.iter().any(
+                    |node| matches!(node, Node::Workspace { workspace } if &workspace.id == target),
+                )
+            }) else {
+                return false;
+            };
+            if section.machine.is_none() {
+                return false;
+            }
+            section
+        }
     };
     ids.iter().all(|id| {
         workspace(id, sections).is_some_and(|workspace| {
@@ -443,11 +479,32 @@ pub fn base_y(display_y: f64, gap_y: Option<f64>, gap_height: f64) -> Option<f64
     }
 }
 
+/// The middle band of a loose workspace row in a machine section, when the
+/// request turns the band on: the dragged workspaces drop onto that row.
+fn onto_target(row: &Row, fraction: f64, ids: &[String], request: &Request) -> Option<Target> {
+    let RowKey::Workspace { id } = &row.key else { return None };
+    let band = request.workspace_onto_start..request.workspace_onto_end;
+    if band.is_empty() || !band.contains(&fraction) || row.group.is_some() || ids.contains(id) {
+        return None;
+    }
+    if !matches!(row.section, SectionId::Machine { .. }) {
+        return None;
+    }
+    // Only workspaces of the row's machine can share a group with it.
+    let machine = workspace(id, &request.sections)?.machine.as_str();
+    ids.iter()
+        .all(|dragged| workspace(dragged, &request.sections).is_some_and(|w| w.machine == machine))
+        .then(|| Target::OntoWorkspace { workspace: id.clone() })
+}
+
 /// Resolves a workspace or group drag.
 pub fn resolve(request: &Request) -> Option<Target> {
     let (row, fraction) = hit(request.y, &request.rows)?;
     let target = match &request.payload {
         Payload::Workspaces { ids } => {
+            if let Some(target) = onto_target(row, fraction, ids, request) {
+                return is_valid(&target, ids, &request.sections).then_some(target);
+            }
             let target = workspace_target(
                 row,
                 fraction,

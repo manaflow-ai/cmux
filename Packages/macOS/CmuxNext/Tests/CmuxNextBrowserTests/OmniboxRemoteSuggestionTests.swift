@@ -112,6 +112,27 @@ import Testing
         #expect(local.fetcher.requests.isEmpty)
     }
 
+    /// The calculator row already says "= 4": a remote row with the same
+    /// answer ("= 4", "4") does not repeat it (nxdog52).
+    @Test func remoteRowsNeverRepeatTheCalculatorAnswer() async {
+        let rig = Rig()
+        var deliveries = rig.stream("2+2").makeAsyncIterator()
+        guard case .local(let local)? = await deliveries.next() else {
+            Issue.record("no local rows")
+            return
+        }
+        #expect(local.contains { $0.kind == .answer && $0.title == "= 4" })
+        await rig.clock.sleepers(atLeast: 1)
+        rig.clock.advance(by: .milliseconds(40))
+        await rig.fetcher.requests(atLeast: 1)
+        rig.fetcher.respond(FakeSuggestFetcher.openSearch("2+2", ["2+2", "= 4", "4", "2+2 in binary"]))
+        guard case .more(let rows, _)? = await deliveries.next() else {
+            Issue.record("no remote rows")
+            return
+        }
+        #expect(rows.map(\.title) == ["2+2 in binary"])
+    }
+
     @Test func aPrivateProfileFetchesEphemerally() async {
         let rig = Rig { $0.isPrivate = true }
         var deliveries = rig.stream("weather").makeAsyncIterator()

@@ -20,6 +20,8 @@ struct FakeDriver {
     /// `fetchId`s that net.fetch.cancel cancelled: a blocked fetch with one
     /// of them ends at once.
     fetch_cancelled: Mutex<std::collections::HashSet<String>>,
+    /// net.fetch replies by URL (a redirect hop or a final response).
+    fetch_routes: Mutex<std::collections::HashMap<String, Value>>,
 }
 
 impl FakeDriver {
@@ -101,7 +103,10 @@ impl Driver for FakeDriver {
                         ));
                     }
                 }
-                Ok(self.fetch_reply.lock().unwrap().clone())
+                let routed = params["url"]
+                    .as_str()
+                    .and_then(|url| self.fetch_routes.lock().unwrap().get(url).cloned());
+                Ok(routed.unwrap_or_else(|| self.fetch_reply.lock().unwrap().clone()))
             }
             _ => Ok(Value::Null),
         }
@@ -163,6 +168,7 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         fetch_in_flight: std::sync::atomic::AtomicUsize::new(0),
         fetch_max_in_flight: std::sync::atomic::AtomicUsize::new(0),
         fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
+        fetch_routes: Mutex::new(std::collections::HashMap::new()),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -841,7 +847,7 @@ fn a_session_that_ended_starts_no_fetch() {
         for fetch in running {
             let _ = fetch.join().unwrap();
         }
-        assert_eq!(refused.code, ErrorCode::Closed, "{refused}");
+        assert_eq!(refused.code, ErrorCode::Cancelled, "{refused}");
         assert_eq!(most, 16, "a fetch reached the engine after the session ended");
     });
 }
@@ -985,7 +991,7 @@ fn a_cell_timeout_cancels_its_fetches_and_frees_their_slots() {
         gate.cancel_fetches(1);
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the cell timed out");
-            assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
             assert_eq!(
                 error.message,
                 "fetch: cancelled because the cell that started it timed out"
@@ -1017,8 +1023,8 @@ fn a_cell_timeout_fails_its_queued_fetches() {
         }
         gate.cancel_fetches(1);
         let error = queued.join().unwrap().expect_err("the cell timed out");
-        assert_eq!(error.code, ErrorCode::Timeout, "{error}");
-        assert_eq!(error.message, CELL_TIMED_OUT_TEXT);
+        assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+        assert_eq!(error.message, CELL_TIMED_OUT_TEXT, "classic's text stays");
         assert_eq!(methods(&driver).iter().filter(|m| *m == "net.fetch").count(), 16);
         driver.release_fetches();
         for fetch in running {
@@ -1059,8 +1065,161 @@ fn the_session_end_cancels_running_fetches() {
         gate.end_session();
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the session ended");
-            assert_eq!(error.code, ErrorCode::Closed, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+            assert_eq!(error.message, "fetch: the session ended");
         }
         assert_eq!(cancels(&driver), 4);
     });
+}
+
+/// The engine's answer to one hop that the server redirected (the host
+/// fetches with `redirect: "manual"` and reads Location at the response
+/// stage).
+fn redirect_hop(url: &str, status: u16, location: &str) -> Value {
+    json!({"url": url, "status": status, "headers": [], "bodyBase64": "",
+        "redirect": {"status": status, "location": location}})
+}
+
+fn final_hop(url: &str) -> Value {
+    json!({"url": url, "status": 200, "headers": [], "bodyBase64": b64("done")})
+}
+
+fn route(driver: &FakeDriver, url: &str, reply: Value) {
+    driver.fetch_routes.lock().unwrap().insert(url.to_owned(), reply);
+}
+
+fn engine_fetches(driver: &FakeDriver) -> Vec<Value> {
+    driver
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "net.fetch")
+        .map(|(_, p)| p.clone())
+        .collect()
+}
+
+/// SHELL-REDIRECT-LNA option 1 (a9): the host follows redirects itself, one
+/// hop per engine fetch, each checked before it starts. 127.0.0.1 ->
+/// localhost works for a Local caller; final URL and `redirected` come from
+/// the host's chain.
+#[test]
+fn the_host_follows_a_redirect_hop_for_a_local_caller() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(
+        &driver,
+        "http://127.0.0.1:8000/r",
+        redirect_hop("http://127.0.0.1:8000/r", 302, "http://localhost:8000/x"),
+    );
+    route(&driver, "http://localhost:8000/x", final_hop("http://localhost:8000/x"));
+    let out = gate.driver_call("net.fetch", json!({"url": "http://127.0.0.1:8000/r"})).unwrap();
+    assert_eq!(out["url"], "http://localhost:8000/x", "{out}");
+    assert_eq!(out["status"], 200);
+    assert_eq!(out["redirected"], true);
+    assert!(out.get("redirect").is_none(), "{out}");
+    let hops = engine_fetches(&driver);
+    assert_eq!(hops.len(), 2, "{hops:?}");
+    assert!(hops.iter().all(|h| h["redirect"] == "manual"), "the engine never follows: {hops:?}");
+}
+
+/// A Remote caller (CALLER-LOCALITY) is refused a hop into loopback before
+/// the hop starts.
+#[test]
+fn a_redirect_hop_into_loopback_is_refused_for_a_remote_caller() {
+    let (_, driver) = make_gate(Value::Null, false);
+    let gate = Gate::new(driver.clone(), Grants { remote: true, ..Grants::default() });
+    route(
+        &driver,
+        "https://a.test/r",
+        redirect_hop("https://a.test/r", 302, "http://localhost:8000/x"),
+    );
+    let refused = gate.driver_call("net.fetch", json!({"url": "https://a.test/r"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert!(
+        refused.message.starts_with("fetch: redirect to http://localhost:8000/x is blocked"),
+        "{}",
+        refused.message
+    );
+    assert_eq!(engine_fetches(&driver).len(), 1, "the refused hop never started");
+}
+
+/// Fetch spec: 303 (and 301/302 for POST) changes the method to GET and
+/// drops the body and its headers; 307/308 keep both.
+#[test]
+fn redirects_change_post_to_get_per_the_fetch_spec() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(&driver, "https://a.test/form", redirect_hop("https://a.test/form", 303, "/done"));
+    route(&driver, "https://a.test/done", final_hop("https://a.test/done"));
+    route(
+        &driver,
+        "https://a.test/keep",
+        redirect_hop("https://a.test/keep", 307, "https://a.test/kept"),
+    );
+    route(&driver, "https://a.test/kept", final_hop("https://a.test/kept"));
+    let post = |url: &str| {
+        gate.driver_call(
+            "net.fetch",
+            json!({"url": url, "method": "POST", "bodyBase64": b64("x=1"),
+            "headers": [["Content-Type", "application/x-www-form-urlencoded"]]}),
+        )
+    };
+    post("https://a.test/form").unwrap();
+    post("https://a.test/keep").unwrap();
+    let hops = engine_fetches(&driver);
+    let hop = |url: &str| {
+        hops.iter()
+            .find(|h| h["url"] == url)
+            .unwrap_or_else(|| panic!("no hop to {url}: {hops:?}"))
+            .clone()
+    };
+    let done = hop("https://a.test/done");
+    assert_eq!(done["method"], "GET", "{done}");
+    assert!(done["bodyBase64"].is_null(), "{done}");
+    assert!(!done["headers"].to_string().to_ascii_lowercase().contains("content-type"), "{done}");
+    let kept = hop("https://a.test/kept");
+    assert_eq!(kept["method"], "POST", "{kept}");
+    assert_eq!(kept["bodyBase64"], b64("x=1"));
+}
+
+/// Fetch spec: a cross-origin hop drops Authorization (a same-origin hop
+/// keeps it).
+#[test]
+fn a_cross_origin_hop_drops_authorization() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(
+        &driver,
+        "https://a.test/r",
+        redirect_hop("https://a.test/r", 302, "https://a.test/same"),
+    );
+    route(
+        &driver,
+        "https://a.test/same",
+        redirect_hop("https://a.test/same", 302, "https://b.test/x"),
+    );
+    route(&driver, "https://b.test/x", final_hop("https://b.test/x"));
+    gate.driver_call(
+        "net.fetch",
+        json!({"url": "https://a.test/r",
+        "headers": [["Authorization", "Bearer t"], ["X-Other", "1"]]}),
+    )
+    .unwrap();
+    let hops = engine_fetches(&driver);
+    let auth =
+        |i: usize| hops[i]["headers"].to_string().to_ascii_lowercase().contains("authorization");
+    assert!(auth(1), "a same-origin hop keeps it: {hops:?}");
+    assert!(!auth(2), "a cross-origin hop drops it: {hops:?}");
+    assert!(hops[2]["headers"].to_string().contains("X-Other"), "{hops:?}");
+}
+
+/// At most 5 redirect hops.
+#[test]
+fn more_than_five_redirects_fail() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    for i in 0..7 {
+        let url = format!("https://a.test/{i}");
+        route(&driver, &url, redirect_hop(&url, 302, &format!("https://a.test/{}", i + 1)));
+    }
+    let error = gate.driver_call("net.fetch", json!({"url": "https://a.test/0"})).unwrap_err();
+    assert!(error.message.contains("redirect"), "{error}");
+    assert_eq!(engine_fetches(&driver).len(), 6, "the first fetch and 5 hops");
 }

@@ -78,6 +78,8 @@ nonisolated enum OmnibarSettingsSchema {
         case .toggle: "expected true or false"
         case .choice(let choices): "expected one of " + choices.map { "\"\($0.value)\"" }.joined(separator: ", ")
         case .number(let number): "expected a number from \(Int(number.range.lowerBound)) to \(Int(number.range.upperBound))"
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            "expected a web address with %s or {searchTerms} where the typed text goes, or \"\""
         case .url: "expected a web address or \"\""
         default: "invalid value"
         }
