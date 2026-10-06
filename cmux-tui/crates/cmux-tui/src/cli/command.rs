@@ -12,10 +12,10 @@ use serde_json::{Map, Number, Value, json};
 use super::{GlobalArgs, UsageError};
 use flags::BOOLEAN_FLAGS;
 
+mod browser;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
 mod flags;
-mod browser;
 mod git;
 mod screen;
 mod server_ensure;
