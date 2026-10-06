@@ -1,9 +1,11 @@
-//! The app's agent pane (LocalApp) sends no prompt to an agent while the
-//! session's folder has no trust answer: acpmux refuses `session/prompt` with
-//! `trust.pending` until the user trusts the folder, and with
-//! `trust.untrusted` after "Don't trust". The page cannot get around it: the
-//! refusal is in the daemon, on the connection the page uses. The unix socket
-//! (the CLI, the TUI) is not gated.
+//! No prompt from the app's agent pane (LocalApp) or a remote browser (Web)
+//! reaches an agent while the session's folder has no trust answer: acpmux
+//! refuses `session/prompt` and `_acpmux/handoff_start` with `trust.pending`
+//! until the user trusts the folder, and with `trust.untrusted` after "Don't
+//! trust". A record that cannot be read is no answer. The page cannot get
+//! around it: the refusal is in the daemon, on the connection the page uses.
+//! A Web connection cannot answer the question itself. The unix socket (the
+//! CLI, the TUI) is not gated.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -35,13 +37,19 @@ fn paths(d: &Path) -> Paths {
 }
 
 fn hub(d: &Path) -> Arc<Hub> {
+    hub_with(d, "approve-all")
+}
+
+/// `policy`: a Web connection works only under an asking policy (`ask`).
+fn hub_with(d: &Path, policy: &str) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "fcodex": {"argv": ["python3", FAKE], "family": "codex"},
         },
         "defaultHarness": "fclaude",
-        "permissionPolicy": "approve-all",
+        "permissionPolicy": policy,
+        "webRoots": [d.join("work")],
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -164,5 +172,101 @@ async fn the_unix_socket_is_not_gated() {
     let s = local.new_session(&d.join("work"), "fclaude").await;
     let r = local.prompt(&s, "from-the-cli").await;
     assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_handoff_start_waits_for_the_targets_folder_trust() {
+    let d = dir("handoff");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    let src = app.new_session(&work, "fclaude").await;
+    let p = json!({"sessionId": src, "harness": "fcodex", "handoffKey": "k-trust"});
+    let h = app.call("_acpmux/handoff_prepare", p).await;
+    let id = h["result"]["handoffId"].as_str().unwrap_or_else(|| panic!("{h}")).to_owned();
+    let target = h["result"]["target"]["sessionId"].as_str().unwrap().to_owned();
+    let start = json!({
+        "handoffId": id,
+        "revision": 1,
+        "capsule": {"text": "capsule-before-trust"},
+        "checkpoint": {"ref": "abc123", "attest": true},
+    });
+
+    let r = app.call("_acpmux/handoff_start", start.clone()).await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    let got = app.call("_acpmux/handoff_get", json!({"handoffId": id})).await;
+    assert_eq!(got["result"]["state"], json!("draft"), "{got}");
+    assert!(!app.agent_saw(&target, "capsule-before-trust").await, "the target got the capsule");
+
+    app.trust(&work, "untrusted").await;
+    let r = app.call("_acpmux/handoff_start", start.clone()).await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+
+    app.trust(&work, "trusted").await;
+    let r = app.call("_acpmux/handoff_start", start).await;
+    assert_eq!(r["result"]["outcome"], json!("started"), "{r}");
+    assert!(app.agent_saw(&target, "capsule-before-trust").await);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_web_prompt_waits_for_the_folders_trust_and_the_web_cannot_answer() {
+    let d = dir("web");
+    let hub = hub_with(&d, "ask");
+    let mut web = Client::new(&hub, Origin::Web);
+    // The user's own CLI answers the question; the remote browser cannot.
+    let mut local = Client::new(&hub, Origin::Local);
+    let work = d.join("work");
+    let s = web.new_session(&work, "fclaude").await;
+
+    let r = web.prompt(&s, "web-before-trust").await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    assert!(!web.agent_saw(&s, "web-before-trust").await, "the agent got the prompt");
+
+    // A Web connection does not answer the trust question itself.
+    let r = web.call("acp.trust.set", json!({"cwd": work, "level": "trusted"})).await;
+    assert_eq!(reason(&r), "trust.remote", "{r}");
+    assert_eq!(reason(&web.prompt(&s, "web-after-own-trust").await), "trust.pending");
+
+    // A peer that forwards for its own Web client is held to the same gate.
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let p = json!({
+        "sessionId": s,
+        "prompt": [{"type": "text", "text": "peer-web-before-trust"}],
+        "_meta": {"acpmux": {"via": "web"}},
+    });
+    assert_eq!(reason(&peer.call("session/prompt", p).await), "trust.pending");
+
+    local.trust(&work, "untrusted").await;
+    let r = web.prompt(&s, "web-after-distrust").await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+    assert!(!web.agent_saw(&s, "web-after-distrust").await, "the agent got the prompt");
+
+    local.trust(&work, "trusted").await;
+    let r = web.prompt(&s, "web-after-trust").await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(web.agent_saw(&s, "web-after-trust").await);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[tokio::test]
+async fn a_trust_record_that_cannot_be_read_is_no_answer() {
+    let d = dir("damaged");
+    let hub = hub(&d);
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let work = d.join("work");
+    // Claude Code trusts the folder, but acpmux's own record is damaged: the
+    // decision in it cannot be known, so the prompt waits.
+    std::fs::write(
+        &paths(&d).claude_json,
+        json!({"projects": {work.to_string_lossy(): {"hasTrustDialogAccepted": true}}}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(&paths(&d).record, "{not json").unwrap();
+    let s = app.new_session(&work, "fclaude").await;
+    let r = app.prompt(&s, "secret-with-damaged-record").await;
+    assert_eq!(reason(&r), "trust.pending", "{r}");
+    assert!(!app.agent_saw(&s, "secret-with-damaged-record").await, "the agent got the prompt");
     let _ = std::fs::remove_dir_all(&d);
 }
