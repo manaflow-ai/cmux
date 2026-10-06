@@ -64,8 +64,10 @@ public nonisolated struct KeyBindingDefaults {
     public static let focusAliases: [KeyBinding] = [
         KeyBinding(keys: [Shortcut(left, modifiers: [.command, .option])], command: "focusLeft"),
         KeyBinding(keys: [Shortcut(right, modifiers: [.command, .option])], command: "focusRight"),
-        KeyBinding(keys: [Shortcut(up, modifiers: [.command, .option])], command: "focusUp"),
-        KeyBinding(keys: [Shortcut(down, modifiers: [.command, .option])], command: "focusDown"),
+        KeyBinding(keys: [Shortcut(up, modifiers: [.command, .option])], command: "focusUp",
+                   when: .not(.has(KeyContext.codeEditorFocusedKey))),
+        KeyBinding(keys: [Shortcut(down, modifiers: [.command, .option])], command: "focusDown",
+                   when: .not(.has(KeyContext.codeEditorFocusedKey))),
     ]
 
     /// Actions whose default key Monaco also uses for editing (R127,
