@@ -34,7 +34,9 @@ public struct SystemScrollers {
     /// is held weakly). For surfaces that are not a plain NSScrollView: web pages get the style
     /// through their theme payload, the terminal sizes its own scroller.
     public static func observe(_ owner: AnyObject, _ onChange: @escaping @MainActor (NSScroller.Style) -> Void) {
-        _ = (owner, onChange)
+        observers.removeAll { $0.owner == nil }
+        observers.append(Observer(owner: owner, onChange: onChange))
+        startObserving()
     }
 
     private static func startObserving() {

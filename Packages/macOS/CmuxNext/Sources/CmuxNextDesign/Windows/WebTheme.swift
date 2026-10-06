@@ -50,7 +50,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-selection": Self.css(tokens.selectionFill),
         ]
         colorScheme = tokens.isDark ? "dark" : "light"
-        self.scrollers = "overlay"
+        self.scrollers = scrollers ?? SystemScrollers.pageValue
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers}`.
@@ -85,6 +85,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           ensureStyle();
           for (var name in payload.variables) root.style.setProperty(name, payload.variables[name]);
           root.style.colorScheme = payload.colorScheme;
+          if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
         }
