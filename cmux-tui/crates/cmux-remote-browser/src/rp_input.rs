@@ -163,6 +163,131 @@ fn pointer_kind(kind: PointerKind) -> Option<i32> {
 
 /// Maps one viewer input event to the fork call that applies it.
 pub fn map_input(event: &InputEvent) -> Result<RpCall, InputReject> {
-    let _ = event;
-    Err(InputReject::BadCode)
+    match event {
+        InputEvent::Key {
+            surface,
+            down,
+            code,
+            key,
+            text,
+            unmodified_text,
+            modifiers,
+            repeat,
+            edit_commands,
+            ..
+        } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            if !valid_code(code) {
+                return Err(InputReject::BadCode);
+            }
+            if text.encode_utf16().count() > MAX_KEY_TEXT_UNITS
+                || unmodified_text.encode_utf16().count() > MAX_KEY_TEXT_UNITS
+            {
+                return Err(InputReject::TextTooLong);
+            }
+            if edit_commands.len() > MAX_EDIT_COMMANDS
+                || !edit_commands.iter().all(|c| valid_command_name(&c.name))
+            {
+                return Err(InputReject::BadEditCommands);
+            }
+            Ok(RpCall::SendKey {
+                down: *down,
+                code: code.clone(),
+                key: key.clone(),
+                text: if *down { text.clone() } else { String::new() },
+                unmodified_text: if *down { unmodified_text.clone() } else { String::new() },
+                modifiers: rp_modifiers(*modifiers, *repeat),
+                commands: if *down {
+                    edit_commands.iter().map(|c| (c.name.clone(), c.value.clone())).collect()
+                } else {
+                    Vec::new()
+                },
+            })
+        }
+        InputEvent::Pointer { surface, kind, x, y, button, click_count, modifiers, .. } => {
+            finite(&[*x, *y])?;
+            let kind = pointer_kind(*kind).unwrap_or(0);
+            let modifiers = rp_modifiers(*modifiers, false);
+            let button = i32::from(*button);
+            let click_count = i32::from(*click_count);
+            if *surface != 0 {
+                Ok(RpCall::SurfaceMouse {
+                    surface: *surface,
+                    kind,
+                    x: *x,
+                    y: *y,
+                    button,
+                    click_count,
+                    modifiers,
+                })
+            } else {
+                Ok(RpCall::PageMouse { kind, x: *x, y: *y, button, click_count, modifiers })
+            }
+        }
+        InputEvent::Wheel { surface, x, y, dx, dy, precise, phase, momentum_phase, modifiers } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            finite(&[*x, *y, *dx, *dy])?;
+            Ok(RpCall::SendWheel {
+                x: *x,
+                y: *y,
+                dx: *dx,
+                dy: *dy,
+                precise: *precise,
+                phase: rp_phase(*phase),
+                momentum_phase: rp_phase(*momentum_phase),
+                modifiers: rp_modifiers(*modifiers, false),
+            })
+        }
+        InputEvent::Pinch { surface, phase, scale, x, y } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            finite(&[*scale, *x, *y])?;
+            if matches!(phase, Phase::None | Phase::MayBegin) || *scale <= 0.0 {
+                return Err(InputReject::BadPhase);
+            }
+            Ok(RpCall::SendPinch { phase: rp_phase(*phase), scale: *scale, x: *x, y: *y })
+        }
+        InputEvent::ImeSetComposition {
+            surface,
+            text,
+            underlines,
+            selection_start,
+            selection_end,
+            replacement,
+        } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            Ok(RpCall::ImeSetComposition {
+                text: text.clone(),
+                underlines: underlines.clone(),
+                selection_start: *selection_start,
+                selection_end: *selection_end,
+                replacement: *replacement,
+            })
+        }
+        InputEvent::ImeCommit { surface, text, replacement } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            Ok(RpCall::ImeCommit { text: text.clone(), replacement: *replacement })
+        }
+        InputEvent::ImeFinish { surface, keep_selection } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            Ok(RpCall::ImeFinish { keep_selection: *keep_selection })
+        }
+        InputEvent::ImeCancel { surface } => {
+            if *surface != 0 {
+                return Err(InputReject::SurfaceInputUnsupported);
+            }
+            Ok(RpCall::ImeCancel)
+        }
+    }
 }
