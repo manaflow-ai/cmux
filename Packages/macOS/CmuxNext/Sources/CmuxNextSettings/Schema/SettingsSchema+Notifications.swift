@@ -151,6 +151,16 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.attention.showOnSidebar", "Mark the Sidebar Row"),
                 kind: .toggle, default: .bool(attention.showsOnSidebar)
             ),
+            SettingDescriptor(
+                ["notifications", "mutedWorkspaces"], section: .notifications, group: banners,
+                title: SettingsText.keyed("settings.notifications.mutedWorkspaces", "Muted Workspaces"),
+                help: SettingsText.keyed("settings.notifications.mutedWorkspaces.help",
+                                        "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu."),
+                kind: .stringList, default: .array([]), keywords: ["mute", "silence"]
+            )
+            // Raw workspace ids mean nothing on the page; the sidebar row menu mutes a workspace.
+            .hiddenFromSettingsPage("workspace ids; toggled per workspace from the sidebar row menu")
+            .consumed(by: [.cmuxNext, .cmuxBrowser]),
         ]
         return rows
     }

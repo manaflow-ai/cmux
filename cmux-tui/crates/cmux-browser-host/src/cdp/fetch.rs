@@ -170,7 +170,16 @@ impl Inner {
         let target = match reused {
             Some(target) => target,
             None => {
-                let deadline = Instant::now() + timeout_of(params);
+                // Opening and loading the shell is no progress of the fetch:
+                // the idle limit bounds it too, also without a total limit
+                // (a navigation Chromium never answers must not hold the
+                // call forever).
+                let mut deadline = Instant::now() + timeout_of(params);
+                if let Some(idle) =
+                    params.get("idleTimeoutMs").and_then(Value::as_u64).filter(|ms| *ms > 0)
+                {
+                    deadline = deadline.min(Instant::now() + Duration::from_millis(idle));
+                }
                 let mut shell = self.open_shell(&shell_url, deadline)?;
                 self.run_in(run_id, &shell.target)?;
                 let left =

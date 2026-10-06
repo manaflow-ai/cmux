@@ -31,6 +31,8 @@ public nonisolated struct SettingDescriptor: Sendable, Hashable, Identifiable {
     /// every key; the cmux-next Settings page and palette show only keys cmux-next reads, so a
     /// cmux-browser-only key never shows a control that does nothing here.
     public var consumers: Set<SettingConsumer> = [.cmuxNext]
+    /// Whether the Settings page shows this row (`isShownOnSettingsPage`).
+    public var page: SettingPageExposure = .shown
 
     /// A row whose texts come from the string catalog (`SettingsText.keyed`).
     public init(_ path: [String], section: SettingsSection, group: SettingText, title: SettingText, help: SettingText? = nil,
@@ -63,11 +65,21 @@ extension SettingDescriptor {
     public var isPaletteExposed: Bool { palette == .exposed && isShownInCmuxNext }
     /// cmux-next reads this key, so its Settings page and palette offer it.
     public var isShownInCmuxNext: Bool { consumers.contains(.cmuxNext) }
+    /// The Settings page (web page and anchors) has a row for this key.
+    public var isShownOnSettingsPage: Bool { isShownInCmuxNext && page == .shown }
 
     /// This row, read by `consumers` instead of cmux-next alone.
     public func consumed(by consumers: Set<SettingConsumer>) -> SettingDescriptor {
         var row = self
         row.consumers = consumers
+        return row
+    }
+
+    /// This row, kept off the Settings page and the palette for `reason`.
+    public func hiddenFromSettingsPage(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.page = .hidden(reason)
+        row.palette = .hidden(reason)
         return row
     }
 }
