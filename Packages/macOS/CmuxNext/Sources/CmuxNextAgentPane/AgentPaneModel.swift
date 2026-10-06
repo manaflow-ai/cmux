@@ -103,7 +103,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
-    @ObservationIgnored public private(set) var chosenFolder: String?
+    @ObservationIgnored public internal(set) var chosenFolder: String?
     @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
@@ -277,18 +277,7 @@ public final class AgentPaneModel {
             onSetDefaultKind(kind)
             return AgentPaneReply.success()
         case .chooseFolder:
-            guard let onChooseFolder else { return Self.unsupported("workspace.chooseFolder") }
-            // The sheet only after a real gesture: it spends the gesture's grant credit.
-            guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-            switch await onChooseFolder() {
-            case .chosen(let folder):
-                chosenFolder = folder
-                return AgentPaneReply.success(["cwd": folder])
-            case .cancelled:
-                return AgentPaneReply.success()
-            case .unavailable(let message):
-                return AgentPaneReply.failure(code: AgentPaneFolderChoice.unavailableCode, message: message)
-            }
+            return await chooseFolder()
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
@@ -387,11 +376,11 @@ public final class AgentPaneModel {
         error.map(transportFailure) ?? AgentPaneReply.success()
     }
 
-    private static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
+    static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }
 
-    private static func unsupported(_ method: String) -> [String: Any] {
+    static func unsupported(_ method: String) -> [String: Any] {
         AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
     }
 

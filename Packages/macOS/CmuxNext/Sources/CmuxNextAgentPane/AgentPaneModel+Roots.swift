@@ -26,6 +26,22 @@ extension AgentPaneModel {
         return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) }
     }
 
+    /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
+    /// spends the gesture's grant credit), then the pick as the folder of this pane's new chats.
+    func chooseFolder() async -> [String: Any] {
+        guard let onChooseFolder else { return Self.unsupported("workspace.chooseFolder") }
+        guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        switch await onChooseFolder() {
+        case .chosen(let folder):
+            chosenFolder = folder
+            return AgentPaneReply.success(["cwd": folder])
+        case .cancelled:
+            return AgentPaneReply.success()
+        case .unavailable(let message):
+            return AgentPaneReply.failure(code: AgentPaneFolderChoice.unavailableCode, message: message)
+        }
+    }
+
     /// Whether `path` is the user's home folder (``AgentPaneTransport/homeFolder``) or above it.
     func isHomeOrAbove(_ path: String) -> Bool {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)
