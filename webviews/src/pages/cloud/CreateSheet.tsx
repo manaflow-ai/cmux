@@ -116,8 +116,7 @@ export function CreateSheet({
         )}
         {draft.error && (
           <p className="cloud-sheet-error" role="alert">
-            {t(L.actionFailed)}{" "}
-            <span className="cloud-error-detail">{errorText(draft.error, draft.errorCode, t)}</span>
+            {t(L.actionFailed)} <span className="cloud-error-detail">{errorText(draft.error, draft.errorCode, t)}</span>
           </p>
         )}
         <div className="cloud-sheet-actions">
