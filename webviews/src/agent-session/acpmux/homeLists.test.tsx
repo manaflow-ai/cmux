@@ -130,6 +130,11 @@ test("an archived chat stays off Home even when it waits on the user", () => {
     updatedAt: now,
     pullRequest: { number: 1, title: "PR", state: "open", reviewReady: true },
   };
-  expect(homeLists([{ ...waiting, archived: true }, { ...ready, archived: true }])).toEqual({ input: [], review: [] });
+  expect(
+    homeLists([
+      { ...waiting, archived: true },
+      { ...ready, archived: true },
+    ]),
+  ).toEqual({ input: [], review: [] });
   expect(homeLists([waiting, ready]).input.map((session) => session.sessionId)).toEqual(["a"]);
 });
