@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextSidebar
 
-private enum SidebarHelpMenuProvider {
+enum SidebarHelpMenuProvider {
     static func install(on sidebar: SidebarView, services: AppServices) {
         sidebar.helpMenuProvider = { [weak services] in
             guard let services else { return nil }
