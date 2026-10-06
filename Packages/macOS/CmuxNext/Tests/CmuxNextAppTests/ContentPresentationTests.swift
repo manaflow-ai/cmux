@@ -41,6 +41,32 @@ struct ContentPresentationTests {
         #expect(alive.shown == 1)
     }
 
+    /// A click on a tab highlights it in the strip at once; content that is
+    /// already alive must swap in the same frame, or the strip and the pane
+    /// disagree for a frame (op-next-layout, #17485).
+    @Test func aSelectedTabWithLiveContentShowsInTheSameFrame() {
+        let frames = HandFrames()
+        let scheduler = ContentPresentationScheduler(frames: frames)
+        let pane = FakePane()
+        pane.selectedContentIsAlive = true
+        scheduler.showSelection(pane)
+        #expect(pane.shown == 1)
+        frames.fire()
+        #expect(pane.shown == 1, "no second show on the frame")
+    }
+
+    /// Content that needs a new surface still waits for the frame, so a held
+    /// Ctrl-Tab never creates a surface for a tab it already moved past.
+    @Test func aSelectedTabThatNeedsASurfaceWaitsForTheFrame() {
+        let frames = HandFrames()
+        let scheduler = ContentPresentationScheduler(frames: frames)
+        let pane = FakePane()
+        scheduler.showSelection(pane)
+        #expect(pane.shown == 0)
+        frames.fire()
+        #expect(pane.shown == 1)
+    }
+
     @Test func showingNowDropsAQueuedShow() {
         let frames = HandFrames()
         let scheduler = ContentPresentationScheduler(frames: frames)
