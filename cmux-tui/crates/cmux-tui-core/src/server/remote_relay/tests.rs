@@ -1045,3 +1045,91 @@ fn a_poisoned_registry_trusts_no_unix_client_and_still_removes_a_record() {
     assert_eq!(fixture.mux.principal(fixture.local), None);
     assert!(fixture.mux.control_clients.remove(one).is_some());
 }
+
+// conversation-import (plans/cmux-next/home-state-ownership.md section 6).
+
+fn import_frame(conversation: &str, author: &str) -> Value {
+    json!({"id":1,"cmd":"conversation-import","conversation":conversation,"messages":[
+        {"id":"msg_old_1","client_msg_id":"cmk_1","author":"user_local",
+         "parts":[{"type":"text","text":"hi"}],"created_at":"2026-10-06T03:06:01.998Z"},
+        {"id":"msg_old_2","client_msg_id":"cmk_2","author":author,
+         "parts":[{"type":"text","text":"Hello."}],"created_at":"2026-10-06T03:06:04.622Z"}
+    ]})
+}
+
+fn last_seq(fixture: &Fixture, conversation: &str) -> u64 {
+    local(
+        &fixture.mux,
+        fixture.local,
+        json!({"cmd":"conversation-snapshot","conversation":conversation,"tail":10}),
+    )["conversation"]["last_seq"]
+        .as_u64()
+        .unwrap()
+}
+
+/// `conversation-import` writes messages with the authors and times it is
+/// given, so only the Mac's own user on its trusted local socket may send it.
+/// The relay gate refuses the frame, and the owner refuses the command from a
+/// remote link, a paired install's connection, a web socket and an
+/// agent-token connection, with nothing written.
+#[test]
+fn conversation_import_is_refused_for_every_caller_but_the_local_user() {
+    let fixture = fixture();
+    let mux = &fixture.mux;
+    let conversation = create(
+        &fixture,
+        "import-target",
+        json!([human("user_local", "Me"), mux_agent()]),
+        &["inst_1"],
+    );
+    let frame = import_frame(&conversation, "agent_mux");
+    let link = remote(&fixture, "inst_1", OWNER);
+    assert_code(&send(mux, link, frame.clone()), "remote_denied");
+    let paired_unix = mux.control_clients.register(ClientTransport::Unix, writer().0);
+    mux.bind_remote_peer(paired_unix, &peer("inst_1", OWNER)).unwrap();
+    let web = mux.control_clients.register(ClientTransport::WebSocket, writer().0);
+    let minted = local(
+        mux,
+        fixture.local,
+        json!({"cmd":"conversation-agent-token","participant":"agent_mux"}),
+    );
+    let agent = mux.control_clients.register(ClientTransport::Unix, writer().0);
+    local(
+        mux,
+        agent,
+        json!({"cmd":"conversation-bind","participant":"agent_mux","token":minted["token"]}),
+    );
+    for (caller, client) in [
+        ("remote link", link),
+        ("paired install", paired_unix),
+        ("web", web),
+        ("agent token", agent),
+    ] {
+        let command: Command = serde_json::from_value(frame.clone()).unwrap();
+        assert!(
+            handle_command(mux, client, command, &writer().0).is_err(),
+            "{caller} imported history"
+        );
+    }
+    assert_eq!(last_seq(&fixture, &conversation), 0, "a refused import writes nothing");
+}
+
+/// The local user imports only messages by the conversation's own
+/// participants: a stranger author (or one never added) refuses the whole
+/// import, so no message can be forged in someone else's name.
+#[test]
+fn an_import_cannot_author_a_message_as_anyone_outside_the_conversation() {
+    let fixture = fixture();
+    let conversation = create_plain(&fixture);
+    for stranger in ["agent_other", "remote_inst_9", "user_someone"] {
+        let command: Command =
+            serde_json::from_value(import_frame(&conversation, stranger)).unwrap();
+        let error = handle_command(&fixture.mux, fixture.local, command, &writer().0).unwrap_err();
+        assert_eq!(error.to_string(), "not_participant", "{stranger}");
+    }
+    assert_eq!(last_seq(&fixture, &conversation), 0, "one stranger refuses the whole import");
+    let command: Command =
+        serde_json::from_value(import_frame(&conversation, "agent_mux")).unwrap();
+    let reply = handle_command(&fixture.mux, fixture.local, command, &writer().0).unwrap();
+    assert_eq!(reply["imported"], json!([1, 2]));
+}
