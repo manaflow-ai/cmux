@@ -40,7 +40,9 @@ public final class ConfigFileWatcher: @unchecked Sendable {
     }
 
     public func start(reportInitialChange: Bool = true) {
-        queue.async { [self] in
+        // Arm before returning so a caller that just read a snapshot cannot
+        // lose a save in the gap between that read and the watcher setup.
+        queue.sync { [self] in
             isStopped = false
             rearm()
             if reportInitialChange { onChange() }
