@@ -3,6 +3,7 @@ import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
+import { useEscapeCloses } from "./menuEscape";
 import { registerPicker } from "./pickerOpeners";
 import { useUiAnchor } from "../../ui/anchor";
 
@@ -55,6 +56,11 @@ export function EffortPicker({
       }),
     [label],
   );
+  const close = () => {
+    setOpen(false);
+    trigger.current?.focus();
+  };
+  useEscapeCloses(open, close);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
@@ -96,16 +102,7 @@ export function EffortPicker({
         >
           <div className="acpmux-effort-title">{name}</div>
           {model && <div className="acpmux-effort-model">{model}</div>}
-          <EffortTrack
-            efforts={efforts}
-            current={current}
-            onPick={onPick}
-            autoFocus
-            onEscape={() => {
-              setOpen(false);
-              root.current?.querySelector("button")?.focus();
-            }}
-          />
+          <EffortTrack efforts={efforts} current={current} onPick={onPick} autoFocus onEscape={close} />
         </div>
       )}
     </span>
