@@ -22,6 +22,8 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod daemon;
+#[cfg(test)]
+mod git_short_sha;
 pub mod hub;
 pub mod login_env;
 pub mod native;
