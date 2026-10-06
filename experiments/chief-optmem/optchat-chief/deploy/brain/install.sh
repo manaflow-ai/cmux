@@ -7,8 +7,10 @@
 # usage: install.sh --optchat-chief PATH --cmux-tui PATH --acpmux PATH [--brain DIR] [--no-start]
 #
 # Binaries are copied into $BRAIN/bin (pinned). The host agent starts only when
-# $BRAIN/cloud/install.json is registered and names a chief (run the
-# `optchat-chief cloud ...` steps first; see ../README.md "Always-on brain").
+# $BRAIN/cloud/install.json is paired and names a chief: first run
+# `optchat-chief cloud pair --install $BRAIN/cloud/install.json --api-base URL`
+# and approve its code in the cmux app (Server > Add Server…); `cloud register`
+# with a session token is the fallback (see ../README.md "Always-on brain").
 set -euo pipefail
 
 BRAIN="${HOME}/.cmux/brains/chief"
@@ -20,7 +22,7 @@ while (($#)); do
     --acpmux) ACPMUX="$2"; shift 2 ;;
     --brain) BRAIN="$2"; shift 2 ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -88,5 +90,7 @@ boot "$P.acpmux"
 if "$BRAIN/bin/optchat-chief" cloud status --install "$BRAIN/cloud/install.json" | grep -q '^token ok'; then
   boot "$P.host"
 else
-  echo "host NOT started: $BRAIN/cloud/install.json is not registered or names no chief (see README)"
+  echo "host NOT started: $BRAIN/cloud/install.json is not paired or names no chief"
+  echo "  run: $BRAIN/bin/optchat-chief cloud pair --install $BRAIN/cloud/install.json --api-base URL"
+  echo "  then approve the code in the cmux app (Server > Add Server…) and run install.sh again"
 fi

@@ -520,14 +520,33 @@ The token lives 600 s and is renewed 150 s before it expires and on
 `cloud-session-needed`. The lease is daemon-wide: every unbound client of that daemon
 acts as the chief, so never point it at a shared daemon.
 
-Identity (once per brain host; the install key never leaves `install.json`, 0600):
+Identity (once per brain host; the install key never leaves `install.json`, 0600). The
+brain pairs like a cmux server (plans/cmux-next/server.md 6.2), so no session token
+reaches it:
+
+```
+optchat-chief cloud pair   --install $B/cloud/install.json --api-base https://<api origin>
+optchat-chief cloud status --install $B/cloud/install.json     # mints a test chief token
+```
+
+`cloud pair` makes the P-256 install key and a WireGuard key, proves the key to
+`POST /v1/pair/begin`, and prints a code and four check words (never the collect
+secret). In the cmux app, "Server > Add Server…" takes the code, shows the same words,
+and approves it: `server.pair.approve` registers the key under the user as a `daemon`
+install and adds the host to the team. The brain hears the result on the
+`/v1/pair/wait` WebSocket, then waits (`--wait-chief`, default 300 s) for the app to
+place a chief on it (`brain_place: {host, install}` in `chief.list`); only that chief's
+token gets the rights a brain needs. `--chief default` falls back to the default chief
+when none is placed (a backend without `brain_place`). A paired file without a chief
+resumes at the chief step when `cloud pair` runs again.
+
+Fallback without the app (a session token once, from where the Stack session lives):
 
 ```
 optchat-chief cloud enroll   --install $B/cloud/install.json --api-base https://<api origin>
 CMUX_CLOUD_SESSION_TOKEN=<the user's session token> \
 optchat-chief cloud register --install $B/cloud/install.json     # install.register (session only)
 optchat-chief cloud chief    --install $B/cloud/install.json --create   # default chief + main conversation
-optchat-chief cloud status   --install $B/cloud/install.json     # mints a test chief token
 ```
 
 Memory move (both hosts stopped; `--seal` last):

@@ -40,6 +40,16 @@ pub struct InstallFile {
     /// The chief's main conversation (`conv_...`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
+    /// The WireGuard private key (x25519, standard base64) a paired server
+    /// declares at `POST /v1/pair/begin`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wg_private: Option<String>,
+    /// The host id server pairing enrolled (`host_...`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    /// The team the host was paired into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
 }
 
 impl InstallFile {
@@ -62,7 +72,29 @@ impl InstallFile {
             user: None,
             chief: None,
             conversation: None,
+            wg_private: Some(new_wg_private()),
+            host: None,
+            team: None,
         })
+    }
+
+    /// The WireGuard public key (standard base64 of 32 bytes), from `wg_private`.
+    pub fn wg_public(&self) -> Option<String> {
+        use base64::engine::general_purpose::STANDARD;
+        let raw: [u8; 32] = STANDARD
+            .decode(self.wg_private.as_deref()?)
+            .ok()?
+            .try_into()
+            .ok()?;
+        let secret = x25519_dalek::StaticSecret::from(raw);
+        Some(STANDARD.encode(x25519_dalek::PublicKey::from(&secret).as_bytes()))
+    }
+
+    /// Adds a WireGuard key to a file enrolled before pairing existed.
+    pub fn ensure_wg(&mut self) {
+        if self.wg_public().is_none() {
+            self.wg_private = Some(new_wg_private());
+        }
     }
 
     pub fn load(path: &Path) -> Result<InstallFile, String> {
@@ -120,6 +152,16 @@ impl InstallFile {
     }
 }
 
+fn new_wg_private() -> String {
+    use base64::engine::general_purpose::STANDARD;
+    use ring::rand::SecureRandom as _;
+    let mut raw = [0u8; 32];
+    SystemRandom::new()
+        .fill(&mut raw)
+        .expect("the system random source works");
+    STANDARD.encode(x25519_dalek::StaticSecret::from(raw).to_bytes())
+}
+
 /// What the install signs: `message_prefix` (`cmux-auth-v1\n<env>\n<install>\n`) + nonce.
 pub fn challenge_message(environment: &str, install: &str, nonce: &str) -> String {
     format!("cmux-auth-v1\n{environment}\n{install}\n{nonce}")
@@ -161,12 +203,27 @@ pub trait TokenSource: Send + Sync {
 /// The HTTP the auth and op calls need.
 pub trait Http: Send + Sync {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<Value, String>;
+    /// An unauthenticated GET (`/v1/health`).
+    fn get(&self, url: &str) -> Result<Value, String> {
+        Err(format!("GET {url}: not supported"))
+    }
 }
 
 /// Blocking HTTP through ureq.
 pub struct UreqHttp;
 
 impl Http for UreqHttp {
+    fn get(&self, url: &str) -> Result<Value, String> {
+        match ureq::get(url)
+            .timeout(std::time::Duration::from_secs(30))
+            .call()
+        {
+            Ok(resp) => resp.into_json::<Value>().map_err(|e| format!("{url}: {e}")),
+            Err(ureq::Error::Status(code, _)) => Err(format!("{url}: HTTP {code}")),
+            Err(e) => Err(format!("{url}: {e}")),
+        }
+    }
+
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<Value, String> {
         let mut req = ureq::post(url).timeout(std::time::Duration::from_secs(30));
         if let Some(token) = bearer {
