@@ -229,7 +229,7 @@ final class HistoryService {
             switch item.kind {
             case .terminalTab, .browserTab: _ = services.closedTabs?.take(item.id)
             case .screen: _ = services.closedScreens.take(id: item.id)
-            case .workspace: _ = services.closedWorkspaces.take(item.id)
+            case .workspace: services.closedWorkspaces.discard(item.id)
             }
         case .agent(let session):
             agents.hide(session)
