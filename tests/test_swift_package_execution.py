@@ -34,6 +34,9 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             selected_packages = selected_packages or [package]
             for selected_package in selected_packages:
                 (root / "Packages/macOS" / selected_package).mkdir(parents=True)
+                # The lane accepts only a package directory with a manifest
+                # (ebd7bcd5a43); swift itself is a stub here.
+                (root / "Packages/macOS" / selected_package / "Package.swift").write_text("// swift-tools-version:5.9\n")
             if ghosttykit:
                 # A binaryTarget on the root xcframework, like a GhosttyKit package's manifest.
                 (root / "Packages/macOS" / package / "Package.swift").write_text(
