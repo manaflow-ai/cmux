@@ -86,6 +86,13 @@ public nonisolated struct KeyBindingDefaults {
         "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
     ]
 
+    /// Actions whose default key a terminal program also uses (Ctrl-_ is
+    /// readline/emacs undo): their default binding applies everywhere but a
+    /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
+    /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
+    /// binding keeps its own `when`.
+    public static let yieldsToTerminal: Set<ActionID> = ["focusHistoryBack", "focusHistoryForward"]
+
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
     /// `when` follows a general one for the same key.
