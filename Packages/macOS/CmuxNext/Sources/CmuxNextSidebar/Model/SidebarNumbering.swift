@@ -1,24 +1,30 @@
 import Foundation
 
-/// The one numbering for Cmd+1…9 (R119): Home is 1, then the workspace rows
-/// the user sees, top to bottom; 9 is the last visible. Anything that shows or
-/// acts on these numbers (the action, a future number hint on rows) reads this.
+/// The one numbering for Cmd+1…9 (R119, TOP-SECTION-ITEMS-ARE-PAGES): the
+/// first top-section item (Home by default, which opens its page) is 1, then
+/// the workspace rows the user sees, top to bottom; 9 is the last. Anything
+/// that shows or acts on these numbers (the action, a future number hint on
+/// rows) reads this.
 public nonisolated struct SidebarNumbering: Hashable, Sendable {
-    /// The numbered ids in order: Home first (when it exists), then the
-    /// workspaces without Home.
-    public let order: [String]
-
-    public init(home: String?, workspaces: [String]) {
-        guard let home else {
-            order = workspaces
-            return
-        }
-        order = [home] + workspaces.filter { $0 != home }
+    /// What a number selects.
+    public enum Target: Hashable, Sendable {
+        /// A top-section item, run as a click does.
+        case topItem(LayoutItemID)
+        /// A workspace row.
+        case workspace(String)
     }
 
-    /// The id number `number` (1…9) selects: 9 and numbers past the end
+    /// The numbered targets in order: the first top item (when the top
+    /// section has one), then the workspaces.
+    public let order: [Target]
+
+    public init(firstTopItem: LayoutItemID?, workspaces: [String]) {
+        order = workspaces.map(Target.workspace) // RED stub: the top item is not numbered yet
+    }
+
+    /// The target number `number` (1…9) selects: 9 and numbers past the end
     /// select the last; nil for a number below 1 or an empty list.
-    public func pick(_ number: Int) -> String? {
+    public func pick(_ number: Int) -> Target? {
         guard number >= 1, let last = order.last else { return nil }
         return number >= 9 ? last : order[min(number, order.count) - 1]
     }
