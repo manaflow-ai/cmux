@@ -161,6 +161,11 @@ pub struct OutboxEntry {
     /// `agent_rate` refusals so far; the backoff grows with them (G11).
     #[serde(default)]
     pub rate_attempts: u32,
+    /// A reply with link cards waits for their previews until this time (ms
+    /// since the epoch), or until they arrive; then it goes as it is (a card
+    /// without a preview carries its URL only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previews_until: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -571,6 +576,7 @@ mod tests {
             not_before: None,
             attempted: false,
             rate_attempts: 0,
+            previews_until: None,
         });
         file.save(&state).unwrap();
         assert_eq!(file.load(), state);

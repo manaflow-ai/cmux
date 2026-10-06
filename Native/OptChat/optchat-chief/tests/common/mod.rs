@@ -9,7 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use cmux_chief::acp::AcpmuxEvent;
-use cmux_conversation::{Change, Message, Op, Part, Summary};
+use cmux_conversation::{Change, DerivedImage, Message, Op, Part, Summary};
 use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
 use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
 use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, participants};
@@ -102,6 +102,8 @@ pub struct Owner {
     /// Attachment bytes (base64) by (hash, variant), and every read: (hash, variant, bytes).
     pub attachments: BTreeMap<(String, String), String>,
     pub attachment_reads: Vec<(String, String, u64)>,
+    /// Every attachment upload: (conversation, record, name, width, height).
+    pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
 }
 
 impl Owner {
@@ -149,6 +151,34 @@ impl ConversationPort for FakeDaemon {
             .get(&(hash.to_owned(), variant.to_owned()))
             .cloned()
             .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
+    fn upload_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        use sha2::Digest;
+        let image = DerivedImage {
+            hash: sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            mime_type: mime_type.to_owned(),
+            byte_count: bytes.len() as u64,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.to_owned(),
+            image.clone(),
+            name.to_owned(),
+            width,
+            height,
+        ));
+        Ok(image)
     }
 
     fn snapshot(&mut self, _: &str, tail: u32) -> Result<(Summary, Vec<Message>), OpError> {

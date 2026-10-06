@@ -24,6 +24,7 @@ mod children;
 pub mod images;
 mod inbox;
 mod outbox;
+mod previews;
 mod recover;
 mod spawns;
 mod turns;
@@ -131,6 +132,12 @@ pub enum Input {
     Described {
         image: Box<images::TurnImage>,
         description: Result<String, String>,
+    },
+    /// The link previews of reply `key` (its part index, the preview); a
+    /// card missing here keeps its URL only.
+    Previews {
+        key: String,
+        fetched: Vec<(usize, crate::link_preview::Fetched)>,
     },
 }
 
@@ -331,6 +338,8 @@ pub struct Brain {
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
     describing: HashSet<String>,
+    /// Fetches link previews for replies' URL lines (None: replies stay text).
+    previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
 
 impl Brain {
@@ -394,6 +403,7 @@ impl Brain {
             turn_engine: None,
             describer: None,
             describing: HashSet::new(),
+            previewer: None,
         };
         brain.save();
         brain
@@ -534,6 +544,7 @@ impl Brain {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
             Input::Described { image, description } => self.described(&image, description),
+            Input::Previews { key, fetched } => self.previews_fetched(&key, fetched),
         }
     }
 
@@ -715,6 +726,7 @@ fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
         not_before: None,
         attempted: false,
         rate_attempts: 0,
+        previews_until: None,
     }
 }
 

@@ -26,6 +26,7 @@ pub mod engine;
 pub mod fold;
 pub mod harness_gate;
 pub mod host;
+pub mod link_preview;
 pub mod lock;
 pub mod log;
 pub mod mcp;

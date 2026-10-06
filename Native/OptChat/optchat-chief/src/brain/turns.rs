@@ -7,7 +7,7 @@ use std::sync::mpsc::channel;
 
 use optchat_core::Kind;
 
-use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key_at};
+use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_key_at};
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
@@ -666,9 +666,8 @@ impl Brain {
         }
         match conversation {
             Some(conversation) if !text.is_empty() => {
-                self.state
-                    .outbox
-                    .push(reply_entry(conversation, key, &text));
+                let entry = self.reply_with_previews(conversation, key, &text);
+                self.state.outbox.push(entry);
             }
             Some(_) => {}
             None => (self.log)(&format!(

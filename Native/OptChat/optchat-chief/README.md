@@ -250,6 +250,7 @@ messages, and `dry-run` warns about it.
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
+| `OPTCHAT_CHIEF_LINK_PREVIEWS` | on | `0`: a reply line that is only a URL stays text instead of a link card ([Link previews](#link-previews)) |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
 | `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-sr` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
 | `MUX_HARNESS` | `claude-sr` | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
@@ -1089,6 +1090,38 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 `deploy/brain/install.sh` installs three user LaunchAgents
 (`ai.manaflow.chief-brain.{daemon,acpmux,host}`) under `~/.cmux/brains/chief` with
 pinned binaries; `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
+## Link previews
+
+The Chief sends iMessage-style link cards, made by the sender as Messages
+does (receivers never fetch). A reply line that is only an http(s) URL
+(surrounding spaces allowed) becomes a `link_preview` part in its place; the
+other lines stay text parts, a URL inside a sentence gets no card, and blank
+lines around a card make no text part (MessagesLab's rule). A URL line inside
+a fenced code block stays code. At most 16 parts: later URL lines then stay
+text.
+
+The reply enters the outbox at once, held while one thread fetches every
+card concurrently, 8 s at most per URL (`src/link_preview`). The fetch goes
+through the guard of MessagesLab's LinkGuard: http(s) on the default port
+only, no credentials, no `localhost`, `.local`, `.internal`, `.lan`,
+`.home.arpa`, `.intranet`, `.corp` or single-label names, and every resolved
+address public (no loopback, private, CGNAT, link-local, ULA, multicast,
+documentation, benchmark or reserved address, IPv4-mapped, compatible, NAT64
+and 6to4 forms included). The HTTP client's resolver IS that check, so it
+connects only to the addresses checked (no DNS-rebinding gap). At most 5
+redirects, each checked again, never https to http; no proxy and no cookies;
+HTML up to 512 KB, stopping at `</head>`; an image up to 5 MB. The title is
+`og:title`, `twitter:title` or `<title>` without a leading or trailing
+`og:site_name`; the site is the page's host without `www.`; the image
+(`og:image`, `og:image:url`, `twitter:image`) becomes a JPEG of at most
+512,000 bytes, uploaded as an attachment record of the conversation
+(`conversation-attachment-upload`) and named by the card. A failed fetch
+leaves the card with its URL only. The hold ends when the previews arrive or
+after 12 s (`OutboxEntry::previews_until`), also after a restart, so a reply
+never waits longer. The cloud conversation source has no upload yet: its
+cards carry title and site without a picture. `OPTCHAT_CHIEF_LINK_PREVIEWS=0`
+turns cards off.
 
 ## Tests
 

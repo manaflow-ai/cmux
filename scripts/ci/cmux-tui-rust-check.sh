@@ -3,6 +3,10 @@
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
 #     --arg MODE [--arg TEST_FILTER]
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER], or all [FILTER];
+# optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
+# Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
+# a red run still reports them; without --locked, so a new dependency resolves
+# into its Cargo.lock (return it with --artifact Native/OptChat/optchat-chief/Cargo.lock);
 # rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
@@ -21,7 +25,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|rd-host|optchat-chief) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|optchat-chief [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -56,6 +60,20 @@ rustup component list --installed
 toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
 export PATH="$(dirname "$toolchain_cargo"):$PATH"
 echo "cargo: $toolchain_cargo"
+if [[ "$mode" == optchat-chief ]]; then
+  # Its own workspace and lockfile, so its own target dir.
+  export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
+  cd "$root/Native/OptChat/optchat-chief"
+  # Its tests bind Unix sockets under the temp dir; the step's own TMPDIR is
+  # longer than SUN_LEN (step b1563a89: "path must be shorter than SUN_LEN").
+  short_tmp="$(mktemp -d /tmp/occ.XXXXXX)"
+  trap 'rm -rf "$short_tmp"' EXIT
+  export TMPDIR="$short_tmp"
+  cargo test --no-fail-fast ${filter:+"$filter"}
+  cargo clippy --all-targets -- -D warnings
+  cargo fmt --check
+  exit 0
+fi
 if [[ "$mode" == rd-host ]]; then
   # Its own workspace and lockfile, so its own target dir.
   export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
