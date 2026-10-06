@@ -27,8 +27,9 @@ public struct HomeWorkspaceClient: Sendable {
 }
 
 /// A tab that shows `conversation` of the `owner` conversation owner
-/// (`conversation-tabs-v1`), or an acpmux agent session (`agentSession`,
-/// `agent-session-tabs-v1`). With `origin` and `mutationID` a retry returns
+/// (`conversation-tabs-v1`), an acpmux agent session (`agentSession`,
+/// `agent-session-tabs-v1`), or one of the app's own pages (`page`,
+/// `page-tabs-v1`). With `origin` and `mutationID` a retry returns
 /// the first tab (`replayed`).
 public struct NewConversationTabRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
@@ -44,6 +45,7 @@ public struct NewConversationTabRequest: DaemonRequest {
     public var conversation: String?
     public var owner: String?
     public var agentSession: AgentSessionRef?
+    public var page: String?
     public var pane: PaneID?
     /// Exclusive with `pane`: the workspace's active pane, or its first pane
     /// when it is empty (the home workspace starts empty).
@@ -74,6 +76,16 @@ public struct NewConversationTabRequest: DaemonRequest {
         self.transaction = transaction
     }
 
+    /// A page tab in `pane` showing `page` (`page-tabs-v1`).
+    public init(page: String, pane: PaneID, origin: String? = nil, mutationID: String? = nil,
+                transaction: ClientTransactionID? = nil) {
+        self.page = page
+        self.pane = pane
+        self.origin = origin
+        self.mutationID = mutationID
+        self.transaction = transaction
+    }
+
     /// The first agent tab creates the workspace's first pane without a shell.
     public init(agentSession: AgentSessionRef, workspace: WorkspaceHandle, origin: String? = nil, mutationID: String? = nil) {
         self.agentSession = agentSession
@@ -83,7 +95,7 @@ public struct NewConversationTabRequest: DaemonRequest {
     }
 
     enum CodingKeys: String, CodingKey {
-        case conversation, owner, pane, workspace, origin, transaction
+        case conversation, owner, page, pane, workspace, origin, transaction
         case agentSession = "agent_session"
         case mutationID = "mutation_id"
     }
