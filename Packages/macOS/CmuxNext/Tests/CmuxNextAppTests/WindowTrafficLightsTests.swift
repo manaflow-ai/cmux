@@ -92,8 +92,8 @@ struct WindowTrafficLightsTests {
         root.layoutSubtreeIfNeeded()
         #expect(!root.windowControlsCollapsed, "sidebar shown: never collapsed")
         root.sidebarHidden = true
-        #expect(!root.windowControlsCollapsed, "sidebar visibility does not collapse chrome")
-        #expect((controller.window as? TitlebarAccessoryHosting)?.windowControlsCollapsed == false)
+        #expect(root.windowControlsCollapsed, "sidebar hidden, pointer elsewhere: collapsed")
+        #expect((controller.window as? TitlebarAccessoryHosting)?.windowControlsCollapsed == true)
         // The corner region covers the traffic lights, so a move straight to Close reveals first.
         if let window = controller.window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
             let corner = root.cornerRegionFrameInWindow
@@ -102,7 +102,7 @@ struct WindowTrafficLightsTests {
         root.cornerReveal.setPointerInside(true)
         #expect(!root.windowControlsCollapsed, "pointer on the top-left corner: shown")
         root.cornerReveal.setPointerInside(false)
-        #expect(!root.windowControlsCollapsed)
+        #expect(root.windowControlsCollapsed)
         root.sidebarHidden = false
         #expect(!root.windowControlsCollapsed)
         controller.teardown()
@@ -133,7 +133,7 @@ struct WindowTrafficLightsTests {
         #expect(!root.windowControlsCollapsed, "hovering the corner shows the controls")
         _ = DebugHover.move(to: NSPoint(x: corner.maxX + 300, y: corner.minY - 200), in: window)
         #expect(root.cornerReveal.state.pointerInside == false, "the exit reached the corner region")
-        #expect(!root.windowControlsCollapsed, "leaving keeps them stable")
+        #expect(root.windowControlsCollapsed, "leaving the corner collapses them again")
         controller.teardown()
         controller.window?.close()
         withExtendedLifetime(services) {}
