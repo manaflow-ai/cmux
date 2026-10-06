@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// What a remote-terminal tab shows while its terminal's session is not
 /// attached (plans/cmux-next/data-model.md 1.4): the machine, its state,
@@ -24,10 +25,13 @@ final class RemoteTerminalPlaceholderView: NSView {
     private(set) var machine = ""
     var onConnect: (() -> Void)?
 
+    /// The glyph drawn (tests).
+    var glyph: NSImage? { icon.image }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        icon.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: nil)
+        icon.image = NSImage.icon(.machineRemote, size: .iconRowSize(forLabelPointSize: NSFont.systemFontSize))
         status.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         status.lineBreakMode = .byTruncatingMiddle
         connect.title = RemoteStrings.placeholderConnect

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The incognito window's mark in the sidebar's titlebar row: a glyph and
 /// "Incognito" in secondary text on a subtle gray rounded rectangle (no accent
@@ -8,12 +9,14 @@ final class IncognitoBadgeView: NSView, TitlebarPressDeciding {
     private let icon = NSImageView()
     private let label = NSTextField(labelWithString: WindowStrings.incognitoBadge)
 
+    /// The glyph drawn (tests).
+    var glyph: NSImage? { icon.image }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        icon.image = NSImage(systemSymbolName: "eyeglasses", accessibilityDescription: nil)
-        icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize, weight: .medium)
         label.font = Typography.caption
+        icon.image = NSImage.icon(.browserIncognito, size: .iconRowSize(forLabelPointSize: label.font?.pointSize ?? 11))
         label.lineBreakMode = .byTruncatingTail
         let stack = NSStackView(views: [icon, label])
         stack.orientation = .horizontal
