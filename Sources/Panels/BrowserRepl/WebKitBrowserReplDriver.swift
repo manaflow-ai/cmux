@@ -81,6 +81,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// `session.configure({ proxy })`; tabs the session opens use it.
     @MainActor private var proxyDataStore: WKWebsiteDataStore?
 
+    /// Whether the file rules last compiled took the session's directories
+    /// to hold a file `secrets.load` protects, so that no `file:`
+    /// subresource loads there (``BrowserReplFileSandbox/contentRules(roots:)``).
+    private var rulesHeldSecretSource: Bool?
+    /// Observes ``BrowserReplFileSandbox/secretSourcesDidChange``.
+    private var secretSourcesObserver: (any NSObjectProtocol)?
+    /// Judges the session's directories again after a protection or a
+    /// move, the newest request only, off the main actor. Used under `lock`.
+    private lazy var secretSourceCheck = BrowserReplLatestValueRunner<[String]> { [weak self] roots in
+        let holds = await Task.detached(priority: .userInitiated) {
+            BrowserReplFileSandbox.rootsMayHoldSecretSource(roots)
+        }.value
+        self?.secretSourcesJudged(holds)
+    }
+
     init(
         sessionID: String,
         workspaceID: UUID,
@@ -91,6 +106,37 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         self.workspaceID = workspaceID
         self.bundle = bundle
         self.sleeper = sleeper
+        // A file secrets.load protects, or a move, can put a protected
+        // file inside the session's directories: their file rules then
+        // load no subresource there, so they are compiled again.
+        secretSourcesObserver = NotificationCenter.default.addObserver(
+            forName: BrowserReplFileSandbox.secretSourcesDidChange,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            lock.withLock {
+                guard !isDetached else { return }
+                secretSourceCheck.submit(fileRoots.map(\.path))
+            }
+        }
+    }
+
+    deinit {
+        if let secretSourcesObserver { NotificationCenter.default.removeObserver(secretSourcesObserver) }
+    }
+
+    /// Compiles the session's rules again when `holds` (whether its
+    /// directories may hold a protected file) differs from what the rules
+    /// in force took.
+    private func secretSourcesJudged(_ holds: Bool) {
+        let changed = lock.withLock {
+            guard !isDetached, rulesHeldSecretSource != holds else { return false }
+            let generation = BrowserReplPolicyBoard.shared.publish(domainPolicy, sessionID: sessionID)
+            policyRunner.submit(PolicyUpdate(policy: domainPolicy, generation: generation))
+            return true
+        }
+        if changed { failClosedUntilRulesInstall() }
     }
 
     var capabilities: [String] { [] }
@@ -162,7 +208,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         do {
             // The local-file rules first: a policy's allow list blocks every
             // load it does not name, files inside the roots included.
-            let rules = BrowserReplFileSandbox.contentRules(roots: roots) + policy.contentRules
+            // Taken before the rules read it: a protection after this
+            // posts a change, which compiles them again.
+            let holdsSecretSource = await Task.detached(priority: .userInitiated) {
+                BrowserReplFileSandbox.rootsMayHoldSecretSource(roots)
+            }.value
+            lock.withLock { rulesHeldSecretSource = holdsSecretSource }
+            let rules = BrowserReplFileSandbox.contentRules(roots: roots, subresourcesInsideRoots: !holdsSecretSource)
+                + policy.contentRules
             options.ruleList = try await compileRuleList(rules)
             policyFailure = nil
         } catch {

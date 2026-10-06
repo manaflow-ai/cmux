@@ -611,7 +611,19 @@ native (`BrowserReplBoundary` in the session, and the driver):
   read it: from the load on, no session's tab loads that file (a
   navigation of any frame, by the agent or a page, fails with
   `blocked`), judged by the same identity, so a rename or another hard
-  link to it is refused too. The load
+  link to it is refused too. Content rules match a URL, not a file, so
+  while a protected file may lie inside a session's working or temporary
+  directory (a name of it below one, judged by the directories'
+  identities; any file with more than one hard link on the same volume,
+  or one whose name cannot be read, counts), that session's tabs load no
+  `file:` subresource at all (image, script, style sheet, fetch, media);
+  their local pages and child frames still load, judged as navigations.
+  The rules are compiled again when a file is protected and after each
+  REPL `fs.rename` while any file is protected (it may move one into a
+  directory); a page in the session's tabs may load such a file in the
+  moment between the protection and the new rules, as it could before
+  the load. A file another local process moves into the directory is
+  judged at the next compile. The load
   opens the file and protects it in one hold of the lock a file navigation
   checks and starts under, so no navigation passes its check in between.
   The protection lasts while the file exists under any name (not only
@@ -689,7 +701,8 @@ native (`BrowserReplBoundary` in the session, and the driver):
   loads, whoever starts it: the navigation delegate cancels a navigation of
   any frame to a file it refuses (`navigation.blocked`; a page, a redirect,
   history), and content rules block `file:` subresources and child frames
-  outside the directories (matched on the URL as WebKit spells it, so a
+  outside the directories, and every `file:` subresource while a file
+  `secrets.load` protects may lie inside them, see Secrets (matched on the URL as WebKit spells it, so a
   file inside them spelled another way is blocked too; an encoded `/` is
   blocked). WebKit itself refuses a file outside the directory a load
   granted (measured on macOS 27.0); these hold also when the web process

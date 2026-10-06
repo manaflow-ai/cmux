@@ -312,6 +312,9 @@ public struct BrowserReplFileSystem: Sendable {
             guard renamed == 0 else {
                 throw Self.posixError(renamed, syscall: "rename", display: "\(try raw("from"))' -> '\(try raw("to"))")
             }
+            // The move may have put a protected secrets file into a root:
+            // the tabs' content rules are judged again.
+            BrowserReplSecretSources.shared.noteEntryMoved()
             return NSNull()
         case "copyFile":
             let fromDisplay = try raw("from")

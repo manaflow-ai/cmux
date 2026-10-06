@@ -226,13 +226,34 @@ public struct BrowserReplFileSandbox: Sendable {
     /// link below a root is resolved by WebKit's own read-access check,
     /// which refuses a file outside the directory it granted. Main-frame
     /// documents are left to the navigation checks, which report the block.
+    ///
+    /// A rule matches a URL, never a file's identity, so while a file
+    /// `secrets.load` protects may lie inside a root
+    /// (``rootsMayHoldSecretSource(_:)``) no `file:` subresource loads at
+    /// all: the protected file would load under any name inside the root
+    /// (a rename, another hard link, a link to it, another spelling). Child
+    /// frames inside the roots still load: a frame's document is a
+    /// navigation, which the navigation checks judge by the file's identity.
+    /// The caller compiles the rules again when
+    /// ``secretSourcesDidChange`` is posted.
     public static func contentRules(roots: [String]) -> [[String: Any]] {
+        contentRules(roots: roots, secretSources: .shared)
+    }
+
+    static func contentRules(roots: [String], secretSources: BrowserReplSecretSources) -> [[String: Any]] {
+        contentRules(roots: roots, subresourcesInsideRoots: !secretSources.mayHoldFile(under: roots))
+    }
+
+    /// ``contentRules(roots:)`` with the judgment of
+    /// ``rootsMayHoldSecretSource(_:)`` made by the caller (off the main
+    /// actor): `subresourcesInsideRoots` false lets no `file:` subresource
+    /// load, inside the roots either.
+    public static func contentRules(roots: [String], subresourcesInsideRoots: Bool) -> [[String: Any]] {
         var rules: [[String: Any]] = []
-        func add(_ filter: String, _ action: String, caseSensitive: Bool = false) {
-            for var trigger in [
-                ["url-filter": filter, "resource-type": fileSubresources] as [String: Any],
-                ["url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"]],
-            ] {
+        func add(_ filter: String, _ action: String, caseSensitive: Bool = false, subresources: Bool = true) {
+            var triggers: [[String: Any]] = [["url-filter": filter, "resource-type": ["document"], "load-context": ["child-frame"]]]
+            if subresources { triggers.insert(["url-filter": filter, "resource-type": fileSubresources], at: 0) }
+            for var trigger in triggers {
                 if caseSensitive { trigger["url-filter-is-case-sensitive"] = true }
                 rules.append(["trigger": trigger, "action": ["type": action]])
             }
@@ -242,12 +263,26 @@ public struct BrowserReplFileSandbox: Sendable {
             let spelled = URL(fileURLWithPath: root, isDirectory: true).absoluteString
             guard spelled.hasPrefix("file:///") else { continue }
             let path = escapeForContentRule(String(spelled.dropFirst("file://".count)))
-            add("^file://" + path, "ignore-previous-rules", caseSensitive: true)
-            add("^file://localhost" + path, "ignore-previous-rules", caseSensitive: true)
+            add("^file://" + path, "ignore-previous-rules", caseSensitive: true, subresources: subresourcesInsideRoots)
+            add("^file://localhost" + path, "ignore-previous-rules", caseSensitive: true, subresources: subresourcesInsideRoots)
         }
         add("^file:.*%2[Ff]", "block")
         return rules
     }
+
+    /// Whether a file `secrets.load` protects may lie inside one of `roots`
+    /// (``BrowserReplSecretSources/mayHoldFile(under:)``), so that
+    /// ``contentRules(roots:)`` lets no `file:` subresource load there.
+    public static func rootsMayHoldSecretSource(_ roots: [String]) -> Bool {
+        BrowserReplSecretSources.shared.mayHoldFile(under: roots)
+    }
+
+    /// Posted when ``rootsMayHoldSecretSource(_:)`` may have changed for
+    /// some roots: `secretsLoad` protected another file, or a REPL
+    /// `fs.rename` ran while files are protected (it may have moved one
+    /// into a root). Posted on the thread that made the change, possibly
+    /// under ``pathChangeLock``: an observer only schedules its work.
+    public static let secretSourcesDidChange = Notification.Name("BrowserReplSecretSourcesDidChange")
 
     private static let fileSubresources = ["image", "style-sheet", "script", "font", "raw", "svg-document", "media", "ping", "fetch", "websocket", "other"]
 
@@ -482,6 +517,56 @@ final class BrowserReplSecretSources: @unchecked Sendable {
             }
             identities.insert(identity)
         }
+        if self === Self.shared {
+            NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+        }
+    }
+
+    /// Posts ``BrowserReplFileSandbox/secretSourcesDidChange`` when any
+    /// file is protected: a REPL `fs.rename` may have moved one into
+    /// another session's root.
+    func noteEntryMoved() {
+        guard lock.withLock({ !identities.isEmpty }) else { return }
+        NotificationCenter.default.post(name: BrowserReplFileSandbox.secretSourcesDidChange, object: nil)
+    }
+
+    /// Whether a protected file may lie inside one of `roots` (canonical
+    /// directories): a name of it is below a root, judged by the identity
+    /// of each directory above it, never by spelling. Fails closed (true)
+    /// when that cannot be told: a root that cannot be read, a file with
+    /// more than one hard link (only one of its names can be found), a
+    /// file whose volume id is not known, or one whose path the volume
+    /// does not name for a reason other than that it is gone.
+    func mayHoldFile(under roots: [String]) -> Bool {
+        let protected = lock.withLock { identities }
+        guard !protected.isEmpty else { return false }
+        var rootIdentities: Set<BrowserReplFileIdentity> = []
+        for root in roots {
+            guard let identity = BrowserReplFileIdentity(path: root) else { return true }
+            rootIdentities.insert(identity)
+        }
+        let devices = Set(rootIdentities.map(\.device))
+        for identity in protected where devices.contains(identity.device) {
+            guard let volume = identity.volume else { return true }
+            let found = BrowserReplFileIdentity.volumePathString(volume, identity.inode)
+            guard let path = found.path else {
+                if found.error == ENOENT { continue }
+                return true
+            }
+            var info = stat()
+            guard stat(path, &info) == 0, BrowserReplFileIdentity(info) == identity else {
+                // Removed or replaced since the volume named it.
+                if !identity.exists(lookup: volumeLookup) { continue }
+                return true
+            }
+            if info.st_nlink > 1 { return true }
+            var directory = path
+            while let slash = directory.lastIndex(of: "/"), directory != "/" {
+                directory = slash == directory.startIndex ? "/" : String(directory[..<slash])
+                if let above = BrowserReplFileIdentity(path: directory), rootIdentities.contains(above) { return true }
+            }
+        }
+        return false
     }
 
     /// Whether the file at `path` (links followed) is one `secrets.load` read.
@@ -551,10 +636,18 @@ struct BrowserReplFileIdentity: Hashable, Sendable {
     /// `fsgetpath` for the object `inode` on the volume `volume`: 0 when the
     /// volume names a path for it, else the `errno` it failed with.
     static func volumePath(_ volume: fsid_t, _ inode: UInt64) -> Int32 {
+        volumePathString(volume, inode).error
+    }
+
+    /// The path `fsgetpath` gives the object `inode` on the volume
+    /// `volume` (error 0), or nil and the `errno` it failed with.
+    static func volumePathString(_ volume: fsid_t, _ inode: UInt64) -> (path: String?, error: Int32) {
         var volume = volume
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
-        let length = buffer.withUnsafeMutableBufferPointer { fsgetpath($0.baseAddress, $0.count, &volume, inode) }
-        return length >= 0 ? 0 : errno
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) + 1)
+        let length = buffer.withUnsafeMutableBufferPointer { fsgetpath($0.baseAddress, $0.count - 1, &volume, inode) }
+        guard length >= 0 else { return (nil, errno) }
+        let bytes = buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }.prefix { $0 != 0 }
+        return (String(decoding: bytes, as: UTF8.self), 0)
     }
 }
 

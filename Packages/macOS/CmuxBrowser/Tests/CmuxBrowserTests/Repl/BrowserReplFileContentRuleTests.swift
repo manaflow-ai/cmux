@@ -170,3 +170,63 @@ struct BrowserReplFailClosedRuleTests {
         #expect(during == 0, "a load ran under the previous rules while the new ones compiled")
     }
 }
+
+/// Which roots lose their `file:` subresources while files are protected
+/// (``BrowserReplSecretSources/mayHoldFile(under:)``): judged by directory
+/// identity, failing closed where a name cannot be found.
+@Suite("Browser REPL roots that may hold a protected file")
+struct BrowserReplSecretSourceRootTests {
+    typealias Scratch = BrowserReplFileSandboxTests.Scratch
+
+    @Test("A root holds a protected file below it or another hard link of it; another root does not")
+    func rootsThatHoldAProtectedFile() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        let sources = BrowserReplSecretSources()
+        let other = scratch.base + "/other"
+        try manager.createDirectory(atPath: scratch.root + "/deep/er", withIntermediateDirectories: true)
+        try manager.createDirectory(atPath: other, withIntermediateDirectories: true)
+        try Data("A=1".utf8).write(to: URL(fileURLWithPath: scratch.root + "/deep/er/.env"))
+        #expect(!sources.mayHoldFile(under: [scratch.root]), "no file is protected")
+
+        try sources.protect(try #require(BrowserReplFileIdentity(path: scratch.root + "/deep/er/.env")))
+        #expect(sources.mayHoldFile(under: [scratch.root]))
+        #expect(sources.mayHoldFile(under: [scratch.root + "/deep"]))
+        #expect(!sources.mayHoldFile(under: [other]), "a root that holds no name of the file")
+        #expect(!sources.mayHoldFile(under: [scratch.outside, other]))
+
+        // Another hard link: only one name can be found, so every root on
+        // the volume may hold it.
+        try manager.linkItem(atPath: scratch.root + "/deep/er/.env", toPath: scratch.root + "/hard.env")
+        #expect(sources.mayHoldFile(under: [other]))
+        try manager.removeItem(atPath: scratch.root + "/hard.env")
+
+        // Moved out of the root: the root no longer holds it, the new one does.
+        try manager.moveItem(atPath: scratch.root + "/deep/er/.env", toPath: other + "/.env")
+        #expect(!sources.mayHoldFile(under: [scratch.root]))
+        #expect(sources.mayHoldFile(under: [other]))
+
+        // Removed: nothing holds it.
+        try manager.removeItem(atPath: other + "/.env")
+        #expect(!sources.mayHoldFile(under: [other]))
+    }
+
+    @Test("Rules for a root without a protected file still load its subresources; with one, none")
+    func rulesFollowTheRoots() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let sources = BrowserReplSecretSources()
+        try Data("A=1".utf8).write(to: URL(fileURLWithPath: scratch.root + "/.env"))
+        try sources.protect(try #require(BrowserReplFileIdentity(path: scratch.root + "/.env")))
+        let allowsSubresources = { (roots: [String]) in
+            BrowserReplFileSandbox.contentRules(roots: roots, secretSources: sources).contains { rule in
+                let trigger = rule["trigger"] as? [String: Any]
+                let action = rule["action"] as? [String: Any]
+                return action?["type"] as? String == "ignore-previous-rules" && trigger?["load-context"] == nil
+            }
+        }
+        #expect(!allowsSubresources([scratch.root]))
+        #expect(allowsSubresources([scratch.outside]))
+    }
+}
