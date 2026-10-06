@@ -158,8 +158,9 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
     /// the idle timer.
     /// - Parameter owner: The calling client's owner token for a session
     ///   only it may use, or nil for a named session any client shares. A
-    ///   live session is returned only to a caller with its token (nil for
-    ///   one made without).
+    ///   live session is returned, and one that ended by itself but is not
+    ///   yet removed is made again, only for a caller with its token (nil
+    ///   for one made without).
     /// - Throws: ``Refusal``.
     public func session(
         for key: BrowserReplSessionKey,
@@ -212,12 +213,16 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             lock.unlock()
             throw Refusal.ownerOnSharedName
         }
+        // A session that ended by itself (its JavaScript heap passed its
+        // limit) stays here, closed, until its idle timer removes it, and
+        // its name stays its owner's until then: only the same token makes
+        // the next session under it.
+        if sessions[key] != nil, owners[key] != owner {
+            lock.unlock()
+            throw Refusal.ownedByAnotherClient
+        }
         let session: BrowserReplSession
         if let existing = sessions[key], !existing.isClosed {
-            guard owners[key] == owner else {
-                lock.unlock()
-                throw Refusal.ownedByAnotherClient
-            }
             session = existing
         } else {
             let live = sessions.filter { !$0.value.isClosed }
@@ -232,7 +237,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             session = make(key)
             // A session that ended by itself (its JavaScript heap passed
             // its limit) tells the next one of its name, for the same client.
-            if let ended = sessions[key], owners[key] == owner, let reason = ended.endedReason {
+            if let ended = sessions[key], let reason = ended.endedReason {
                 session.noteBeforeNextCell("cmux browser repl: this is a new session; the last one named '\(key.name)' ended: \(reason)")
             }
             sessions[key] = session

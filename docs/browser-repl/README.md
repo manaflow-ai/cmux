@@ -464,7 +464,10 @@ rest. Measurements: [performance.md](performance.md).
   sends a random owner token with every call, and without that token no
   other client sees it in `cmux browser repl list`, attaches to it or
   resets it, also when it knows the name or the client was killed before
-  its session ended (it then idles out after 30 minutes). Named sessions
+  its session ended (it then idles out after 30 minutes). When such a
+  session ends by itself (its heap limit), its name stays its client's
+  until it idles out: only that token makes the next session under it.
+  Named sessions
   are shared by name: an owner token is taken only with a client-made
   name (`cli-`, `mcp-`, `oneshot-`), and one sent with any other name is
   refused, so no client can hide a shared name from the others. An owner token is at most 128 bytes and a working
