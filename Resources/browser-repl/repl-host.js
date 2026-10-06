@@ -473,13 +473,24 @@
     if (typeof host.fetch === "function") {
       guarded.fetch = { value: (...args) => (isCancelledWork() ? Promise.reject(cancelledError("fetch")) : host.fetch(...args)) };
     }
-    const gatedHost = Object.create(host, {
-      print: { value: gatedPrint },
-      console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }) },
+    // The raw host and driver stay in this closure. Agent code reaches only
+    // these frozen copies, whose prototype is Object.prototype, so a
+    // cancelled cell cannot call a raw capability around the check
+    // (Object.getPrototypeOf on a wrapper finds nothing callable).
+    const ownSurface = (raw, overrides) => {
+      const descriptors = {};
+      for (const [name, d] of Object.entries(Object.getOwnPropertyDescriptors(raw))) {
+        descriptors[name] = d.get ? { get: () => d.get.call(raw), enumerable: d.enumerable } : { value: d.value, enumerable: d.enumerable };
+      }
+      return Object.freeze(Object.defineProperties({}, { ...descriptors, ...overrides }));
+    };
+    const gatedHost = ownSurface(host, {
+      print: { value: gatedPrint, enumerable: true },
+      console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }), enumerable: true },
       ...guarded,
     });
-    const guardedDriver = Object.create(driver, {
-      call: { value: (method, params) => (isCancelledWork() ? Promise.reject(cancelledError(method)) : driver.call(method, params)) },
+    const guardedDriver = ownSurface(driver, {
+      call: { value: (method, params) => (isCancelledWork() ? Promise.reject(cancelledError(method)) : driver.call(method, params)), enumerable: true },
     });
     const session = new core.Session({ driver: guardedDriver, host: gatedHost });
     const api = ns.api.createGlobals(session, gatedHost);
