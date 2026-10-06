@@ -263,7 +263,9 @@ Rules, and how they improve on the references:
 - **Diff** lines are `+ ` added, `- ` removed and `~ ` changed, each change
   preceded by its unchanged ancestor lines (two-space prefix) as context so
   it is locatable. A changed line (matched by ref, else role and name)
-  prints once, as its new version. Reference B omits ancestors; reference A prints
+  prints once, as its new version. Only the `[ref=…]` cmux puts after an
+  element's role and name counts as its ref: page text that reads
+  `[ref=e1]` (a text line, a name, a value) never pairs with an element. Reference B omits ancestors; reference A prints
   bare `@@` hunks. The diff anchors on lines that occur once in both trees
   (refs make most element lines unique) and runs a bounded Myers diff
   between anchors, so it is near-linear: a 100,000-line tree with one change

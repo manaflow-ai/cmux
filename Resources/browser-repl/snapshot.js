@@ -743,11 +743,20 @@
     return out;
   }
 
+  // A line's ref: only where nodeHead() puts one, after the role, the
+  // header mark and the quoted name. Page text (a text line, a quoted name
+  // or value) can read "[ref=e1]" too, and is never taken for one.
+  const REF_HEAD = /^ *- [\w-]+(?: \[header\])?(?: "(?:[^"\\]|\\.)*")? \[ref=(\w+)\]/;
+  function lineRef(line) {
+    const ref = REF_HEAD.exec(line);
+    return ref ? ref[1] : null;
+  }
+
   // Identity of a snapshot line across a change: its ref, else its indent,
   // role and name. Unnamed lines without a ref have none.
   function lineKey(line) {
-    const ref = /\[ref=(\w+)\]/.exec(line);
-    if (ref) return ref[1];
+    const ref = lineRef(line);
+    if (ref) return ref;
     const m = /^( *- [\w-]+ "(?:[^"\\]|\\.)*")/.exec(line);
     return m ? m[1] : null;
   }
@@ -774,7 +783,7 @@
         ancestors.push(line);
         continue;
       }
-      if ((line.startsWith("+ ") || line.startsWith("~ ")) && !/\[ref=/.test(body) && !/:$/.test(body)) {
+      if ((line.startsWith("+ ") || line.startsWith("~ ")) && !lineRef(body) && !/:$/.test(body)) {
         out.push(...ancestors, line);
         ancestors = [];
       }
