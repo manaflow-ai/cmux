@@ -22,7 +22,7 @@ fn a_zoom_whose_end_overflows_is_refused_and_leaves_the_chat_usable() {
 }
 
 #[test]
-fn the_log_and_the_tree_are_private_to_the_user() {
+fn the_memory_and_its_export_are_private_to_the_user() {
     let dir = tempfile::tempdir().unwrap();
     let chat_dir = dir.path().join("chat");
     let chat = open(&chat_dir, 128_000, instant(200));
@@ -30,8 +30,18 @@ fn the_log_and_the_tree_are_private_to_the_user() {
     assert!(chat.wait_idle(None, WAIT));
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&chat_dir), 0o700);
+    for f in std::fs::read_dir(&chat_dir).unwrap() {
+        let path = f.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if name.starts_with(DB_FILE) {
+            assert_eq!(mode(&path), 0o600, "{name}");
+        }
+    }
+    let reader = optchat_host::db::ReadOnly::open(&chat_dir.join(DB_FILE)).unwrap();
+    let export = dir.path().join("export");
+    reader.export_text(&export).unwrap();
     for stream in ["main", "tree"] {
-        let d = chat_dir.join(stream);
+        let d = export.join(stream);
         assert_eq!(mode(&d), 0o700, "{stream}/");
         for f in std::fs::read_dir(&d).unwrap() {
             assert_eq!(mode(&f.unwrap().path()), 0o600, "{stream} file");

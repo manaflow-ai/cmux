@@ -572,3 +572,127 @@ fn a_cut_request_knows_its_room() {
         "a line that uses all its room fits exactly"
     );
 }
+
+/// `drain` for a lazy memory: completions go through `complete_in`.
+fn drain_in(memory: &mut Memory, store: &Mem) {
+    loop {
+        let work = memory.pump(store);
+        if work.is_empty() {
+            return;
+        }
+        for w in work {
+            match w {
+                Work::Free { node, text } => {
+                    store.nodes.borrow_mut().insert(node, text);
+                }
+                Work::Model { node } => {
+                    let text = fake_summary(node);
+                    store.nodes.borrow_mut().insert(node, text.clone());
+                    memory.complete_in(node, &text, store);
+                }
+            }
+        }
+    }
+}
+
+/// The nodes at or above each level's `low` of a checkpoint: what a host
+/// reads by key range at start, instead of every node.
+fn frontier(store: &Mem, checkpoint: &Checkpoint) -> Vec<(NodeId, usize)> {
+    store
+        .nodes
+        .borrow()
+        .iter()
+        .filter(|(id, _)| id.i >= checkpoint.low.get(id.l as usize).copied().unwrap_or(0))
+        .map(|(id, t)| (*id, t.len()))
+        .collect()
+}
+
+#[test]
+fn a_resumed_memory_is_the_live_one_and_keeps_only_the_views_sizes() {
+    let mut rng = Rng(11);
+    let store = Mem::default();
+    let mut live = Memory::new(20_000);
+    for _ in 0..3_000 {
+        let (kind, text) = message(&mut rng);
+        store.push(kind, text);
+        live.append();
+        drain(&mut live, &store);
+    }
+    let checkpoint = live.checkpoint();
+    let from = frontier(&store, &checkpoint);
+    // Nothing near 2T nodes is read: only the out-of-order tail.
+    assert!(from.len() < 64, "{} frontier nodes", from.len());
+    let mut lazy = Memory::resume(&checkpoint, live.len(), from, 20_000, &store).unwrap();
+    assert!(lazy.is_lazy());
+    assert_eq!(lazy.view(), live.view());
+    assert_eq!(lazy.view_size(), live.view_size());
+    // Both go on with the same messages and builds and stay equal.
+    for _ in 0..1_000 {
+        let (kind, text) = message(&mut rng);
+        store.push(kind, text);
+        live.append();
+        drain(&mut live, &store);
+        lazy.append_in(&store);
+        drain_in(&mut lazy, &store);
+        assert_eq!(lazy.view(), live.view());
+        assert_eq!(lazy.view_size(), live.view_size());
+        assert_eq!(lazy.settled(), live.settled());
+    }
+    assert_tiles(&lazy);
+}
+
+#[test]
+fn a_stale_checkpoint_folds_the_tail_as_a_load_does() {
+    let mut rng = Rng(5);
+    let store = Mem::default();
+    let mut live = Memory::new(20_000);
+    let mut checkpoint = None;
+    for step in 0..2_500 {
+        let (kind, text) = message(&mut rng);
+        store.push(kind, text);
+        live.append();
+        drain(&mut live, &store);
+        if step == 2_200 {
+            checkpoint = Some(live.checkpoint());
+        }
+    }
+    let checkpoint = checkpoint.unwrap();
+    let sizes: Vec<(NodeId, usize)> = store
+        .nodes
+        .borrow()
+        .iter()
+        .map(|(k, v)| (*k, v.len()))
+        .collect();
+    let loaded = Memory::load(live.len(), sizes, 20_000);
+    let from = frontier(&store, &checkpoint);
+    let resumed = Memory::resume(&checkpoint, live.len(), from, 20_000, &store).unwrap();
+    assert_eq!(resumed.len(), live.len());
+    assert_tiles(&resumed);
+    assert_eq!(resumed.view(), loaded.view());
+    assert_eq!(resumed.view_size(), loaded.view_size());
+}
+
+#[test]
+fn a_checkpoint_that_does_not_fit_the_store_is_refused() {
+    let store = Mem::default();
+    let mut memory = Memory::new(VIEW);
+    for n in 0..8 {
+        store.push(Kind::User, format!("m{n}"));
+        memory.append();
+        drain(&mut memory, &store);
+    }
+    let good = memory.checkpoint();
+    // More messages than the store holds.
+    assert!(Memory::resume(&good, 4, Vec::new(), VIEW, &store).is_none());
+    // A gap in the view.
+    let mut gap = good.clone();
+    gap.view.remove(1);
+    assert!(Memory::resume(&gap, 8, Vec::new(), VIEW, &store).is_none());
+    // A merged part the store does not have.
+    let missing = Checkpoint {
+        t: 8,
+        low: vec![8],
+        view: vec![NodeId::new(3, 0)],
+    };
+    assert!(Memory::resume(&missing, 8, Vec::new(), VIEW, &store).is_none());
+}
