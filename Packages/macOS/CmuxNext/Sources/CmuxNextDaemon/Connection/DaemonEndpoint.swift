@@ -72,6 +72,10 @@ public struct DaemonCapabilities: Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public let terminalReap = "terminal-reap-v1"
+    /// The owner's reaper runs now (started with a reap grace, as the app
+    /// starts it), so a detached terminal ends after the grace period. An
+    /// owner started without a grace does not serve it.
+    public let terminalReaperActive = "terminal-reaper-active-v1"
     /// `keep_layout` on `shutdown-daemon end_terminals`: every terminal ends
     /// but placed ones keep their tabs, dead, so the next launch restarts a
     /// shell in each with the same splits (Quit's End Sessions, Keep Layout).
@@ -215,7 +219,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
