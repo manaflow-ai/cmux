@@ -113,6 +113,60 @@ struct BrowserReplSecretSourceBoundTests {
     }
 }
 
+/// r19 entry#1: a file `secrets.load` read holds values only the loading
+/// session can mask, and the protection is app-wide. So no session's `fs`
+/// reads it (`readFile`, `copyFile` from it), the loading session's
+/// neither: only `secrets.load` reads it. Its metadata (`stat`, `readdir`)
+/// stays readable.
+@Suite("Browser REPL secret source fs reads", .serialized)
+struct BrowserReplSecretSourceReadTests {
+    private static let value = "s0urce-read-9917"
+
+    private func makeSession(cwd: String) throws -> BrowserReplSession {
+        let bundle = try browserReplRepositoryBundle()
+        return BrowserReplSession(id: "secret-source-\(UUID().uuidString)", cwd: cwd, bundle: bundle, driver: ScriptedPageDriver())
+    }
+
+    private func run(_ session: BrowserReplSession, _ code: String) async -> String {
+        let result = await browserReplWithDeadline(seconds: 60) { await session.evaluate(code: code, timeout: .seconds(30)) }
+        return (result?.lines.map(\.text) ?? []).joined(separator: "\n") + (result?.error.map { "\nerror: \($0)" } ?? "")
+    }
+
+    @Test("No session's fs reads or copies a file secrets.load read; stat and readdir still work")
+    func protectedSourceIsUnreadableThroughFs() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-source-read-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        let loader = try makeSession(cwd: work.path)
+        defer { loader.close() }
+        let other = try makeSession(cwd: work.path)
+        defer { other.close() }
+        let probe = """
+        const fs = await import("node:fs");
+        const attempt = (label, f) => { try { const r = f(); console.log(label, "ok", typeof r === "string" ? r.split("").join(" ") : String(r)); } catch (e) { console.log(label, "refused", e.code, e.message); } };
+        attempt("read", () => fs.readFileSync("./secrets.json", "utf8"));
+        attempt("copy", () => fs.copyFileSync("./secrets.json", "./copy-" + Math.random().toString(36).slice(2) + ".json"));
+        attempt("stat", () => fs.statSync("./secrets.json").size > 0);
+        attempt("readdir", () => fs.readdirSync(".").includes("secrets.json"));
+        """
+        let loaded = await run(loader, """
+        secrets.load("./secrets.json");
+        \(probe)
+        """)
+        let cross = await run(other, probe)
+        for (label, output) in [("loading session", loaded), ("other session", cross)] {
+            #expect(!output.contains(Self.value.map(String.init).joined(separator: " ")), "\(label) read the secret: \(output)")
+            #expect(output.contains("read refused denied"), "\(label): \(output)")
+            #expect(output.contains("copy refused denied"), "\(label): \(output)")
+            #expect(output.contains("secrets.load"), "\(label): the refusal does not name secrets.load: \(output)")
+            #expect(output.contains("stat ok true") && output.contains("readdir ok true"), "\(label): \(output)")
+        }
+        let copies = try FileManager.default.contentsOfDirectory(atPath: work.path).filter { $0.contains("copy") }
+        #expect(copies.isEmpty, "a copy of the secrets file was written: \(copies)")
+    }
+}
+
 /// A value one thread sets and another reads after a semaphore.
 private final class NavigationOutcome: @unchecked Sendable {
     private let lock = NSLock()
