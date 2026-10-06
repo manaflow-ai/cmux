@@ -40,13 +40,13 @@ extension GhosttyRuntime {
             let url = URL(fileURLWithPath: value).standardizedFileURL
             return value.isEmpty ? nil : url
         } ?? homeDirectory.appending(path: ".config")
-        let ghosttyDirectory = configHome.appending(path: "ghostty", isDirectory: true)
+        let ghosttyDirectory = configHome.appendingPathComponent("ghostty", isDirectory: true)
         var paths = [
             ghosttyDirectory.appending(path: "config").path,
             ghosttyDirectory.appending(path: "config.ghostty").path,
         ]
         if let applicationSupportDirectory {
-            let native = applicationSupportDirectory.appending(path: "com.mitchellh.ghostty", isDirectory: true)
+            let native = applicationSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
             paths += [native.appending(path: "config").path, native.appending(path: "config.ghostty").path]
         }
         return paths

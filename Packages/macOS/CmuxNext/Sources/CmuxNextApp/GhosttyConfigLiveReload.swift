@@ -10,7 +10,7 @@ final class GhosttyConfigLiveReload {
     private let reload: @MainActor () -> Void
     private let notifications: NotificationCenter
     private var watchers: [ConfigFileWatcher] = []
-    private var reloadTask: Task<Void, Never>?
+    private var reloadTimer: DispatchSourceTimer?
     private var observer: (any NSObjectProtocol)?
     private var started = false
 
@@ -25,7 +25,7 @@ final class GhosttyConfigLiveReload {
     }
 
     isolated deinit {
-        reloadTask?.cancel()
+        reloadTimer?.cancel()
         if let observer { notifications.removeObserver(observer) }
         watchers.forEach { $0.stop() }
     }
@@ -34,15 +34,15 @@ final class GhosttyConfigLiveReload {
         guard !started else { return }
         started = true
         observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rearm() }
+            Task { @MainActor in self?.rearm() }
         }
         rearm()
     }
 
     func stop() {
         started = false
-        reloadTask?.cancel()
-        reloadTask = nil
+        reloadTimer?.cancel()
+        reloadTimer = nil
         watchers.forEach { $0.stop() }
         watchers.removeAll()
         if let observer {
@@ -64,14 +64,20 @@ final class GhosttyConfigLiveReload {
     }
 
     private func requestReload() {
-        guard started, reloadTask == nil else { return }
+        guard started, reloadTimer == nil else { return }
         // Atomic saves touch the file and its include directory. Coalesce the
         // burst, then let libghostty resolve the complete latest file graph.
-        reloadTask = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .milliseconds(75)) } catch { return }
-            guard let self, self.started else { return }
-            self.reloadTask = nil
-            self.reload()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .milliseconds(75))
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor in
+                guard let self, self.started else { return }
+                self.reloadTimer?.cancel()
+                self.reloadTimer = nil
+                self.reload()
+            }
         }
+        reloadTimer = timer
+        timer.resume()
     }
 }

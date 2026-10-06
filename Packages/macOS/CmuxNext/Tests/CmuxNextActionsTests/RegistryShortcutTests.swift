@@ -83,7 +83,7 @@ import Testing
         }
 
         for (key, action) in [("h", "focusLeft"), ("l", "focusRight"), ("k", "focusUp"), ("j", "focusDown")] {
-            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .command]))?.command == action)
+            #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .command]))?.command.rawValue == action)
             #expect(registry.keyWinner(Shortcut(key, modifiers: [.control, .shift])) == nil)
             #expect(registry.keyWinner(Shortcut(key, modifiers: [.option, .command])) == nil)
         }

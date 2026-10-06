@@ -58,7 +58,7 @@ struct GhosttyConfigLiveReloadTests {
 
     @Test func candidatePathsIncludeXDGAndApplicationSupport() {
         let home = URL(fileURLWithPath: "/tmp/cmux-home")
-        let appSupport = home.appending(path: "Library/Application Support", isDirectory: true)
+        let appSupport = home.appendingPathComponent("Library/Application Support", isDirectory: true)
         let paths = GhosttyRuntime.defaultConfigCandidatePaths(
             homeDirectory: home,
             applicationSupportDirectory: appSupport,
