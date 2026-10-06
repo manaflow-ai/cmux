@@ -5696,6 +5696,17 @@
             "kind": "primitive",
             "name": "uint32"
           }
+        },
+        "top_index": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "personal-mixed-order-v1: the index of the personal workspace the group shows right before, or null for after every loose workspace. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -18625,7 +18636,20 @@
           "machine": "required",
           "session": "required"
         },
-        "fields": {},
+        "fields": {
+          "order": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "session",
+                "personal"
+              ]
+            },
+            "default": "session",
+            "description": "personal-mixed-order-v1. session: the session's workspace order. personal: the personal sidebar order (loose workspaces, and each group's members at the group's place), then this session's workspaces without a personal row in session order."
+          }
+        },
         "extra": false
       },
       "result": {
@@ -19386,6 +19410,17 @@
             },
             "description": "Moves the group and pins its workspaces to this room."
           },
+          "top_index": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "uint32"
+              }
+            },
+            "description": "personal-mixed-order-v1: the group's place among the loose workspaces, as the index (workspace.placement.list index) of the personal workspace it shows right before; the count or more puts it after every workspace. null puts it after every loose workspace (the order before mixed order). A group shows before a loose workspace at the same place."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -19397,7 +19432,8 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, collapsed, or room is present."
+          "At least one of name, color, collapsed, room, or top_index is present.",
+          "A top_index at or before the home workspace's index is refused with home.pinned_first."
         ]
       },
       "result": {
@@ -19411,6 +19447,7 @@
         ]
       },
       "errors": [
+        "home.pinned_first",
         "idempotency.conflict",
         "operation.failed",
         "origin.forbidden",

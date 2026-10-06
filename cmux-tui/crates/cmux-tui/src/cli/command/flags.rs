@@ -51,4 +51,5 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-browser-profile",
     "clear-default-session",
     "clear-zoom",
+    "clear-top-index",
 ];

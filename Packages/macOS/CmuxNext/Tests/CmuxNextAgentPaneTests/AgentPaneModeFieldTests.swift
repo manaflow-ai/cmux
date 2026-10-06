@@ -41,6 +41,18 @@ import Testing
         rig.server.peers.last?.frames.contains { $0.contains(needle) } == true
     }
 
+    /// The pane learns that handoff `h` is from its session `s` (the daemon's record names its
+    /// source), so its draft and start follow the rules of a session in scope.
+    func learnHandoff(_ rig: Rig) async {
+        rig.server.answer("_acpmux/handoff_get", with: #"{"handoffId":"h","source":{"sessionId":"s"}}"#)
+        #expect(await rig.send("_acpmux/handoff_get", ["handoffId": "h"], ticket: nil) == nil)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline, !rig.transport.sessions.holdsSource(["handoffId": "h"]) {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(rig.transport.sessions.holdsSource(["handoffId": "h"]))
+    }
+
     @Test func aModeFieldOnAnyOtherMethodIsRefused() async throws {
         let rig = Rig()
         try await rig.start()
@@ -57,6 +69,7 @@ import Testing
         #expect(!daemonSaw(rig, "bypassPermissions"))
         // The same frames with no mode field pass (session/new is left out: its cwd rules are not
         // this test's).
+        await learnHandoff(rig)
         for (method, params) in Self.methods.dropFirst() {
             #expect(await rig.send(method, params, ticket: nil) == nil, "\(method)")
         }
@@ -101,6 +114,7 @@ import Testing
         #expect(await rig.send("_acpmux/prewarm", ["harness": "claude", "mode": "x"], ticket: nil) == .intentInvalid)
         #expect(!daemonSaw(rig, "yolo"))
         // What the pane really sends passes.
+        await learnHandoff(rig)
         for (method, params) in Self.methods.dropFirst() {
             #expect(await rig.send(method, params, ticket: nil) == nil, "\(method)")
         }

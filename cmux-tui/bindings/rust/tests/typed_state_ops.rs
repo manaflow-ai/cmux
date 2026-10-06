@@ -401,6 +401,16 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         );
         mutation_ok(stream, &update, group_snapshot("Deep work", Value::Null, true, 0));
 
+        let slot = request(reader, "workspace_group.update");
+        assert_eq!(
+            slot["params"],
+            json!({"machine": "current", "session": SESSION, "workspace_group": GROUP,
+                   "top_index": 3})
+        );
+        let mut placed = group_snapshot("Deep work", Value::Null, true, 0);
+        placed["top_index"] = json!(3);
+        mutation_ok(stream, &slot, placed);
+
         let moved = request(reader, "workspace_group.move");
         assert_eq!(
             moved["params"],
@@ -444,9 +454,16 @@ fn workspace_groups_create_update_move_delete_send_the_catalog_fields() {
         color: Update::Clear,
         collapsed: Some(true),
         room: None,
+        top_index: Update::Unchanged,
     };
     let updated = session.update_workspace_group(GROUP, update).unwrap().value;
     assert_eq!((updated.name.as_str(), updated.collapsed), ("Deep work", true));
+    assert_eq!(updated.top_index, None, "a snapshot without top_index decodes");
+    let slot = WorkspaceGroupUpdateOptions {
+        top_index: Update::Set(3),
+        ..WorkspaceGroupUpdateOptions::default()
+    };
+    assert_eq!(session.update_workspace_group(GROUP, slot).unwrap().value.top_index, Some(3));
     assert_eq!(session.move_workspace_group(GROUP, 2).unwrap().value.index, 1);
     let deleted = session.delete_workspace_group(GROUP).unwrap().value;
     assert_eq!(deleted.ungrouped.len(), 2);

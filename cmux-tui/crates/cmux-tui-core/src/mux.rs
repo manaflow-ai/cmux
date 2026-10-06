@@ -16123,12 +16123,11 @@ impl Mux {
         {
             return false;
         }
+        // A kept tab (keep-layout) has no surface after a restart; its tree
+        // entry still carries the renamed tab.
         let notifications = self.tree_decorations();
         let delta = {
             let state = self.state.lock().unwrap();
-            if !state.surfaces.contains_key(&target) {
-                return false;
-            }
             (|| {
                 let pane = state.pane_of(target)?;
                 let (wi, si) = state.screen_of(pane)?;
@@ -21395,7 +21394,12 @@ mod tests {
         assert!(!changes.is_empty());
         for (sequence, change) in changes.iter().enumerate() {
             assert_eq!(change["sequence"], sequence);
-            assert!(matches!(change["kind"].as_str(), Some("upsert" | "delete")));
+            // A creation also carries the new workspace's personal placement.
+            assert!(matches!(
+                (change["kind"].as_str(), change["resource"].as_str()),
+                (Some("upsert" | "delete"), _)
+                    | (Some("state_upsert"), Some("workspace_placement"))
+            ));
             assert!(change["resource"].is_string());
             assert!(change["id"].is_string());
             assert!(change.get("event").is_none());

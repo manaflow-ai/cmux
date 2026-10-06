@@ -22,6 +22,8 @@ pub mod client;
 pub mod clock;
 pub mod config;
 pub mod daemon;
+#[cfg(test)]
+mod git_short_sha;
 pub mod hub;
 pub mod login_env;
 pub mod native;
@@ -31,6 +33,8 @@ pub mod schema;
 pub mod server;
 pub mod session_name;
 pub mod sha256;
+#[cfg(test)]
+mod source_date_epoch;
 pub mod store;
 pub mod transcript;
 pub mod trust;
