@@ -82,6 +82,11 @@ class Eligibility(unittest.TestCase):
         self.assertIn("older than", self.reason(pr(1, committed_at="2026-09-20T00:00:00Z")))
         self.assertEqual(self.reason(pr(1, head_ref="next-batch/1-1")), "a batch integration branch")
 
+    def test_workflow_changes_land_by_hand(self):
+        # GitHub refuses the job token's push or merge of a workflow change.
+        self.assertIn("lands by hand", self.reason(pr(1, files=[".github/workflows/cmux-next.yml"])))
+        self.assertIsNone(self.reason(pr(1, files=["scripts/ci/x.py"])))
+
     def test_other_authors_opt_in_with_a_label(self):
         self.assertIn("has not opted in", self.reason(pr(1, author="lawrencecchen")))
         self.assertIsNone(self.reason(pr(1, author="lawrencecchen", labels=["batch-queue"])))
@@ -307,6 +312,11 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(checkout["with"]["ref"], "feat-cmux-next")
         self.assertFalse(checkout["with"]["persist-credentials"])
         self.assertIn("head.repo.full_name == github.repository", self.jobs["debounce"]["if"])
+
+    def test_debounce_dispatches_only_when_enabled(self):
+        step = self.jobs["debounce"]["steps"][-1]
+        self.assertEqual(step["env"]["ENABLED"], "${{ vars.CMUX_NEXT_BATCH_ENABLED }}")
+        self.assertIn('[[ "$ENABLED" == 1 ]]', step["run"])
 
     def test_batch_checkout_keeps_the_token_out_of_git_config(self):
         checkout = self.jobs["batch"]["steps"][0]

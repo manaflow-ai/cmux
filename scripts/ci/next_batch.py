@@ -219,6 +219,7 @@ class PullRequest:
     author_association: str = "MEMBER"
     committed_at: str = ""
     author: str = ""
+    files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
 
     def short(self) -> str:
@@ -232,6 +233,7 @@ query($owner: String!, $name: String!, $base: String!) {
       nodes {
         number title url isDraft headRefName headRefOid authorAssociation
         author { login }
+        files(first: 100) { nodes { path } }
         isCrossRepository
         labels(first: 30) { nodes { name } }
         commits(last: 1) { nodes { commit {
@@ -270,6 +272,7 @@ def open_prs(gh: GitHub) -> list[PullRequest]:
             draft=node["isDraft"], same_repo=not node["isCrossRepository"],
             author_association=node["authorAssociation"], committed_at=commit.get("committedDate", ""),
             author=(node.get("author") or {}).get("login", ""),
+            files=[item["path"] for item in (node.get("files") or {}).get("nodes") or []],
             checks=checks,
         ))
     return prs
@@ -305,6 +308,10 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
         return "a batch integration branch"
     if pr.author not in authors and OPT_IN not in pr.labels:
         return f"author {pr.author or '?'} has not opted in (label {OPT_IN})"
+    # The job token can neither push nor merge a workflow change (GitHub
+    # requires the `workflows` permission), so those PRs land by hand.
+    if any(path.startswith(".github/workflows/") for path in pr.files):
+        return "changes .github/workflows (lands by hand)"
     held = sorted(label for label in pr.labels if label.lower() in HOLD_LABELS)
     if held:
         return "label " + ", ".join(held)

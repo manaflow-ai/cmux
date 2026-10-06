@@ -86,11 +86,14 @@ jobs:
       - name: Wait for quiet, then dispatch a batch
         env:
           GH_TOKEN: ${{ github.token }}
+          ENABLED: ${{ vars.CMUX_NEXT_BATCH_ENABLED }}
           REASON: ${{ github.event_name == 'push' && 'feat-cmux-next moved' || format('#{0} {1}', github.event.pull_request.number, github.event.action) }}
         run: |
           set -euo pipefail
           # Until the queue itself lands, feat-cmux-next has no controller.
           [[ -f scripts/ci/next_batch.py ]] || { echo "no batch controller on feat-cmux-next yet"; exit 0; }
+          # The queue's off switch: only the repository variable turns it on.
+          [[ "$ENABLED" == 1 ]] || { echo "CMUX_NEXT_BATCH_ENABLED is not 1; not dispatching"; exit 0; }
           python3 scripts/ci/next_batch.py debounce --reason "$REASON"
 
   batch:
