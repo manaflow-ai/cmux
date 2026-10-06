@@ -539,7 +539,11 @@ rest. Measurements: [performance.md](performance.md).
   use an input's gesture that long). An agent's click, the page's own link
   activation (`a.click()`, also from agent-world code), or one in the 11 s
   after a session's input, in a tab sessions drive (and any link in a tab a
-  session created) loads in the tab instead, under its guards.
+  session created) loads in the tab instead, under its guards. The same
+  rule decides every way a link leaves the browser: the system-browser
+  rule, a signed-in cmux app link (which opens a split) and another app's
+  URL scheme (`mailto:`, `intent:`), which opens nothing (no prompt) and
+  reaches the sessions as `navigation.blocked`.
   The domain policy there only refuses the session's reads and input while
   the tab, or a frame of it, shows a blocked page (the console messages and
   page errors of a main frame the policy blocks do not reach the session

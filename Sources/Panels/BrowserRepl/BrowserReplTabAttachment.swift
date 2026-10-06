@@ -372,16 +372,16 @@ final class BrowserReplTabAttachment {
         return false
     }
 
-    /// Whether a link activated in this tab may go to the user's configured
-    /// external browser
-    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
-    /// always in a tab no session drives; in one a session drives, only an
-    /// activation WebKit marks as the user's gesture in a user's tab the
-    /// user is working in, while no session's input runs or may still lend
-    /// the page its gesture.
-    func handsLinkToExternalBrowser(isUserInitiated: Bool) -> Bool {
-        guard isAttached else { return true }
-        return ownership.handsLinkToExternalBrowser(
+    /// What a link activated in this tab that would leave the browser for
+    /// `target` does (``BrowserReplTabOwnership/externalDecision(_:_:now:)``):
+    /// it leaves always in a tab no session drives; in one a session
+    /// drives, only for an activation WebKit marks as the user's gesture in
+    /// a user's tab the user is working in, while no session's input runs
+    /// or may still lend the page its gesture.
+    func externalDecision(_ target: BrowserReplExternalTarget, isUserInitiated: Bool) -> BrowserReplExternalDecision {
+        guard isAttached else { return .handOff }
+        return ownership.externalDecision(
+            target,
             BrowserReplLinkActivation(userIsWorkingInTab: !opensPopupsInBackground, isUserInitiated: isUserInitiated),
             now: .now
         )
