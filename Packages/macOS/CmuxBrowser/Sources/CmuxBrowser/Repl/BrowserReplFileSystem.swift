@@ -315,8 +315,10 @@ public struct BrowserReplFileSystem: Sendable {
                 } else {
                     try copyData(from: source, to: copy, size: size, display: pair)
                 }
-                // Mode, times and extended attributes, as fcopyfile's own copy.
-                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT | COPYFILE_XATTR)) == 0 else {
+                // Extended attributes through the write budget, then mode
+                // and times as fcopyfile's own copy.
+                try copyExtendedAttributes(from: source, to: copy, callBytes: contents?.count ?? size, display: pair)
+                guard fcopyfile(source.fd, copy.fd, nil, copyfile_flags_t(COPYFILE_STAT)) == 0 else {
                     throw Self.posixError(errno, syscall: "copyfile", display: pair)
                 }
                 try Self.publish(staging, as: name, in: destination.directory, holding: copy, display: pair)
@@ -735,6 +737,64 @@ public struct BrowserReplFileSystem: Sendable {
         }
     }
 
+    /// The largest extended attribute copyFile copies, 1 MiB: each is read
+    /// whole in one system call that nothing stops midway.
+    static let maxExtendedAttributeBytes = 1 << 20
+
+    /// Copies `source`'s extended attributes to `destination`, as
+    /// `COPYFILE_XATTR` does, but each one's bytes are taken from the write
+    /// budget as part of the call (`callBytes` already written) and the
+    /// copy stops with `ECANCELED` between attributes when the call is
+    /// cancelled. One past ``maxExtendedAttributeBytes`` fails with `EFBIG`.
+    /// Attributes the destination refuses (protected system ones) are left
+    /// out, as `copyfile` leaves them.
+    private func copyExtendedAttributes(
+        from source: BrowserReplDescriptor,
+        to destination: BrowserReplDescriptor,
+        callBytes: Int,
+        display: String
+    ) throws {
+        let listSize = flistxattr(source.fd, nil, 0, 0)
+        if listSize < 0 {
+            if errno == ENOTSUP { return }
+            throw Self.posixError(errno, syscall: "copyfile", display: display)
+        }
+        guard listSize > 0 else { return }
+        var list = [CChar](repeating: 0, count: listSize)
+        let listed = flistxattr(source.fd, &list, listSize, 0)
+        guard listed >= 0 else { throw Self.posixError(errno, syscall: "copyfile", display: display) }
+        let names = list.prefix(listed).split(separator: 0).map { String(decoding: $0.map { UInt8(bitPattern: $0) }, as: UTF8.self) }
+        var written = callBytes
+        for name in names {
+            if isCancelled() { throw Self.cancelledError(syscall: "copyfile", display: display) }
+            let size = fgetxattr(source.fd, name, nil, 0, 0, 0)
+            if size < 0 {
+                if errno == ENOATTR { continue }
+                throw Self.posixError(errno, syscall: "copyfile", display: display)
+            }
+            guard size <= Self.maxExtendedAttributeBytes else {
+                throw BrowserReplFileSystemError(
+                    code: "EFBIG",
+                    message: "EFBIG: an extended attribute of \(size) bytes is larger than the 1 MiB fs.copyFile copies, copyfile '\(display)'"
+                )
+            }
+            written += size
+            try writeBudget.take(size, syscall: "copyfile", display: display, callBytes: written)
+            var value = [UInt8](repeating: 0, count: max(size, 1))
+            let read = fgetxattr(source.fd, name, &value, size, 0, 0)
+            if read < 0 {
+                if errno == ENOATTR { continue }
+                throw Self.posixError(errno, syscall: "copyfile", display: display)
+            }
+            if fsetxattr(destination.fd, name, value, read, 0, 0) != 0 {
+                switch errno {
+                case ENOTSUP, EPERM, EACCES: continue
+                default: throw Self.posixError(errno, syscall: "copyfile", display: display)
+                }
+            }
+        }
+    }
+
     /// Why a call stopped part way; `display` is the path, or empty when
     /// the caller (the egress gate's scan) does not know it.
     static func cancelledError(syscall: String, display: String) -> BrowserReplFileSystemError {
@@ -839,7 +899,8 @@ public struct BrowserReplFileSystem: Sendable {
     /// no link. Holds at most two directories open: it descends by name
     /// from `parent` with `O_NOFOLLOW` at each step, so a deep tree cannot
     /// use up descriptors. Stops with `ECANCELED` when `isCancelled` says
-    /// so, checked every ``entriesPerCancellationCheck`` entries.
+    /// so, checked every ``entriesPerCancellationCheck`` entries handled
+    /// and directories opened together.
     ///
     /// It reads a directory ``entriesPerCancellationCheck`` entries at a
     /// time and handles each batch before it reads again (removed entries
@@ -870,6 +931,9 @@ public struct BrowserReplFileSystem: Sendable {
                 )
             }
         }
+        // Work done: each entry handled and each directory opened on the
+        // way down (an empty directory's ancestors are reopened at every
+        // level, so a deep chain of them is work an entry count misses).
         var handled = 0
         func count() throws {
             handled += 1
@@ -880,6 +944,7 @@ public struct BrowserReplFileSystem: Sendable {
         func open(_ path: [String]) throws -> BrowserReplDescriptor {
             var current = parent
             for component in path {
+                try count()
                 let next = openat(current.fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
                 guard next >= 0 else { throw posixError(errno, syscall: "rm", display: display) }
                 current = BrowserReplDescriptor(next)

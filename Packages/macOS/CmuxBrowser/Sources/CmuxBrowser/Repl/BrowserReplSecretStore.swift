@@ -140,6 +140,13 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// must be base32. Past ``maximumSecrets`` secrets, a value past
     /// ``maximumValueBytes`` or more than ``maximumDomains`` domains is refused.
     public func set(name: String, value: String, domains rawDomains: [String], totp: Bool, title: String) throws {
+        try register(name: name, value: value, domains: rawDomains, totp: totp, title: title, rebuild: true)
+    }
+
+    /// ``set(name:value:domains:totp:title:)``; with `rebuild` false the
+    /// caller rebuilds the masks once after a batch (``load(_:isCancelled:)``)
+    /// instead of after every value. A value's earlier masks stay until then.
+    private func register(name: String, value: String, domains rawDomains: [String], totp: Bool, title: String, rebuild: Bool) throws {
         guard name.range(of: "^[\\w.-]{1,64}$", options: .regularExpression) != nil else {
             throw invalid("\(title): name: expected letters, digits, _, . or - (at most 64), got \(Self.quote(name))")
         }
@@ -180,7 +187,7 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             entries[name] = Entry(name: name, value: value, domains: domains, totp: isTOTP, maskName: name)
             lastRevision += 1
             revisions[name] = lastRevision
-            rebuildLocked()
+            if rebuild { rebuildLocked() }
         }
     }
 
@@ -252,8 +259,9 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
     /// A name repeated with the same value under several patterns gets every pattern.
     /// - Returns: The names loaded, in order.
     /// - Throws: `CancellationError` when `isCancelled` says so between
-    ///   groups (it runs on the session's JavaScript thread, inside a
-    ///   synchronous host call).
+    ///   entries (it runs on the session's JavaScript thread, inside a
+    ///   synchronous host call). The masks are rebuilt once when it returns
+    ///   or throws, so what it loaded is masked either way.
     public func load(_ object: Any, isCancelled: () -> Bool = { false }) throws -> [String] {
         if isCancelled() { throw CancellationError() }
         guard let groups = object as? [String: Any] else {
@@ -266,12 +274,15 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
             throw invalid("secrets.load: \(groups.count) domain patterns, past the \(maximumPatterns) the store can hold")
         }
         var names: [String] = []
+        var changed = false
+        defer { if changed { lock.withLock { rebuildLocked() } } }
         for (pattern, rawEntries) in groups.sorted(by: { $0.key < $1.key }) {
             if isCancelled() { throw CancellationError() }
             guard let group = rawEntries as? [String: Any] else {
                 throw invalid("secrets.load: \(Self.quote(pattern)): a secret needs domains; expected { \"<domain pattern>\": { name: value } }")
             }
             for (name, raw) in group.sorted(by: { $0.key < $1.key }) {
+                if isCancelled() { throw CancellationError() }
                 let object = raw as? [String: Any]
                 guard let value = (object?["value"] ?? raw) as? String else {
                     throw invalid("secrets.load: \(name): value: expected a non-empty string")
@@ -279,7 +290,8 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
                 let prior = lock.withLock { entries[name] }
                 let domains = prior.map { $0.value == value ? $0.domains.map(\.raw) + [pattern] : [pattern] } ?? [pattern]
                 let totp = (object?["totp"] as? Bool ?? false) || (prior?.totp ?? false)
-                try set(name: name, value: value, domains: domains, totp: totp, title: "secrets.load")
+                try register(name: name, value: value, domains: domains, totp: totp, title: "secrets.load", rebuild: false)
+                changed = true
                 if !names.contains(name) { names.append(name) }
             }
         }

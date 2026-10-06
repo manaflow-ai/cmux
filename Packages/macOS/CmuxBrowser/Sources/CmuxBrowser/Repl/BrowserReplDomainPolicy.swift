@@ -7,8 +7,24 @@ public import Foundation
 /// spelling (`2130706433`, `0x7f.1` and `127.1` are `127.0.0.1`; `[0:0::1]`
 /// is `[::1]`), as a URL parser reads it, so addresses compare as
 /// addresses.
+///
+/// A host longer than ``maximumBytes`` is no host name (one is at most 253
+/// bytes in ASCII); it is compared as given in lower case, never encoded or
+/// parsed as an address, so agent code cannot make the session's thread
+/// run Punycode (quadratic in a label's length) or a site walk (quadratic
+/// in the label count) on an unbounded string.
 enum BrowserReplHostName {
+    /// The longest host normalized, in UTF-8 bytes: the 253 ASCII bytes of
+    /// the longest DNS name, in a Unicode spelling of up to four bytes a
+    /// character.
+    static let maximumBytes = 1024
+
+    static func isOverlong(_ host: String) -> Bool {
+        host.utf8.count > maximumBytes
+    }
+
     static func normalize(_ raw: String) -> String {
+        if isOverlong(raw) { return raw.lowercased() }
         var host = raw.trimmingCharacters(in: .whitespaces)
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
         if host.hasPrefix("[") {

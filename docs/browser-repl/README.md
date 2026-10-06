@@ -455,7 +455,10 @@ rest. Measurements: [performance.md](performance.md).
   `-`. One cmux instance keeps at most 32 sessions open (named, one-shot and
   `mcp` ones together; each holds a JavaScript thread, timers and
   directories); one more is refused with an error that says so, and no
-  open session is closed to make room.
+  open session is closed to make room. Sessions made without `--session`
+  hold at most 24 of the 32 together (only their client resets one, and one
+  whose client was killed stays until it idles out), so named sessions,
+  which any client can list and reset, always keep 8.
 - A session never moves the user's focus, so agents can work in the
   background: `tabs.open()`, navigation, input, dialogs, file choosers,
   downloads, popups, captures, the clipboard, `tabs.use()`, `page.keep()`,

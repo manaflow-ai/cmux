@@ -134,6 +134,30 @@ struct BrowserReplSessionRegistryTests {
         c.close()
     }
 
+    /// A private session (no `--session`) is invisible to other clients and
+    /// only its owner resets it, so a client killed before its cleanup
+    /// leaves it until it idles out. Private sessions together hold at most
+    /// three quarters of the slots, so they never starve named sessions,
+    /// which any client can list and reset.
+    @Test("Private sessions leave a quarter of the session slots to named sessions")
+    func privateSessionsCannotStarveNamedSessions() throws {
+        let registry = BrowserReplSessionRegistry(maximumSessions: 4)
+        var made: [BrowserReplSession] = []
+        defer { made.forEach { $0.close() } }
+        for (index, name) in ["cli-1-a", "mcp-2-b", "oneshot-3"].enumerated() {
+            let key = BrowserReplSessionKey(workspaceID: first, name: name)
+            made.append(try registry.session(for: key, owner: "owner-\(index)") { _ in makeSession(name) })
+        }
+
+        #expect(throws: BrowserReplSessionRegistry.Refusal.tooManySessions(limit: 3)) {
+            try registry.session(for: .init(workspaceID: first, name: "cli-4-d"), owner: "owner-4") { _ in
+                makeSession("cli-4-d")
+            }
+        }
+        made.append(try registry.session(for: .init(workspaceID: first, name: "shared")) { _ in makeSession("shared") })
+        #expect(made.allSatisfy { !$0.isClosed })
+    }
+
     /// The owner token comes from the socket and is kept with the session
     /// for its life, so it is bounded like the name: one past 128 bytes
     /// makes no session.

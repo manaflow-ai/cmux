@@ -638,6 +638,22 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(fs.perform("readdir", arguments: ["path": "small"]).failureCode == "ok")
     }
 
+    /// A chain of empty directories has one entry per level, so counting
+    /// entries never reaches a cancellation check, yet removing it reopens
+    /// every ancestor at each level (work that grows with the depth's
+    /// square). A cancelled call stops on the directories it opens too.
+    @Test("A cancelled recursive rm of a deep chain of empty directories stops")
+    func cancelledDeepChainRemoveStops() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let chain = scratch.root + "/chain" + String(repeating: "/d", count: 200)
+        try FileManager.default.createDirectory(atPath: chain, withIntermediateDirectories: true)
+        let fs = makeFileSystem(scratch, budget: BrowserReplWriteBudget(), isCancelled: { true })
+
+        #expect(fs.perform("rm", arguments: ["path": "chain", "recursive": true]).failureCode == "ECANCELED")
+        #expect(FileManager.default.fileExists(atPath: scratch.root + "/chain"))
+    }
+
     /// A recursive `rm` runs on the session's thread and must not list a
     /// large directory whole, or list it again for each subdirectory it
     /// removes: work and memory stay proportional to the entries removed.
@@ -813,6 +829,36 @@ struct BrowserReplFileSystemSpecialFileTests {
         #expect(copied.failureCode != "ok")
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: root + "/copy.bin")) == nil, "the copy published the swapped-in link")
         #expect(try FileManager.default.contentsOfDirectory(atPath: root) == ["source.bin"])
+    }
+
+    /// copyFile keeps a file's extended attributes; their bytes are
+    /// written like the data's, so they count toward the write budget and
+    /// cannot carry a copy past it.
+    @Test("copyFile counts extended attributes toward the write budget")
+    func copyCountsExtendedAttributes() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let source = scratch.root + "/source.bin"
+        try Data("ten bytes!".utf8).write(to: URL(fileURLWithPath: source))
+        let small = Data("tag".utf8)
+        let big = Data(count: 256 << 10)
+        for (name, value) in [("com.cmux.test.small", small), ("com.cmux.test.big", big)] {
+            let set = value.withUnsafeBytes { setxattr(source, name, $0.baseAddress, value.count, 0, 0) }
+            #expect(set == 0, "setxattr \(name): \(errno)")
+        }
+        let tight = makeFileSystem(scratch, budget: BrowserReplWriteBudget(perCall: 64 << 10, perSession: 1 << 20))
+
+        let refused = tight.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"])
+
+        #expect(refused.failureCode == "EFBIG", "\(refused)")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root) == ["source.bin"])
+
+        let roomy = makeFileSystem(scratch, budget: BrowserReplWriteBudget())
+        #expect(roomy.perform("copyFile", arguments: ["from": "source.bin", "to": "copy.bin"]).failureCode == "ok")
+        var buffer = [UInt8](repeating: 0, count: 16)
+        let length = getxattr(scratch.root + "/copy.bin", "com.cmux.test.small", &buffer, buffer.count, 0, 0)
+        #expect(length == small.count && Data(buffer.prefix(max(0, length))) == small)
+        #expect(getxattr(scratch.root + "/copy.bin", "com.cmux.test.big", nil, 0, 0, 0) == big.count)
     }
 
     @Test("copyFile copies the bytes, the mode and replaces the destination")
