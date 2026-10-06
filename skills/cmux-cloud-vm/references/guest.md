@@ -66,8 +66,9 @@ kills the machine's terminal.
 
 `cmux notify` run inside a machine reaches the user's Mac as data: the daemon records
 it and the Mac shows it on the pane displaying the terminal it ran in. `--title`,
-`--subtitle` and `--body` are supported; `--reply` is refused because a reply would
-type into a terminal across the link.
+`--subtitle` and `--body` are supported; `--desktop` is validated as `true|false` and
+otherwise ignored; `--reply` is refused because a reply would type into a terminal
+across the link.
 
 ## Arrange the view from inside the machine
 
