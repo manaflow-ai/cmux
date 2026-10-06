@@ -134,6 +134,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
+    /// RED stub.
+    public var navigationHistorySteps = "workspaces"
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
