@@ -320,20 +320,25 @@ fn start(
             let slots = Slots::new(optchat_core::JOBS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let build = |model: Option<&str>| {
+                let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
-                    effort: compactor_effort.clone(),
-                    ..compactor_spec(paths, home, &compactor_harness, compactor_family, model)
+                    effort: compactor_effort.clone().or(spec.effort.clone()),
+                    ..spec
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                         .with_log(compactor_log.clone()),
                 ) as Arc<dyn CompactModel>
             };
+            let effort = compactor_effort
+                .clone()
+                .or_else(|| crate::compactor::compactor_effort(compactor_family));
             let text = format!(
-                "{} in deny-all {compactor_harness} sessions through acpmux",
+                "{} at effort {} in deny-all {compactor_harness} sessions through acpmux",
                 compactor_model
                     .as_deref()
-                    .unwrap_or("the harness's default model")
+                    .unwrap_or("the harness's default model"),
+                effort.as_deref().unwrap_or("default")
             );
             let fallback = config
                 .fallback_model

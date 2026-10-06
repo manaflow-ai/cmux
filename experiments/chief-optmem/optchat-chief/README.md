@@ -115,7 +115,7 @@ turn when the Chief is idle.
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
-| `OPTCHAT_COMPACTOR_EFFORT` | the harness's default | acpmux route: acpmux `effort` of the compactor sessions |
+| `OPTCHAT_COMPACTOR_EFFORT` | `medium` on a Claude or codex harness, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (section 4.2 runs the compactor at medium) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
 
@@ -463,8 +463,10 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
   carry no breakpoints, and each node pays for its whole view at the cache
   write price. Measured live, see Cost and Compactor cache above. Each node
   also pays a harness start.
-  No effort is sent (the harness default) until acpmux's `effort` option is
-  checked live; the `api` route still sends `medium`. Size-loop retries
+  Effort is `medium` on both routes, as section 4.2 says: acpmux passes it
+  to Claude Code as `--effort medium` and to codex as `reasoning_effort`;
+  another harness family keeps its default (`OPTCHAT_COMPACTOR_EFFORT`
+  overrides; not yet measured live). Size-loop retries
   stay in the same session, so the earlier reply (thinking included) stays
   in the harness's context, as section 8 wants, though the host never sees
   the blocks.
