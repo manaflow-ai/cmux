@@ -159,13 +159,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         if let page = state.page, showTopPage(page) { return }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) { return }
         let members = services.windows.registry.members(of: state.id)
         if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first {
-            show(workspace, on: daemon)
+            if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
         }
         // Keep what is shown (the old content stays until the manager

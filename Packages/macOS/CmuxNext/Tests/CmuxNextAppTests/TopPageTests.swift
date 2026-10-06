@@ -92,6 +92,23 @@ struct TopPageTests {
         withExtendedLifetime(services) {}
     }
 
+    /// The store's home workspace has no row while the Home item shows: a
+    /// window asked to show it (launch, a restored record) shows the Home
+    /// page instead of a workspace with the Chief tab strip (tpage-v2 proof).
+    @Test func theHiddenHomeWorkspaceShowsAsTheHomePage() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.daemon.store.apply(snapshot: try Self.homeTree())
+        let home = try #require(services.daemon.store.workspaces.first { $0.kind == "home" })
+        let state = WindowState(workspaceID: home.id)
+        let window = WindowController(state: state, services: services, frame: nil)
+        services.windows.didActivate(window)
+        await BrowserTabTests.settle { window.shownTopPage != nil || window.content != nil }
+        #expect(window.shownTopPage == .home)
+        #expect(window.content == nil, "no Chief tab strip")
+        window.teardown()
+        withExtendedLifetime((services, state)) {}
+    }
+
     // MARK: Persistence
 
     /// The window's record (what the personal projection stores verbatim)
@@ -136,6 +153,16 @@ struct TopPageTests {
             made += 1
             return NSView()
         }
+    }
+
+    /// A tree with one workspace of kind `home` holding one terminal tab.
+    static func homeTree() throws -> DaemonTree {
+        let json = """
+        {"generation":"g1","workspace_revision":1,"workspaces":[{"active":true,"id":1,"key":"6b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e","name":"Home","kind":"home",
+        "screens":[{"active":true,"id":2,"layout":{"pane":3,"type":"leaf"},"name":null,"panes":[{"active_tab":0,"id":3,"name":null,
+        "tabs":[{"kind":"terminal","name":"","surface":5,"dead":false}]}]}]}]}
+        """
+        return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
     }
 
     static func window() async throws -> (AppServices, WindowController, WindowState, Provider) {

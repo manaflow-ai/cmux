@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDaemon
 
 extension WindowController {
     /// Shows top page `route` in the content area (TOP-SECTION-ITEMS-ARE-PAGES):
@@ -18,6 +19,12 @@ extension WindowController {
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         return true
+    }
+
+    /// Shows the Home page in place of the store's home workspace while the
+    /// Home item stands for it (its row is hidden then). False: show `workspace`.
+    func showsHomePage(instead workspace: WorkspaceModel) -> Bool {
+        false
     }
 
     /// The top page this window shows, if any.
