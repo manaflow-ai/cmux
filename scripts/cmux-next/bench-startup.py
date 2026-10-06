@@ -52,6 +52,8 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
 AGENT_MARK = "agent_pane.handshake_end"
@@ -114,7 +116,9 @@ def app_tag(path):
 def bundle_root(tag):
     """The path every process of the tag starts from, as a pgrep pattern."""
     if tag in APPS:
-        return re.escape(APPS[tag])
+        # /tmp is /private/tmp: a process may show either spelling.
+        path = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", APPS[tag].removeprefix("/private"))
+        return f"(/private)?{path}" if path.startswith("/tmp/") else path
     return f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV"
 
 
@@ -190,6 +194,7 @@ class Launch:
             "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
             "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
             "CMUX_NEXT_LAUNCH_MARKS_FD": str(write_fd),
+            **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
         self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
@@ -199,12 +204,13 @@ class Launch:
         self.buffer = b""
         self.marks = {}
 
-    def wait_for(self, mark, timeout):
-        """Reads marks until `mark` (or every mark of a list) arrived, the app
-        exits (EOF) or the timeout."""
+    def wait_for(self, mark, timeout, any_of=False):
+        """Reads marks until `mark` (or every mark of a list; with `any_of`,
+        one of them) arrived, the app exits (EOF) or the timeout."""
         wanted = [mark] if isinstance(mark, str) else list(mark)
+        landed = any if any_of else all
         deadline = time.monotonic() + timeout
-        while any(name not in self.marks for name in wanted):
+        while not landed(name in self.marks for name in wanted):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
@@ -230,6 +236,8 @@ class Launch:
 
 
 RUN_TAGS = []
+# --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
+HANG_THRESHOLD_MS = None
 
 
 def state_directories(tag):
@@ -272,12 +280,11 @@ def app_client(tag, timeout=30):
 def seed_realistic(tag, scratch, timeout):
     """Fills the tag's state with a day's work (see --profile realistic) and
     leaves the daemon running."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from bench_cli_storm import Client  # noqa: E402
     reset_state(tag)
     prime = Launch(tag, scratch)
     try:
-        if not prime.wait_for(FINAL_MARK, timeout):
+        if not prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True):
             raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
         daemon = Client(daemon_socket(tag), timeout=10)
 
@@ -319,7 +326,10 @@ def one_run(tag, mode, timeout, profile=None):
         out.write("{}\n")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
-    final = [FINAL_MARK, AGENT_MARK] if profile == "realistic" else [FINAL_MARK]
+    # A first launch shows the agent New Tab page, not a terminal: other
+    # profiles end at whichever content draws first.
+    final = [FINAL_MARK, AGENT_MARK]
+    any_of = profile != "realistic"
     if profile == "empty":
         reset_state(tag)
     elif profile == "realistic" and not os.path.exists(seeded_marker(tag)):
@@ -333,22 +343,40 @@ def one_run(tag, mode, timeout, profile=None):
     elif mode == "restart":
         if not owner_pids(f"cmux-app-{tag}"):
             prime = Launch(tag, scratch)
-            prime.wait_for(FINAL_MARK, timeout)
+            prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
             prime.quit()
         stop(owner_pids(f"cmux-app-{tag}"))
     elif not [p for p in tag_pids(tag) if p not in app_pids(tag)]:
         prime = Launch(tag, scratch)
-        prime.wait_for(FINAL_MARK, timeout)
+        prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
     launch = Launch(tag, scratch)
     try:
-        reached = launch.wait_for(final, timeout)
+        reached = launch.wait_for(final, timeout, any_of=any_of)
+        if HANG_THRESHOLD_MS:
+            launch.stalls = launch_stalls(tag)
     finally:
         launch.quit()
     if not reached:
         missing = [mark for mark in final if mark not in launch.marks]
         print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
+    if getattr(launch, "stalls", None) is not None:
+        return {**launch.marks, "stalls": launch.stalls}
     return launch.marks
+
+
+def launch_stalls(tag):
+    """The launch's main-thread stalls, longest first, with their top frames."""
+    client = app_client(tag)
+    try:
+        hangs = client.call("debug.hangs").get("result") or {}
+    finally:
+        client.close()
+    stalls = [{"ms": round(record.get("duration_ms", 0), 1), "cpu_ms": round(record.get("cpu_ms", 0), 1),
+               "frames": [f for f in record.get("frames", []) if "cmux" in f or "CmuxNext" in f][:8]
+               or record.get("frames", [])[:8]}
+              for record in hangs.get("records", [])]
+    return sorted(stalls, key=lambda stall: -stall["ms"])
 
 
 def owner_pids(session):
@@ -430,7 +458,11 @@ def main():
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
+    parser.add_argument("--hangs", type=int, metavar="MS",
+                        help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
+    global HANG_THRESHOLD_MS
+    HANG_THRESHOLD_MS = args.hangs
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
         args.tag.append(app_tag(path))
@@ -455,8 +487,11 @@ def main():
 
                     def shown(mark):
                         return "%.0f ms" % marks[mark] if mark in marks else "missing"
-                    agent = f", agent pane {shown(AGENT_MARK)}" if args.profile == "realistic" else ""
-                    print(f"  {tag} {mode} run {index + 1}: first live frame {shown(FINAL_MARK)}{agent}", flush=True)
+                    print(f"  {tag} {mode} run {index + 1}: first live terminal frame {shown(FINAL_MARK)}, "
+                          f"agent pane {shown(AGENT_MARK)}", flush=True)
+                    for stall in marks.get("stalls", [])[:3]:
+                        print(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): "
+                              + " < ".join(stall["frames"][:4]), flush=True)
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
