@@ -50,6 +50,9 @@ public enum HomeConversationStrings {
     static func composeTo(_ names: String) -> String {
         String(format: String(localized: "home.compose.to", defaultValue: "To: %@", bundle: .module), names)
     }
+    static var composeNoContacts: String {
+        String(localized: "home.compose.noContacts", defaultValue: "No teammates yet. Invite someone by email.", bundle: .module)
+    }
     static var inviteByEmail: String { String(localized: "home.compose.inviteByEmail", defaultValue: "Invite by Email…", bundle: .module) }
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }

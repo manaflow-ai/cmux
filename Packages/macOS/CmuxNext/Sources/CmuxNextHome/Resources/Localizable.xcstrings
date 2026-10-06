@@ -9187,6 +9187,137 @@
           }
         }
       }
+    },
+    "home.compose.noContacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No teammates yet. Invite someone by email."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يوجد زملاء فريق بعد. ادعُ شخصًا عبر البريد الإلكتروني."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema članova tima. Pozovite nekoga e-poštom."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen teammedlemmer endnu. Inviter nogen via e-mail."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Teammitglieder. Lade jemanden per E-Mail ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay compañeros de equipo. Invita a alguien por correo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun coéquipier pour l’instant. Invitez quelqu’un par e-mail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora nessun compagno di team. Invita qualcuno via email."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チームメンバーはまだいません。メールで誰かを招待しましょう。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានសមាជិកក្រុមនៅឡើយ។ អញ្ជើញនរណាម្នាក់តាមអ៊ីមែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 팀원이 없습니다. 이메일로 초대하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen teammedlemmer ennå. Inviter noen via e-post."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak członków zespołu. Zaproś kogoś e-mailem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há colegas de equipe. Convide alguém por e-mail."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пока нет участников команды. Пригласите кого-нибудь по эл. почте."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีเพื่อนร่วมทีม เชิญใครสักคนทางอีเมล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz ekip arkadaşı yok. Birini e-postayla davet edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Поки немає учасників команди. Запросіть когось ел. поштою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có đồng đội nào. Hãy mời ai đó qua email."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "还没有团队成员。通过邮件邀请他人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚無團隊成員。以電子郵件邀請他人。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

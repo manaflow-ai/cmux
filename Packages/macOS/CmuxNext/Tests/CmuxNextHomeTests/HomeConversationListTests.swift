@@ -136,4 +136,18 @@ import Testing
         #expect(!sheet.statusLabel.isHidden && sheet.statusLabel.stringValue.contains("Austin"))
         #expect(!sheet.inviteButton.isHidden, "a refused person gets Invite by Email")
     }
+
+    /// No teammates and no contacts yet: the sheet says how to reach someone.
+    @Test func theComposeSheetSaysHowToReachSomeoneWithoutContacts() {
+        let empty = HomeComposeSheet(contacts: [])
+        _ = empty.view
+        #expect(!empty.emptyLabel.isHidden)
+        #expect(empty.emptyLabel.stringValue == HomeConversationStrings.composeNoContacts)
+        empty.search.stringValue = "lee@example.com"
+        empty.refilter()
+        #expect(empty.emptyLabel.isHidden, "a typed address is a row to pick")
+        let full = HomeComposeSheet(contacts: [HomeContact(id: ParticipantID("user_a"), name: "Austin", source: .team)])
+        _ = full.view
+        #expect(full.emptyLabel.isHidden)
+    }
 }

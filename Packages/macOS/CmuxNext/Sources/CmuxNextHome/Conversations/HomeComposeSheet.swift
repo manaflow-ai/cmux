@@ -16,6 +16,8 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
     let table = NSTableView()
     let scroll = NSScrollView()
     let toLabel = NSTextField(labelWithString: "")
+    /// Says how to reach someone when the user has no teammates or contacts yet.
+    let emptyLabel = NSTextField(wrappingLabelWithString: HomeConversationStrings.composeNoContacts)
     let groupName = HomeSheetController.field(placeholder: HomeConversationStrings.composeGroupName, identifier: "cmux.home.compose.group")
     let inviteButton = NSButton(title: HomeConversationStrings.inviteByEmail, target: nil, action: nil)
     private let contacts: [HomeContact]
@@ -53,6 +55,11 @@ public final class HomeComposeSheet: HomeSheetController, NSSearchFieldDelegate,
         scroll.widthAnchor.constraint(equalToConstant: 420 - 2 * Metrics.space6).isActive = true
         scroll.heightAnchor.constraint(equalToConstant: 180).isActive = true
         stack.addArrangedSubview(scroll)
+        emptyLabel.font = Typography.caption
+        emptyLabel.textColor = .secondaryLabelColor
+        emptyLabel.isHidden = true
+        emptyLabel.setAccessibilityIdentifier("cmux.home.compose.empty")
+        stack.addArrangedSubview(emptyLabel)
         toLabel.font = Typography.body
         toLabel.lineBreakMode = .byTruncatingTail
         toLabel.setAccessibilityIdentifier("cmux.home.compose.to")
