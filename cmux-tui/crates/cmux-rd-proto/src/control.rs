@@ -59,6 +59,14 @@ pub enum Control {
     Ended {
         reason: String,
     },
+    /// A message of the session's service (for example an `rb/1` message of
+    /// the remote browser), carried on the rd control stream. rd never
+    /// parses `body`; the source's carrier loop hands it to the service
+    /// unchanged and refuses a `service` that is not the session's.
+    Service {
+        service: String,
+        body: serde_json::Value,
+    },
     Stats {
         kbps: u32,
         frames: u64,
