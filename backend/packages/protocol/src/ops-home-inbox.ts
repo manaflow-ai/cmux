@@ -1,6 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConversationId, ConversationKind, InboxEntry, ParticipantId, Seq, Timestamp } from "./ops-home-schemas.ts"
+import { HostId, InstallId } from "./schemas.ts"
 
 /**
  * Inbox (UserDO stream `inbox:<user>`), chiefs (UserDO), the chief wake queue (MuxDO) and Home
@@ -83,6 +84,12 @@ export const InboxDmPeer = def({
 
 const ChiefName = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100))
 const ChiefId = Schema.String.check(Schema.isPattern(/^agent_[0-9A-HJKMNP-TV-Z]{26}$/)).annotate({ identifier: "ChiefId" })
+/**
+ * Where a chief's brain runs (brains/DESIGN-cmux-lawrence.md G8): a paired server's host and its
+ * daemon install. Set by the user's session only; the placed install's chief token gets the chief's
+ * rights (mutate-shared), every other server install keeps its narrow grant.
+ */
+const ChiefBrainPlace = Schema.Struct({ host: HostId, install: InstallId }).annotate({ identifier: "ChiefBrainPlace" })
 /** A chief record in UserDO (plans/cmux-next/chief-mac.md section 9). */
 const Chief = Schema.Struct({
   id: ChiefId,
@@ -90,6 +97,8 @@ const Chief = Schema.Struct({
   display_name: ChiefName,
   is_default: Schema.Boolean,
   brain: Schema.Literal("cloud"),
+  /** Null (or absent on records written before G8) when no server is named. */
+  brain_place: Schema.optionalKey(Schema.NullOr(ChiefBrainPlace)),
   main_conversation: Schema.NullOr(ConversationId),
   harness: Schema.NullOr(Schema.String),
   rev: Schema.Number,
@@ -105,10 +114,10 @@ export const ChiefCreate = def({
   risk: "mutate-own",
   target: "chief",
   principals: ["session", "install"],
-  params: Schema.Struct({ display_name: Schema.optionalKey(ChiefName), is_default: Schema.optionalKey(Schema.Boolean) }),
+  params: Schema.Struct({ display_name: Schema.optionalKey(ChiefName), is_default: Schema.optionalKey(Schema.Boolean), brain_place: Schema.optionalKey(ChiefBrainPlace) }),
   result: Chief,
   errors: mutationErrors,
-  docs: "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
+  docs: "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level. brain_place (session only) names the paired server that runs its brain.",
   cli: { path: "chief create", visible: true },
   mcp: { expose: "never", group: "home" }
 })
@@ -126,11 +135,12 @@ export const ChiefUpdate = def({
     display_name: Schema.optionalKey(ChiefName),
     is_default: Schema.optionalKey(Schema.Literal(true)),
     harness: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMaxLength(64)))),
-    archived: Schema.optionalKey(Schema.Literal(false))
+    archived: Schema.optionalKey(Schema.Literal(false)),
+    brain_place: Schema.optionalKey(Schema.NullOr(ChiefBrainPlace))
   }),
   result: Chief,
   errors: [...mutationErrors, "selector.not_found", "chief_archived", "chief_expired"],
-  docs: "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
+  docs: "Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false).",
   cli: { path: "chief update", visible: true },
   mcp: { expose: "never", group: "home" }
 })

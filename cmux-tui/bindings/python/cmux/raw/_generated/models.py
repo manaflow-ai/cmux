@@ -293,6 +293,21 @@ class ViewAttachmentOutcome(str, Enum):
 
 
 @dataclass(frozen=True)
+class ActivitySnapshot:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySnapshot'
+    attached_clients: int
+    last_agent_action_at_ms: Union[int, None]
+    last_user_input_at_ms: Union[int, None]
+    live_agents: int
+
+
+@dataclass(frozen=True)
+class ActivitySubscribeResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ActivitySubscribeResult'
+    activity: ActivitySnapshot
+
+
+@dataclass(frozen=True)
 class AgentRecord:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentRecord'
     surface: Id
@@ -3691,6 +3706,12 @@ class SubscribeRequest:
 
 
 @dataclass(frozen=True)
+class SubscribeActivityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/subscribe-activity/request'
+    pass
+
+
+@dataclass(frozen=True)
 class SwapPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/swap-pane/request'
     pane: Id
@@ -3930,6 +3951,14 @@ class ZoomPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/zoom-pane/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     mode: Union[Literal['toggle', 'on', 'off'], None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ActivityChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/activity-changed/payload'
+    activity: ActivitySnapshot
+    event: Literal['activity-changed']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
 @dataclass(frozen=True)
@@ -4680,7 +4709,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationResyncedEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -4716,6 +4745,8 @@ __all__ = [
     'TerminalKeyAction',
     'TerminalLifecycle',
     'ViewAttachmentOutcome',
+    'ActivitySnapshot',
+    'ActivitySubscribeResult',
     'AgentRecord',
     'AgentSessionSource',
     'AppliedPane',
@@ -5094,6 +5125,7 @@ __all__ = [
     'SnapshotRequestRequest',
     'SplitRequest',
     'SubscribeRequest',
+    'SubscribeActivityRequest',
     'SwapPaneRequest',
     'TerminalClipboardReplyRequest',
     'TerminalClipboardSubscribeRequest',
@@ -5125,6 +5157,7 @@ __all__ = [
     'VtStateRequest',
     'WaitForRequest',
     'ZoomPaneRequest',
+    'ActivityChangedEvent',
     'AgentChangedEvent',
     'BellEvent',
     'BookmarksChangedEvent',
