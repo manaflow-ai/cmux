@@ -113,6 +113,49 @@ test("browserAuth.request: the app fills marked fields and submits; no value rea
   assert.ok(!scope.includes("correct horse"));
 });
 
+// r16 tabs#1: agent code can reach the driver's auth.request itself and
+// name any marked element, so the helper's visibility check is not the
+// guard. The app's own bind and fill take only a field the user can see:
+// shown (no display:none, visibility, opacity 0 or inert), at least a few
+// pixels, on screen and not covered, and focusable; a field hidden while
+// the sheet is up gets nothing either.
+test("browserAuth.request: the app fills no hidden field, also when auth.request is called directly", async () => {
+  const hides = {
+    display: "el.style.display = 'none'",
+    visibility: "el.style.visibility = 'hidden'",
+    opacity: "el.style.opacity = '0'",
+    parentOpacity: "const w = document.createElement('div'); w.style.opacity = '0'; el.replaceWith(w); w.append(el)",
+    tiny: "el.style.cssText = 'width:1px;height:1px;padding:0;border:0'",
+    offscreen: "el.style.cssText = 'position:absolute;left:-10000px;top:0'",
+    covered: "const c = document.createElement('div'); const r = el.getBoundingClientRect(); c.style.cssText = `position:fixed;left:${r.left - 5}px;top:${r.top - 5}px;width:${r.width + 10}px;height:${r.height + 10}px;background:white;z-index:9`; document.body.append(c)",
+    inert: "el.inert = true",
+  };
+  const call = (marker) => `page._session.call("auth.request", { targetId: page._targetId, origin: "https://login.example", timeoutMs: 5000, fields: [{ id: "pw", label: "Password", type: "password", autocomplete: null, required: true, marker: ${JSON.stringify(marker)} }] })`;
+  for (const [name, hide] of Object.entries(hides)) {
+    await s.run('await page.goto("https://login.example/")');
+    globalThis.__authAnswer = fillLike({ pw: "correct horse" });
+    await s.value(`page.evaluate(() => { const el = document.querySelector('input[type="password"]'); el.setAttribute("data-cmux-auth", "hidden-${name}"); ${hide}; return true; })`);
+    const r = await s.value(call(`hidden-${name}`));
+    assert.equal(r.status, "locator_invalid", `${name}: ${JSON.stringify(r)}`);
+    assert.equal(await s.value(`page.evaluate(() => document.querySelector('input[type="password"]').value)`), "", `${name}: the hidden field was filled`);
+  }
+  // Shown when the sheet opens, hidden before Fill.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ pw: "correct horse" }, {
+    meanwhile: ({ params, call: driverCall }) => driverCall("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source: `() => { document.querySelector('input[type="password"]').style.opacity = "0"; return true; }`, args: [], awaitPromise: true }),
+  });
+  await s.value(`page.evaluate(() => { document.querySelector('input[type="password"]').setAttribute("data-cmux-auth", "later"); return true; })`);
+  const later = await s.value(call("later"));
+  assert.equal(later.status, "locator_invalid", JSON.stringify(later));
+  assert.equal(await s.value(`page.evaluate(() => document.querySelector('input[type="password"]').value)`), "");
+  // A shown field is filled through the same direct call.
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ pw: "correct horse" });
+  await s.value(`page.evaluate(() => { document.querySelector('input[type="password"]').setAttribute("data-cmux-auth", "shown"); return true; })`);
+  assert.deepEqual(await s.value(call("shown")), { status: "filled" });
+  assert.equal(await s.value(`page.evaluate(() => document.querySelector('input[type="password"]').value)`), "correct horse");
+});
+
 test("browserAuth.request: a frame whose origin changed while the sheet was open is not filled", async () => {
   await s.run('await page.goto("https://login.example/")');
   // The sheet named https://login.example; by Fill the frame holds another
