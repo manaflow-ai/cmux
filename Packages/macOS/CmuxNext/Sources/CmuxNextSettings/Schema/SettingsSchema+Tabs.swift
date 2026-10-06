@@ -37,6 +37,31 @@ nonisolated enum TabSettingsSchema {
         )
     }
 
+    /// `app.warnBeforeClosingTab` and `app.warnBeforeClosingAgentSession`,
+    /// side by side as in classic.
+    static func closeWarnings(group: SettingText) -> [SettingDescriptor] {
+        [
+            SettingDescriptor(
+                CmuxConfigSnapshot.warnBeforeClosingTabPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.app.warnBeforeClosingTab", "Warn Before Closing a Running Program"),
+                help: SettingsText.keyed("settings.app.warnBeforeClosingTab.help",
+                                        "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.closeWarningFallback),
+                keywords: ["close", "confirm", "warn", "tab", "workspace", "running", "process", "cmd-w"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath, section: .general, group: group,
+                title: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession", "Warn Before Closing a Working Agent"),
+                help: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession.help",
+                                        "Ask before closing a terminal tab whose agent is still working."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.closeWarningFallback),
+                keywords: ["close", "confirm", "warn", "agent", "claude", "codex", "session", "working", "cmd-w"]
+            ),
+        ]
+    }
+
     /// `tabs.plusButton` (R120): whether each tab bar's + shows only on hover.
     static func plusButton(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(

@@ -256,13 +256,11 @@ enum TabLifecycle {
         guard invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil else {
             guard let (pane, id) = ctx.tab(invocation) else { return }
             // A user's Cmd-W gets an undo toast (REOPEN-CLOSED); automation does not.
-            if invocation.origin == .user { ctx.services.closedTabs?.undoToasts.expect(id, in: pane) }
-            return pane.close([id])
+            return CloseUndoToasts.close(in: pane, [id])
         }
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         if let controller = ctx.services.paneController(for: pane) {
-            if invocation.origin == .user { ctx.services.closedTabs?.undoToasts.expect(StripTabID(tab.id), in: controller) }
-            return controller.close([StripTabID(tab.id)])
+            return CloseUndoToasts.close(in: controller, [StripTabID(tab.id)])
         }
         let command = ctx.services.daemon(for: pane).closeCommand(for: tab)
         if tab.kind == .remoteTerminal { ctx.services.remoteTerminals.viewClosed(tab) }

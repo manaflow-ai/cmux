@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextWakeups
 import GhosttyNextKit
 import os
 import QuartzCore
@@ -130,6 +131,7 @@ public final class TerminalSurfaceView: NSView {
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
+        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
         updateSurfaceSize(forceReport: true)

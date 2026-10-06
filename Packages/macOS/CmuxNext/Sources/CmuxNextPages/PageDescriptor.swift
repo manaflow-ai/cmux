@@ -34,11 +34,15 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// First path components the page instance's ``PageDynamicResourceSource`` answers
     /// (`__patch`); the scheme handler never serves a static file under one.
     public let dynamicPrefixes: Set<String>
+    /// The page has its own search field: Cmd-F (the `find` action) sends it
+    /// `focusSearch`, which focuses and selects that field (Settings,
+    /// Keyboard Shortcuts, Passwords), instead of a find bar.
+    public let ownsSearchField: Bool
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = []) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false) {
         self.id = id
         self.resource = resource
         self.namespaces = namespaces
@@ -52,6 +56,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
+        self.ownsSearchField = ownsSearchField
     }
 
     /// Whether the page may call `op` (or subscribe to the stream `op`).
@@ -126,7 +131,7 @@ public extension PageDescriptor {
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop"])
+        dynamicPrefixes: ["backdrop"], ownsSearchField: true)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
     /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page
