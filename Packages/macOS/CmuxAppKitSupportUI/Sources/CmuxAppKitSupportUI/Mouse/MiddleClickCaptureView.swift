@@ -12,6 +12,12 @@ public final class MiddleClickCaptureView: NSView {
 
     private var mouseDownMonitor: Any?
 
+    deinit {
+        if let mouseDownMonitor {
+            NSEvent.removeMonitor(mouseDownMonitor)
+        }
+    }
+
     public override func hitTest(_ point: NSPoint) -> NSView? {
         // Only intercept middle-click so left-click selection and right-click context menus
         // continue to hit-test through to SwiftUI/AppKit normally.
