@@ -33,6 +33,13 @@ impl Hub {
         Ok(())
     }
 
+    /// The shutdown has begun (it read its plan): no agent may start from
+    /// here on, or it would outlive the daemon with nothing to end it.
+    pub(crate) fn shutting_down(&self) -> bool {
+        // A poisoned plan still says whether the shutdown began.
+        self.shutdown_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner).started
+    }
+
     /// Stop every agent at once and save. Each agent's process group gets
     /// SIGTERM, then SIGKILL after `SHUTDOWN_GRACE`; every wait here has a
     /// deadline, so this returns within about `SHUTDOWN_GRACE` + 1 s.
@@ -137,6 +144,11 @@ impl Hub {
             tracing::warn!("store flush failed: {e}");
         }
     }
+}
+
+/// The refusal of a spawn once the shutdown has begun.
+pub(crate) fn shutting_down_error() -> RpcError {
+    RpcError::internal("acpmux is shutting down; no agent starts now")
 }
 
 /// How long agents get between SIGTERM and SIGKILL when the daemon stops.
