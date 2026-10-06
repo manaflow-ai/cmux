@@ -265,3 +265,54 @@ fn history_and_bookmark_search_without_text_say_what_is_missing() {
         assert!(stderr.contains(&format!("cmux {scope} search <text>")), "{scope}: {stderr}");
     }
 }
+
+/// `help <process scope>` is the same as `<process scope> --help`.
+#[test]
+fn help_names_the_process_scopes() {
+    let names = Names::new("process-help");
+    for (scope, expected) in [
+        ("acp", "Usage: cmux acp"),
+        ("mcp", "cmux mcp serve"),
+        ("coderouter", "cmux coderouter status"),
+        ("link", "cmux link <init|show"),
+    ] {
+        let direct = names.run("cmux", &[scope, "--help"]);
+        let output = names.run("cmux", &["help", scope]);
+        let stdout = text(&output.stdout);
+        assert!(output.status.success(), "help {scope}: {}", text(&output.stderr));
+        assert!(stdout.contains(expected), "help {scope} printed:\n{stdout}");
+        assert_eq!(stdout, text(&direct.stdout), "help {scope} differs from {scope} --help");
+    }
+}
+
+/// Remote errors name the program that ran (`cmux`, not `cmux-tui`), and
+/// `remote known-daemons` takes the global --socket like every other scope.
+#[test]
+fn remote_errors_name_the_invoked_program_and_known_daemons_takes_socket() {
+    let names = Names::new("remote-errors");
+    for args in [&["remote", "bogus"][..], &["remote", "known-daemons", "--bogus"][..]] {
+        let output = names.run("cmux", args);
+        let stderr = text(&output.stderr);
+        assert!(!output.status.success(), "{args:?}");
+        assert!(stderr.starts_with("cmux: "), "{args:?}: {stderr}");
+    }
+    let state = names.dir.join("state");
+    let state = state.display().to_string();
+    let output = names.run(
+        "cmux",
+        &[
+            "--socket",
+            "/nonexistent.sock",
+            "--json",
+            "remote",
+            "known-daemons",
+            "--state-dir",
+            &state,
+        ],
+    );
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!([])
+    );
+}
