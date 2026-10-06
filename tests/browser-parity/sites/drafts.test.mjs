@@ -198,6 +198,32 @@ test("linkedin.post: the draft names who it posts as and its audience; a compose
   }
 });
 
+// The composer's header names who the post goes out as by display name,
+// which a company page (or another member) can share. The draft binds the
+// author's URN and type, read from the header's actor; a page of the same
+// name, or a header without one URN, posts nothing.
+test("linkedin.post: the draft binds the author's URN; a company page or another member with the member's name posts nothing", async () => {
+  try {
+    const before = env.state.linkedinPosts.length;
+    await run('var luD = await sites.linkedin.post({ text: "Author bound.", audience: "anyone" })');
+    env.state.linkedinComposer = { actorUrn: "urn:li:fsd_company:777" };
+    assert.match(await s.error("sites.linkedin.post(luD.id, { confirm: true })") || "posted", /target_mismatch|authorUrn|authorType/);
+    assert.equal(env.state.linkedinPosts.length, before, "the post went out as the company page");
+    const d = await s.value("luD.preview");
+    assert.equal(d.authorUrn, "urn:li:fsd_profile:ACo1");
+    assert.equal(d.authorType, "person");
+    await run('var luD2 = await sites.linkedin.post({ text: "Author bound.", audience: "anyone" })');
+    env.state.linkedinComposer = { actorUrn: "urn:li:fsd_profile:ACo2" };
+    assert.match(await s.error("sites.linkedin.post(luD2.id, { confirm: true })") || "posted", /target_mismatch|authorUrn/);
+    await run('var luD3 = await sites.linkedin.post({ text: "Author bound.", audience: "anyone" })');
+    env.state.linkedinComposer = { actorUrn: false };
+    assert.match(await s.error("sites.linkedin.post(luD3.id, { confirm: true })") || "posted", /target_unverified|authorUrn/);
+    assert.equal(env.state.linkedinPosts.length, before, "a post went out as an author the draft did not show");
+  } finally {
+    env.state.linkedinComposer = null;
+  }
+});
+
 test("linkedin.post and x.post: the draft pins the signed-in account; another account at confirmation fails and posts nothing", async () => {
   try {
     await run(`

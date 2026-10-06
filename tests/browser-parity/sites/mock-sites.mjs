@@ -726,11 +726,13 @@ function linkedin(req, url, body, state) {
     if (url.searchParams.get("shareActive") === "true") {
       // Another session signs in as someone else while the composer loads.
       if (state.linkedinSwitchOnCompose) (state.linkedinViewer = state.linkedinSwitchOnCompose), (state.linkedinSwitchOnCompose = null);
-      const composer = { postAs: "Ada Lovelace", audience: "Anyone", ...(state.linkedinComposer || {}) };
+      // actorUrn: the author the composer posts as, on its header's avatar
+      // (false: the header carries none).
+      const composer = { postAs: "Ada Lovelace", audience: "Anyone", actorUrn: "urn:li:fsd_profile:ACo1", ...(state.linkedinComposer || {}) };
       return {
         // As live, the composer's header names who it posts as (the member
         // or a company page they admin) and its audience ("Post to …").
-        html: html(`<div role="dialog">${composer.settings === false ? "" : `<button class="share-unified-settings-entry-button"><span>${esc(composer.postAs)}</span><span>Post to ${esc(composer.audience)}</span></button>`}<div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
+        html: html(`<div role="dialog">${composer.settings === false ? "" : `<button class="share-unified-settings-entry-button">${composer.actorUrn === false ? "" : `<img alt="" data-entity-urn="${esc(composer.actorUrn)}">`}<span>${esc(composer.postAs)}</span><span>Post to ${esc(composer.audience)}</span></button>`}<div role="textbox" contenteditable="true"></div><button class="share-actions__primary-action">Post</button></div>
         <script>
           document.querySelector('[role="textbox"]').innerText = (new URLSearchParams(location.search).get("text") || "") + ${JSON.stringify(state.composerSuffix || "")};
           document.querySelector(".share-actions__primary-action").addEventListener("click", async () => { const s = document.querySelector(".share-unified-settings-entry-button"); await fetch("/__mock/post", { method: "POST", body: JSON.stringify({ text: document.querySelector('[role="textbox"]').innerText, settings: s ? s.textContent : null }) }); document.querySelector('[role="dialog"]').remove(); });
