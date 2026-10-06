@@ -463,3 +463,21 @@ Findings:
 - auto5's reporter keeps only the latest reason, so a resume relabeled the change report. Fixed (reasons merge, `change+resume`; reaches VMs with the next bake).
 - The resize probe now times the vCPU+memory call and the disk call separately, with UTC start times, to locate the next slow sample (section 18: one 21.2 s outlier in seven samples; latest 274 ms).
 - Still open: idle pause (needs the activity sender, section 27) and `cmux link dial` (needs a darwin link build).
+
+## 27. VM activity sender (design, 2026-10-06)
+
+Goal: `cloud.vm.status.report.activity` carries real `last_user_input_at`, `last_agent_action_at` and `active_sessions`, the agent advertises `activity`, and CloudDO's idle pause and the 24 h no_report rule then act on facts. No polling anywhere.
+
+Where the daemon already knows (cmux-tui-core, read 2026-10-06):
+- User input: `mux.rs` `note_terminal_input` (Send, SendKey and NoteSizeActivity from attached clients), but v2 `terminal.input.write/keys/mouse` (`resource_router/content.rs` `execute_terminal_effect`), PasteImage and browser input do not pass through it. Raw input is never journaled (spec/session-journal.md), and nothing records wall-clock time.
+- Agent action: every agent hook commit goes through `mux.rs` `append_journal_ingress` (producer `cmux_agent`), including tool use, which never reaches `AgentChanged` (`agent_state_for_hook_kind` returns None for `agent.state.changed`).
+- Sessions: `ClientRecord.attached` and `kind` (tui, web, mac, frontend) for people; `list_agents` states (Working, Blocked, Idle, Done) for agents.
+
+Design:
+1. Daemon owner: a new `mux/activity.rs` (one writer: the Mux) holds `last_user_input_at_ms`, `last_agent_action_at_ms`, `attached_clients` (attached connections whose kind is a person's client) and `live_agents` (agents Working or Blocked). Writers: `note_user_input` from `note_terminal_input` and from `execute_terminal_effect` for input effects; `note_agent_action` from `append_journal_ingress` for non-replayed `cmux_agent` commits; count updates from the attach/detach and agent-state paths.
+2. Change events, coalesced: `MuxEvent::ActivityChanged` with leading edge plus a trailing one-shot deadline at most 1 per second (keystrokes do not flood; the launch_snapshot settle pattern), never a tick.
+3. Wire: a dedicated `subscribe-activity` command in `server/activity.rs` (one delegating arm in server.rs; it has 16 lines of god-file headroom): first line `{id, ok, data: {activity}}`, then `{"event":"activity-changed","activity":{...}}` lines. Capability `vm-activity-v1` in `server/capabilities.rs`. Spec inventory, commands.md, events.md, sdk-schema and the TypeScript bindings get the new names (check-spec-inventory.py).
+4. Agent: when identify advertises `vm-activity-v1`, it keeps one subscription open (reconnect with Backoff only after a failure, e.g. a daemon re-key restart) and maps each event to `reporter.update({active_sessions: attached_clients + live_agents, last_user_input_at, last_agent_action_at})`. It advertises `activity` only while it has that subscription and the daemon advertises the capability. Reports then follow section 17 (1 per 10 s, latest wins).
+5. Privacy: times and counts only; no content, no surface ids leave the VM.
+
+Tests (red first): Rust unit tests for the activity reducer (input from an attached client sets the time; an unattached one-shot send does not; a replayed journal commit does not; counts follow attach/detach and agent states; coalescing emits leading + trailing, never more than 1 per second with a fake clock), a server wire test for `subscribe-activity`, and agent tests against a fake daemon socket (mapping, capability only with the daemon capability, reconnect after a drop). Gate: Testbox `cargo test -p cmux-tui-core activity` plus the focused hosted run. Window: cmux-tui window (server.rs arm, spec JSON and bindings change: not WINDOW-LITE).
