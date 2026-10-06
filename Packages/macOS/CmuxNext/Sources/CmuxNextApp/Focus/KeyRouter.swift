@@ -154,12 +154,16 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // Set again only when this key runs an action (debug.key reports it).
+        lastInterception = nil
         if cancelsMissedModal(event, in: window) { return true }
-        if runsUndoToast(event, in: window) { return true }
+        if runsUndoToast(event, in: window) {
+            trace?("undo toast: Cmd-Z ran the toast")
+            return true
+        }
         // The Keyboard Shortcuts page records keys: its window's keys go to the recorder.
         if let keyRecorder, keyRecorder(event, window) {
             cancelChord()
-            lastInterception = nil
             trace?("recorder: the Keyboard Shortcuts recorder took the key")
             return true
         }

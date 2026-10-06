@@ -35,6 +35,8 @@ import Testing
         case .number(let number): [.number(number.range.lowerBound), .number(number.range.upperBound)]
         case .color: ["#112233", "#11223344"]
         case .sound: ["default", "none", "Glass"]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["", "https://search.example/?q=%s", "https://search.example/find?q={searchTerms}"]
         case .url: ["", "https://example.com/start", "example.com"]
         case .hostList: [[], ["mail.google.com", "*.example.com"]]
         case .folderList: [[], ["/Users/ada/src", "~/notes"]]
@@ -54,6 +56,8 @@ import Testing
         case .number(let number): ["wide", .number(number.range.upperBound + 100)]
         case .color: ["blue", 7]
         case .sound: [5]
+        case .url where BrowserOmnibarSetting.templatePaths.contains(descriptor.path):
+            ["https://search.example/", "example.com", "not an address %s", 4]
         case .url: ["not an address", "ftp://example.com", 4]
         case .hostList: ["mail.google.com", [1]]
         case .folderList: ["/Users/ada/src", ["relative/path"], [1]]
