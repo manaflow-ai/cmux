@@ -82,15 +82,12 @@ struct AccountRowView: View {
                     Button(AccountsStrings.deleteSavedKey) { model.deleteSavedKey(for: row.provider) }
                 }
             }
-            if row.isLinkable {
-                // Hidden while CodeRouter cannot be reached; no line says why.
-                if row.codeRouterProblem == nil {
-                    Button(AccountsStrings.connect) { model.connect(row.provider) }
-                        .disabled(row.isBusy || !row.canConnect)
-                        .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
-                }
-            } else if !row.provider.isLocalServer {
-                Text(AccountsStrings.unsupported).font(palette.caption).foregroundStyle(palette.tertiary)
+            // Shown only when it can run (signed in to cmux, CodeRouter
+            // reachable, a routable provider); no line says why not.
+            if row.canConnect || row.phase == .connecting {
+                Button(AccountsStrings.connect) { model.connect(row.provider) }
+                    .disabled(row.isBusy)
+                    .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
             }
         }
         .buttonStyle(AccountsButtonStyle(palette: palette))

@@ -100,10 +100,9 @@ function AccountRow({ row, removeTitle }: { row: AccountsRow; removeTitle: strin
         </span>
       </div>
       <div className="accounts-body">
-        {(row.buttons.length > 0 || row.unsupported) && (
+        {row.buttons.length > 0 && (
           <div className="accounts-buttons">
             <Buttons buttons={row.buttons} onRun={(id) => void run(id)} />
-            {row.unsupported && <span className="row-help">{row.unsupported}</span>}
           </div>
         )}
         {row.linked.map((account) => (

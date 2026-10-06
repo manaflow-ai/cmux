@@ -51,7 +51,6 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let statusKind: String
         public let busy: Bool
         public let buttons: [Button]
-        public let unsupported: String?
         public let linked: [Linked]
         public let note: String?
         public let outcome: Notice?
@@ -162,9 +161,8 @@ extension AccountsModel {
                 buttons.append(.init(id: "deleteKey", title: AccountsStrings.deleteSavedKey, disabled: false, help: nil, destructive: false))
             }
         }
-        if row.isLinkable, row.codeRouterProblem == nil {
-            buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy || !row.canConnect,
-                                 help: nil, destructive: false))
+        if row.canConnect || row.phase == .connecting {
+            buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy, help: nil, destructive: false))
         }
         let outcome: AccountsPageState.Notice? = switch row.outcome {
         case .connected: .init(kind: "success", text: AccountsStrings.connected)
@@ -176,7 +174,6 @@ extension AccountsModel {
             provider: provider.rawValue, name: provider.displayName, detail: Self.detail(row),
             status: AccountsStrings.status(row), statusKind: Self.statusKind(row), busy: row.isBusy && row.phase != .detecting,
             buttons: buttons,
-            unsupported: !row.isLinkable && !provider.isLocalServer ? AccountsStrings.unsupported : nil,
             linked: row.linked.map { account in
                 .init(id: account.id, label: account.label, state: account.state, healthy: account.isHealthy,
                       busy: row.phase == .removing(accountID: account.id))

@@ -95,7 +95,6 @@ export type AccountsRow = {
   statusKind: "success" | "attention" | "neutral" | "quiet";
   busy: boolean;
   buttons: AccountsButton[];
-  unsupported: string | null;
   linked: Array<{ id: string; label: string; state: string; healthy: boolean; busy: boolean }>;
   note: string | null;
   outcome: { kind: "success" | "neutral" | "danger" | "attention"; text: string } | null;
