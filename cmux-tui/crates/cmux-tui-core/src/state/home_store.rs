@@ -106,6 +106,10 @@ fn mark_workspace_home(transaction: &Transaction<'_>, workspace_id: &str) -> any
 /// `session.events` batch. The personal store shares the registry
 /// transaction, so `personal_revision` and its journal fact move with it.
 fn place_home_first(transaction: &Transaction<'_>, workspace_key: &str) -> anyhow::Result<()> {
+    // The creation patch already gave home a last-place row and queued its
+    // placement (personal_order::place_created_workspaces). That first
+    // upsert is redundant: the upserts queued here follow it in the same
+    // batch, so clients end with home at index 0.
     let local = crate::state::values::local_registry_id(transaction)?;
     WorkspaceRegistry::set_personal_workspace_in(
         transaction,

@@ -156,7 +156,9 @@ group's `top_index`, in that order. Compatibility: a workspace this session
 creates gets its personal row (last, ungrouped) in the commit that creates
 it, by every creation path, with its `workspace_placement` change in that
 commit's `session.events` batch and no personal journal record of its own,
-so a group place counts it from the start; a
+so a group place counts it from the start. The commit bumps
+`personal_revision` but sends no raw `personal-changed` event, so raw
+`list-personal` readers see the row on their next refetch; a
 workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
