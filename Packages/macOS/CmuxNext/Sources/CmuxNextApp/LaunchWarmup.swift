@@ -31,6 +31,10 @@ enum LaunchWarmup {
             // first use: 60-90 ms on the main thread while the first window
             // was placed (`WindowPlacementFallback.displayID`).
             prewarmDisplayUUIDs()
+            // The process's first URLSession sets up CFNetwork: 90-130 ms on
+            // the main thread for whichever launch service made one first (the
+            // updater, then the favicon loader once the updater stopped).
+            URLSession(configuration: .ephemeral).finishTasksAndInvalidate()
         }
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
