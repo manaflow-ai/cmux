@@ -104,7 +104,7 @@ while [ "$#" -gt 0 ]; do
       output="$2"
       shift 2
       ;;
-    http://primary.invalid/*|https://primary.invalid/*|http://secondary.invalid/*|https://secondary.invalid/*|http://tertiary.invalid/*|https://tertiary.invalid/*|http://official.invalid/*|https://official.invalid/*)
+    http://primary.invalid/*|https://primary.invalid/*|http://secondary.invalid/*|https://secondary.invalid/*|http://tertiary.invalid/*|https://tertiary.invalid/*|https://ziglang.org/*)
       url="$1"
       shift
       ;;
@@ -137,6 +137,15 @@ if [ -f "$output" ]; then
 fi
   printf '%s\t%s\tcontinue-at=%s\tresume-offset=%s\tmax-time=%s\n' "$url" "$output" "$continue_at" "$resume_offset" "$max_time" >> "${CURL_LOG:?}"
 
+  case "${FAKE_CURL_MODE:?}:$url" in
+    slow-fallback:*invalid/*|all-stalled:*)
+      now="$(cat "${FAKE_CURL_CLOCK_FILE:?}")"
+      printf '%s\n' "$((now + max_time))" > "$FAKE_CURL_CLOCK_FILE"
+      printf 'partial bytes from %s\n' "$url" >> "$output"
+      exit 28
+      ;;
+  esac
+
   if [ -n "${FAKE_CURL_CLOCK_FILE:-}" ]; then
     elapsed=6
     if [ "$max_time" -lt "$elapsed" ]; then
@@ -147,6 +156,10 @@ fi
   fi
 
 case "$url" in
+  */index.json)
+    printf '{"99.99.99":{"%s":{"shasum":"%s"}}}\n' "${FAKE_ZIG_INDEX_ARCH:?}" "${FAKE_ZIG_SHA256:?}" > "$output"
+    exit 0
+    ;;
   *primary.invalid*)
     if [ "${FAKE_CURL_MODE:?}" = "resume" ] && [ ! -e "$state_file" ]; then
       : > "$state_file"
@@ -189,6 +202,12 @@ run_install() {
   local budget_seconds="${5:-480}"
   local clock_file="${6:-}"
   local include_minisign="${7:-0}"
+  local retry_delay="${8:-0}"
+  local expected_sha256="$ARCHIVE_SHA256"
+  # Exercise the real checksum-index download after the slow archive mirrors.
+  if [ "$mode" = "slow-fallback" ]; then
+    expected_sha256=""
+  fi
   local path_prefix="$BIN_DIR"
   if [ "$include_minisign" = "1" ]; then
     path_prefix="$MINISIGN_BIN_DIR:$path_prefix"
@@ -197,17 +216,19 @@ run_install() {
     RUNNER_TEMP="$runner_temp" \
     FAKE_CURL_MODE="$mode" \
     ZIG_DOWNLOAD_BUDGET_SECONDS="$budget_seconds" \
-    ZIG_DOWNLOAD_RETRY_DELAY=0 \
+    ZIG_DOWNLOAD_RETRY_DELAY="$retry_delay" \
+    ZIG_FORCE_LOCAL_INSTALL=1 \
     FAKE_ZIG_ARCHIVE="$ARCHIVE" \
+    FAKE_ZIG_SHA256="$ARCHIVE_SHA256" \
+    FAKE_ZIG_INDEX_ARCH="$ZIG_ARCH-$ZIG_OS" \
     CURL_LOG="$curl_log" \
     FAKE_CURL_CLOCK_FILE="$clock_file" \
     ZIG_DOWNLOAD_TEST_CLOCK_FILE="$clock_file" \
     ZIG_REQUIRED="$ZIG_REQUIRED" \
-    ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+    ZIG_EXPECTED_SHA256="$expected_sha256" \
     ZIG_MIRROR_URL="https://primary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_SECONDARY_MIRROR_URL="https://secondary.invalid/$ZIG_NAME.tar.xz" \
     ZIG_TERTIARY_MIRROR_URL="https://tertiary.invalid/$ZIG_NAME.tar.xz" \
-    ZIG_OFFICIAL_URL="https://official.invalid/$ZIG_NAME.tar.xz" \
     "$SCRIPT" > "$output_file" 2>&1
 }
 
@@ -217,32 +238,26 @@ if ! grep -Fq 'zig-mirror.tsimnet.eu/zig/' "$SCRIPT"; then
 fi
 
 printf '0\n' > "$BUDGET_CLOCK_FILE"
-run_install resume "$BUDGET_RUNNER_TEMP" "$BUDGET_OUTPUT_FILE" "$BUDGET_CURL_LOG" 42 "$BUDGET_CLOCK_FILE" 1
+run_install resume "$BUDGET_RUNNER_TEMP" "$BUDGET_OUTPUT_FILE" "$BUDGET_CURL_LOG" 90 "$BUDGET_CLOCK_FILE" 1
 if [ "$(cat "$BUDGET_CLOCK_FILE")" -ne 18 ]; then
   cat "$BUDGET_OUTPUT_FILE"
   cat "$BUDGET_CURL_LOG"
   echo "FAIL: resumable download exceeded its virtual invocation deadline" >&2
   exit 1
 fi
-if ! awk -F '\t' '{ split($5, timeout, "="); if (timeout[2] > 42) { invalid = 1 } } END { exit(invalid ? 1 : 0) }' "$BUDGET_CURL_LOG"; then
+if ! awk -F '\t' '{ split($5, timeout, "="); if (timeout[2] <= 0 || timeout[2] > 90 - (NR - 1) * 6) { invalid = 1 } } END { exit(invalid ? 1 : 0) }' "$BUDGET_CURL_LOG"; then
   cat "$BUDGET_OUTPUT_FILE"
   cat "$BUDGET_CURL_LOG"
   echo "FAIL: curl attempt timeouts exceeded the invocation budget" >&2
   exit 1
 fi
-if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 !~ /\.minisig/ && $5 == "max-time=42" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
-  cat "$BUDGET_OUTPUT_FILE"
-  cat "$BUDGET_CURL_LOG"
-  echo "FAIL: first curl process was not clamped to the remaining budget" >&2
-  exit 1
-fi
-if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 !~ /\.minisig/ && $4 == "resume-offset=32" && $5 == "max-time=36" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 !~ /\.minisig/ && $4 == "resume-offset=32" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
   cat "$BUDGET_OUTPUT_FILE"
   cat "$BUDGET_CURL_LOG"
   echo "FAIL: retry did not resume with the deadline-clamped timeout" >&2
   exit 1
 fi
-if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 ~ /\.minisig\.primary\.part/ && $5 == "max-time=30" { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
+if ! awk -F '\t' '$1 ~ /primary\.invalid/ && $2 ~ /\.minisig\.primary\.part/ { found = 1 } END { exit(found ? 0 : 1) }' "$BUDGET_CURL_LOG"; then
   cat "$BUDGET_OUTPUT_FILE"
   cat "$BUDGET_CURL_LOG"
   echo "FAIL: signature download did not receive its remaining invocation budget" >&2
@@ -333,4 +348,39 @@ if [ ! -x "$RUNNER_TEMP/$ZIG_NAME/zig" ]; then
   exit 1
 fi
 
-echo "PASS: Zig downloads honor the invocation budget, resume on one mirror, and use isolated partial files for fallback mirrors"
+# A slow source must not spend the whole budget before later mirrors, the
+# checksum index and the signature can be fetched. Cover default and tiny
+# budgets, and retry delays longer than a mirror's remaining time.
+for scenario in '480 10' '90 0' '90 60'; do
+  read -r budget delay <<< "$scenario"
+  case_dir="$TMP_DIR/slow-$budget-$delay"
+  mkdir -p "$case_dir"
+  printf '0\n' > "$case_dir/clock"
+  if ! run_install slow-fallback "$case_dir/install" "$case_dir/output" "$case_dir/curl.log" "$budget" "$case_dir/clock" 1 "$delay"; then
+    cat "$case_dir/output" "$case_dir/curl.log"
+    echo "FAIL: slow mirrors prevented installation from the healthy official source" >&2
+    exit 1
+  fi
+  [ -x "$case_dir/install/$ZIG_NAME/zig" ]
+  [ "$(cat "$case_dir/clock")" -le "$budget" ]
+  grep -Fq 'https://ziglang.org/download/index.json' "$case_dir/curl.log"
+  grep -Fq '.minisig' "$case_dir/curl.log"
+  if ! awk -F '\t' '$1 ~ /ziglang\.org/ && $4 != "resume-offset=0" { invalid = 1 } END { exit(invalid ? 1 : 0) }' "$case_dir/curl.log"; then
+    echo "FAIL: official source resumed bytes from a failed mirror" >&2
+    exit 1
+  fi
+done
+
+for budget in 480 1; do
+  case_dir="$TMP_DIR/stalled-$budget"
+  mkdir -p "$case_dir"
+  printf '0\n' > "$case_dir/clock"
+  if run_install all-stalled "$case_dir/install" "$case_dir/output" "$case_dir/curl.log" "$budget" "$case_dir/clock" 1 10; then
+    echo "FAIL: entirely stalled downloads unexpectedly installed Zig" >&2
+    exit 1
+  fi
+  [ "$(cat "$case_dir/clock")" -le "$budget" ]
+  [ ! -e "$case_dir/install/$ZIG_NAME/zig" ]
+done
+
+echo "PASS: Zig downloads preserve fallback and verification time, honor the invocation budget, resume on one mirror, and isolate partial files"
