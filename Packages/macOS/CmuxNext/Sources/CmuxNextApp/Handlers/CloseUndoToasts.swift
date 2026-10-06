@@ -94,9 +94,14 @@ final class CloseUndoToasts {
     /// A user's close of `ids` in `pane` (its close button, close others or
     /// to the right): announced, then closed, so its undo toast shows.
     /// An action run from automation (CLI, agents) closes without a toast.
+    /// A terminal doing work asks once first (`TabCloseGuard`).
     static func close(in pane: PaneController, _ ids: [StripTabID]) {
-        if isUserClose { pane.services.closedTabs?.undoToasts.expectGroup(ids, in: pane) }
-        pane.close(ids)
+        let user = isUserClose
+        TabCloseGuard.close(ids.compactMap(pane.tab), on: pane.daemon, services: pane.services, window: pane.view.window) { [weak pane] in
+            guard let pane else { return }
+            if user { pane.services.closedTabs?.undoToasts.expectGroup(ids, in: pane) }
+            pane.close(ids)
+        }
     }
 
     /// No action run (a click in the strip) or a user-origin run.

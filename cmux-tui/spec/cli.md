@@ -402,6 +402,7 @@ terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 terminal <selector> process show|wait
 terminal <selector> viewport scroll
 
+browser open <url> | --url <url> [OPTIONS]
 browser list
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
