@@ -121,3 +121,23 @@ pub(super) fn advertised_capabilities(
     capabilities.extend(crate::fs_ops::advertised());
     capabilities
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{SurfaceOptions, start_terminal_reaper};
+
+    /// A client decides from `identify` whether closing a tab may only
+    /// detach its terminal: that is safe only while the reaper runs.
+    #[test]
+    fn identify_advertises_the_reaper_only_while_it_runs() {
+        let mux = Mux::new_for_test("reaper-capability", SurfaceOptions::default());
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        let reaper = start_terminal_reaper(&mux).unwrap();
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        reaper.stop();
+        assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
+        assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+    }
+}
