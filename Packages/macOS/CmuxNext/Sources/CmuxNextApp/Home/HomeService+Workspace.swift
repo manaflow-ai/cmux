@@ -116,7 +116,8 @@ extension HomeService {
         } else {
             owner = chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil
         }
-        let listedAll = try await owner.map { try await ConversationClient($0).list() } ?? []
+        var listedAll: [ConversationSummary] = []
+        if let owner { listedAll = try await ConversationClient(owner).list() }
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) once a chief is placed.
@@ -134,7 +135,7 @@ extension HomeService {
         // A local conversation tab whose conversation the Chief owner does not
         // have shows nothing: a build's own Chief from before the Chief home.
         // Only the owner's own list can call a tab dangling.
-        let dangling = owner == nil ? [] : workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { tab in
+        let dangling: [TabModel] = owner == nil ? [] : workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { tab in
             tab.kind == .conversation
                 && tab.snapshot.conversation.map { ref in ref.owner == "local" && ref.conversation.map { !known.contains($0) } == true } == true
         }
