@@ -15,8 +15,11 @@ import os
 /// chief-done.md check 7: every Chief turn follows OptChat). Release builds
 /// carry neither: Home works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
-/// Tagged builds use `~/.cmux/mux/tags/<tag>` so a test never touches the
-/// real mux memory.
+/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
+/// every build, so the memory is one history; isolated launches (agent
+/// preflights, tests) get their own. The host lock keeps one host per home:
+/// a second build's launch exits at once and its Home shows the running
+/// host's conversation, which lives in the Chief home's own owner.
 nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -28,26 +31,22 @@ nonisolated struct HomeBrainHost: Sendable {
     /// The OptChat Chief's file name in the app's Contents/Resources/bin.
     static let bundledChiefName = "optchat-chief"
 
-    static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+    static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
+                        environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)) -> HomeBrainHost? {
         let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
         let bundled = bundledBinDirectory?.appendingPathComponent(bundledChiefName).path
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
-        let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
-        let home: URL
-        if let custom = environment["CMUX_NEXT_MUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
-        } else if let tag, !tag.isEmpty {
-            home = base.appendingPathComponent("tags/\(tag)", isDirectory: true)
-        } else {
-            home = base
-        }
-        let bin = bundledBinDirectory
-        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
+        // The Chief's turns and subagents run on the Chief home's acpmux, never
+        // a tag's: a host started later by another build finds the sessions
+        // its state names.
+        var acpmuxEnvironment = environment
+        acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
+        acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
+        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
+                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
     var arguments: [String] {

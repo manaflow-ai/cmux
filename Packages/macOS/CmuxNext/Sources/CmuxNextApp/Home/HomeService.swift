@@ -85,7 +85,7 @@ final class HomeService {
         Task { [weak self] in
             guard let self, let socket = await connection.endpoint?.socketPath,
                   let host = HomeBrainHost.resolve(daemonSocket: socket, controlSocket: services.environment.launch.socketPath,
-                                                       tag: services.environment.tag) else { return }
+                                                       home: ChiefHome.resolve(tag: services.environment.tag)) else { return }
             guard !startedBrainHost else { return }
             startedBrainHost = true
             // The mux proves its principal with a token this (user) connection mints.
