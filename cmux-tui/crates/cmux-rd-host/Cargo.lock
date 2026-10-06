@@ -57,6 +57,9 @@ dependencies = [
 [[package]]
 name = "cmux-rd-proto"
 version = "0.1.0"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "errno"

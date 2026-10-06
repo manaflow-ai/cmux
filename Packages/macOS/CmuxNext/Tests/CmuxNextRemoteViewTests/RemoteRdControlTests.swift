@@ -45,6 +45,47 @@ struct RemoteRdControlTests {
         #expect(try RemoteRdControl.parse(Data(#"{"t":"cursor_shape","hash":1}"#.utf8)) == .unknown("cursor_shape"))
     }
 
+    /// The golden vectors the Rust `cmux_rd_proto::control::Control` reads
+    /// (cmux-tui/crates/cmux-rd-proto/tests/vectors/control.json).
+    static func vectors() throws -> [String: [String: Any]] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("cmux-tui/crates/cmux-rd-proto/tests/vectors/control.json")
+        let list = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [[String: Any]])
+        var out: [String: [String: Any]] = [:]
+        for entry in list {
+            let name = try #require(entry["name"] as? String)
+            out[name] = try #require(entry["json"] as? [String: Any])
+        }
+        return out
+    }
+
+    static func data(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
+    }
+
+    @Test func hostMessagesInTheSharedVectorsParse() throws {
+        let v = try Self.vectors()
+        for name in ["welcome", "started", "refused", "ended", "stats"] {
+            let control = try RemoteRdControl.parse(try Self.data(try #require(v[name])))
+            if case .unknown = control { Issue.record("\(name) parsed as unknown") }
+        }
+    }
+
+    @Test func viewerMessagesEncodeLikeTheSharedVectors() throws {
+        let v = try Self.vectors()
+        let hello = RemoteRdHello(user: "u", install: "i", token: String(repeating: "ab", count: 32), caps: ["stream.open"])
+        var expectedHello = try #require(v["hello"])
+        // Swift omits a nil udp_port; serde reads a missing Option as None.
+        expectedHello["udp_port"] = nil
+        #expect(NSDictionary(dictionary: try Self.object(try RemoteRdControl.hello(hello).json())) == NSDictionary(dictionary: expectedHello))
+        let start = try Self.object(try RemoteRdControl.start(key: "display:0", mode: "control").json())
+        #expect(NSDictionary(dictionary: start) == NSDictionary(dictionary: try #require(v["start"])))
+        let stop = try Self.object(try RemoteRdControl.stop.json())
+        #expect(NSDictionary(dictionary: stop) == NSDictionary(dictionary: try #require(v["stop"])))
+    }
+
     @Test func startRoundTrips() throws {
         let start = RemoteRdControl.start(key: "display:0", mode: "control")
         #expect(try RemoteRdControl.parse(try start.json()) == start)

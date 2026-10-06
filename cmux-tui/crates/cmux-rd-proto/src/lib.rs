@@ -7,6 +7,8 @@
 //! packets of that frame, plus optional parity packets. All integers are
 //! little-endian. This crate does no I/O.
 
+#[cfg(feature = "serde")]
+pub mod control;
 mod datagram;
 mod error;
 mod feedback;
@@ -28,6 +30,11 @@ pub use stream::{
     MAX_STREAM_FRAME, STREAM_CONTROL, STREAM_DATAGRAM, STREAM_PREFIX_LEN, StreamDeframer,
     encode_stream_frame,
 };
+
+/// The remote desktop service: the hello default (rd change C1).
+pub const SERVICE_DESKTOP: &str = "desktop";
+/// The remote browser tab service (`cmux.rb/1`).
+pub const SERVICE_REMOTE_BROWSER: &str = "rb/1";
 
 /// Overlay UDP port of the remote desktop service (transport.md section 12b).
 pub const OVERLAY_PORT: u16 = 4103;
