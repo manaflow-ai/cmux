@@ -75,26 +75,23 @@ describe("edited-files card", () => {
     expect(opened).toEqual(["/repo/summarize_run.py"]);
     await unmount();
   });
-
-  test("without the hunk review there is no Undo", async () => {
-    const { container, unmount } = await render(
-      createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }),
-      {},
-    );
-    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
-    await unmount();
-  });
 });
 
 describe("edited-files card Undo", () => {
   test("never asks the agent to undo: the agent could run git checkout and lose later edits", async () => {
+    const { setUndoCall } = await import("../turnChanges/undoStore");
+    const hostCalls: boolean[] = [];
+    setUndoCall(async (_files, apply) => {
+      hostCalls.push(apply);
+      return { files: [] };
+    });
     const asked: { keys: string[]; prompt: string }[] = [];
     const { container, unmount } = await render(createElement(EditedFilesCard, { row: edited, onOpenDiff: () => {} }), {
       review: review(new Map(), asked),
     });
-    expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["View changes"]);
-    expect(container.querySelector(".acpmux-edited-undo")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-edited-undo")!.click());
     expect(asked).toEqual([]);
+    expect(hostCalls).toEqual([false]);
     await unmount();
   });
 });

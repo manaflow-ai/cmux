@@ -6,6 +6,7 @@ import "./styles.css";
 import "katex/dist/katex.min.css";
 import "./conversation/conversation.css";
 import "./changes/changes.css";
+import "./turnChanges/turnChanges.css";
 import "./summary/summary.css";
 import "./header/header.css";
 import "./composerControls.css";
