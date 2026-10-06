@@ -147,6 +147,9 @@ pub enum FollowUp {
     /// it run if paused and detach (through `parent` for a child session),
     /// so no agent call can reach it.
     Release { session_id: String, waiting: bool, parent: Option<String> },
+    /// Closed-root change detection ended for a session (closed_roots.rs):
+    /// stop its DOM events; the next read turns them on again.
+    DisableDom { session_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -368,8 +371,12 @@ impl State {
         if method.starts_with("DOM.") {
             if let Some(tab) = self.tabs.get_mut(target_id) {
                 tab.closed_root_stats.dom_events += 1;
-                if let Some(roots) = tab.closed_roots.get_mut(session_id) {
-                    roots.dom_changed();
+                if let Some(roots) = tab.closed_roots.get_mut(session_id)
+                    && roots.dom_changed(std::time::Instant::now())
+                {
+                    applied
+                        .follow_ups
+                        .push(FollowUp::DisableDom { session_id: session_id.to_owned() });
                 }
             }
             return;

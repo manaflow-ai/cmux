@@ -12,12 +12,19 @@ import type { UserState } from "./user.ts"
  * so an id is never reused. Each chief gets one main conversation (kind chief, created by the
  * system through the outbox, id derived from the chief id); a DM with your own chief opens it.
  */
+/** A paired server running the chief's brain (G8): its team host and its daemon install. */
+export interface ChiefBrainPlace {
+  readonly host: string
+  readonly install: string
+}
 export interface ChiefRecord {
   readonly id: string
   readonly owner_user: string
   readonly display_name: string
   readonly is_default: boolean
   readonly brain: "cloud"
+  /** Null when no server is named; absent on records written before G8 (read as null). */
+  readonly brain_place?: ChiefBrainPlace | null
   readonly main_conversation: string | null
   readonly harness: string | null
   readonly rev: number
@@ -44,6 +51,34 @@ const MAX_CHIEFS = 20
 type Params = Record<string, unknown>
 const reject = (code: string, message = code): ReduceResult<UserState> => ({ ok: false, code, message })
 const nameOk = (v: unknown): v is string => typeof v === "string" && v.trim().length >= 1 && v.length <= 100
+const HOST_ID = /^host_[a-z0-9]{20}$/
+
+/**
+ * Checks a requested brain place: the user's session only, a host id, and a live daemon install
+ * (a paired server) of this user. Returns the place, or a rejection.
+ */
+const brainPlace = (state: UserState, raw: unknown, ctx: ReduceContext): ChiefBrainPlace | ReduceResult<UserState> => {
+  if (ctx.principal.kind !== "session") return reject("auth.forbidden", "only the user's session places a chief's brain")
+  const v = raw as { host?: unknown; install?: unknown } | null
+  if (!v || typeof v !== "object" || typeof v.host !== "string" || !HOST_ID.test(v.host) || typeof v.install !== "string") {
+    return reject("validation.invalid", "brain_place needs {host, install}")
+  }
+  const inst = state.installs[v.install]
+  if (!inst || inst.revoked_at !== null || inst.kind !== "daemon") return reject("validation.invalid", "brain_place.install must be a live paired server install")
+  return { host: v.host, install: v.install }
+}
+const isReject = (v: ChiefBrainPlace | ReduceResult<UserState>): v is ReduceResult<UserState> => "ok" in v
+
+/**
+ * The placed server acts as its chief with the chief's rights (G8): a chief token of the install
+ * that the chief's brain_place names also covers mutate-shared. Nothing else widens a grant.
+ */
+export const chiefGrantClasses = (state: UserState, install: string, agent: string | undefined, classes: ReadonlyArray<string>): ReadonlyArray<string> => {
+  if (agent === undefined) return classes
+  const chief = state.chiefs?.[agent]
+  if (!chief || chief.archived_at !== null || chief.brain_place?.install !== install || classes.includes("mutate-shared")) return classes
+  return [...classes, "mutate-shared"]
+}
 
 /** Active chiefs' ids (the ones that receive the text confirmation level). */
 export const activeChiefs = (state: UserState): ReadonlyArray<string> => Object.values(state.chiefs ?? {}).filter((c) => c.archived_at === null).map((c) => c.id)
@@ -94,6 +129,12 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
       if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
       if (params.is_default !== undefined && typeof params.is_default !== "boolean") return reject("validation.invalid", "is_default must be a boolean")
       if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
+      let place: ChiefBrainPlace | null = null
+      if (params.brain_place !== undefined) {
+        const checked = brainPlace(state, params.brain_place, ctx)
+        if (isReject(checked)) return checked
+        place = checked
+      }
       const id = `agent_${invites.crockford(createHash("sha256").update(`chief\u0000${owner}\u0000${ctx.tx}`).digest(), 26)}`
       if (chiefs[id] || state.chief_tombstones?.[id]) return reject("validation.invalid", "chief id collision")
       const isDefault = active.length === 0 || params.is_default === true
@@ -103,6 +144,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
         display_name: typeof params.display_name === "string" ? params.display_name.trim() : "Chief",
         is_default: isDefault,
         brain: "cloud",
+        brain_place: place,
         main_conversation: `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${id}`).digest(), 26)}`,
         harness: null,
         rev: 1,
@@ -142,8 +184,18 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
       if (params.is_default !== undefined && params.is_default !== true) return reject("validation.invalid", "is_default accepts only true; make another chief the default")
       if (params.harness !== undefined && params.harness !== null && (typeof params.harness !== "string" || params.harness.length > 64)) return reject("validation.invalid", "harness must be a short string or null")
       if (restore && active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
+      let place: { value: ChiefBrainPlace | null } | undefined
+      if (params.brain_place === null) {
+        if (p.kind !== "session") return reject("auth.forbidden", "only the user's session places a chief's brain")
+        place = { value: null }
+      } else if (params.brain_place !== undefined) {
+        const checked = brainPlace(state, params.brain_place, ctx)
+        if (isReject(checked)) return checked
+        place = { value: checked }
+      }
       const updated: ChiefRecord = {
         ...cur,
+        ...(place ? { brain_place: place.value } : {}),
         ...(typeof params.display_name === "string" ? { display_name: params.display_name.trim() } : {}),
         ...(params.harness !== undefined ? { harness: params.harness as string | null } : {}),
         ...(restore ? { archived_at: null } : {}),
@@ -176,6 +228,7 @@ export const chiefList = (stateIn: UserState, now: number, includeArchived: bool
   const sorted = all
     .filter((c) => includeArchived || c.archived_at === null)
     .sort((a, b) => Number(b.archived_at === null) - Number(a.archived_at === null) || Number(b.is_default) - Number(a.is_default) || a.created_at.localeCompare(b.created_at))
+    .map((c) => ({ ...c, brain_place: c.brain_place ?? null }))
   return { chiefs: sorted, tombstones: Object.values(state.chief_tombstones ?? {}) }
 }
 

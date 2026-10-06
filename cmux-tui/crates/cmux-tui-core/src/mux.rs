@@ -2713,6 +2713,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// VM activity facts for `subscribe-activity` (server/activity.rs).
+    pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
@@ -3159,6 +3161,7 @@ impl Mux {
             exit_settles: Arc::default(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
+            activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
@@ -6489,6 +6492,9 @@ impl Mux {
             }
             commit
         };
+        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            self.activity.note_agent_action();
+        }
         self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
     }
 
@@ -7527,6 +7533,7 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        self.activity.observe(&event);
         self.subscribers.emit(event);
     }
 
@@ -9304,7 +9311,9 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let _ = self.note_terminal_activity(surface, client, None);
+        if self.note_terminal_activity(surface, client, None).is_some() {
+            self.activity.note_user_input();
+        }
     }
 
     /// Activity of the caller's own view (`view:None`) or of one of its relay
