@@ -36,9 +36,12 @@ LOADER="$(node scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.js
 # runs on first-party sources, as in the Vite dev server; skipped components are listed.
 bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
 
+# The desktop layer first (R139): chrome never selects, so Cmd-A highlights only
+# fields and `.selectable` content. desktop.ts imports it, but the bundle drops CSS.
+cat "$ROOT/webviews/src/pages/shared/desktop.css" > "$WORK/styles.css"
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.
-grep -v '^@import ' "$SRC/shared/styles.css" > "$WORK/styles.css"
+grep -v '^@import ' "$SRC/shared/styles.css" >> "$WORK/styles.css"
 # KaTeX's rules and fonts (data URLs: the CSP below allows fonts only from data:) for the
 # transcript's math (conversation/Math.tsx).
 node scripts/agent-pane/katex-css.mjs >> "$WORK/styles.css"

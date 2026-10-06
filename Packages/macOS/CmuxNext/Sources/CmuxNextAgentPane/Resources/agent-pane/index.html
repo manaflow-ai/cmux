@@ -8,6 +8,100 @@
 <script src="locales/en.js"></script>
 <script src="locales/loader.js"></script>
 <style>
+/* DESKTOP-FEEL (R139): the first layer of every first-party page. A page is app chrome, not a
+   document: nothing selects, drags or zooms unless the page marks it as content. Every page entry
+   imports this file (and desktop.ts) before anything else; desktopLayer.test.ts fails otherwise.
+   Third-party pages in browser tabs never load it.
+
+   Content that a person copies opts in with `.selectable` (or the `selectable` prop of shared
+   components): chat messages, code blocks, diff and markdown text, logs, error details. Fields
+   always select. */
+
+:root {
+  color-scheme: light dark;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  accent-color: AccentColor;
+  overscroll-behavior: none;
+}
+
+html,
+body {
+  overscroll-behavior: none;
+}
+
+/* Buttons and links are controls: the arrow, as in native apps. A real web link inside content
+   (`.selectable a[href]`) keeps the hand. */
+button,
+a,
+[role="button"],
+[role="link"],
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+label,
+summary,
+select {
+  cursor: default;
+}
+
+.selectable a[href] {
+  cursor: pointer;
+}
+
+img,
+svg,
+a {
+  -webkit-user-drag: none;
+}
+
+/* Opt-in content selection. */
+.selectable,
+.selectable * {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+
+/* Fields always select and show the text cursor. */
+input,
+textarea,
+[contenteditable]:not([contenteditable="false"]) {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+
+input[type="checkbox"],
+input[type="radio"],
+input[type="range"],
+input[type="color"],
+input[type="button"],
+input[type="submit"] {
+  cursor: default;
+}
+
+/* Focus rings only for keyboard focus. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 @source "../shared/**/*.ts";
 
