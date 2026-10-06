@@ -24,7 +24,7 @@ import Testing
 
     @Test func readsWhatTheBuildReads() throws {
         let bundle = try fakeBundle(answering)
-        #expect(StoreSchemaProbe.readable(bundle: bundle) == ["conversation_store": 2, "workspace_registry": 15])
+        #expect(StoreSchemaProbe(bundle: bundle).readable() == ["conversation_store": 2, "workspace_registry": 15])
     }
 
     @Test func storedTakesTheNewestAcrossStateDirectories() throws {
@@ -35,17 +35,17 @@ import Testing
             try json.write(to: root.appending(path: "stored.json"), atomically: true, encoding: .utf8)
             return root
         }
-        #expect(StoreSchemaProbe.stored(bundle: bundle, stateDirectories: roots) == ["workspace_registry": 15, "conversation_store": 2])
+        #expect(StoreSchemaProbe(bundle: bundle).stored(stateDirectories: roots) == ["workspace_registry": 15, "conversation_store": 2])
     }
 
     /// An older build without the probe, a failing read, or odd output say
     /// nothing, so the rollback refuses instead of guessing.
     @Test func failuresAndOddOutputSayNothing() throws {
-        #expect(StoreSchemaProbe.readable(bundle: try fakeBundle("exit 2")) == nil)
-        #expect(StoreSchemaProbe.readable(bundle: try fakeBundle("echo '{\"a\":true}'")) == nil)
-        #expect(StoreSchemaProbe.readable(bundle: try fakeBundle("echo '[1]'")) == nil)
+        #expect(StoreSchemaProbe(bundle: try fakeBundle("exit 2")).readable() == nil)
+        #expect(StoreSchemaProbe(bundle: try fakeBundle("echo '{\"a\":true}'")).readable() == nil)
+        #expect(StoreSchemaProbe(bundle: try fakeBundle("echo '[1]'")).readable() == nil)
         let missing = FileManager.default.temporaryDirectory.appending(path: "absent-\(UUID().uuidString).app")
-        #expect(StoreSchemaProbe.readable(bundle: missing) == nil)
-        #expect(StoreSchemaProbe.stored(bundle: try fakeBundle("exit 1"), stateDirectories: [nil]) == nil)
+        #expect(StoreSchemaProbe(bundle: missing).readable() == nil)
+        #expect(StoreSchemaProbe(bundle: try fakeBundle("exit 1")).stored(stateDirectories: [nil]) == nil)
     }
 }

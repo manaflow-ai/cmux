@@ -48,10 +48,10 @@ extension UpdaterService {
         return await Task.detached {
             let kept = store.list().map { version in
                 var version = version
-                if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe.readable(bundle: version.bundle) }
+                if version.storeSchemas == nil { version.storeSchemas = StoreSchemaProbe(bundle: version.bundle).readable() }
                 return version
             }
-            return RollbackInputs(kept: kept, stored: StoreSchemaProbe.stored(bundle: bundle, stateDirectories: stateDirectories))
+            return RollbackInputs(kept: kept, stored: StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories))
         }.value
     }
 
