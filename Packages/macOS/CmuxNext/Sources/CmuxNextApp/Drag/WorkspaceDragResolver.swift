@@ -46,10 +46,14 @@ enum WorkspaceDragResolver {
         }
         // A group keeps its members together: it joins the window as a
         // whole, where its own position in the daemon order puts it.
-        let target = isGroup ? .window : sidebarHit ?? .window
+        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map(WorkspaceDropTarget.merge) ?? .window
         if windowID == sourceWindowID {
-            // Back home: only a sidebar slot means something (a reorder).
-            guard case .position = target else { return .cancel }
+            // Back home: only a sidebar slot (a reorder) or a pane (a
+            // merge) means something.
+            switch target {
+            case .position, .merge: break
+            case .intoGroup, .window: return .cancel
+            }
         }
         return .window(id: windowID, target: target)
     }

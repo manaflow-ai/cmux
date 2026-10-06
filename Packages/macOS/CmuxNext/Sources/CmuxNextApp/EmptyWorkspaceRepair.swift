@@ -156,7 +156,7 @@ final class EmptyWorkspaceRepair {
     /// The store's home workspace (workspace-kind-v1) starts empty on
     /// purpose and the daemon never closes it: HomeService owns its content
     /// (the Chief conversation tab), so it is neither repaired nor closed.
-    private static func isHome(_ workspace: WorkspaceModel) -> Bool {
+    static func isHome(_ workspace: WorkspaceModel) -> Bool {
         workspace.kind == "home"
     }
 
