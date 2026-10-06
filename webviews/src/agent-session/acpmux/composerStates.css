@@ -152,7 +152,6 @@
   background: transparent;
   resize: none;
   overflow-y: auto;
-  scrollbar-width: none;
   font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent);
