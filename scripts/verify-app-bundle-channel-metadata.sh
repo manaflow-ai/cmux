@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-usage: verify-app-bundle-channel-metadata.sh <app-path> <stable|nightly|rc>
+usage: verify-app-bundle-channel-metadata.sh <app-path> <stable|nightly|rc|dev>
 
 Verifies the built app bundle metadata that LaunchServices and Sparkle use for
 system prompts. This intentionally checks the final bundle artifact, not the
@@ -46,6 +46,11 @@ case "$CHANNEL" in
     EXPECTED_BUNDLE_ID="com.cmuxterm.app.rc"
     EXPECTED_ICON_NAME="AppIcon-RC"
     ;;
+  dev)
+    EXPECTED_NAME="cmux DEV"
+    EXPECTED_BUNDLE_ID="com.cmuxterm.app.dev"
+    EXPECTED_ICON_NAME="AppIcon"
+    ;;
   *)
     usage >&2
     exit 2
@@ -67,8 +72,18 @@ expect_plist_value() {
   fi
 }
 
-expect_plist_value CFBundleName "$EXPECTED_NAME"
-expect_plist_value CFBundleDisplayName "$EXPECTED_NAME"
+if [[ "$CHANNEL" == dev ]]; then
+  for key in CFBundleName CFBundleDisplayName; do
+    value="$(plist_value "$key" 2>/dev/null || true)"
+    [[ "$value" == "cmux DEV" || "$value" == "cmux DEV "* ]] || {
+      echo "error: $key expected cmux DEV name, found '${value:-<missing>}'" >&2
+      exit 1
+    }
+  done
+else
+  expect_plist_value CFBundleName "$EXPECTED_NAME"
+  expect_plist_value CFBundleDisplayName "$EXPECTED_NAME"
+fi
 expect_plist_value CFBundleIdentifier "$EXPECTED_BUNDLE_ID"
 expect_plist_value CFBundleIconFile "$EXPECTED_ICON_NAME"
 expect_plist_value CFBundleIconName "$EXPECTED_ICON_NAME"

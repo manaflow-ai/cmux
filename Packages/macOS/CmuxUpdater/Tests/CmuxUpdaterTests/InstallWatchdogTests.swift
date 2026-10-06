@@ -179,6 +179,21 @@ import Testing
         #expect(!intelURL.absoluteString.contains("/nightly/"))
     }
 
+    @Test func manualDownloadRoutesDevFeedToItsTrackArchive() throws {
+        let error = NSError(domain: UpdateStateModel.updateErrorDomain,
+                            code: UpdateStateModel.installDidNotStartCode)
+        let recovery = UpdateManualDownloadRecovery()
+        let url = try #require(recovery.url(for: error, feedURLString: "https://files.cmux.com/cmux-dev/next/appcast.xml"))
+        #expect(url.absoluteString == "https://files.cmux.com/cmux-dev/next/latest.zip")
+
+        let classic = try #require(recovery.url(for: error, feedURLString: "https://files.cmux.com/cmux-dev/classic/appcast.xml"))
+        #expect(classic.absoluteString == "https://files.cmux.com/cmux-dev/classic/latest.zip")
+
+        let custom = UpdateManualDownloadRecovery(devDownloadURLString: "https://example.com/cmux-dev/latest.zip")
+        let customURL = try #require(custom.url(for: error, feedURLString: "https://files.cmux.com/cmux-dev/next/appcast.xml"))
+        #expect(customURL.absoluteString == "https://example.com/cmux-dev/latest.zip")
+    }
+
     /// The watchdog can fire before Sparkle asks its delegate for a feed URL; in that passive path
     /// the driver still needs to recover the build's appcast channel so NIGHTLY installs offer the
     /// nightly DMG instead of downgrading to stable.

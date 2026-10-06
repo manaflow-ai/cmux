@@ -17,9 +17,11 @@ private let sparkleInstallationWriteNoPermissionErrorCode = 4012
 /// Chooses a direct-download recovery URL for update failures where the in-app install path is
 /// broken but fetching the active channel manually is still safe.
 public struct UpdateManualDownloadRecovery: Sendable {
+    private static let defaultDevDownloadURLString = "https://files.cmux.com/cmux-dev/classic/latest.zip"
     private let stableDownloadURLString: String
     private let nightlyDownloadURLString: String
     private let rcDownloadURLString: String
+    private let devDownloadURLString: String
 
     /// Creates a recovery resolver.
     ///
@@ -29,11 +31,13 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///     nightly DMG for `hostArchitecture`, since nightly ships one DMG per architecture.
     ///   - rcDownloadURLString: Direct DMG URL for the RC channel. Defaults to the RC DMG for
     ///     `hostArchitecture`, since RC ships one DMG per architecture like nightly.
+    ///   - devDownloadURLString: Direct ZIP URL for the team dev channel.
     ///   - hostArchitecture: The architecture whose nightly and RC DMGs are offered by default.
     public init(
         stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
         nightlyDownloadURLString: String? = nil,
         rcDownloadURLString: String? = nil,
+        devDownloadURLString: String = "https://files.cmux.com/cmux-dev/classic/latest.zip",
         hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.stableDownloadURLString = stableDownloadURLString
@@ -41,6 +45,7 @@ public struct UpdateManualDownloadRecovery: Sendable {
             ?? Self.nightlyDownloadURLString(for: hostArchitecture)
         self.rcDownloadURLString = rcDownloadURLString
             ?? Self.rcDownloadURLString(for: hostArchitecture)
+        self.devDownloadURLString = devDownloadURLString
     }
 
     /// The direct nightly DMG URL for `architecture`.
@@ -96,8 +101,48 @@ public struct UpdateManualDownloadRecovery: Sendable {
             return URL(string: nightlyDownloadURLString)
         case .rc:
             return URL(string: rcDownloadURLString)
+        case .dev:
+            return URL(string: devDownloadURL(for: feedURLString))
         case .stable:
             return URL(string: stableDownloadURLString)
         }
+    }
+
+    private func devDownloadURL(for feedURLString: String?) -> String {
+        guard devDownloadURLString == Self.defaultDevDownloadURLString else {
+            return devDownloadURLString
+        }
+        guard let feedURLString,
+              let components = URLComponents(string: feedURLString),
+              let track = Self.devTrack(in: components.path)
+        else {
+            return devDownloadURLString
+        }
+        guard var download = URLComponents(string: devDownloadURLString) else {
+            return devDownloadURLString
+        }
+        var path = download.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let devIndex = path.firstIndex(of: "cmux-dev") else {
+            return devDownloadURLString
+        }
+        if path.count > devIndex + 1 {
+            path[devIndex + 1] = track
+        } else {
+            path.append(track)
+        }
+        if path.last != "latest.zip" {
+            path.append("latest.zip")
+        }
+        download.path = "/" + path.joined(separator: "/")
+        return download.string ?? devDownloadURLString
+    }
+
+    private static func devTrack(in path: String) -> String? {
+        let components = path.split(separator: "/").map(String.init)
+        guard let index = components.firstIndex(of: "cmux-dev"), components.count > index + 1 else {
+            return nil
+        }
+        let track = components[index + 1]
+        return track == "classic" || track == "next" ? track : nil
     }
 }
