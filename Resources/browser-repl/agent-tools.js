@@ -1770,12 +1770,17 @@
       if (!r) continue;
       for (const h of r.handles) {
         const ref = await this._refForHandle(r.frame, h);
-        if (!byFrame.has(r.frame)) byFrame.set(r.frame, []);
-        byFrame.get(r.frame).push([ref.replace(/^f\d+/, ""), ref]);
+        const local = ref.replace(/^f\d+/, "");
+        // Labels go only to the document that issued the refs
+        // (page-agent.js annotate): a ref of another document is left out.
+        const doc = this._refDocFor(r.frame, local);
+        if (!byFrame.has(r.frame)) byFrame.set(r.frame, { doc, pairs: [] });
+        const entry = byFrame.get(r.frame);
+        if (entry.doc === doc) entry.pairs.push([local, ref]);
       }
     }
     let n = 0;
-    for (const [frame, pairs] of byFrame) n += await frame._agent("annotate", pairs);
+    for (const [frame, { doc, pairs }] of byFrame) n += await frame._agent("annotate", pairs, doc);
     const frames = [...byFrame.keys()];
     this._highlightClear = async () => {
       for (const f of frames) await f._agent("clearAnnotations").catch(() => {});
