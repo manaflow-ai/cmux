@@ -55,9 +55,13 @@ protocol InternalPageProvider: AnyObject {
     /// The title of tab `key`, for a page whose tabs show different things
     /// (a diff tab names its folder). Default: ``title``.
     func title(for key: String) -> String
+    /// The page history of tab `key` (``PageHistory``), for a page with
+    /// sub-views. Default: none.
+    func history(for key: String) -> (any PageHistory)?
 }
 
 extension InternalPageProvider {
     func tabClosed(_ key: String) {}
     func title(for key: String) -> String { title }
+    func history(for key: String) -> (any PageHistory)? { nil }
 }

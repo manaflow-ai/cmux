@@ -32,6 +32,9 @@ extension KeyRouter {
         /// The focused address bar shows its suggestion list: it is a list
         /// for Ctrl-N/P/J/K (R110) until the list closes.
         var omnibarListOpen = false
+        /// The window shows a page with its own history (`PageHistory`):
+        /// Cmd-[ / Cmd-] run Go Back / Go Forward there.
+        var showsPageHistory = false
     }
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
@@ -120,7 +123,8 @@ extension KeyRouter {
               terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id,
               listFocus: focusedReadiness(in: controller)?.isListFocused == true,
               pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
-              omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true)
+              omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
+              showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil)
     }
 
     /// The sidebar list and its search field are lists for Ctrl-N/P/J/K.

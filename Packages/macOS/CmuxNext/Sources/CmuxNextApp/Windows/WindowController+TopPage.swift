@@ -18,6 +18,7 @@ extension WindowController {
         root.titlebar.title = topPages.title(for: route)
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.locationTrail.pageHistoryDidChange()
         return true
     }
 

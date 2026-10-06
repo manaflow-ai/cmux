@@ -16,6 +16,8 @@ final class InternalPageTabStore {
     /// tabs of a pane closed out of sight close once the tree drops it.
     private var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
+    var navigate: ((Bool) -> Void)?
 
     /// Registers the owner of `provider.page`. A second provider of the
     /// same page replaces the first.
@@ -72,6 +74,7 @@ final class InternalPageTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: windows[key]))
+        view.navigate = navigate
         views[key] = view
         return view
     }

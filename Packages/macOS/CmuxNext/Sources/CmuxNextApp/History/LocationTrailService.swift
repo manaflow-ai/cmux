@@ -86,8 +86,13 @@ final class LocationTrailService {
     /// window, else the last active one), so a background CLI change does
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
-        guard services.windows.active === controller, let location = location(of: state, in: controller) else { return }
-        if trail.record(location, at: now()) { changed() }
+        guard services.windows.active === controller else { return }
+        guard let location = location(of: state, in: controller), trail.record(location, at: now()) else {
+            // The shown page may have changed (another tab, a top page): the arrows re-read it.
+            pageHistoryDidChange()
+            return
+        }
+        changed()
     }
 
     func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
@@ -125,8 +130,14 @@ final class LocationTrailService {
     /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
     /// With the `surface` scope the focused surface walks its own list (a browser page's back and
     /// forward); a surface without one does nothing.
+    /// The shown page's own history comes first (history.md 4.2b): Back and
+    /// Forward walk it, and the trail only past its ends.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        if direction != .last, ActionRunScope.viewChangeAllowed(), let page = pageHistory() {
+            if direction == .back ? page.goBack() : page.goForward() { return true }
+        }
+        if direction == .back, leaveTopPage() { return true }
         let scope = scope
         if scope == .surface {
             switch direction {
@@ -145,8 +156,11 @@ final class LocationTrailService {
         return true
     }
 
-    /// Whether Back or Forward has somewhere to go now (the titlebar buttons' enabled state).
-    func canNavigate(_ direction: LocationTrailDirection) -> Bool {
+    /// Whether Back or Forward has somewhere to go now in `controller` (else the active window):
+    /// the titlebar buttons' enabled state.
+    func canNavigate(_ direction: LocationTrailDirection, in controller: WindowController? = nil) -> Bool {
+        if let page = pageHistory(in: controller), direction == .back ? page.canGoBack : page.canGoForward { return true }
+        if direction == .back, topPageReturn(in: controller) != nil { return true }
         let scope = scope
         guard scope != .surface else { return true }
         return direction == .back ? trail.canGoBack(scope: scope, isAvailable: isAvailable)
@@ -168,6 +182,39 @@ final class LocationTrailService {
         changed()
         if !focus(entry.location) { trail.cancelPending() }
         return true
+    }
+
+    // MARK: Page history (history.md 4.2b)
+
+    /// The page history of what `controller` (else the active window) shows: its top page, else
+    /// the internal page tab selected in its focused pane.
+    func pageHistory(in controller: WindowController? = nil) -> (any PageHistory)? {
+        guard let controller = controller ?? services.windows.active else { return nil }
+        if let route = controller.shownTopPage {
+            guard case .page(let id) = route, let key = controller.topPages.key(for: route) else { return nil }
+            return TopPages.provider(id, services: services)?.history(for: key)
+        }
+        guard let key = controller.focusedPane?.stripModel.selectedID?.rawValue, let id = LocalPageTab.page(of: key) else { return nil }
+        return services.pages.provider(id)?.history(for: key)
+    }
+
+    /// A page moved through its history, or the shown page changed: the titlebar arrows re-read
+    /// ``canNavigate(_:in:)``. The trail itself did not change.
+    func pageHistoryDidChange() {
+        for handler in observers.values { handler() }
+    }
+
+    /// The trail's current location when `controller` shows a top page over it: Back from the
+    /// page's first entry returns there.
+    private func topPageReturn(in controller: WindowController?) -> HistoryLocation? {
+        guard let controller = controller ?? services.windows.active, controller.shownTopPage != nil,
+              let current = trail.current?.location, isAvailable(current) else { return nil }
+        return current
+    }
+
+    private func leaveTopPage() -> Bool {
+        guard let location = topPageReturn(in: nil) else { return false }
+        return focus(location)
     }
 
     /// Focuses a trail entry chosen from a list (history page, palette):

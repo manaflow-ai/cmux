@@ -42,7 +42,7 @@ public final class AppStoreWindowController: NSWindowController, NSWindowDelegat
 
     /// Shows the window; `appID` opens that listing, `installed` the Installed tab.
     public func present(appID: String? = nil, installed: Bool = false) {
-        if let appID { model.open(appID: appID) } else if installed { model.tab = .installed }
+        model.present(appID: appID, installed: installed)
         guard let window else { return }
         scope.adopt(window)
         WindowPlacement.present(window)

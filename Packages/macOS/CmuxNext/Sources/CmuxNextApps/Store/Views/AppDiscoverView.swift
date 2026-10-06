@@ -35,9 +35,12 @@ struct AppDiscoverView: View {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: Metrics.space4)], spacing: Metrics.space4) {
                                 ForEach(model.listings) { AppListingCard(model: model, listing: $0) }
                             }
-                            .padding(Metrics.space5)
+                            .appStoreColumn()
+                            .padding(.vertical, Metrics.space4)
                         } else {
-                            LazyVStack(spacing: 2) { rows(showsInstall: true) }.padding(Metrics.space4)
+                            LazyVStack(spacing: 2) { rows(showsInstall: true) }
+                                .appStoreColumn()
+                                .padding(.vertical, Metrics.space4)
                         }
                     }
                     .overlay { if model.listings.isEmpty { empty(model.loadError.map { _ in AppsStrings.loadFailed } ?? AppsStrings.noMatches) } }
@@ -61,7 +64,7 @@ struct AppDiscoverView: View {
                     chip(AppsStrings.category(id), selected: model.category == id) { model.category = model.category == id ? nil : id }
                 }
             }
-            .padding(.horizontal, Metrics.space5)
+            .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space5))
             .padding(.vertical, Metrics.space3)
         }
     }
