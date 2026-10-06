@@ -11,6 +11,13 @@ import Testing
 #endif
 
 extension CmuxTuiSurfaceProviderTests {
+    @Test func linkExitDescriptionDoesNotExposeRawStderr() {
+        let error = CloudMachineLink.LinkError.exited(
+            status: 7, output: "authorization: bearer secret-token\nremote diagnostic"
+        )
+        #expect(error.errorDescription == "cmux-tui link exited with status 7")
+    }
+
     @Test func sshLinkPassesTheSelectedSessionToItsClient() async throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-link-\(UUID().uuidString)", isDirectory: true)
@@ -90,5 +97,70 @@ extension CmuxTuiSurfaceProviderTests {
         let killResult = Darwin.kill(pid, 0)
         let killErrno = errno
         #expect(killResult == -1 && killErrno == ESRCH, "the link child must be reaped before connect returns")
+    }
+
+    @Test(.timeLimit(.minutes(1))) func cancellingLinkConnectStopsDescendantsHoldingItsPipes() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-connect-cancel-tree-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let linkPIDFile = root.appendingPathComponent("link.pid")
+        let helperPIDFile = root.appendingPathComponent("helper.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        echo $$ > '\(linkPIDFile.path)'
+        (
+          trap '' TERM
+          while true; do sleep 1; done
+        ) &
+        echo $! > '\(helperPIDFile.path)'
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        for path in [linkPIDFile.path, helperPIDFile.path] {
+            try #require(Darwin.mkfifo(path, 0o600) == 0)
+        }
+        let linkReadyFD = Darwin.open(linkPIDFile.path, O_RDWR | O_NONBLOCK)
+        try #require(linkReadyFD >= 0)
+        let helperReadyFD = Darwin.open(helperPIDFile.path, O_RDWR | O_NONBLOCK)
+        try #require(helperReadyFD >= 0)
+        let linkReadyHandle = FileHandle(fileDescriptor: linkReadyFD, closeOnDealloc: true)
+        let helperReadyHandle = FileHandle(fileDescriptor: helperReadyFD, closeOnDealloc: true)
+        var linkReadyLines = CloudLinkPipe.lines(from: linkReadyHandle).makeAsyncIterator()
+        var helperReadyLines = CloudLinkPipe.lines(from: helperReadyHandle).makeAsyncIterator()
+        let task = Task {
+            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main")
+        }
+        defer { task.cancel() }
+        _ = try #require(await linkReadyLines.next())
+        let helperPIDLine = try #require(await helperReadyLines.next())
+        let helperPID = try #require(Int32(helperPIDLine))
+        defer { _ = Darwin.kill(helperPID, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link connect must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
+        }
+        var helperInfo = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        errno = 0
+        let infoSize = proc_pidinfo(
+            pid_t(helperPID), PROC_PIDTBSDINFO, 0, &helperInfo, Int32(expectedSize)
+        )
+        let helperStopped = Int(infoSize) == expectedSize
+            ? helperInfo.pbi_status == UInt32(SZOMB)
+            : errno == ESRCH
+        #expect(helperStopped, "cancellation must stop descendants holding link pipes before returning")
     }
 }
