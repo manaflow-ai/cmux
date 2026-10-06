@@ -154,6 +154,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_classify_failures.py
 
+      - name: Validate the workflow_run handlers' API budget
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: python3 tests/test_ci_workflow_run_api_budget.py
+
       - name: Validate the report-only reverse test impact selector
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_reverse_test_impact.py
