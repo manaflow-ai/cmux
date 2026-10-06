@@ -14,7 +14,9 @@ import CmuxNextTerminal
 /// `"target": "page"` the key goes to the Chromium page window of `pane`
 /// (default: the focused pane), as when that page window is key.
 /// Lets automation verify key routing and focus on a window that is never
-/// key (`CMUX_NEXT_NO_ACTIVATE=1`). Never touches another app.
+/// key (`CMUX_NEXT_NO_ACTIVATE=1`). A key the responder chain gets passes the
+/// local event monitors as a real key does (DebugNativeInput), so a key in an
+/// agent pane records the user's gesture. Never touches another app.
 enum DebugKey {
     private static let named: [String: (characters: String, keyCode: UInt16)] = [
         "return": ("\r", 36), "escape": ("\u{1b}", 53), "tab": ("\t", 48), "d": ("d", 2), "c": ("c", 8), "v": ("v", 9),
@@ -105,7 +107,14 @@ enum DebugKey {
             } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
                 return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
             }
-            window.sendEvent(event)
+            // As a real key: through the app and its local monitors when the window is key, else
+            // the panes' gesture monitors and then the window (DebugNativeInput).
+            if DebugNativeInput.usesAppKitPath(window) {
+                DebugNativeInput.sendThroughApp([event])
+            } else {
+                DebugNativeInput.runPaneMonitors(event, in: window, services: services)
+                window.sendEvent(event)
+            }
             return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
