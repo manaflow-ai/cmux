@@ -33,9 +33,9 @@ public final class ChatsStepModel {
         guard task == nil else { return }
         isScanning = true
         task = Task { [weak self, services] in
-            async let scanned = services.scanAgentChats()
+            async let recent = services.scanAgentChats()
             async let classic = services.scanClassicOpenChats()
-            let (found, open) = await (scanned, classic)
+            let (found, open) = await (recent, classic)
             guard let self, !Task.isCancelled else { return }
             // Classic's open chats stay listed past the newest rows.
             chats = Array(found.prefix(Self.listed)) + found.dropFirst(Self.listed).filter { open.contains($0.id) }
