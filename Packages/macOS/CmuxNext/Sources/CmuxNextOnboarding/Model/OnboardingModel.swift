@@ -122,7 +122,7 @@ public final class OnboardingModel {
     public func stepDidAppear() {
         if step != .computerUse { computerUse.stop() }
         switch step {
-        // The first screen of the group starts every scan, so the next lists are ready.
+        // Any of these screens starts every scan, so the next one's list is ready.
         case .projects, .classicSessions, .chats:
             projects.scan()
             if steps.contains(.chats) { chats.scan() }
