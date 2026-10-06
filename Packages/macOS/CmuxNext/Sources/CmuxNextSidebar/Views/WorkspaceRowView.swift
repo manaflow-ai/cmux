@@ -104,9 +104,10 @@ final class WorkspaceRowView: SidebarRowView {
         groupColor = row.groupColor
         isShowingPlaceholder = ws.rowState == .placeholder
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
-        let rowIcon = ws.icon ?? .symbol(ws.kind.symbol, tint: nil)
-        icon.configure(icon: ws.icon, fallback: ws.kind.iconName, brand: ws.kindBrand)
-        iconKind = rowIcon
+        // WORKSPACE-ROWS-NO-DEFAULT-ICON: only a user's icon draws; a row
+        // without one shows no kind glyph and its title takes the place.
+        icon.configure(icon: ws.icon)
+        iconKind = ws.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
@@ -210,8 +211,8 @@ final class WorkspaceRowView: SidebarRowView {
             groupRail.backgroundColor = color?.cgColor
             groupRail.cornerRadius = railWidth / 2
         }
-        // Every row reserves a leading type glyph. A custom workspace icon
-        // replaces the type glyph while keeping the same stable alignment.
+        // A custom workspace icon takes the leading slot; without one the
+        // title starts at the leading inset (no default kind glyph).
         let leading = SidebarStyle.horizontalInset + indent
         let side: CGFloat
         switch iconKind {
