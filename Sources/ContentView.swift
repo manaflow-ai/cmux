@@ -15480,7 +15480,7 @@ struct SidebarFooterButtons: View {
 
     private var billingPlanRefreshID: String? {
         guard let flow = accountFlow, let accountID = flow.currentIdentity?.id else { return nil }
-        return "\(accountID):\(flow.confirmedTeamID ?? \"personal\"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
+        return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
     }
 
     private var isProStatusKnownForUpgrade: Bool {
