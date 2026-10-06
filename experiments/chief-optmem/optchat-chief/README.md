@@ -495,6 +495,18 @@ the turn wins until it ends.
   `approval`: turn, permission, tool, decision, option, approver, install,
   delivered); the approver is the answering participant (`user_local` or
   `remote_<install>`, with the install), or why it was denied.
+- Children inherit `ask`, transitively. `chief agents spawn` asks the host
+  for its spawn floor: `ask` while an `ask` turn runs or while any child that
+  runs with `ask` is live (so whatever such a child spawns asks too; the
+  floor errs strict, and a local turn's spawn during that time asks as
+  well). The floor wins over `--policy` and `MUX_POLICY`; a host that does
+  not answer gives `ask` (fail closed). Such a child is tagged
+  `optchat.policy=ask`, its permission requests are asked in the Chief chat
+  with its name and answered by `allow`/`deny` like the turn's (the trace
+  names the child), and `chief agents allow|deny` refuses to answer them. A
+  child name that exists without `ask` is not reused by such a spawn.
+  `remote.autoApprove`, set from the Mac, removes the floor; it cannot be
+  turned on while an `ask` child is live.
 - The native engine cannot ask the chat yet: in such a turn it refuses its
   bash and editor tools and says so to the model.
 - Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
@@ -522,7 +534,8 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   all; a second account never does.
 - Residual risks. An approval is full authority for the shown call: an
   approved command can start a background process that outlives the turn,
-  spawn an approve-all child agent (children keep `MUX_POLICY`), or edit
+  start an acpmux session directly with another policy (outside `chief
+  agents`), or edit
   `settings.json` by hand (read at the next host start). A stolen or
   compromised paired device can approve its own turn's requests until it is
   revoked; revocation removes it from the relay (new streams refused after
@@ -542,7 +555,8 @@ Tests: `tests/remote_wake.rs` (every refusal above, the mention rule, and a
 device message logged and answered end to end) and `tests/remote_policy.rs`
 (a remote turn cannot run a shell without an approval, zoom needs none, the
 approver is traced; a remote turn cannot turn on `remote.autoApprove`; a
-mixed-origin turn stays `ask`; a local turn keeps approve-all).
+mixed-origin turn stays `ask`; a local turn keeps approve-all; a child
+spawned from an `ask` turn asks too, and its shell call waits for a person).
 
 ## Deviations from the spec
 

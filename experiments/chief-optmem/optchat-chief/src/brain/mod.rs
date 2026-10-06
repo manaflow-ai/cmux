@@ -87,7 +87,9 @@ pub enum Input {
         reply: Sender<serde_json::Value>,
     },
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
-    SpawnPolicy { reply: Sender<Option<String>> },
+    SpawnPolicy {
+        reply: Sender<Option<String>>,
+    },
 }
 
 impl From<DaemonEvent> for Input {

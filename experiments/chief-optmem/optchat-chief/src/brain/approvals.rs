@@ -83,7 +83,9 @@ impl Brain {
         let text = question(&pending);
         self.approvals.push_back(pending);
         if let Some(conversation) = self.state.conversation.clone() {
-            self.state.outbox.push(reply_entry(conversation, key, &text));
+            self.state
+                .outbox
+                .push(reply_entry(conversation, key, &text));
             self.save();
             self.flush_outbox();
         }
@@ -94,8 +96,12 @@ impl Brain {
     pub(super) fn ask_child_live(&self) -> bool {
         use cmux_chief::acp::SessionStatus;
         self.sessions.values().any(|s| {
-            s.tags.get(crate::approval::POLICY_TAG).map(String::as_str) == Some(crate::approval::ASK)
-                && !matches!(s.status, SessionStatus::Closed | SessionStatus::Disconnected)
+            s.tags.get(crate::approval::POLICY_TAG).map(String::as_str)
+                == Some(crate::approval::ASK)
+                && !matches!(
+                    s.status,
+                    SessionStatus::Closed | SessionStatus::Disconnected
+                )
         })
     }
 

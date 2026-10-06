@@ -380,7 +380,8 @@ fn start(
         match request {
             ControlRequest::Set(key, value) => {
                 let (reply, answer) = channel();
-                tx.send(Input::Setting { key, value, reply }).map_err(stopping)?;
+                tx.send(Input::Setting { key, value, reply })
+                    .map_err(stopping)?;
                 answer.recv_timeout(wait).map_err(late)?
             }
             ControlRequest::Show => {

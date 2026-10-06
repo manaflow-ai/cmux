@@ -309,7 +309,11 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
     assert_eq!(apply_floor("approve-all", Some("ask")), "ask");
     assert_eq!(apply_floor("approve-all", None), "approve-all");
     let mut h = harness(started());
-    assert_eq!(h.brain.spawn_policy(), None, "a local Chief spawns as before");
+    assert_eq!(
+        h.brain.spawn_policy(),
+        None,
+        "a local Chief spawns as before"
+    );
     h.agents.hold(true);
     deliver(&mut h, true, "start an agent that cleans the cache");
     h.step();
@@ -318,7 +322,9 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
     assert_eq!(h.brain.spawn_policy(), Some("ask"));
     // The approved spawn's child appears; then the turn ends.
     h.brain
-        .step(Input::from(AgentEvent::SessionChanged(ask_child("running"))));
+        .step(Input::from(AgentEvent::SessionChanged(ask_child(
+            "running",
+        ))));
     h.agents.hold(false);
     h.agents.release();
     h.settle();
@@ -348,18 +354,18 @@ fn a_child_spawned_from_an_ask_turn_asks_too() {
     let asked = sends(&h);
     assert_eq!(asked.len(), before + 1, "{asked:?}");
     let question = asked.last().unwrap();
-    assert!(question.contains("a1") && question.contains("rm -rf ~/.cache"), "{question}");
+    assert!(
+        question.contains("a1") && question.contains("rm -rf ~/.cache"),
+        "{question}"
+    );
     // The Chief's own `agents allow` cannot answer it; a person does.
     assert!(cli_may_answer(&ask_child("running")).is_err());
     deliver(&mut h, false, "allow");
-    assert!(
-        h.agents
-            .inner
-            .lock()
-            .unwrap()
-            .responses
-            .contains(&("c1".into(), "p9".into(), Some("allow".into())))
-    );
+    assert!(h.agents.inner.lock().unwrap().responses.contains(&(
+        "c1".into(),
+        "p9".into(),
+        Some("allow".into())
+    )));
     let approval = traces(&h)
         .into_iter()
         .find(|t| t["ev"] == "approval" && t["permission"] == "p9")
