@@ -100,6 +100,31 @@ impl Route {
     }
 }
 
+/// The team subrouter on cmux-lawrence, as a routed claude-sr names it
+/// (MagicDNS short name, its full tailnet name, or the tailnet address).
+pub const TEAM_SUBROUTER_URLS: [&str; 3] = [
+    "http://cmux-lawrences-mac-mini:31415",
+    "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415",
+    "http://100.89.225.106:31415",
+];
+
+/// acpmux's routed claude-sr: when `sr claude proxy --version` fails at
+/// daemon start, acpmux replaces the launcher with a copy of the `claude`
+/// profile whose `ANTHROPIC_BASE_URL` is the subrouter server. Accepted for
+/// the claude-sr route only when it runs the `claude` binary itself (no
+/// arguments) and the base URL is the team subrouter on cmux-lawrence.
+fn routed_to_team_subrouter(p: &Value) -> bool {
+    let argv = argv_of(p);
+    let url = p
+        .get("env")
+        .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
+        .and_then(Value::as_str)
+        .map(|u| u.trim().trim_end_matches('/'));
+    argv.len() == 1
+        && basename(&argv[0]) == "claude"
+        && url.is_some_and(|u| TEAM_SUBROUTER_URLS.contains(&u))
+}
+
 fn basename(word: &str) -> String {
     std::path::Path::new(word)
         .file_name()
@@ -158,14 +183,15 @@ fn what_is(answer: &Value, name: &str) -> String {
 /// why the Chief refuses it.
 pub fn admit(answer: &Value, requested: &str) -> Result<Admitted, String> {
     if let Some(route) = Route::of(requested) {
+        let routed = |p: &Value| route == Route::Subrouter && routed_to_team_subrouter(p);
         let matching = |(_, p): &(&String, &Value)| {
             kind_of(p) == CLAUDE_STDIO
                 && p.get("unavailable").is_none()
-                && route.matches(&argv_of(p))
+                && (route.matches(&argv_of(p)) || routed(p))
         };
         let mut found: Vec<(&String, &Value)> = profiles(answer).filter(matching).collect();
-        // The profile of the reserved name first, when it is the route's.
-        found.sort_by_key(|(name, _)| (name.as_str() != requested, name.to_string()));
+        // A real `sr claude proxy` first, then the reserved name's profile.
+        found.sort_by_key(|(name, p)| (routed(p), name.as_str() != requested, name.to_string()));
         let Some((name, p)) = found.first() else {
             return Err(format!(
                 "the Chief runs Claude only through acpmux's own Claude Code adapter (kind {CLAUDE_STDIO}), and {requested} asks for one running {}; acpmux has none: {}",

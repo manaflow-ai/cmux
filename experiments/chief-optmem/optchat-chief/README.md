@@ -291,7 +291,11 @@ acpmux reports it as kind `claude-stdio`. `claude-sr` and `claude` are
 routes: the Chief asks for the `claude-stdio` profile whose command is
 `sr claude proxy` (or `subrouter claude proxy`), or `claude`, whatever
 that profile is named. Any other Claude-family profile must also be kind
-`claude-stdio`. A refused turn starts no session and posts `(turn refused:
+`claude-stdio`. `claude-sr` also accepts acpmux's routed copy (a failing `sr claude
+proxy` replaced by a `claude-stdio` profile that runs `claude` with no
+arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
+cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
+proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
 ...)` in the chat. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
