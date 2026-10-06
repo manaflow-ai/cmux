@@ -53,3 +53,19 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-zoom",
     "clear-top-index",
 ];
+
+/// `--name` ends the command without a value: it needs one, or it is no
+/// option of this action (the tokenizer cannot tell which).
+pub(super) fn missing_value(name: &str) -> super::UsageError {
+    super::UsageError::new(format!(
+        "--{name} needs a value, or is not an option of this action; see --help"
+    ))
+}
+
+/// The words after a scope name no action; the scope's help lists them.
+pub(super) fn usage<T>(what: &str) -> Result<T, super::UsageError> {
+    let scope = what.split(' ').next().unwrap_or(what);
+    Err(super::UsageError::new(format!(
+        "unknown or incomplete {what}; run `cmux {scope} --help` for its actions"
+    )))
+}

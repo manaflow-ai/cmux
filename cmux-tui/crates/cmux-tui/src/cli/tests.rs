@@ -172,7 +172,7 @@ fn every_scope_has_dedicated_help() {
     assert!(japanese.contains("保存状態のリセット"));
     assert!(TERMINAL_HELP.contains("screen wait --pattern <regex>"));
     assert!(TERMINAL_HELP.contains("process wait [--timeout-ms <n>]"));
-    assert!(TERMINAL_HELP.contains("move|project|attach|close"));
+    assert!(TERMINAL_HELP.contains("move|project --workspace <selector>"));
 }
 
 #[test]
@@ -212,8 +212,8 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
             assert!(failure.error.0.contains("is not part of cmux"), "{args:?}: {}", failure.error);
         }
     }
-    // Shorthands lower first, so `ls` (session list) is refused too.
-    assert!(parse(&strings(&["ls"]), Surface::Cmux).is_err());
+    // `cmux` has no session scope, so its `ls` shorthand lists workspaces.
+    assert!(matches!(parse(&strings(&["ls"]), Surface::Cmux), Ok(ParsedCommand::Command { .. })));
     assert!(!catalog.local_server.cmux_root_help.contains("raw"));
     // A typo suggests only a scope cmux shows.
     let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {

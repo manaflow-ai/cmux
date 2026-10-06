@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::BOOLEAN_FLAGS;
+use flags::{BOOLEAN_FLAGS, usage};
 
 mod browser;
 #[cfg(test)]
@@ -291,10 +291,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value = args
-                    .get(index + 1)
-                    .cloned()
-                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
+                let value =
+                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
                 index += 1;
                 Some(value)
             };
@@ -858,6 +856,7 @@ fn parse_tab_strings(
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -2758,10 +2757,6 @@ pub(super) fn random_prefixed(prefix: &str) -> Result<String, UsageError> {
 
 fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
-}
-
-fn usage<T>(what: &str) -> Result<T, UsageError> {
-    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
 }
 
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
