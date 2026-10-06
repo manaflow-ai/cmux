@@ -624,6 +624,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         boundary.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
         driver.setFileRoots([fileSystem.sandbox.root] + (fileSystem.temporaryRoot.map { [$0] } ?? []))
         driver.setSecretCheck { name, revision in boundary.secretIsCurrent(name: name, revision: revision) }
+        driver.useLedger(ledger)
         if let admission {
             stateLock.withLock {
                 endReason = "Error: REPL session '\(id)' could not start: \(admission.message)"

@@ -90,9 +90,9 @@ public struct BrowserReplPageClipboard {
     /// The page-world script message handler `page-clipboard.js` posts to.
     public static let messageHandlerName = "cmuxBrowserReplClipboard"
     /// At most this many items in one write.
-    static let maximumItems = 32
+    nonisolated static let maximumItems = 32
     /// At most this many base64 characters in one write (about 48 MB of data).
-    static let maximumBase64Characters = 64 << 20
+    nonisolated static let maximumBase64Characters = 64 << 20
     private static let asyncClipboardFeature = "AsyncClipboardAPIEnabled"
     static let domPasteRequestsFeature = "DOMPasteAccessRequestsEnabled"
     nonisolated(unsafe) private static var installedKey: UInt8 = 0
@@ -228,9 +228,10 @@ public struct BrowserReplPageClipboard {
         return nil
     }
 
-    /// The items of a `page-clipboard.js` message, or `nil` when it is not
-    /// `{ items: [{ type, base64 }] }` within the limits.
-    static func items(from body: Any) -> [[String: Any]]? {
+    /// The items of a `page-clipboard.js` message or an agent's
+    /// `clipboard.write`, or `nil` when it is not `{ items: [{ type,
+    /// base64 }] }` within the limits: the one validator both take.
+    nonisolated static func items(from body: Any) -> [[String: Any]]? {
         guard let message = body as? [String: Any],
               let list = message["items"] as? [Any],
               list.count <= maximumItems else { return nil }
@@ -250,8 +251,15 @@ public struct BrowserReplPageClipboard {
         return items
     }
 
+    /// The bytes a clipboard item holds, as the session's ledger counts
+    /// them (``BrowserReplResource/clipboardBytes``): its keys and string
+    /// values (the type and the Base64 data).
+    public nonisolated static func bytes(of item: [String: Any]) -> Int {
+        item.reduce(0) { total, entry in total + entry.key.utf8.count + ((entry.value as? String)?.utf8.count ?? 0) }
+    }
+
     /// A MIME type (`text/plain`) or a web custom format (`web text/x-a`).
-    private static func isClipboardType(_ type: String) -> Bool {
+    private nonisolated static func isClipboardType(_ type: String) -> Bool {
         guard !type.isEmpty, type.utf8.count <= 200 else { return false }
         let mime = type.hasPrefix("web ") ? String(type.dropFirst(4)) : type
         let parts = mime.split(separator: "/", omittingEmptySubsequences: false)

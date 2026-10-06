@@ -199,8 +199,9 @@ struct BrowserReplResourceLedgerTests {
         // bounds have their own tests (secretSourceFilesAreBoundedPerSession);
         // typed domain sets need a typed secret
         // (typedDomainSetsAreCanonicalAndBounded); only the process-wide
-        // ledger holds processMemoryBytes (BrowserReplProcessBudgetTests).
-        let unused = BrowserReplResource.allCases.filter { ![.heldEvents, .secretSourceFiles, .typedDomainSets, .processMemoryBytes].contains($0) && ledger.peak($0) == 0 }
+        // ledger holds processMemoryBytes (BrowserReplProcessBudgetTests);
+        // only the app's tabs hold clipboardBytes (BrowserReplTabClipboardTests).
+        let unused = BrowserReplResource.allCases.filter { ![.heldEvents, .secretSourceFiles, .typedDomainSets, .processMemoryBytes, .clipboardBytes].contains($0) && ledger.peak($0) == 0 }
         #expect(unused.isEmpty, "no holder reserved \(unused)")
 
         session.close()

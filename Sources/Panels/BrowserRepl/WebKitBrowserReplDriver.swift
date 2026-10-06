@@ -169,6 +169,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         lock.withLock { secretCheck = isCurrent }
     }
 
+    /// The session's ledger (``BrowserReplDriver/useLedger(_:)``), which
+    /// the clipboards of the tabs this session created are charged to.
+    private var ledger: BrowserReplResourceLedger?
+
+    func useLedger(_ ledger: BrowserReplResourceLedger) {
+        lock.withLock { self.ledger = ledger }
+    }
+
     /// Publishes `policy` to the navigation checks before it returns
     /// (``BrowserReplPolicyBoard``): the next navigation or popup of the
     /// session's tabs is judged by it. WebKit compiles its content rules
@@ -1107,7 +1115,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func attach(_ panel: BrowserPanel) throws -> BrowserReplTabAttachment {
         // The tab carries this session's options only if this session
         // created it (BrowserReplTabAttachment.contextOptions).
-        try BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID, world: sessionWorld.agent) { [weak self] name, payload in
+        let ledger = lock.withLock { self.ledger }
+        return try BrowserReplTabAttachments.shared.attach(panel: panel, sessionID: sessionID, world: sessionWorld.agent, ledger: ledger) { [weak self] name, payload in
             self?.forward(name, payload)
         }
     }
@@ -2693,7 +2702,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 in: webView,
                 frames: { await BrowserReplFrameTree.frames(of: webView) }
             )
-            if let taken { attachment.clipboard.store(taken, during: tenure) }
+            // A Copy past the session's ledger leaves the clipboard as it was.
+            if let taken {
+                do throws(BrowserReplResourceLimitError) {
+                    try attachment.clipboard.store(taken, during: tenure)
+                } catch {
+                    throw error.driverError(shortcut.rawValue)
+                }
+            }
         case "bold", "italic", "underline":
             // Chrome's editor formats the selection of an editable element on
             // Command+B/I/U. The key's outcome came after an await, so the
@@ -3240,10 +3256,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return ["items": items]
     }
 
+    /// `page.clipboard.write`: the page clipboard's validator checks the
+    /// items, and they are charged to this session's ledger
+    /// (``BrowserReplTabClipboard/write(message:by:)``).
     @MainActor
     private func writeClipboard(_ params: [String: Any]) throws -> Any? {
-        let items = params["items"] as? [[String: Any]] ?? []
-        guard attachment(try panel(params)).clipboard.write(items, by: sessionID) else {
+        guard try attachment(try panel(params)).clipboard.write(message: params, by: sessionID) else {
             throw Self.clipboardRefusedInUserTab()
         }
         return nil

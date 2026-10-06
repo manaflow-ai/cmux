@@ -93,6 +93,12 @@ public protocol BrowserReplDriver: AnyObject, Sendable {
     /// before it commits the text and refuses a secret that fails. The
     /// session calls this, never JavaScript.
     func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool)
+
+    /// Gives the driver the session's resource ledger, which what the
+    /// driver holds for the session in memory (its tabs' clipboards,
+    /// ``BrowserReplResource/clipboardBytes``) is charged to. The session
+    /// calls this once, before any call, never JavaScript.
+    func useLedger(_ ledger: BrowserReplResourceLedger)
 }
 
 extension BrowserReplDriver {
@@ -105,6 +111,8 @@ extension BrowserReplDriver {
     public func typedSecretRedaction() -> BrowserReplSecretStore? { nil }
 
     public func setSecretCheck(_ isCurrent: @escaping @Sendable (_ name: String, _ revision: Int) -> Bool) {}
+
+    public func useLedger(_ ledger: BrowserReplResourceLedger) {}
 }
 
 /// JSON helpers for values crossing the JavaScriptCore bridge.

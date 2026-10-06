@@ -42,6 +42,11 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     case openFetches
     /// Response bodies the session's fetches hold.
     case fetchBodyBytes
+    /// What the virtual clipboards of the tabs the session created hold
+    /// (``BrowserReplTabClipboard``): its `page.clipboard` writes, its
+    /// pages' writes and its Copy and Cut, each tab's charged until it is
+    /// replaced, the session leaves the tab or the tab closes.
+    case clipboardBytes
     /// Page events queued for the session's thread or held back.
     case queuedEvents
     /// The bytes those events hold, masked.
@@ -112,7 +117,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isBytes: Bool {
         switch self {
         case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .spilledOutputBytes, .requestBytes,
-             .driverResultBytes, .hostCallBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
+             .driverResultBytes, .hostCallBytes, .fetchBodyBytes, .clipboardBytes, .queuedEventBytes, .scriptHeapBytes, .fsPathBytes,
              .fileBytesWritten, .sessionMemoryBytes, .threadStackBytes, .processMemoryBytes:
             true
         default:
@@ -125,7 +130,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
     public var isMemory: Bool {
         switch self {
         case .waitingCellSourceBytes, .runningCellParseBytes, .retainedOutputBytes, .requestBytes, .driverResultBytes,
-             .hostCallBytes, .fetchBodyBytes, .queuedEventBytes, .scriptHeapBytes:
+             .hostCallBytes, .fetchBodyBytes, .clipboardBytes, .queuedEventBytes, .scriptHeapBytes:
             true
         default:
             false
@@ -165,6 +170,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .requestPhaseFetches: "fetches waiting for their response headers"
         case .openFetches: "open fetches"
         case .fetchBodyBytes: "response bodies the session's fetches hold"
+        case .clipboardBytes: "what the clipboards of the session's tabs hold"
         case .queuedEvents: "page events waiting for the session's thread"
         case .queuedEventBytes: "bytes of the page events waiting for the session's thread"
         case .heldEvents: "page events held back between cells"
@@ -194,6 +200,7 @@ public enum BrowserReplResource: String, CaseIterable, Sendable {
         case .inputEvents: "use a shorter drag path, or await earlier drags first"
         case .hostCallBytes: "pass less at once (write a large file in parts)"
         case .fetchBodyBytes: "await some before starting more, or download large files in a tab (page.waitForEvent(\"download\"))"
+        case .clipboardBytes: "write less to the clipboard, or close tabs whose clipboard is no longer needed"
         case .queuedEvents, .queuedEventBytes, .heldEvents: "let the session's thread take them"
         case .pendingTimers: "clear some first"
         case .scriptHeapBytes: "keep less in variables between cells"
@@ -263,6 +270,9 @@ public struct BrowserReplResourceLimits: Sendable, Equatable {
             .requestPhaseFetches: 16,
             .openFetches: 64,
             .fetchBodyBytes: 128 << 20,
+            // Decided 2026-10-06 (r25 tabs#2): two full clipboard writes
+            // (BrowserReplPageClipboard: 64 MiB of Base64 each).
+            .clipboardBytes: 128 << 20,
             .queuedEvents: 10_000,
             .queuedEventBytes: 64 << 20,
             .heldEvents: 10_000,

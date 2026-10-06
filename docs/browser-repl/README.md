@@ -690,6 +690,7 @@ checks nothing stays reserved after the session ends.
 | One fetch's request body / response body | 64 MiB / 64 MiB | the fetch fails |
 | Response bodies the session's fetches hold (M), at the size of their Base64 results | 128 MiB | the fetch fails |
 | A fetch's duration | 10 minutes | `timeout` |
+| What the clipboards of the tabs the session created hold (M): `clipboard.write`, the pages' writes, Copy and Cut, each tab's until it is replaced, the session leaves or the tab closes | 128 MiB (one write: 32 items, 64 MiB of Base64) | the write is refused and the clipboard keeps what it held |
 | Page events waiting for the session's thread | 10,000 | a new one is dropped (the next cell says so) |
 | Bytes of those events (M) | 64 MiB, masked | a new one is dropped, or arrives withheld |
 | One page event | 1 MiB | arrives withheld (`{ targetId, withheld }`) |

@@ -122,10 +122,11 @@ final class BrowserReplTabAttachments {
         panel: BrowserPanel,
         sessionID: String,
         world: WKContentWorld,
+        ledger: BrowserReplResourceLedger? = nil,
         sink: @escaping BrowserReplTabEventSink
     ) throws -> BrowserReplTabAttachment {
         let attachment = attachments[panel.id] ?? BrowserReplTabAttachment(panel: panel)
-        try attachment.addSink(sessionID: sessionID, world: world, sink: sink)
+        try attachment.addSink(sessionID: sessionID, world: world, ledger: ledger, sink: sink)
         attachments[panel.id] = attachment
         return attachment
     }
@@ -354,12 +355,17 @@ final class BrowserReplTabAttachment {
     /// Meta+C, Meta+X and Meta+V, and the page's own writes in a tab a
     /// session created): the live creator's alone (``BrowserReplTabClipboard``).
     /// Its owner follows ``creatorSessionID`` (``syncClipboardOwner()``).
-    var clipboard = BrowserReplTabClipboard<[String: Any]>()
+    /// What it holds is charged to the creator's ledger (``ledgers``).
+    var clipboard = BrowserReplTabClipboard<[String: Any]>(measure: BrowserReplPageClipboard.bytes(of:))
+
+    /// Each attached session's resource ledger, which this tab's clipboard
+    /// is charged to while that session created and holds the tab.
+    private var ledgers: [String: BrowserReplResourceLedger] = [:]
 
     /// Hands the clipboard to the tab's live creator, or takes it away from
     /// a creator that left: it empties, and nothing begun before lands.
     private func syncClipboardOwner() {
-        clipboard.setOwner(creatorSessionID)
+        clipboard.setOwner(creatorSessionID, ledger: creatorSessionID.flatMap { ledgers[$0] })
     }
     /// Target id of the tab that opened this one, for popups.
     var openerTargetID: String?
@@ -626,12 +632,18 @@ final class BrowserReplTabAttachment {
         return owner
     }
 
-    func addSink(sessionID: String, world: WKContentWorld, sink: @escaping BrowserReplTabEventSink) throws {
+    func addSink(
+        sessionID: String,
+        world: WKContentWorld,
+        ledger: BrowserReplResourceLedger?,
+        sink: @escaping BrowserReplTabEventSink
+    ) throws {
         // Each session runs its own page agent in every frame the tab
         // loads, so the sessions on one tab are capped.
         try BrowserReplTabSessionLimit.standard.admit(sessionID, attached: sinks.keys)
         let wasAttached = isAttached
         sinks[sessionID] = sink
+        ledgers[sessionID] = ledger
         if agentWorlds[sessionID] == nil {
             agentWorlds[sessionID] = (world, BrowserReplAgentUserScript())
         }
@@ -813,6 +825,7 @@ final class BrowserReplTabAttachment {
         // files removed, never handed to the user's download location.
         panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.sessionLeft(sessionID))
         sinks.removeValue(forKey: sessionID)
+        ledgers.removeValue(forKey: sessionID)
         // The session's agent stops loading into the tab's documents; what
         // it left in loaded ones stays in its world, which no later session
         // gets (BrowserReplSessionWorld).
@@ -930,8 +943,10 @@ final class BrowserReplTabAttachment {
             onWrite: { webView, items in
                 // Only while the creating session holds the tab: a kept tab's
                 // page writes nowhere once its creator left.
+                // A write past the creator's ledger is rejected like one
+                // with no owner, and the clipboard keeps what it held.
                 guard let attachment = BrowserReplTabAttachments.shared.attachment(showing: webView) else { return false }
-                return attachment.clipboard.writeFromPage(items)
+                return (try? attachment.clipboard.writeFromPage(items)) ?? false
             }
         ) ?? false
         guard !installed else { return }
@@ -943,6 +958,7 @@ final class BrowserReplTabAttachment {
     func detachAll() {
         panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.removeAll())
         sinks.removeAll()
+        ledgers.removeAll()
         // What a departed session's input started is kept: the download it
         // may still become is that session's, and cancelled.
         ownership = ownership.departedNavigations()
@@ -1590,7 +1606,7 @@ final class BrowserReplTabAttachment {
             // world; they are no more than the opener has, so within the
             // per-tab limit.
             guard let world = agentWorlds[sessionID]?.world else { continue }
-            child = (try? BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, world: world, sink: sink)) ?? child
+            child = (try? BrowserReplTabAttachments.shared.attach(panel: created, sessionID: sessionID, world: world, ledger: ledgers[sessionID], sink: sink)) ?? child
         }
         child?.openerTargetID = targetID
         // A popup of a tab a session created is that session's too.
