@@ -973,6 +973,41 @@ struct BrowserReplSessionResourceTests {
         #expect(lines.last == "ran", "\(lines)")
     }
 
+    /// r24 native#3: a fetch request's JSON had only the coarse size check
+    /// before it was queued and parsed, so it could hold millions of
+    /// elements or nest past the parser. It is refused like a driver or
+    /// host call's JSON, before it is admitted or parsed.
+    @Test("Fetch request JSON past the call structural limits is refused before it is parsed")
+    func fetchRequestJSONPastItsStructuralLimitsIsRefused() async throws {
+        let driver = HeldCookiesDriver()
+        driver.releaseAll()
+        let runtime = resourceRuntime + #"""
+        globalThis.fetchRaw = (json) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.fetch(id, json);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "fetch-shape-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "fetch-shape.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const many = JSON.stringify({ url: "http://127.0.0.1:9/", headers: [], pad: new Array(3000000).fill(0) });
+            const deep = '{"url":"http://127.0.0.1:9/","pad":' + "[".repeat(600) + "]".repeat(600) + "}";
+            console.log(await fetchRaw(many).then(() => "ran", (e) => e.message));
+            console.log(await fetchRaw(deep).then(() => "ran", (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 2 && lines.allSatisfy { $0.hasPrefix("fetch:") && $0.contains("JSON") && $0.contains("most one call") }, "\(lines)")
+        #expect(session.ledger.held(.requestBytes) == 0)
+    }
+
     /// r24 native#2: a fetch result was held at its size before masking,
     /// and masking a secret's value into its longer `<secret:name>` mark
     /// grew it, unreserved, while it waited for the session's thread. The
