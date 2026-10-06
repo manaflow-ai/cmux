@@ -29,6 +29,8 @@ extension DebugHome {
             "online": .bool(store.isOnline),
             "me": store.me.map { .string($0.id.rawValue) } ?? .null,
             "shown": view?.shown.map { .string($0.rawValue) } ?? .null,
+            // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
+            "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),
             "chiefs": .array(home.directory.chiefs.map { chief in
                 .object(["id": .string(chief.id), "name": .string(chief.name), "default": .bool(chief.isDefault),
