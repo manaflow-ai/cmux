@@ -222,7 +222,14 @@ enum CmuxEmbeddedConfigSchema {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
+            "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." },
+            "newWorkspaceOnHost": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": true, "description": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace's host." }
+              }
+            }
           }
         }
       }
