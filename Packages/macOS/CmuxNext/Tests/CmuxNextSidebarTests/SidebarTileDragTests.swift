@@ -55,6 +55,29 @@ import Testing
         #expect(reorders.count == 1 && ids(reorders.first ?? []) == [["d", "a", "b", "c"], ["e", "f"]])
     }
 
+    /// The band is a short scroll view; a card inside it was clipped to the
+    /// band (its shadow cut, the tile gone once the pointer left the shelf).
+    /// The card lives in the sidebar instead and follows past the band.
+    @Test func theLiftedTileLivesAboveTheBandAndIsNotClippedToIt() throws {
+        let view = SidebarView(model: SidebarModel(sections: fixture()))
+        view.frame = NSRect(x: 0, y: 0, width: 260, height: 900)
+        view.layoutSubtreeIfNeeded()
+        let region = view.aboveRegion
+        let item = try #require(view.model.layout.firstItem(with: SidebarLayoutDocument.homeRef))
+        let tile = try #require(region.itemView(item.id)).frame
+        region.beginDrag(.item(item.id), at: NSPoint(x: tile.midX, y: tile.midY))
+        let lift = try #require(region.reorder?.lift)
+        #expect(lift.superview === view, "hosted by the sidebar, outside the band's clip view")
+        #expect(lift.frame == region.convert(tile, to: view), "lifts in place, under the pointer")
+
+        let band = view.aboveScroll.frame
+        let pointer = region.convert(NSPoint(x: tile.midX, y: tile.midY), to: view)
+        let below = region.convert(NSPoint(x: pointer.x, y: band.maxY + 40), from: view)
+        region.updateDrag(to: below)
+        #expect(lift.frame.midY > band.maxY, "the card follows the pointer below the band")
+        region.cancelDrag()
+    }
+
     @Test func aListRowCardStaysInItsColumn() throws {
         let region = region()
         let e = try #require(frame("e", in: region))

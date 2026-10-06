@@ -55,7 +55,8 @@ extension SidebarRegionView {
         let card = snapshot(frame)
         let hidden = views(of: subject)
         for view in hidden { view.alphaValue = 0 }
-        let lift = SidebarReorderLift.lift(card, frame: frame, in: self)
+        let host = liftHost ?? self
+        let lift = SidebarReorderLift.lift(card, frame: host.convert(frame, from: self), in: host)
         let both = SidebarRegionDrag.followsBothAxes(subject, sections: content.sections, look: content.look)
         reorder = SidebarRegionDrag(subject: subject, lift: lift, grab: CGPoint(x: point.x - frame.minX, y: point.y - frame.minY),
                                     followsBothAxes: both, hidden: hidden)
@@ -64,14 +65,18 @@ extension SidebarRegionView {
 
     func updateDrag(to point: NSPoint) {
         guard let drag = reorder, let sections = reorderSections else { return }
+        // The card lives in the lift host; it is placed and read back in this region's coordinates.
+        let host = drag.lift.superview ?? self
+        let origin = host.convert(CGPoint(x: point.x - drag.grab.x, y: point.y - drag.grab.y), from: self)
         if drag.followsBothAxes {
-            SidebarReorderLift.follow(drag.lift, origin: CGPoint(x: point.x - drag.grab.x, y: point.y - drag.grab.y), visible: visibleRect)
+            SidebarReorderLift.follow(drag.lift, origin: origin, visible: host.visibleRect)
         } else {
-            SidebarReorderLift.follow(drag.lift, top: point.y - drag.grab.y, visible: visibleRect)
+            SidebarReorderLift.follow(drag.lift, top: origin.y, visible: host.visibleRect)
         }
+        let card = convert(drag.lift.frame, from: host)
         // The card's middle decides (as the list, nxdog30): what it covers more than half of makes way.
         // Sideways, the card's middle decides too, so a tile makes way when the card covers half of it.
-        let probe = CGPoint(x: drag.followsBothAxes ? drag.lift.frame.midX : point.x, y: drag.lift.frame.midY)
+        let probe = CGPoint(x: drag.followsBothAxes ? card.midX : point.x, y: card.midY)
         guard let moved = SidebarRegionReorder.move(drag.subject, at: probe, display: layoutResult, sections: sections) else { return }
         reorderSections = moved
         relayout(animated: true)
@@ -95,7 +100,8 @@ extension SidebarRegionView {
     /// The card settles into the slot the region already shows; then the
     /// region shows its content again (by then the dropped order).
     private func land(_ drag: SidebarRegionDrag) {
-        SidebarReorderLift.land(drag.lift, at: frame(of: drag.subject)) { [weak self] in
+        let host = drag.lift.superview ?? self
+        SidebarReorderLift.land(drag.lift, at: frame(of: drag.subject).map { host.convert($0, from: self) }) { [weak self] in
             for view in drag.hidden { view.alphaValue = 1 }
             guard let self, self.reorder == nil else { return }
             self.reorderSections = nil
