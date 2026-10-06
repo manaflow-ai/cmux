@@ -570,13 +570,11 @@ public final class HomeStore {
     }
 
     /// The newest committed message part in `conversation` that references
-    /// `hash` (as the bytes or as a video's poster).
+    /// `hash` (as the bytes, a poster or preview, or a link preview's image).
     func location(of hash: String, in conversation: ConversationID) -> AttachmentLocation? {
         guard let window = mirror.windows[conversation] else { return nil }
         for message in window.messages.reversed() where !message.isRetracted {
-            for (index, part) in message.parts.enumerated() {
-                guard case .attachment(let ref) = part,
-                      ref.hash == hash || ref.posterHash == hash || ref.preview?.hash == hash else { continue }
+            for (index, part) in message.parts.enumerated() where part.blobHashes.contains(hash) {
                 return AttachmentLocation(conversation: conversation, message: message.id, partIndex: index)
             }
         }
@@ -953,7 +951,7 @@ public final class HomeStore {
         for job in uploads.values { job.attachments.forEach { add($0.ref) } }
         for entry in log.entries {
             guard case .sendMessage(_, let parts) = entry.intent.op else { continue }
-            for case .attachment(let ref) in parts { add(ref) }
+            for part in parts { keep.formUnion(part.blobHashes) }
         }
         for (hash, files) in localFiles {
             keep.insert(hash)

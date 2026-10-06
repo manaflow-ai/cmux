@@ -37,6 +37,10 @@ nonisolated enum HomeCoreMapping {
                                  status: WorkRef.Status(rawValue: status) ?? .running, preview: preview))
         case .attachment(let attachment):
             return .attachment(Self.ref(attachment))
+        case .linkPreview(let link):
+            return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
+                AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
+            }))
         case .unknown(let type, _):
             return .text(type)
         }
@@ -88,8 +92,8 @@ nonisolated enum HomeCoreMapping {
             readCursors: Dictionary(uniqueKeysWithValues: summary.readCursors.map { (ParticipantID($0.key), $0.value) }))
     }
 
-    /// The parts an op sends. The local owner stores text, work and
-    /// attachment parts (`local-attachments-v1`); other kinds go as text.
+    /// The parts an op sends. The local owner stores text, work, attachment
+    /// (`local-attachments-v1`) and link preview parts; other kinds go as text.
     static func parts(_ parts: [MessagePart]) -> [ConversationPart] {
         parts.map { part in
             switch part {
@@ -101,8 +105,12 @@ nonisolated enum HomeCoreMapping {
                 return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
             case .attachment(let ref):
                 return .attachment(Self.attachment(ref))
-            case .approval, .linkPreview, .location:
-                // The local owner has no approval, link preview or location parts.
+            case .linkPreview(let link):
+                return .linkPreview(ConversationLinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
+                    ConversationDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)
+                }))
+            case .approval, .location:
+                // The local owner has no approval or location parts.
                 return .text(part.plainText, runs: [])
             }
         }

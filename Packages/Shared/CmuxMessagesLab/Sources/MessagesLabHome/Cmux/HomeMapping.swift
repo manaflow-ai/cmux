@@ -135,7 +135,7 @@ enum HomeMapping {
             })
         case .linkPreview(let link):
             let host = URL(string: link.url)?.host.map { $0.hasPrefix("www.") ? String($0.dropFirst(4)) : $0 }
-            return .link(url: link.url, title: link.title ?? host, siteName: host, image: nil, theme: "dark")
+            return .link(url: link.url, title: link.title ?? host, siteName: link.site ?? host, image: nil, theme: "dark")
         case .attachment(let ref):
             return .attachment(attachment(ref, picture: media(ref.hash), progress: progress[ref.hash]))
         case .location(let place):
