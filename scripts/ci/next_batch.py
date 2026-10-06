@@ -619,6 +619,7 @@ class Controller:
         self.timings: dict[str, int] = {}
         self.started = time.monotonic()
         self.base_failures: set[str] | None = None
+        self.base_sha = ""
 
     # git in the trusted checkout. The token goes on the command line of this
     # process only, never into .git/config, which the generators could read.
@@ -700,8 +701,15 @@ class Controller:
         return run, result
 
     def validate(self, prs: list[PullRequest], name: str) -> Validation:
+        """Stack `prs` on the batch's base and run every tier plus the fleet build.
+
+        The base is fixed at the batch's first fetch, so bisect probes and
+        reruns compare against the same feat-cmux-next commit.
+        """
         started = time.monotonic()
-        base_sha = self.fetch(prs)
+        fetched = self.fetch(prs)
+        self.base_sha = self.base_sha or fetched
+        base_sha = self.base_sha
         stack = build_stack(self.worktree, base_sha, prs)
         validation = Validation(name=name, stack=stack)
         self.validations.append(validation)
@@ -874,10 +882,12 @@ class Controller:
         That includes this workflow's own push trigger, so queue the next
         batch here for whatever is still eligible.
         """
-        try:
-            self.gh.dispatch(WORKFLOW, self.args.ref, {"mode": "batch", "reason": f"after batch {self.batch_id}"})
-        except RuntimeError as error:
-            log(f"could not queue the next batch: {error}")
+        for ref in dict.fromkeys((BASE, self.args.ref)):
+            try:
+                self.gh.dispatch(WORKFLOW, ref, {"mode": "batch", "reason": f"after batch {self.batch_id}"})
+                break
+            except RuntimeError as error:
+                log(f"could not queue the next batch on {ref}: {error}")
         for workflow in (HEAVY_WORKFLOW, TUI_WORKFLOW):
             try:
                 self.gh.dispatch(workflow, BASE)
@@ -966,6 +976,11 @@ class Controller:
                 landed = self.land(validation)
                 if any(text.startswith("landed") for _, text in landed):
                     self.after_landing()
+                break
+            if not validation.heavy_failed and not validation.stack.error:
+                # Every tier passed and only the fleet build failed: the
+                # compiles already ran, so blame the fleet, not a PR.
+                log("fleet build failed on a green stack; not bisecting, not landing")
                 break
             if len(culprits) >= MAX_CULPRITS:
                 log("too many culprits in one batch; stopping")
