@@ -40,10 +40,12 @@ final class OnboardingAccentButton: NSButton {
 
     private func applyAppearance() {
         performWithTheme {
-            layer?.backgroundColor = Palette.accent.cgColor
+            // `highlightText` is derived with ThemeTokens.minimumTextContrast
+            // (4.5:1), so the action fill stays readable in every theme.
+            layer?.backgroundColor = Palette.highlight.cgColor
             attributedTitle = NSAttributedString(string: title, attributes: [
                 .font: OnboardingMetrics.bodyFont,
-                .foregroundColor: NSColor.white,
+                .foregroundColor: Palette.highlightText,
             ])
         }
     }
