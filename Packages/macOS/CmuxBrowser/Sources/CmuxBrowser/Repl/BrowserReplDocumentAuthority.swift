@@ -220,6 +220,17 @@ public struct BrowserReplDocumentAuthority: Sendable {
     /// again.
     public func pageReplacement(after previous: BrowserReplDocumentAuthority, in tab: BrowserReplTabFacts) -> BrowserReplPageReplacement {
         guard tab.creatorSessionID == sessionID, let url = tab.mainFrameURL?.absoluteString else { return .keep }
+        // A directory the session left: a page that is not a web page (a
+        // local file, or a document that may hold a local file's origin,
+        // such as `about:blank` opened by one) loads again only when it is
+        // a file inside the new directories the policy allows.
+        let scheme = tab.mainFrameURL?.scheme?.lowercased()
+        if let earlier = previous.fileRoots, !Set(earlier).isSubset(of: Set(fileRoots ?? [])),
+           scheme != "http", scheme != "https" {
+            let reason = "the session's working directory changed, so cmux loaded the tab's local page again (about:blank when it is not a file inside the session's directories now): documents of a local file's origin, element handles and page state from before are gone"
+            let inside = scheme == "file" && fileRoots.map { BrowserReplFileSandbox.localPageRefusal(url: url, documentOrigin: nil, roots: $0) == nil } == true
+            return inside && policy.blockReason(url) == nil ? .reload(reason: reason) : .blank(reason: reason)
+        }
         guard policy.narrows(previous.policy) else { return .keep }
         let reason = "the session narrowed its domain policy, so cmux loaded the tab's page again: connections the page opened before (WebSockets) to hosts the new policy blocks are closed, and element handles and page state from before are gone"
         return policy.blockReason(url) == nil ? .reload(reason: reason) : .blank(reason: reason)

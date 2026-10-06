@@ -330,7 +330,7 @@ way reaches every session in that form.
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`; `url` as written only for the opener's live creator) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
-| `tab.replaced` | `{ reason? }` (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; or, with `reason`, the creating session narrowed its domain policy and cmux loaded the page again (see Guards); frame ids and element handles from before are gone) |
+| `tab.replaced` | `{ reason? }` (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; or, with `reason`, the creating session narrowed its domain policy or left a directory with a `cwd` change and cmux loaded the page again or made it `about:blank` (see Guards); frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `navigation.blocked` | `{ url, reason }`: the driver cancelled a navigation of a tab a session created because that session's domain policy blocks `url`, its file roots do, or its content rules failed; every attached session hears of it, and only the tab's live creator gets `url` as written |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
@@ -901,7 +901,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   old document held (a WebSocket to a now-blocked host) ends with it. The
   session's calls wait until this is done; a tab whose page cannot be
   replaced within 10 s is closed. A policy that only widens reloads
-  nothing.
+  nothing. A `cwd` change that leaves a directory does the same to each
+  live page of a tab the session created that is not a web page (a local
+  file, or a document such as `about:blank` that may hold a local file's
+  origin), since such a tab's documents are not judged on each read: a
+  file inside the new directories reloads, anything else becomes
+  `about:blank`, and the tab's sessions get `tab.replaced` with the reason.
+  `BrowserReplDocumentAuthority.pageReplacement(after:in:)` makes both
+  decisions.
 - Page clipboard: in a tab a session created, page scripts read and write
   only the tab's virtual clipboard, never the system clipboard, also while
   an agent's click, key or evaluated script gives them a user gesture.
