@@ -7,6 +7,8 @@ extension SettingsSchema {
     public static let retiredKeys: [String: String] = [
         // One background everywhere (plans/cmux-next/windows.md, 2026-10-03).
         "appearance.tabBarBackground": "every surface draws the one window background",
+        // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.
+        "updates.quietHours": "a staged update shows only the small control on Settings",
     ]
 
     /// Whether `path` is a retired key.

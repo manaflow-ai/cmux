@@ -36,6 +36,8 @@ final class SidebarItemRowView: NSView {
     var isAccessoryShown: Bool { !accessoryView.isHidden }
     /// The accessory's frame while it draws (tests).
     var accessoryFrame: CGRect? { accessoryView.isHidden ? nil : accessoryView.frame }
+    /// The accessory glyph's tint (tests).
+    var accessoryTint: NSColor? { accessoryView.contentTintColor }
     /// The trailing control (`SidebarItemInfo.accessory`): the update badge.
     private let accessoryView = NSImageView()
     /// Modifier-aware activation for controls whose action has a one-shot
@@ -161,6 +163,8 @@ final class SidebarItemRowView: NSView {
             let rest = style == .favorite ? Palette.elevatedBackground : Palette.hoverFill
             chip.backgroundColor = wells ? (info.color.map(SidebarStyle.color) ?? rest).cgColor : nil
             title.textColor = Palette.textPrimary
+            // Again here so a theme or appearance change recolors the update control.
+            if !accessoryView.isHidden { accessoryView.contentTintColor = Palette.highlight }
             icon.contentTintColor = wells && info.color != nil ? Palette.textOnPrimary
                 : style == .favorite ? Palette.textPrimary
                 : info.isActive || isRailButton ? Palette.textPrimary : Palette.textSecondary
@@ -308,7 +312,8 @@ final class SidebarItemRowView: NSView {
         case .update(let title):
             accessoryView.image = NSImage(systemSymbolName: "arrow.down.circle.fill", accessibilityDescription: title)?
                 .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: Metrics.smallIconSize - Metrics.space1, weight: .semibold))
-            accessoryView.contentTintColor = performWithTheme { Palette.accent }
+            // The theme's call-to-action color: small, but noticeable.
+            accessoryView.contentTintColor = performWithTheme { Palette.highlight }
             accessoryView.toolTip = title
             accessoryView.isHidden = false
             setAccessibilityCustomActions([NSAccessibilityCustomAction(name: title) { [weak self] in

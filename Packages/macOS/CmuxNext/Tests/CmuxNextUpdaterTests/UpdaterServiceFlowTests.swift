@@ -92,15 +92,6 @@ import Testing
         #expect(calls.cancels == 1)
     }
 
-    @Test func quietHoursKeepTheSettingsControl() {
-        let (service, _) = service()
-        service.debugIndicatorPhase = .ready(version: "2")
-        service.preferences.quietHours = UpdateQuietHours(start: 0, end: 1439)
-        service.minuteOfDay = 600
-        #expect(service.card == nil)
-        #expect(service.showsSettingsBadge)
-    }
-
     /// Scripts (update-e2e, `cmux update status`) read the card and the
     /// Settings control from the status.
     @Test func statusCarriesTheCardAndTheSettingsControl() {

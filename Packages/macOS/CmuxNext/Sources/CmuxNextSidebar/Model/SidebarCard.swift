@@ -16,8 +16,6 @@ public nonisolated struct SidebarCard: Identifiable, Hashable, Sendable {
     /// False: shown only while the pointer is over the sidebar (R100
     /// footer); announcements. True: the update and what's new.
     public var alwaysVisible: Bool
-    /// The accent look (a staged update), else the quiet look.
-    public var accent: Bool
 
     public struct Button: Hashable, Sendable {
         public var id: String
@@ -29,7 +27,7 @@ public nonisolated struct SidebarCard: Identifiable, Hashable, Sendable {
     }
 
     public init(id: String, title: String, detail: String? = nil, progress: Double? = nil, buttons: [Button] = [],
-                dismissible: Bool = false, alwaysVisible: Bool = true, accent: Bool = false) {
+                dismissible: Bool = false, alwaysVisible: Bool = true) {
         self.id = id
         self.title = title
         self.detail = detail
@@ -37,7 +35,6 @@ public nonisolated struct SidebarCard: Identifiable, Hashable, Sendable {
         self.buttons = buttons
         self.dismissible = dismissible
         self.alwaysVisible = alwaysVisible
-        self.accent = accent
     }
 }
 
