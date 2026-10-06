@@ -791,6 +791,8 @@ final class BrowserReplTabAttachment {
         var keys: [BrowserReplKeyStroke] = []
         var buttons: [BrowserReplMouseButton] = []
         var drag: DragState?
+        /// The web view they were pressed in; the release goes only there.
+        var target = BrowserReplInputTarget<CmuxWebView>(nil)
 
         var isEmpty: Bool { keys.isEmpty && buttons.isEmpty && drag == nil }
     }
@@ -801,6 +803,9 @@ final class BrowserReplTabAttachment {
     /// time). Another session's keys and press stay.
     func takeHeldInput(of sessionID: String) -> HeldInput {
         var held = HeldInput(sessionID: sessionID, keys: heldKeys.releaseAll(heldBy: sessionID))
+        // Held input is always the instrumented web view's: a replacement
+        // forgets what was held in the one before (instrumentCurrentWebView).
+        held.target = BrowserReplInputTarget(instrumentedWebView as? CmuxWebView)
         if pointer.owner == sessionID {
             held.buttons = mouseState.pressedButtons
             held.drag = drag
@@ -817,7 +822,13 @@ final class BrowserReplTabAttachment {
     /// that session's input guard, the frame gate
     /// (`WebKitBrowserReplDriver.releaseHeldInput`).
     func deliverRelease(_ held: HeldInput) {
-        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        guard !held.isEmpty else { return }
+        // Only into the web view that got the press: after a replacement
+        // the release is forgotten, never sent to the new page.
+        guard let webView = held.target.deliverable(to: panel?.webView as? CmuxWebView) else {
+            forgetReleased(held)
+            return
+        }
         if held.drag != nil { webView.automationDragCapture = nil }
         if webView.window != nil {
             for stroke in held.keys {
@@ -863,7 +874,7 @@ final class BrowserReplTabAttachment {
     /// Forgets `held` (from ``takeHeldInput(of:)``) without sending the page
     /// any event: a release its session's guards refused.
     func forgetReleased(_ held: HeldInput) {
-        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        guard !held.isEmpty, let webView = held.target.target ?? (panel?.webView as? CmuxWebView) else { return }
         for stroke in held.keys {
             webView.forgetBrowserReplModifier(stroke, heldBy: held.sessionID)
         }
@@ -883,6 +894,18 @@ final class BrowserReplTabAttachment {
         drag = nil
         guard let webView = panel?.webView as? CmuxWebView else { return }
         webView.cancelPendingAutomationContextMenus()
+        endDragSilently(dragState, in: webView)
+        webView.releaseBrowserReplModifiers()
+    }
+
+    /// Forgets every session's held keys, buttons and drag, all held in
+    /// `webView`, which the tab no longer shows; nothing is sent.
+    private func forgetHeldInput(in webView: CmuxWebView?) {
+        _ = heldKeys.releaseAll()
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView else { return }
         endDragSilently(dragState, in: webView)
         webView.releaseBrowserReplModifiers()
     }
@@ -1053,10 +1076,17 @@ final class BrowserReplTabAttachment {
     func instrumentCurrentWebView() {
         if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
+        let previous = instrumentedWebView as? CmuxWebView
         uninstrument()
         // A web view after the first is a replacement (a restore of a page
         // cmux unloaded, a crash recovery): its frames have new ids.
         let isReplacement = hasInstrumentedWebView
+        if isReplacement {
+            // Keys and buttons held in the replaced web view are its own:
+            // forgotten there, with no event, so no release ever reaches
+            // the replacement's page.
+            forgetHeldInput(in: previous)
+        }
         hasInstrumentedWebView = true
         instrumentedWebView = webView
         if isReplacement { emit(.tabReplaced, [:]) }

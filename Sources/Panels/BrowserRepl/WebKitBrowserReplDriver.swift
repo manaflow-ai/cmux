@@ -304,7 +304,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func releaseHeldInput(on attachment: BrowserReplTabAttachment) async {
         let held = attachment.takeHeldInput(of: sessionID)
         guard !held.isEmpty, let panel = attachment.panel else { return }
-        let webView = panel.webView
+        // The web view the keys and press were held in; a replacement gets
+        // nothing (BrowserReplTabAttachment.deliverRelease checks again
+        // after the guard's waits).
+        guard let webView = held.target.deliverable(to: panel.webView as? CmuxWebView) else {
+            attachment.forgetReleased(held)
+            return
+        }
         if authority.verdict(BrowserReplAccess(.tabPage(Self.url(panel)), in: tabFacts(panel))) != .allowed {
             attachment.forgetReleased(held)
             return

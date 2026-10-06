@@ -132,7 +132,10 @@ refuse them (the tab shows a page the policy blocks, or a local file
 outside the session's directories), nothing is sent and the keys and press
 are forgotten: later input no longer carries those modifiers, and a drag
 ends with `dragend` and no drop. Another session that stays on the tab
-keeps its own keys and press and inherits none of these. When the last
+keeps its own keys and press and inherits none of these. Keys and a
+press are held in the web view that got them: when cmux replaces the
+tab's web view (a restore, a crash recovery), they are forgotten the same
+way, and a release never reaches the replacement's page. When the last
 session leaves or the tab closes, nothing more is sent; what is left is
 forgotten the same way. `session.name` shows the tabs the
 session opened, now and later, as `<name> · <page title>`, following title
