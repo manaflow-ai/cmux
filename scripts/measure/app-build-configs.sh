@@ -26,8 +26,9 @@ CMUX_NEXT_ACPMUX_ARCHS=arm64 scripts/cmux-next/build-acpmux.sh --output "$work/a
 # pinned cmux-tui (tree mode needs a GitHub token this step does not have).
 export CMUX_NEXT_ACPMUX_BIN="$work/acpmux/acpmux" CMUX_NEXT_TUI_MODE=pin \
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1
-touched="Sources/AppDelegate.swift"
-[[ -f "$touched" ]] || touched="$(git ls-files 'Sources/*.swift' | head -n 1)"
+# The step checkout is not a git repository; pick the app's largest source file.
+touched="$(find Sources -name '*.swift' -type f -exec wc -l {} + | grep -v ' total$' | sort -n | tail -n 1 | awk '{print $2}')"
+[[ -f "$touched" ]] || { echo "no app source file to touch" >&2; exit 1; }
 build() {
   local configuration="$1" started status=0
   started="$(date +%s)"
@@ -44,6 +45,7 @@ build() {
 results=()
 for configuration in Debug Release; do
   cold="$(build "$configuration")"
+  echo "MEASURE $configuration cold=${cold}s"
   touch "$touched"
   incremental="$(build "$configuration")"
   app="$(find "$work/dd-$configuration/Build/Products/$configuration" -maxdepth 1 -name '*.app' | head -n 1)"
