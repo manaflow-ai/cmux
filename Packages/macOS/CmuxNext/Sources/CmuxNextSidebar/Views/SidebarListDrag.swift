@@ -24,8 +24,8 @@ final class SidebarListDrag {
     var band = SidebarGroupBand()
     /// Where the dragged workspaces started (what Cmd-Z puts them back to).
     var origin: DropPosition?
-    /// A group the drop made: renamed in place once the drag has landed and the rows have settled.
-    var renameOnLand: GroupID?
+    /// The row a drop grouped with: its new group renames in place once the drag has landed and the rows have settled.
+    var renameOnLand: WorkspaceID?
     /// The last pointer y in the list and the drag's vertical direction.
     var lastY: CGFloat = 0, movingUp = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that

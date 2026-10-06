@@ -21,6 +21,34 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
     var onEnded: ((_ byKeyboard: Bool) -> Void)?
 
     var isActive: Bool { session != nil }
+    /// A member of the group being renamed right after a drop made it: the
+    /// store may replace the new group under another id, and the rename follows.
+    private var groupMember: WorkspaceID?
+
+    /// Renames the group `member` belongs to (drag to group).
+    func beginGroup(of member: WorkspaceID) {
+        guard let group = group(containing: member) else { return }
+        begin(.group(group))
+        if session != nil { groupMember = member }
+    }
+
+    /// After a reload: moves a rename whose group the store replaced to
+    /// the group its member is in now, keeping what was typed.
+    func follow() {
+        guard let member = groupMember, let current = session, case let .group(id) = current.key, list?.groups[id] == nil else { return }
+        current.field.delegate = nil
+        current.field.removeFromSuperview()
+        session = nil
+        guard let group = group(containing: member) else { return end(commit: false) }
+        begin(.group(group))
+        session?.field.stringValue = current.field.stringValue
+        session?.original = current.original
+        groupMember = member
+    }
+
+    private func group(containing member: WorkspaceID) -> GroupID? {
+        list?.groups.values.first { $0.workspaces.contains { $0.id == member } }?.id
+    }
 
     func begin(_ key: SidebarRowKey) {
         guard let list, list.model.presentation == .shown, list.drag == nil else { return }
@@ -67,6 +95,7 @@ final class SidebarInlineRename: NSObject, NSTextFieldDelegate {
 
     /// `byKeyboard`: Return, Escape or Tab ended it (not a click elsewhere).
     func end(commit: Bool, byKeyboard: Bool = false) {
+        groupMember = nil
         guard let session else { return }
         self.session = nil
         session.field.delegate = nil

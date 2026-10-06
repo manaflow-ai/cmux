@@ -89,7 +89,8 @@ extension SidebarListView {
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            drag.renameOnLand = SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            drag.renameOnLand = anchor
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
@@ -116,7 +117,7 @@ extension SidebarListView {
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
             self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
-            if let group = drag.renameOnLand, self.groups[group] != nil { self.inlineRename.begin(.group(group)) }
+            if let anchor = drag.renameOnLand { self.inlineRename.beginGroup(of: anchor) }
         }
     }
 }

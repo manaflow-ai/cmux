@@ -22,6 +22,7 @@ import AppKit
     }
 
     /// Groups `ids` with `anchor`, at the anchor's row, as a named and colored group, with Cmd-Z.
+    @discardableResult
     static func group(_ list: SidebarListView, _ ids: [WorkspaceID], onto anchor: WorkspaceID, origin: DropPosition?) -> GroupID {
         let group = GroupID.make(), sections = list.model.sections
         list.model.send(.createGroup(group, name: SidebarGroup.named(""), color: SidebarGroupBand.newGroupColor(in: sections),
