@@ -311,6 +311,49 @@ async function settledState(promise) {
   return probe.state;
 }
 
+// A file chooser answer the driver refuses (its frame is blocked or stale
+// by now) leaves the chooser open in the page; the session must still be
+// able to answer it (cancel), so the runtime keeps it pending until the
+// driver confirms an answer. A chooser the driver says is gone is settled.
+test("file chooser: a refused answer keeps the chooser answerable; a confirmed one settles it", async () => {
+  const listeners = new Map();
+  const calls = [];
+  let refuse = "blocked";
+  const host = { setTimeout: () => 0, clearTimeout: () => {}, now: Date.now, print: () => {} };
+  const driver = {
+    call: async (method, params) => {
+      calls.push({ method, params });
+      if (method === "filechooser.respond" && refuse) {
+        const e = new Error(`file chooser answer refused (${refuse})`);
+        e.code = refuse;
+        throw e;
+      }
+      return null;
+    },
+    on: (event, handler) => (listeners.set(event, handler), () => {}),
+    capabilities: () => [],
+  };
+  const session = new ns.core.Session({ driver, host });
+  const page = session.pageFor("t1");
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c1", frameId: "main", element: "h1", multiple: false });
+  const held = page.fileChooser();
+  assert.ok(held, "the chooser is pending");
+  await assert.rejects(held.setFiles([]), /refused \(blocked\)/);
+  assert.ok(page.fileChooser(), "a blocked answer left the chooser pending");
+  refuse = "stale";
+  await assert.rejects(page.fileChooser().cancel(), /refused \(stale\)/);
+  assert.ok(page.fileChooser(), "a stale answer left the chooser pending");
+  refuse = null;
+  await page.fileChooser().cancel();
+  assert.equal(page.fileChooser(), null, "a confirmed answer settles the chooser");
+  assert.equal(calls.filter((c) => c.method === "filechooser.respond").length, 3);
+  // A chooser the driver no longer has is settled, not offered again.
+  listeners.get("filechooser.opened")({ targetId: "t1", chooserId: "c2", frameId: "main", element: "h2", multiple: false });
+  refuse = "not_found";
+  await assert.rejects(page.fileChooser().cancel(), /not_found/);
+  assert.equal(page.fileChooser(), null);
+});
+
 // cmux replaces a tab's web view when it unloads a hidden page to save
 // memory and later restores it: the new page has new frame ids. Seen live: a
 // call after a forced unload addressed the old main frame and timed out with

@@ -20,6 +20,31 @@ import Testing
         ["targetId": "T", "title": "Report", "url": url, "active": false]
     }
 
+    /// A `requestfailed` event's `failure` is WebKit's error text, which
+    /// can name a URL other than the request's (a redirect's target, the
+    /// URL as the network layer spelled it): its credential values reach
+    /// no session but the tab's live creator, as the event's `url` does.
+    @Test func aFailureTextReachesOtherSessionsWithoutTheCredentialsOfTheURLsItNames() throws {
+        let failure = "The operation couldn\u{2019}t be completed. (https://user:hunter2@cdn.example/x?access_token=t0k&page=2)"
+        let payload: [String: Any] = [
+            "requestId": "1",
+            "url": BrowserReplPageURL("https://files.example/report.pdf", creator: "creator"),
+            "failure": failure,
+        ]
+        for reader in ["reader", "creator"] {
+            let event = JSONSerialization.browserReplObject(BrowserReplDriverOutput(reader: reader).event(payload) ?? "{}")
+            let text = try #require(event["failure"] as? String)
+            #expect(!text.contains("hunter2") && !text.contains("t0k"), "a failure text kept a URL's credentials for \(reader): \(text)")
+            #expect(text.contains("cdn.example/x") && text.contains("page=2"))
+        }
+        // The tab's live creator reads the text as written when the driver
+        // typed it for that creator.
+        var typed = payload
+        typed["failure"] = BrowserReplPageText(failure, creator: "creator")
+        let own = JSONSerialization.browserReplObject(BrowserReplDriverOutput(reader: "creator").event(typed) ?? "{}")
+        #expect(own["failure"] as? String == failure)
+    }
+
     @Test func anotherSessionsTabListsWithoutTheCredentialsInItsURL() throws {
         let listed = Self.read(Self.row(), creator: "other")
         let url = try #require(listed["url"] as? String)

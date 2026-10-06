@@ -21,6 +21,25 @@ struct BrowserReplPolicyBoardTests {
         var states: [BrowserReplPolicyBoard.RuleState] = []
     }
 
+    /// Events and routes that judge a session by the board's authority
+    /// (console, network, dialogs, file choosers) must see the session's
+    /// workspace: a user's tab moved to another workspace is not the
+    /// session's to use, while the tab it created stays its own.
+    @Test("The board's authority binds a session to the workspace its instance id names")
+    func boardAuthorityKnowsTheSessionsWorkspace() {
+        let board = BrowserReplPolicyBoard()
+        let home = UUID()
+        let elsewhere = UUID()
+        let session = BrowserReplSessionKey(workspaceID: home, name: "agent").makeInstanceID()
+        let authority = board.authority(for: session)
+        let movedUsersTab = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: [session], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: movedUsersTab, capability: .use)).refusal?.code == "denied")
+        let usersTab = BrowserReplTabFacts(id: UUID(), attachedSessionIDs: [session], workspaceID: home)
+        #expect(authority.verdict(BrowserReplAccess(in: usersTab, capability: .use)) == .allowed)
+        let movedOwnTab = BrowserReplTabFacts(id: UUID(), creatorSessionID: session, attachedSessionIDs: [session], workspaceID: elsewhere)
+        #expect(authority.verdict(BrowserReplAccess(in: movedOwnTab, capability: .use)) == .allowed)
+    }
+
     @Test("A published policy is what the checks read as soon as publish returns, from any thread")
     func publishIsSynchronous() async throws {
         let board = BrowserReplPolicyBoard()

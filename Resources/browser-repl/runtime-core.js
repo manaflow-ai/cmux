@@ -2139,20 +2139,36 @@
     isMultiple() {
       return !!this._p.multiple;
     }
-    _settle() {
+    // The chooser is answered once the driver confirms the answer. One the
+    // driver refuses (its frame is blocked or stale by now) stays open in
+    // the page, so it stays pending here to be answered again (cancel);
+    // one the driver no longer has (`not_found`) is settled.
+    async _answer(params) {
       if (this._handled) throw new Error("File chooser was already answered");
+      if (this._answering) throw new Error("File chooser is being answered");
+      this._answering = true;
+      try {
+        await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, ...params });
+        this._settle();
+      } catch (e) {
+        if (driverErrorCode(e) === "not_found") this._settle();
+        throw e;
+      } finally {
+        this._answering = false;
+      }
+    }
+    _settle() {
       this._handled = true;
       if (this._page._heldChooser === this) this._page._heldChooser = null;
     }
     async setFiles(files) {
+      if (this._handled) throw new Error("File chooser was already answered");
       const payloads = await this._page._filePayloads(files);
       if (payloads.length > 1 && !this.isMultiple()) throw new Error("Error: Non-multiple file input can only accept single file");
-      this._settle();
-      await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, files: payloads });
+      await this._answer({ files: payloads });
     }
     async cancel() {
-      this._settle();
-      await this._page._session.call("filechooser.respond", { targetId: this._page._targetId, chooserId: this._p.chooserId, cancel: true });
+      await this._answer({ cancel: true });
     }
   }
 

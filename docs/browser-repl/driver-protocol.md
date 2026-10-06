@@ -89,7 +89,10 @@ opaque `blob:` one is judged by the document that started the navigation)
 and each local file among them lies inside the session's working or
 temporary directory. Otherwise, in a tab the session created, the download
 is cancelled and `navigation.blocked` reports why; in a user's tab it keeps
-the user's download location.
+the user's download location. In a tab the session created, a redirect of
+the download to an address that would refuse it is cancelled before the
+request goes there, also one WebKit reports before it picked the
+download's destination.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the
@@ -296,7 +299,7 @@ leaving room on the paper, else `invalid` before anything is printed.
 | Method | Params |
 | --- | --- |
 | `input.setFiles` | `{ targetId, frameId, element: <agent element handle id>, files: [{ name, mimeType, base64 }] }` |
-| `filechooser.respond` | `{ targetId, chooserId, files }` or `{ ..., cancel: true }`. The files are written to a temporary directory of the session (removed when it ends) only after the driver knows the chooser is open and routed to the calling session; an answer for another session's chooser or a closed one fails with `not_found` and writes nothing. Files are given only into the document that opened the chooser, checked right before the answer with child-frame loads held: a chooser whose frame shows another document since (or a tab that replaced its web view) fails with `stale`, and one whose document the authority refuses with `blocked`; nothing is written then and the chooser stays open to be cancelled (`cancel` always goes through). At most 256 files and 256 MiB together, with distinct names, else `invalid` and nothing is written. The session counts the files against its `fs` write budget before the call reaches the driver (one call's 256 MiB, the 2 GiB and 100,000 file changes over its life); an answer past it fails with `invalid` (`EDQUOT` or `EFBIG` in the message) and nothing is written |
+| `filechooser.respond` | `{ targetId, chooserId, files }` or `{ ..., cancel: true }`. The files are written to a temporary directory of the session (removed when it ends) only after the driver knows the chooser is open and routed to the calling session; an answer for another session's chooser or a closed one fails with `not_found` and writes nothing. Files are given only into the document that opened the chooser, checked right before the answer with child-frame loads held: a chooser whose frame shows another document since (or a tab that replaced its web view) fails with `stale`, and one whose document the authority refuses with `blocked`; nothing is written then and the chooser stays open to be cancelled (`cancel` always goes through); the runtime keeps it pending (`page.fileChooser()`, the `FileChooser` the event gave) until the driver confirms an answer, and settles it only then or on `not_found`. At most 256 files and 256 MiB together, with distinct names, else `invalid` and nothing is written. The session counts the files against its `fs` write budget before the call reaches the driver (one call's 256 MiB, the 2 GiB and 100,000 file changes over its life); an answer past it fails with `invalid` (`EDQUOT` or `EFBIG` in the message) and nothing is written |
 | `dialog.respond` | `{ targetId, dialogId, accept, promptText? }`; `blocked` (and the dialog dismissed) when the domain policy blocks the frame that opened it |
 | `download.path` | `{ downloadId }` → `{ path }` after completion |
 
@@ -330,7 +333,7 @@ way reaches every session in that form.
 | `download.finished` | `{ downloadId, path?, error? }`. The driver judges where the download came from again at each redirect WebKit reports after it picked the destination and, under the session's domain policy and directories then, before it names the path: a place they refuse gives `error` (`refused: ...`, which names that place; a session that did not create the tab gets it with its credential values replaced, as `download.started` gives the URL, and without the rule's explanation) and no path, and in a tab the session created the download is cancelled and its file removed (in a user's tab it goes to the user's download location) |
 | `console` | `{ type, text, args?, location? }`. Only the tab's live creator gets `text` as written; every other session gets each URL in it (from its scheme to whitespace, a quote, `<`, `>` or a backquote) with its userinfo and credential-named query and fragment parameters reading `redacted`, as in network events |
 | `pageerror` | `{ message, stack }`, its URLs (a stack names the document's URL and its scripts') given as `console` gives `text`'s |
-| `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers?, note? }`. The driver holds each unfinished request's details for its later events, at most 1,000 requests or 8 MiB of them per tab: past that the oldest are dropped, and their `requestfailed` or `requestfinished` comes without their headers and with a `note` saying so. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`, and any whose name says it carries one); the others get the headers without them, and the `url` and URL-valued headers (`location`, `content-location`, `referer`, `refresh`, `link`) with the userinfo and each credential-named query or fragment parameter (that name rule, or `code`, `sig`, `key`, `jwt`, `otp`, `pass`, `pwd`, `sid`, `ticket`, `assertion`, `SAMLResponse`, `SAMLRequest`) reading `redacted` |
+| `request` / `response` / `requestfailed` / `requestfinished` | `{ requestId, url, method, resourceType, status?, headers?, note? }`, and for `requestfailed` a `failure` (WebKit's error text). The driver holds each unfinished request's details for its later events, at most 1,000 requests or 8 MiB of them per tab: past that the oldest are dropped, and their `requestfailed` or `requestfinished` comes without their headers and with a `note` saying so. Sent only to the tab's creating session, to a session whose last `tab.handleEvents` for the tab names `network`, and to the session whose call the page was handling when the request started (the rest of that request's events follow it). Only the creating session gets the credential headers (`cookie`, `set-cookie`, `authorization`, `proxy-authorization`, `x-api-key`, `x-auth-token`, `x-csrf-token`, `x-xsrf-token`, and any whose name says it carries one); the others get the headers without them, and the `url` and URL-valued headers (`location`, `content-location`, `referer`, `refresh`, `link`) with the userinfo and each credential-named query or fragment parameter (that name rule, or `code`, `sig`, `key`, `jwt`, `otp`, `pass`, `pwd`, `sid`, `ticket`, `assertion`, `SAMLResponse`, `SAMLRequest`) reading `redacted`, as in every URL the `failure` text names |
 
 ## Browser state
 
@@ -362,7 +365,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   other running session created (`denied` otherwise); a tab of another
   workspace needs an attach a person grants, and cmux has no such grant
   yet, so it is refused, as is a restored placeholder tab there before it
-  is created. It closes only tabs it created and user tabs it is attached
+  is created. A user's tab moved to another workspace is left at once by
+  the sessions attached to it that may not use it there: no event, dialog,
+  file chooser, download or network event of the tab reaches them after
+  the move, and their next call on it fails with `denied` (a tab a session
+  created stays its own wherever it moves). It closes only tabs it created and user tabs it is attached
   to. Navigation-time decisions in tabs a session created (the navigation
   delegate, popups and downloads) still apply the creating session's
   policy and file roots through their own checks (`BrowserReplNavigationGuard`,
@@ -558,7 +565,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   directory the session began with (same identity, no link on its path).
   WebKit resolves that directory when it grants it and refuses a file
   outside it, so a link another session or process swaps in below it
-  after the check leads nowhere outside (measured on macOS 27.0). A file
+  after the check leads nowhere outside (measured on macOS 27.0). A load
+  of such a file that the tab starts without the driver (a crashed web
+  process's recovery, a discarded tab's restore, a reload, the page's own
+  navigation) gets the same grant under the same lock: in a tab a session
+  created for any file (the creating session's directories), in a user's
+  tab for a file inside an attached session's directories; a refused one
+  loads nothing, and such a file is never restored from WebKit's saved
+  session state, whose replay would grant the directory it recorded. A file
   navigation in a workspace whose browser waits for a remote proxy is
   refused rather than started later outside that check. In a tab the
   session created, and its popups, the same rule holds for what the page
@@ -643,7 +657,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   that script runs in a scope of its own after the check, and the agent's
   `source` must be one expression on its own (else `invalid`, before
   anything runs), so nothing in it can replace the `location` the check
-  reads or run before the check. A frame that shows a
+  reads or run before the check. Script in the page world or a session's
+  agent world can also reach other frames of the tab, and two frames of
+  one site that both set `document.domain` to it are one origin: such
+  script (the agent's `frame.evaluate`, and the driver's own reads in the
+  agent's world, which agent code can patch) fails with `blocked` while
+  any frame of the tab that the authority refuses has a host sharing a
+  domain with the target frame's host that both could relax to (any
+  scheme or port), judged on a fresh tree read before the script and
+  again after it, whose result is then withheld. Residual: a timer or
+  observer agent code left in its world can read such a frame that loads
+  between calls, and hand it on in a later call once the frame is gone. A frame that shows a
   blocked page fails with `blocked` (`snapshot()` marks its iframe
   `[not read: blocked by the domain policy]`). A tree read can lack frames
   (WebKit gives no tree, or cannot describe a child): while the policy is

@@ -2099,8 +2099,14 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Kept so a pane of another team re-persists its own team, not the selection.
     var restoredCloudTeamID: String?
 
-    /// The workspace ID this panel belongs to
-    private(set) var workspaceId: UUID
+    /// The workspace ID this panel belongs to. A browser REPL session
+    /// that may not use the tab in its new workspace leaves it.
+    private(set) var workspaceId: UUID {
+        didSet {
+            guard workspaceId != oldValue else { return }
+            BrowserReplTabAttachments.shared.panelDidChangeWorkspace(id)
+        }
+    }
     private let externalNavigationHandler: BrowserExternalNavigationHandler
 
     @Published private(set) var profileID: UUID
@@ -5757,12 +5763,33 @@ final class BrowserPanel: Panel, ObservableObject {
         } else {
             clearTrustedLocalFileDocumentIfNeeded(for: originalURL)
         }
-        let startedNavigation = browserLoadRequest(
-            effectiveRequest,
-            in: webView,
-            trustedInternalNavigation: trustedInternalNavigation,
-            fileReadAccessURL: fileReadAccessURL
-        )
+        let startedNavigation: WKNavigation?
+        if originalURL.isFileURL, fileReadAccessURL == nil,
+           let sessionID = BrowserReplTabAttachments.shared.fileLoadSession(panelID: id, url: originalURL) {
+            // A file of a browser REPL session's directories, loaded without
+            // the driver (a crashed process's recovery, a restore, a reload):
+            // read access to the session's pinned root, checked and granted
+            // while no REPL rename can run, never the file's parent directory
+            // as a link swapped in would resolve it. A refused file loads nothing.
+            startedNavigation = try? BrowserReplPolicyBoard.shared.withPinnedFileAccess(
+                originalURL.absoluteString,
+                sessionID: sessionID
+            ) { readAccess in
+                browserLoadRequest(
+                    effectiveRequest,
+                    in: webView,
+                    trustedInternalNavigation: trustedInternalNavigation,
+                    fileReadAccessURL: readAccess
+                )
+            }
+        } else {
+            startedNavigation = browserLoadRequest(
+                effectiveRequest,
+                in: webView,
+                trustedInternalNavigation: trustedInternalNavigation,
+                fileReadAccessURL: fileReadAccessURL
+            )
+        }
         if startedNavigation == nil {
             noteDiscardedWebViewRestoreNavigationDidNotCommit(reason: "navigation_not_started")
         } else if hiddenWebViewDiscardManager.isDiscardedForMemory {
@@ -8633,12 +8660,21 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         // A REPL session gets a download only when it may read every place
         // the request went (BrowserReplDownloadSource).
         BrowserReplTabAttachment.downloadRedirected(download, to: request.url)
-        // After WebKit picked the destination the download may already be a
-        // session's: that decision is made again for this place.
+        // Before WebKit picked the destination the download has no state
+        // yet, but its claim (starter and every place so far, this one last)
+        // is judged now, before the request goes there: a tab a session
+        // created never sends one to a place its policy refuses.
         guard let downloadID = storedState(for: download)?.downloadID else {
-            decisionHandler(.allow)
+            let starter = BrowserReplTabAttachment.downloadStarter(of: download)
+            let source = BrowserReplTabAttachment.downloadSource(of: download)
+            notifyOnMain { [weak self] in
+                let allowed = self?.replAttachment?()?.allowsDownloadRedirect(startedBy: starter, source: source) ?? true
+                decisionHandler(allowed ? .allow : .cancel)
+            }
             return
         }
+        // After WebKit picked the destination the download may already be a
+        // session's: that decision is made again for this place.
         notifyOnMain { [weak self] in
             let allowed = self?.replAttachment?()?.downloadRedirected(id: downloadID, to: request.url) ?? true
             decisionHandler(allowed ? .allow : .cancel)

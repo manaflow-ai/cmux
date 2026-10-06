@@ -76,6 +76,24 @@ final class BrowserReplTabAttachments {
         }
     }
 
+    /// The session whose directories govern a load of the local file `url`
+    /// in `panelID` that cmux starts itself (a recovery, a restore, a
+    /// reload, the page's own navigation), or nil for the user's own load
+    /// (``BrowserReplPolicyBoard/fileLoadSession(_:creator:attached:)``).
+    func fileLoadSession(panelID: UUID, url: URL) -> String? {
+        guard url.isFileURL, let attachment = attachment(for: panelID) else { return nil }
+        return BrowserReplPolicyBoard.shared.fileLoadSession(url, creator: attachment.creatorSessionID, attached: attachment.sessionIDs)
+    }
+
+    /// `panelID` moved to another workspace: the sessions that may no
+    /// longer use it there leave it (``BrowserReplTabAttachment/workspaceDidChange()``).
+    func panelDidChangeWorkspace(_ panelID: UUID) {
+        guard let attachment = attachments[panelID], attachment.isAttached else { return }
+        if !attachment.workspaceDidChange() {
+            attachments.removeValue(forKey: panelID)
+        }
+    }
+
     /// Detaches everything from a panel that is closing.
     func panelDidClose(_ panelID: UUID) {
         Self.typedSecrets.tabClosed(panelID.uuidString)
@@ -869,8 +887,24 @@ final class BrowserReplTabAttachment {
             id: panelID,
             mainFrameURL: panel?.webView.url,
             creatorSessionID: liveCreatorSessionID,
-            attachedSessionIDs: Set(sinks.keys)
+            attachedSessionIDs: Set(sinks.keys),
+            workspaceID: panel?.workspaceId
         )
+    }
+
+    /// The tab moved to another workspace: every attached session that may
+    /// no longer use it there (``BrowserReplTabCapability/use``: a session
+    /// uses only its own workspace's tabs and the tabs it created) leaves
+    /// it, as it would when it ended, so no event, dialog, file chooser,
+    /// download or network event of the tab reaches it any more.
+    /// - Returns: Whether a session is still attached.
+    func workspaceDidChange() -> Bool {
+        let facts = authorityFacts
+        for sessionID in sinks.keys.sorted()
+        where Self.authority(for: sessionID).verdict(BrowserReplAccess(in: facts, capability: .use)) != .allowed {
+            removeSink(sessionID: sessionID)
+        }
+        return isAttached
     }
 
     /// The authority of `sessionID` as the policy board publishes it.
@@ -910,6 +944,8 @@ final class BrowserReplTabAttachment {
         var body = payload
         body["targetId"] = targetID
         if let url = payload["url"] as? String { body["url"] = pageURL(url) }
+        // WebKit's error text can name URLs (a redirect's target among them).
+        if let failure = payload["failure"] as? String { body["failure"] = BrowserReplPageText(failure, creator: liveCreator) }
         if let headers = payload["headers"] as? [String: String] {
             body["headers"] = BrowserReplPageHeaders(headers, creator: liveCreator)
         }
@@ -1540,6 +1576,24 @@ final class BrowserReplTabAttachment {
         ) else { return true }
         emit(.downloadFinished, ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
         return !isLiveCreator(refusal.sessionID)
+    }
+
+    /// Whether a download that has no destination yet may follow a redirect,
+    /// given its claim (`startedBy`, and `source` with the redirect's place
+    /// last): not when it would be refused once it starts
+    /// (``BrowserReplTabOwnership/downloadRoute(startedBy:source:policy:fileRoots:)``),
+    /// so the request never reaches a place the tab's creating session's
+    /// policy or directories refuse.
+    func allowsDownloadRedirect(startedBy starter: String?, source: BrowserReplDownloadSource) -> Bool {
+        guard isAttached else { return true }
+        let route = ownership.downloadRoute(
+            startedBy: starter,
+            source: source,
+            policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
+            fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
+        )
+        if case .refused = route { return false }
+        return true
     }
 
     /// Reports download `id`'s end to the session it went to. A finished

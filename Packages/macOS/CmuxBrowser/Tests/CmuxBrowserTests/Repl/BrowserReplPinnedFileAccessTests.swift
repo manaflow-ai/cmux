@@ -40,6 +40,42 @@ struct BrowserReplPinnedFileAccessTests {
         #expect(text?.contains("outside secret") != true, "the load read a file outside the session's directories through the swapped link")
     }
 
+    /// A tab's own loads of a session's file (a crashed web process's
+    /// recovery, a discarded tab's restore, a reload, the page's links)
+    /// start without the driver: they too take read access to the
+    /// governing session's pinned root, checked under the rename lock, never
+    /// the file's parent directory resolved through a link swapped in.
+    @Test("A tab's own load of a session's file is pinned to the session's root through the board")
+    func aTabsOwnLoadIsPinnedThroughTheBoard() throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        let manager = FileManager.default
+        try manager.createDirectory(atPath: scratch.root + "/site", withIntermediateDirectories: true)
+        try Data("<p>own page</p>".utf8).write(to: URL(fileURLWithPath: scratch.root + "/site/index.html"))
+        let board = BrowserReplPolicyBoard()
+        board.setFileRoots([scratch.root], sessionID: "s")
+        let url = URL(fileURLWithPath: scratch.root + "/site/index.html")
+        // The tab's creator governs its loads; in a user's tab, a session
+        // attached to it governs a file inside its own directories.
+        #expect(board.fileLoadSession(url, creator: "s", attached: ["s"]) == "s")
+        #expect(board.fileLoadSession(url, creator: nil, attached: ["other", "s"]) == "s")
+        #expect(board.fileLoadSession(URL(fileURLWithPath: scratch.outside + "/secret.txt"), creator: nil, attached: ["s"]) == nil)
+        let granted = try board.withPinnedFileAccess(url.absoluteString, sessionID: "s") { $0 }
+        #expect(granted.path == scratch.root, "the load was granted \(granted.path), not the session's root")
+        // A link swapped in for a directory below the root refuses the load.
+        try manager.moveItem(atPath: scratch.root + "/site", toPath: scratch.root + "/site-old")
+        try manager.createSymbolicLink(atPath: scratch.root + "/site", withDestinationPath: scratch.outside)
+        var loaded = false
+        #expect(throws: BrowserReplDriverError.self) {
+            try board.withPinnedFileAccess(url.absoluteString, sessionID: "s") { _ in loaded = true }
+        }
+        // A session without directories loads no file.
+        #expect(throws: BrowserReplDriverError.self) {
+            try board.withPinnedFileAccess(url.absoluteString, sessionID: "other") { _ in loaded = true }
+        }
+        #expect(!loaded)
+    }
+
     @Test("A root whose path now names another directory, or a link, is refused")
     func aSwappedRootIsRefused() throws {
         let scratch = try Scratch()

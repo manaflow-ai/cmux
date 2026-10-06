@@ -52,6 +52,42 @@ struct BrowserReplFrameGateTests {
         #expect((text as? String)?.contains("allowed.test/child") == true)
     }
 
+    /// Two frames of one site that both relax `document.domain` to it are
+    /// one origin to page script: script in the allowed frame (any world
+    /// agent code reaches) would read the sibling the policy blocks. The
+    /// gate refuses script in a frame such a blocked frame shares a site
+    /// with, before and after it runs.
+    @Test(arguments: [false, true])
+    func aFrameThatCanRelaxIntoABlockedSiblingIsNotEvaluated(agentWorld: Bool) async throws {
+        let child = "<p>CHILD</p><script>document.domain = 'site.test'</script>"
+        let page = try await FramePage.load(
+            url: "cmux-test://main.site.test/",
+            html: """
+            <iframe src="cmux-test://a.site.test/a"></iframe>
+            <iframe src="cmux-test://b.site.test/b"></iframe>
+            """,
+            loaded: { $0.count >= 3 && $0.dropFirst().allSatisfy { !$0.url.isEmpty } },
+            childPage: child
+        )
+        let allowed = try #require(page.frame(host: "a.site.test"))
+        let read = "return parent.frames[1].document.body.innerText"
+        // The page really relaxed: without the gate, the allowed frame reads
+        // the blocked one.
+        let raw = try await page.run(read, in: allowed) as? String
+        try #require(raw?.contains("b.site.test") == true, "this WebKit does not relax document.domain here; nothing to guard")
+        let gate = Self.gate(prohibiting: "cmux-test://b.site.test")
+        let world: WKContentWorld = agentWorld ? .world(name: "cmux-frame-gate-agent") : .page
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript(read, arguments: [:], in: page.webView, frame: allowed, contentWorld: world)
+        }
+        #expect(error?.code == "blocked", "script in a frame reached a blocked sibling of its site: \(String(describing: error))")
+        // A frame of another site is not refused for it.
+        let other = Self.gate(prohibiting: "cmux-test://blocked.example")
+        #expect(await Self.error {
+            try await other.callAsyncJavaScript("return 1", arguments: [:], in: page.webView, frame: allowed, contentWorld: world)
+        } == nil)
+    }
+
     /// A frame keeps its id when it navigates, and the driver looks frames up
     /// by id from an earlier tree read: a frame that moved to a blocked page
     /// since must not be read through the old record, and the script must
@@ -435,10 +471,11 @@ struct FramePage {
         url: String = "cmux-test://allowed.test/",
         html: String = mainPage,
         loaded: (([BrowserReplFrame]) -> Bool)? = nil,
+        childPage: String? = nil,
         configure: (WKWebViewConfiguration) async throws -> Void = { _ in }
     ) async throws -> FramePage {
         let configuration = WKWebViewConfiguration()
-        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html), forURLScheme: "cmux-test")
+        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: html, childPage: childPage), forURLScheme: "cmux-test")
         try await configure(configuration)
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
         let expected = html == mainPage && url == "cmux-test://allowed.test/" ? 3 : 1
@@ -493,9 +530,12 @@ struct FramePage {
 
 final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
     let mainPage: String
+    /// A child page's own HTML after its `<p>host/path</p>`, if set.
+    let childPage: String?
 
-    init(mainPage: String) {
+    init(mainPage: String, childPage: String? = nil) {
         self.mainPage = mainPage
+        self.childPage = childPage
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
@@ -503,7 +543,7 @@ final class FramePageSchemeHandler: NSObject, WKURLSchemeHandler {
         let host = url.host ?? ""
         let html = url.path == "/" || url.path.isEmpty
             ? mainPage
-            : "<p>\(host)\(url.path)</p><input id=f>"
+            : "<p>\(host)\(url.path)</p>" + (childPage ?? "<input id=f>")
         task.didReceive(URLResponse(url: url, mimeType: "text/html", expectedContentLength: -1, textEncodingName: "utf-8"))
         task.didReceive(Data(html.utf8))
         task.didFinish()

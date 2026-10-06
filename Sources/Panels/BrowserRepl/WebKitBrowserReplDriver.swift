@@ -50,6 +50,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor private lazy var frameGate: BrowserReplFrameGate = {
         let gate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
         gate.scope = { [weak self] webView in self?.frameGateScope(webView) }
+        // One shared tree read for the gate's reach check (BrowserReplFrameTree).
+        gate.frameTree = { await BrowserReplFrameTree.frames(of: $0) }
         return gate
     }()
     /// Ties `<iframe>` elements to their child frames' ids.
@@ -1042,8 +1044,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func attachment(_ panel: BrowserPanel) -> BrowserReplTabAttachment {
         if let attachment = BrowserReplTabAttachments.shared.attachment(for: panel.id) { return attachment }
-        // No session drives the tab, so the per-tab limit admits this one;
-        // the unregistered attachment after it is never reached.
+        // No session drives the tab, so the per-tab limit admits this one,
+        // if the session may still use the tab: a call in flight when the
+        // tab moved to another workspace does not attach it there again
+        // (BrowserReplTabAttachment.workspaceDidChange). The unregistered
+        // attachment then has no session and reaches none.
+        guard authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: .use)) == .allowed else {
+            return BrowserReplTabAttachment(panel: panel)
+        }
         return (try? attach(panel)) ?? BrowserReplTabAttachment(panel: panel)
     }
 
@@ -1305,7 +1313,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func applySessionLabel(to panelID: UUID) {
-        guard let workspace = try? workspace() else { return }
+        guard let workspace = Self.holdingWorkspace(of: panelID) else { return }
         workspace.setPanelAutomationLabel(panelId: panelID, label: sessionLabel)
         if sessionLabel == nil { labeledTargetIDs.remove(panelID) } else { labeledTargetIDs.insert(panelID) }
     }
@@ -1314,8 +1322,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func clearSessionLabels() {
         let labeled = labeledTargetIDs
         labeledTargetIDs.removeAll()
-        guard let workspace = try? workspace() else { return }
-        for id in labeled { workspace.setPanelAutomationLabel(panelId: id, label: nil) }
+        for id in labeled { Self.holdingWorkspace(of: id)?.setPanelAutomationLabel(panelId: id, label: nil) }
+    }
+
+    /// The workspace, of any window, that holds the browser tab `panelID`
+    /// now: a tab moves between workspaces, so the session's own workspace
+    /// is not where to look for a tab it opened.
+    @MainActor
+    private static func holdingWorkspace(of panelID: UUID) -> Workspace? {
+        browserPanelEntries().first { $0.panel.id == panelID }?.workspace
     }
 
     @MainActor
@@ -2881,10 +2896,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func closeOpenedTabs() {
         let opened = openedTargetIDs
         openedTargetIDs.removeAll()
-        guard let workspace = try? workspace() else { return }
-        // The panel's own close forgets what is kept for it
-        // (`BrowserPanel.close()`), only once it really closes.
-        for id in opened where workspace.panels[id] is BrowserPanel {
+        // Each tab is closed in the workspace that holds it now, of any
+        // window: one the user moved out of the session's workspace (or a
+        // tab of a workspace that closed meanwhile) closes too, unless
+        // `page.keep()` took it out of this set. The panel's own close
+        // forgets what is kept for it (`BrowserPanel.close()`), only once
+        // it really closes.
+        let entries = Self.browserPanelEntries()
+        for id in opened {
+            guard let workspace = entries.first(where: { $0.panel.id == id })?.workspace else { continue }
             _ = workspace.closePanel(id, force: true)
         }
     }
