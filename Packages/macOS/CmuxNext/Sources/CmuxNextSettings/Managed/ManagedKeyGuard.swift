@@ -6,6 +6,11 @@ public nonisolated struct SettingManaged: Error, Sendable, CustomStringConvertib
     public let key: String
     public let source: ManagedSource
 
+    public init(key: String, source: ManagedSource) {
+        self.key = key
+        self.source = source
+    }
+
     public var description: String {
         switch source {
         case .device: "\(key) is managed by your organization"

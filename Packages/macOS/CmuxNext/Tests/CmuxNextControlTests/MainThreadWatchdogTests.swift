@@ -59,6 +59,37 @@ import Testing
         #expect(watchdog.gapStats.max >= .milliseconds(100))
     }
 
+    #if DEBUG
+    /// The watchdog thread can lose the CPU right after it samples a stall.
+    /// The stall may then end before the sample is handed over; the record
+    /// must still carry the stack that was taken during the stall.
+    @MainActor
+    @Test func aSampleTakenDuringTheStallIsKeptWhenTheStallEndsFirst() throws {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        watchdog.afterSampleForTesting.withLock { hook in
+            hook = { [watchdog] in
+                // Hold the watchdog thread until the main thread's next heartbeat (the stall's end).
+                let beat = watchdog.currentBeat
+                let deadline = ContinuousClock.now + .seconds(2)
+                while watchdog.currentBeat == beat, ContinuousClock.now < deadline { usleep(1_000) }
+            }
+        }
+        watchdog.start()
+        defer { watchdog.stop() }
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue) {
+            stallForTestLong()
+        }
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+        CFRunLoopRunInMode(.defaultMode, 1.0, false)
+        // The full package run shares the main run loop with other tests, so
+        // other stalls can be recorded too; one record must be this stall's.
+        let records = watchdog.log.records()
+        try #require(!records.isEmpty, "no stall recorded")
+        #expect(records.contains { $0.frames.contains { $0.symbol?.contains("stallForTest") == true } },
+                "frames: \(records.map { $0.frames.prefix(4).map(\.description) })")
+    }
+    #endif
+
     @Test func hangLogIsBoundedDropOldest() {
         let log = HangLog(capacity: 3)
         for index in 0..<5 { log.append(startUptimeNanos: UInt64(index), duration: .milliseconds(60 + index), addresses: []) }
@@ -72,4 +103,11 @@ import Testing
 @inline(never)
 func stallForTest() {
     spin(for: .milliseconds(150))
+}
+
+/// A longer stall, so a loaded host's watchdog thread still wakes inside it
+/// (the sample is due 30 ms in).
+@inline(never)
+func stallForTestLong() {
+    spin(for: .milliseconds(500))
 }

@@ -219,9 +219,13 @@ dbTest("personal VMs can use their owner's private pool without granting organiz
 });
 
 
-dbTest("VM account mutations retain the pool boundary and cannot borrow the creator's private access", async () => {
+dbTest("a VM token gets no account rights; the repository still keeps the pool boundary", async () => {
   const resolved = await resolveCoderouterControlContext(guest('/api/coderouter/accounts', {'x-cmux-team-id': TEAM_B}));
-  expect(resolved).toMatchObject({ok:true,value:{team:{teamId:TEAM_A},access:access()}});
+  expect(resolved.ok).toBe(false);
+  if (!resolved.ok) {
+    expect(resolved.response.status).toBe(403);
+    expect(await resolved.response.json()).toEqual({error:'machine_token_cannot_manage_accounts'});
+  }
   for (const accountId of [privateA, sharedB]) {
     expect(await deleteAccount({teamId:TEAM_A,stackUserId:USER,accountId,access:access()})).toMatchObject({removed:false});
   }

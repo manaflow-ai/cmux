@@ -15,7 +15,9 @@ import Synchronization
 /// outbound buffers are capped, so a slow client only stalls itself.
 ///
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
-/// admits processes descended from this app, `automation` admits the same
+/// admits processes started inside this cmux (descended from this app or
+/// from a process running one of `trustedExecutables`, the bundled cmux
+/// binary that hosts every terminal), `automation` admits the same
 /// user, `password` also requires `auth <password>` / `auth.login`, and
 /// `allowAll` admits anyone. The socket file is 0600 except for `allowAll`.
 public final class ControlSocketServer: Sendable {
@@ -26,6 +28,10 @@ public final class ControlSocketServer: Sendable {
         public var passwordVerifier: (@Sendable (String) -> Bool)?
         /// Process whose descendants `.cmuxOnly` admits (default: this app).
         public var trustedAncestor: pid_t
+        /// Executables whose processes' descendants `.cmuxOnly` also admits:
+        /// the bundled `bin/cmux`, which runs the daemon and the terminal
+        /// hosts that survive app and daemon restarts (real paths).
+        public var trustedExecutables: Set<String>
         /// Longest accepted request line.
         public var maxLineBytes: Int
         /// Parsed request lines that may wait per connection before reading pauses.
@@ -38,6 +44,7 @@ public final class ControlSocketServer: Sendable {
             accessMode: ControlAccessMode,
             passwordVerifier: (@Sendable (String) -> Bool)? = nil,
             trustedAncestor: pid_t = getpid(),
+            trustedExecutables: Set<String> = [],
             maxLineBytes: Int = 4 << 20,
             maxQueuedLinesPerConnection: Int = 64,
             maxOutboxBytesPerConnection: Int = 8 << 20
@@ -46,6 +53,7 @@ public final class ControlSocketServer: Sendable {
             self.accessMode = accessMode
             self.passwordVerifier = passwordVerifier
             self.trustedAncestor = trustedAncestor
+            self.trustedExecutables = trustedExecutables
             self.maxLineBytes = maxLineBytes
             self.maxQueuedLinesPerConnection = maxQueuedLinesPerConnection
             self.maxOutboxBytesPerConnection = maxOutboxBytesPerConnection
@@ -89,17 +97,22 @@ public final class ControlSocketServer: Sendable {
 
     /// `accept(2)`, replaceable in tests.
     typealias AcceptCall = @Sendable (Int32) -> Int32
+    /// `bind(2)`; tests wrap it to act while the socket file is created.
+    typealias BindCall = @Sendable (Int32, UnsafePointer<sockaddr>, socklen_t) -> Int32
     private let acceptCall: AcceptCall
+    private let bindCall: BindCall
     private let acceptRetry = DemandTimer(owner: "ControlSocketServer.acceptRetry")
 
     public convenience init(configuration: Configuration, router: ControlRouter) {
         self.init(configuration: configuration, router: router, accept: { accept($0, nil, nil) })
     }
 
-    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall) {
+    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
+         bind: @escaping BindCall = { Darwin.bind($0, $1, $2) }) {
         self.configuration = configuration
         self.router = router
         self.acceptCall = accept
+        self.bindCall = bind
     }
 
     deinit {
@@ -124,27 +137,9 @@ public final class ControlSocketServer: Sendable {
         defer { if shouldClose { close(descriptor) } }
         _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
 
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let capacity = MemoryLayout.size(ofValue: address.sun_path)
+        let capacity = MemoryLayout.size(ofValue: sockaddr_un().sun_path)
         guard path.utf8.count < capacity else { throw StartError.pathTooLong(path) }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: path.utf8)
-            buffer[path.utf8.count] = 0
-        }
-        // Create the socket file with restrictive permissions from the start.
-        let previousMask = umask(configuration.accessMode == .allowAll ? 0 : 0o177)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        umask(previousMask)
-        guard bound == 0 else {
-            let code = errno
-            throw code == EADDRINUSE ? StartError.addressInUse(path) : StartError.system(call: "bind", errno: code)
-        }
-        chmod(path, configuration.accessMode.filePermissions)
+        try bindSocket(descriptor, at: path, mode: configuration.accessMode.filePermissions, capacity: capacity)
         guard listen(descriptor, 64) == 0 else {
             let code = errno
             unlink(path)
@@ -164,6 +159,71 @@ public final class ControlSocketServer: Sendable {
         }
         router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
+    }
+
+    /// Creates the socket file at `path` with `mode`, without touching the
+    /// process-wide umask (another thread's files would get that mask).
+    /// Binds inside a private 0700 directory next to `path`, sets the mode
+    /// there, then renames the socket into place (`RENAME_EXCL`: a socket
+    /// another process created meanwhile is never replaced). When the
+    /// private path does not fit `sun_path`, binds at `path` and sets the
+    /// mode at once: the file briefly has the umask's mode, which with the
+    /// usual umask grants no one else the write access a connect needs.
+    private func bindSocket(_ descriptor: Int32, at path: String, mode: mode_t, capacity: Int) throws {
+        let parent = (path as NSString).deletingLastPathComponent
+        var template = Array((parent.isEmpty ? "." : parent).utf8CString.dropLast()) + Array("/.cmuxsock.XXXXXX".utf8CString)
+        let staging: String? = template.withUnsafeMutableBufferPointer { buffer in
+            buffer.baseAddress.flatMap { mkdtemp($0) }.map { String(cString: $0) }
+        }
+        if let staging {
+            defer { rmdir(staging) }
+            let staged = staging + "/s"
+            if staged.utf8.count < capacity {
+                try bindAddress(descriptor, staged)
+                guard chmod(staged, mode) == 0 else {
+                    let code = errno
+                    unlink(staged)
+                    throw StartError.system(call: "chmod", errno: code)
+                }
+                guard renamex_np(staged, path, UInt32(RENAME_EXCL)) == 0 else {
+                    let code = errno
+                    unlink(staged)
+                    throw code == EEXIST ? StartError.addressInUse(path) : StartError.system(call: "rename", errno: code)
+                }
+                return try verifyMode(path, mode)
+            }
+        }
+        try bindAddress(descriptor, path)
+        chmod(path, mode)
+        try verifyMode(path, mode)
+    }
+
+    private func bindAddress(_ descriptor: Int32, _ path: String) throws {
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: path.utf8)
+            buffer[path.utf8.count] = 0
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bindCall(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bound == 0 else {
+            let code = errno
+            throw code == EADDRINUSE ? StartError.addressInUse(path) : StartError.system(call: "bind", errno: code)
+        }
+    }
+
+    /// The socket at `path` must have exactly `mode`; otherwise it is removed.
+    private func verifyMode(_ path: String, _ mode: mode_t) throws {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { throw StartError.system(call: "lstat", errno: errno) }
+        guard info.st_mode & 0o777 == mode else {
+            unlink(path)
+            throw StartError.system(call: "chmod", errno: EPERM)
+        }
     }
 
     /// Stops accepting, closes every connection, and removes the socket file
@@ -296,6 +356,8 @@ public final class ControlSocketServer: Sendable {
             state.withLock { $0.connections[id] = connection }
             connection.onClosed = { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
+                // A request still waiting for this client (a confirmation sheet) ends now.
+                ControlConnectionClosures.shared.closed(id)
             }
             let router = self.router
             connection.start { lines in

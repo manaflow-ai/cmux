@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextTerminal
 
 /// `debug.key` (DEBUG builds): a key-down synthesized into one of this
 /// process's own windows and dispatched the way `NSApplication.sendEvent`
@@ -47,11 +48,6 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
-        } else if params["target"]?.stringValue == "settings" {
-            guard let settings = services.settingsWindow.window, settings.isVisible else {
-                return .object(["error": .string("the Settings window is not open")])
-            }
-            window = settings
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])
@@ -88,20 +84,28 @@ enum DebugKey {
         let previous = registry.isDispatchingKeyDown
         registry.isDispatchingKeyDown = { true }
         defer { registry.isDispatchingKeyDown = previous }
-        var handledBy = "responder"
-        var action: JSONValue = .null
+        // The target window is the key window for this dispatch, so rules
+        // that read the key window (WindowKeyTable) see it.
+        let previousKey = services.keyWindowSource
+        services.keyWindowSource = { [window] in window }
+        defer { services.keyWindowSource = previousKey }
         let isChord = !flags.isDisjoint(with: [.command, .control])
-        if services.keyRouter.interceptKeyDown(event, in: window) {
-            handledBy = "app"
-            action = services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null
-        } else if isChord, window.performKeyEquivalent(with: event) {
-            handledBy = window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page"
-        } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
-            handledBy = "menu"
-            action = NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null
-        } else {
+        var trace: [String] = []
+        // The dispatcher's verdict, menu gate answers and host actions this key caused.
+        services.keyRouter.trace = { trace.append($0) }
+        TerminalKeyEquivalent.trace = { trace.append($0) }
+        defer { services.keyRouter.trace = nil; TerminalKeyEquivalent.trace = nil }
+        // As in AppKit's dispatch, the menu gate sees this key as the current event.
+        let (handledBy, action) = services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
+            if services.keyRouter.interceptKeyDown(event, in: window) {
+                return ("app", services.keyRouter.lastInterception.map { .string($0.action.rawValue) } ?? .null)
+            } else if isChord, window.performKeyEquivalent(with: event) {
+                return (window === shell ? "window" : params["target"]?.stringValue == "devtools" ? "devtools" : "page", .null)
+            } else if isChord, NSApp.mainMenu?.performKeyEquivalent(with: event) == true {
+                return ("menu", NSApp.mainMenu.flatMap { menuItem(matching: event, in: $0) }.map { .string($0.title) } ?? .null)
+            }
             window.sendEvent(event)
-            if window !== shell { handledBy = "page" }
+            return (window !== shell ? "page" : "responder", .null)
         }
         if params["target"]?.stringValue == "palette" {
             // The palette's own report: open or closed, its page, a refusal
@@ -114,6 +118,10 @@ enum DebugKey {
                 "palette_notice": palette.model.notice.map { .string($0.text) } ?? .null,
                 "palette_unhandled_key_downs": .number(Double(palette.unhandledKeyDowns)),
                 "palette_selected": palette.model.selectedItem.map { .string($0.actionID?.rawValue ?? $0.id) } ?? .null,
+                // The row id Return runs and the first rows, so a probe tells an action row from a
+                // scope or setting row with the same action.
+                "palette_selected_row": palette.model.selectedItem.map { .string($0.id) } ?? .null,
+                "palette_rows": .array(palette.model.rows.prefix(6).map { .string($0.id) }),
                 "palette_recorder": palette.model.shortcutRecorder.map { recorder in
                     .object(["action": .string(recorder.actionID.rawValue), "message": recorder.message.map(JSONValue.string) ?? .null,
                              "recorded": recorder.recorded.map { .string($0.displayString) } ?? .null,
@@ -125,12 +133,9 @@ enum DebugKey {
             return .object(["handled_by": .string(handledBy == "page" ? "debugSettings" : handledBy), "action": action,
                             "window_kind": .string("debugSettings"), "debug_settings": DebugTunables.state(services)])
         }
-        if params["target"]?.stringValue == "settings", let model = services.settingsWindow.model {
-            return .object(["handled_by": .string(handledBy == "page" ? "settings" : handledBy), "action": action, "window_kind": .string("settings"),
-                            "settings": DebugSettings.state(model, window: window)])
-        }
         let kind = window === shell ? "shell" : params["target"]?.stringValue == "devtools" ? "chromium_devtools" : "chromium_page"
-        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind)])
+        return .object(["handled_by": .string(handledBy), "action": action, "window_kind": .string(kind),
+                        "trace": .array(trace.map(JSONValue.string))])
     }
 
     /// The first enabled main-menu item with `event`'s key equivalent (what
@@ -165,6 +170,24 @@ enum DebugKey {
         return WindowOverlayLayer.contentChildWindows(of: window).last { child in
             child.frame.contains(center) && devTools?.devToolsContains(window: child) != true
         }
+    }
+
+    /// `debug.window.focus {window}`: orders that cmux window front and makes
+    /// it the app's key window, without activating the app, so window actions
+    /// (Zoom, Select Next Window) can be proven on a chosen window. Returns
+    /// the key and frontmost cmux window ids afterwards.
+    static func focusWindow(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        guard let id = params["window"]?.stringValue,
+              let window = services.windows.controllers.first(where: { $0.state.id == id })?.window else {
+            return .object(["error": .string("no window with that id")])
+        }
+        window.orderFrontRegardless()
+        window.makeKey()
+        let windowID = { (window: NSWindow?) -> JSONValue in
+            services.windows.controllers.first { $0.window === window }.map { .string($0.state.id) } ?? .null
+        }
+        let front = NSApp.orderedWindows.first { candidate in services.windows.controllers.contains { $0.window === candidate } }
+        return .object(["key": windowID(NSApp.keyWindow), "front": windowID(front)])
     }
 
     /// `debug.sidebar_rename`: begins the inline rename of the window's

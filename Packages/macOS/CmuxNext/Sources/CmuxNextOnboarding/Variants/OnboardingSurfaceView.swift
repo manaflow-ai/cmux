@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextDesign
 
-/// Draws a variant's surface behind its content: full-window glass (theme
-/// background at partial alpha over it, so light themes stay light), an
-/// inset floating glass panel, or the opaque theme background. Reduce
-/// Transparency always gets the opaque background.
+/// A variant's surface behind its content. The window's one backdrop (the
+/// main window's material and tint, `NSWindow.install`) is the surface of
+/// the full-window variants (full glass, glass controls, opaque), so they
+/// draw nothing of their own (plans/cmux-next/windows.md, one backdrop
+/// rule); the floating panel variant draws an inset glass card over it.
+/// Reduce Transparency makes the backdrop opaque.
 final class OnboardingSurfaceView: NSView {
-    /// How much of the theme background sits over full-window glass.
+    /// How much of the theme background sits over the floating panel's glass.
     static let glassFillAlpha: CGFloat = 0.7
     /// The floating panel's inset and radius.
     static let panelInset: CGFloat = 12
@@ -24,16 +26,10 @@ final class OnboardingSurfaceView: NSView {
         fill.wantsLayer = true
         fill.layer?.cornerCurve = .continuous
         content.translatesAutoresizingMaskIntoConstraints = false
-        switch self.surface {
-        case .fullGlass:
-            let glass = Glass.makePanel(content: fill, cornerRadius: 0)
-            pin(glass, inset: 0)
-        case .glassPanel:
+        if self.surface == .glassPanel {
             fill.layer?.cornerRadius = Self.panelRadius
             let glass = Glass.makePanel(content: fill, cornerRadius: Self.panelRadius)
             pin(glass, inset: Self.panelInset)
-        case .glassControls, .opaque:
-            pin(fill, inset: 0)
         }
         fill.translatesAutoresizingMaskIntoConstraints = false
         addSubview(content)
@@ -53,9 +49,6 @@ final class OnboardingSurfaceView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The window is transparent only around a floating panel.
-    var needsTransparentWindow: Bool { surface != .opaque && surface != .glassControls }
-
     private func pin(_ view: NSView, inset: CGFloat) {
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
@@ -68,7 +61,7 @@ final class OnboardingSurfaceView: NSView {
     }
 
     private func applyColors() {
-        let opaque = surface == .opaque || surface == .glassControls
-        fill.layer?.backgroundColor = Palette.windowBackground.withAlphaComponent(opaque ? 1 : Self.glassFillAlpha).cgColor
+        guard surface == .glassPanel else { return }
+        fill.layer?.backgroundColor = Palette.windowBackground.withAlphaComponent(Self.glassFillAlpha).cgColor
     }
 }

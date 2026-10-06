@@ -16,7 +16,13 @@ export interface FeedState {
   readonly prefs: FeedPrefs
   /** Posts per poster scope in the current minute (rate limit). */
   readonly rate: Readonly<Record<string, { readonly minute: number; readonly count: number }>>
+  /** Item id -> the install that withdrew its handoff with feed.adopt.cancel (absent in rows written before it). */
+  readonly adopt_cancelled?: Readonly<Record<string, { readonly install: string; readonly at: number }>>
 }
+
+/** Tombstones outlive any delayed adopt (the ledger keeps keys 7 days); at most this many are kept. */
+export const ADOPT_TOMBSTONE_MS = 30 * 24 * 3600_000
+export const MAX_ADOPT_TOMBSTONES = 1000
 
 export const MAX_ITEMS = 500
 export const MAX_OPEN_REQUESTS = 100

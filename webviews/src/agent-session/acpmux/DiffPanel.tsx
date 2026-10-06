@@ -9,12 +9,22 @@ import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
+import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
-import type { FileActions } from "./changes/FileHeader";
+import type { HunkReview } from "./changes/hunkReview";
+import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
+import { applyCommand } from "./changes/applyCommand";
+import { BranchPill } from "./changes/BranchPill";
+import { copyText } from "./conversation/clipboard";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
+import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
+import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
+import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
+import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
+import { useT } from "./i18n";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
 const WRAP_KEY = "cmux.acpmux.diffWrap";
@@ -39,25 +49,38 @@ function store(key: string, value: string) {
 type Tool = "collapse" | "wrap" | "split" | "tree";
 
 /// The changes one turn's tool calls made, file by file, or a git scope of the session's
-/// repository from `source`. Read-only; Back or Escape returns to the transcript.
+/// repository from `source`. Back or Escape returns to the transcript. With `review`, the last
+/// turn's hunks can each be accepted or rejected, and the rejected ones sent back to the agent.
 export function DiffPanel({
   files: turnFiles,
   initialPath,
   onClose,
   source,
+  onOpenFile,
   checkpointAction,
   checkpointReview,
+  review,
+  reviewFiles,
+  turn,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
   source?: ChangesSource;
+  /// Asks the host to open a changed file; rejects with the host's reason when it can't.
+  onOpenFile?: (path: string, where: OpenTarget) => Promise<unknown>;
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
+  review?: HunkReview;
+  /// Tool-call files remain the source of revert patches when Last turn is showing a checkpoint.
+  reviewFiles?: TurnFile[];
+  /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
+  turn?: { source: "checkpoint" | "tools"; note?: string };
 }) {
+  const t = useT();
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry } = useScopeChanges(source, scope);
+  const { load, retry, branch } = useScopeChanges(source, scope);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   const files = scope === "lastTurn" ? turnFiles : scopeFiles;
   /// A git scope's body before its files: loading, failed or empty.
@@ -75,6 +98,11 @@ export function DiffPanel({
   const [selected, setSelected] = useState<string | undefined>(initialPath ?? files[0]?.path);
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<string | undefined>(undefined);
+  // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
+  // the net diff still contains a tool change, while formatter-only hunks remain read-only.
+  const hunkReview = scope === "lastTurn" ? review : undefined;
+  const turnNote = scope === "lastTurn" ? turn?.note : undefined;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -96,7 +124,7 @@ export function DiffPanel({
   const stopRevealing = () => {
     revealing.current = undefined;
   };
-  const revealFromTree = (path: string) => {
+  const revealFromTree = useStableCallback((path: string) => {
     revealing.current = path;
     // A file picked in the tree opens if it was collapsed.
     setCollapsed((current) => {
@@ -106,7 +134,7 @@ export function DiffPanel({
       return next;
     });
     reveal(path);
-  };
+  });
   // Wheel, pointer or key input in the diffs means the reader is moving on their own.
   useEffect(() => {
     const node = body.current;
@@ -130,17 +158,34 @@ export function DiffPanel({
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
+  // j/k move between files as picking them in the tree does; n/p between changes.
+  const selectedFile = useStableCallback(() => selected);
+  useDiffKeys(panel, body, revealFromTree, selectedFile);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
-      if (event.key !== "Escape" || focus instanceof HTMLInputElement) return;
+      if (event.key !== "Escape" || event.defaultPrevented || focus instanceof HTMLInputElement) return;
       if (!focus || focus === document.body || panel.current?.contains(focus)) onClose();
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
+  // Why the last open failed, until the next open or another scope. Only the latest open's
+  // failure shows: an earlier one that fails late was overtaken.
+  const [openFailure, setOpenFailure] = useState<string>();
+  const latestOpen = useRef(0);
+  const openFile = useStableCallback((path: string, where: OpenTarget) => {
+    const request = ++latestOpen.current;
+    setOpenFailure(undefined);
+    const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error(t("changes.openFailed")));
+    opening.catch((error: unknown) => {
+      if (request !== latestOpen.current) return;
+      setOpenFailure(error instanceof Error && error.message ? error.message : t("changes.openFailed"));
+    });
+  });
   const on = useMemo<FileActions>(
     () => ({
+      openFile,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -164,7 +209,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed],
+    [viewed, openFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -185,18 +230,48 @@ export function DiffPanel({
   const tools: { id: Tool; label: string; icon: React.ReactNode; pressed: boolean }[] = [
     {
       id: "collapse",
-      label: allCollapsed ? "Expand all files" : "Collapse all files",
+      label: allCollapsed ? t("changes.expandAllFiles") : t("changes.collapseAllFiles"),
       icon: <CollapseAll />,
       pressed: allCollapsed,
     },
-    { id: "wrap", label: "Wrap lines", icon: <Wrap />, pressed: wrap },
-    { id: "split", label: "Split view", icon: <SplitView />, pressed: layout === "split" },
-    { id: "tree", label: "File tree", icon: <Panels />, pressed: showTree },
+    { id: "wrap", label: t("changes.wrapLines"), icon: <Wrap />, pressed: wrap },
+    { id: "split", label: t("changes.splitView"), icon: <SplitView />, pressed: layout === "split" },
+    { id: "tree", label: t("changes.fileTree"), icon: <Panels />, pressed: showTree },
+  ];
+  // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
+  const command = useMemo(
+    () => (scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined),
+    [scope, load],
+  );
+  const skipped = scope !== "lastTurn" && load.state === "loaded" ? (load.changeSet.untrackedSkipped ?? 0) : 0;
+  // A refresh drops what it replaces, so focus moves to the scope pill first.
+  const refresh = () => {
+    panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
+    retry();
+  };
+  const options: OptionsRow[] = [
+    { label: t("changes.refresh"), disabled: scope === "lastTurn", run: retry },
+    { label: wrap ? t("changes.disableWrap") : t("changes.wordWrap"), run: () => press("wrap") },
+    { label: layout === "split" ? t("changes.toUnified") : t("changes.toSplit"), run: () => press("split") },
+    {
+      label: allCollapsed ? t("changes.expandAllDiffs") : t("changes.collapseAllDiffs"),
+      disabled: files.length === 0,
+      run: () => press("collapse"),
+    },
+    null,
+    { label: t("changes.copyApply"), disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
+    <section ref={panel} className="acpmux-diff-panel" aria-label={t("changes.panel")}>
       <header className="acpmux-diff-header">
-        <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>
+        <button
+          ref={back}
+          type="button"
+          className="acpmux-diff-back"
+          aria-label={t("changes.back")}
+          title={t("changes.back")}
+          onClick={onClose}
+        >
           <ChevronLeft />
         </button>
         <ScopeMenu
@@ -209,12 +284,15 @@ export function DiffPanel({
             setCollapsed(new Set());
             setViewed(new Set());
             setSelected(undefined);
+            latestOpen.current += 1;
+            setOpenFailure(undefined);
           }}
         >
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
-        <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+        <div className="acpmux-diff-tools" role="toolbar" aria-label={t("changes.viewTools")}>
           {checkpointAction}
+          <OptionsMenu rows={options} />
           {tools.map((tool) => (
             <button
               key={tool.id}
@@ -231,20 +309,25 @@ export function DiffPanel({
           ))}
         </div>
       </header>
+      {openFailure && (
+        <div className="acpmux-diff-notice" role="alert">
+          {openFailure}
+        </div>
+      )}
+      {(branch || skipped > 0 || turnNote) && (
+        <div className="acpmux-diff-notes">
+          {turnNote && <output className="acpmux-turn-note">{turnNote}</output>}
+          {branch && <BranchPill branch={branch.branch} base={branch.base} />}
+          {skipped > 0 && <TrackedOnlyBanner skipped={skipped} onRefresh={refresh} />}
+        </div>
+      )}
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (
-            <LoadState
-              state={scopeState}
-              onRetry={() => {
-                // Retry leaves as the load starts, so focus moves to the scope pill.
-                panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
-                retry();
-              }}
-            />
+            <LoadState state={scopeState} onRetry={refresh} />
           ) : files.length === 0 ? (
-            <div className="acpmux-muted">No file changes in this turn.</div>
+            <div className="acpmux-muted">{t("changes.noTurnChanges")}</div>
           ) : (
             files.flatMap((file) =>
               file.edits.map((edit, index) => (
@@ -258,17 +341,23 @@ export function DiffPanel({
                   view={{ collapsed: collapsed.has(file.path), viewed: viewed.has(file.path) }}
                   on={on}
                   onPainted={onPainted}
+                  review={file.outside ? undefined : hunkReview}
+                  focusAfter={focusAfter}
                 />
               )),
             )
           )}
         </div>
         {showTree && (
-          <nav className="acpmux-diff-tree" aria-label="Changed files">
+          <nav className="acpmux-diff-tree" aria-label={t("changes.changedFiles")}>
             <ChangedFilesTree files={files} selected={selected} onSelect={revealFromTree} />
           </nav>
         )}
       </div>
+      {hunkReview && (
+        <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
+      )}
+      {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>
   );
 }

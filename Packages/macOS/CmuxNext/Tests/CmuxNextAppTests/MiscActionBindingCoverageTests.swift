@@ -41,10 +41,25 @@ struct MiscActionBindingCoverageTests {
         }
     }
 
-    @Test func unportedViewerReportsItsReasonOutOfContext() {
+    /// diff-host S4: the diff viewer opens as a pane tab, so both open
+    /// actions are bound with no unavailable reason.
+    @Test func diffViewerOpenActionsAreBound() {
+        let registry = ActionBindingCoverageTests.boundServices().registry
+        for id: ActionID in ["openDiffViewer", "palette.openDirectoryDiffViewer"] {
+            #expect(registry.isBound(id), "\(id)")
+            #expect(registry.unavailableReason(for: id) == nil, "\(id)")
+        }
+    }
+
+    /// The 11 navigation actions are page commands of the focused diff tab:
+    /// out of a diff tab they are unavailable by context, not unported.
+    @Test func diffViewerNavigationNeedsAFocusedDiffTab() {
         let services = ActionBindingCoverageTests.boundServices()
         services.registry.context = []
-        #expect(ActionBindingCoverageTests.run(services, "diffViewerNextHunk") == .refused(MiscHandlerStrings.diffViewer))
+        for id in ["diffViewerNextHunk", "diffViewerNextLine", "diffViewerSearch"] {
+            #expect(services.registry.unavailableReason(for: ActionID(rawValue: id)) == nil, "\(id)")
+            #expect(ActionBindingCoverageTests.run(services, id) == .unavailable, "\(id)")
+        }
     }
 
     @Test func splitBrowserNeedsFrontendBrowserTabs() {

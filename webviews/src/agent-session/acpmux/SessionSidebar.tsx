@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useMemo, useState } from "react";
+import React, { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import {
   groupMark,
   sessionMark,
@@ -9,46 +9,49 @@ import {
   type AcpmuxSessionEntry,
   type SessionMark,
 } from "./sessionList";
-import {
-  BranchIcon,
-  ChatsIcon,
-  ClockIcon,
-  CloudIcon,
-  DisconnectedIcon,
-  HomeIcon,
-  MoreIcon,
-  NeedsInputIcon,
-  NewChatIcon,
-  PullIcon,
-  SearchIcon,
-  WorkingIcon,
-  WorktreeIcon,
-} from "./sidebarIcons";
+import { type StringKey, useT } from "./i18n";
 
-const MARK_LABELS: Record<Exclude<SessionMark, undefined>, string> = {
-  input: "Needs input",
-  running: "Working",
-  error: "Disconnected",
-  unread: "New activity",
-};
+import { Icon } from "./icons/Icon";
+import { rowIconSize } from "./icons/iconSize";
+
+const MARK_LABELS = {
+  input: "sidebar.markInput",
+  running: "sidebar.markRunning",
+  error: "sidebar.markError",
+  unread: "sidebar.markUnread",
+} as const satisfies Record<Exclude<SessionMark, undefined>, StringKey>;
+/** Sidebar rows set 13px text, so their icons draw at the registry's row size for it. */
+const ROW_ICON = rowIconSize(13);
+/** The rail's icon-only buttons keep the 18px glyphs' footprint: a 15px row crop inks about 14px. */
+const RAIL_ICON = 15;
 const MARK_GLYPHS: Record<Exclude<SessionMark, undefined>, React.ReactNode> = {
-  input: <NeedsInputIcon />,
-  running: <WorkingIcon />,
-  error: <DisconnectedIcon />,
+  input: <Icon name="status.needsinput" size={ROW_ICON} row />,
+  running: <Icon name="status.running" size={ROW_ICON} row />,
+  error: <Icon name="status.disconnected" size={ROW_ICON} row />,
   unread: null,
 };
-const PLACE_GLYPHS = { cloud: <CloudIcon />, worktree: <WorktreeIcon />, branch: <BranchIcon /> };
-const PLACE_LABELS = { cloud: "Runs on", worktree: "Worktree", branch: "Branch" };
+/** Where a session runs is secondary to its title, so its glyph takes the caption size (11px text). */
+const PLACE_ICON = rowIconSize(11);
+const PLACE_GLYPHS = {
+  cloud: <Icon name="cloud" size={PLACE_ICON} row />,
+  worktree: <Icon name="git.worktree" size={PLACE_ICON} row />,
+  branch: <Icon name="git.branch" size={PLACE_ICON} row />,
+};
+const PLACE_LABELS = {
+  cloud: "sidebar.runsOn",
+  worktree: "sidebar.worktree",
+  branch: "sidebar.branch",
+} as const satisfies Record<string, StringKey>;
 
 /** What the rail switches the list to. */
 export type SidebarView = "sessions" | "history" | "pulls" | "closed";
 export type SidebarAccount = { name: string; detail?: string };
 
-const VIEW_TITLES: Record<Exclude<SidebarView, "sessions">, string> = {
-  history: "History",
-  pulls: "Pull requests",
-  closed: "Closed sessions",
-};
+const VIEW_TITLES = {
+  history: "sidebar.history",
+  pulls: "sidebar.pulls",
+  closed: "sidebar.closed",
+} as const satisfies Record<Exclude<SidebarView, "sessions">, StringKey>;
 
 /** Sessions already open in a tab, when the list is a history layer beside them. */
 const OpenSessions = createContext<ReadonlySet<string> | undefined>(undefined);
@@ -61,6 +64,7 @@ export function SessionSidebar({
   onSelect,
   onNewChat,
   account,
+  preview = false,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
@@ -69,8 +73,16 @@ export function SessionSidebar({
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
   account?: SidebarAccount;
+  /** Preview features are on (`labs.previewFeatures`): the rail offers the Pull requests view. */
+  preview?: boolean;
 }) {
-  const [view, setView] = useState<SidebarView>("sessions");
+  const t = useT();
+  const [picked, setView] = useState<SidebarView>("sessions");
+  // Pull requests turned off while shown falls back to the session list, and stays there.
+  const view = picked === "pulls" && !preview ? "sessions" : picked;
+  useEffect(() => {
+    if (!preview) setView((current) => (current === "pulls" ? "sessions" : current));
+  }, [preview]);
   // Kept here so expanded projects and a search survive a trip to another rail view.
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
@@ -80,34 +92,37 @@ export function SessionSidebar({
   );
   return (
     <OpenSessions.Provider value={openIds}>
-      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label="Sessions">
+      <nav className="acpmux-sidebar" id="acpmux-sidebar" aria-label={t("sidebar.label")}>
         <div className="acpmux-rail">
-          <RailButton label="New chat" title="Home: new chat" onClick={onNewChat} icon={<HomeIcon />} />
+          <RailButton label={t("picker.newChat")} title={t("picker.newChat")} onClick={onNewChat} icon="home" />
+
           <RailButton
-            label="Sessions"
+            label={t("sidebar.sessions")}
             current={view === "sessions"}
             dot={needsInput}
             onClick={() => setView("sessions")}
-            icon={<ChatsIcon />}
+            icon="agent.chat.list"
           />
           <RailButton
-            label="History"
+            label={t("sidebar.history")}
             current={view === "history"}
             onClick={() => setView("history")}
-            icon={<ClockIcon />}
+            icon="history"
           />
+          {preview && (
+            <RailButton
+              label={t("sidebar.pulls")}
+              current={view === "pulls"}
+              onClick={() => setView("pulls")}
+              icon="git.pullrequest"
+            />
+          )}
           <RailButton
-            label="Pull requests"
-            current={view === "pulls"}
-            onClick={() => setView("pulls")}
-            icon={<PullIcon />}
-          />
-          <RailButton
-            label="Closed sessions"
-            title="More: closed sessions"
+            label={t("sidebar.closed")}
+            title={t("sidebar.closedTitle")}
             current={view === "closed"}
             onClick={() => setView("closed")}
-            icon={<MoreIcon />}
+            icon="action.more"
           />
         </div>
         <div className="acpmux-sidebar-body">
@@ -152,22 +167,24 @@ function RailButton({
 }: {
   label: string;
   title?: string;
-  icon: React.ReactNode;
+  /** The registry name of the button's glyph. */
+  icon: string;
   current?: boolean;
   dot?: boolean;
   onClick?: () => void;
 }) {
+  const t = useT();
   return (
     <button
       type="button"
       className="acpmux-rail-button"
-      aria-label={dot ? `${label}, needs input` : label}
+      aria-label={dot ? t("sidebar.needsInput", { label }) : label}
       title={title ?? label}
       aria-current={current ? "page" : undefined}
       disabled={!onClick}
       onClick={onClick}
     >
-      {icon}
+      <Icon name={icon} size={RAIL_ICON} row selected={current} />
       {dot && <span className="acpmux-rail-dot" aria-hidden="true" />}
     </button>
   );
@@ -193,10 +210,11 @@ function SessionsView({
   expanded: Set<string>;
   onExpand: (groupKey: string) => void;
 }) {
+  const t = useT();
   const newChat = onNewChat && (
     <button type="button" className="acpmux-sidebar-action" onClick={onNewChat}>
-      <NewChatIcon />
-      <span>New chat</span>
+      <Icon name="agent.chat.new" size={ROW_ICON} row />
+      <span>{t("sidebar.newChat")}</span>
     </button>
   );
   const searching = query.trim() !== "";
@@ -205,7 +223,7 @@ function SessionsView({
     return (
       <>
         {newChat}
-        <div className="acpmux-sidebar-empty">No sessions yet</div>
+        <div className="acpmux-sidebar-empty">{t("sidebar.noSessions")}</div>
       </>
     );
   // Section labels only earn their place when both sections show.
@@ -225,11 +243,11 @@ function SessionsView({
       {newChat}
       <search className="acpmux-sidebar-search">
         <label>
-          <SearchIcon />
+          <Icon name="search" size={ROW_ICON} row />
           <input
             type="search"
-            aria-label="Search sessions"
-            placeholder="Search"
+            aria-label={t("sidebar.search")}
+            placeholder={t("sidebar.searchPlaceholder")}
             spellCheck={false}
             value={query}
             onChange={(event) => onQuery(event.target.value)}
@@ -239,13 +257,13 @@ function SessionsView({
       </search>
       {/* Always present, so a screen reader announces the text when it appears. */}
       <output className="acpmux-sidebar-empty">
-        {pinned.length === 0 && groups.length === 0 ? "No matching sessions" : ""}
+        {pinned.length === 0 && groups.length === 0 ? t("sidebar.noMatches") : ""}
       </output>
       {pinned.length > 0 && (
-        <section className="acpmux-sidebar-pinned" aria-label="Pinned">
+        <section className="acpmux-sidebar-pinned" aria-label={t("sidebar.pinned")}>
           {labelled && (
             <div className="acpmux-sidebar-section" aria-hidden="true">
-              Pinned
+              {t("sidebar.pinned")}
             </div>
           )}
           <ul>
@@ -261,10 +279,10 @@ function SessionsView({
         </section>
       )}
       {groups.length > 0 && (
-        <section className="acpmux-sidebar-projects" aria-label="Projects">
+        <section className="acpmux-sidebar-projects" aria-label={t("sidebar.projects")}>
           {labelled && (
             <div className="acpmux-sidebar-section" aria-hidden="true">
-              Projects
+              {t("sidebar.projects")}
             </div>
           )}
           {groups.map((group) => {
@@ -275,15 +293,17 @@ function SessionsView({
               <section className="acpmux-sidebar-group" key={group.key}>
                 <div
                   className="acpmux-sidebar-project"
-                  title={group.host ? `${group.cwd ?? ""} on ${group.host}` : group.cwd}
+                  title={
+                    group.host ? t("sidebar.folderOnHost", { folder: group.cwd ?? "", host: group.host }) : group.cwd
+                  }
                 >
-                  <FolderIcon />
+                  <Icon name="folder" size={ROW_ICON} row />
                   <span>{group.label}</span>
                   {group.host && <small className="acpmux-sidebar-host">{group.host}</small>}
                   {mark && (
-                    <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} title={MARK_LABELS[mark]}>
+                    <span className={`acpmux-session-mark acpmux-session-mark-${mark}`} title={t(MARK_LABELS[mark])}>
                       {MARK_GLYPHS[mark]}
-                      <span className="acpmux-hidden-label">{MARK_LABELS[mark]}</span>
+                      <span className="acpmux-hidden-label">{t(MARK_LABELS[mark])}</span>
                     </span>
                   )}
                 </div>
@@ -303,9 +323,9 @@ function SessionsView({
                     type="button"
                     className="acpmux-sidebar-more"
                     onClick={() => onExpand(group.key)}
-                    aria-label={`Show more, ${hidden} hidden`}
+                    aria-label={t("sidebar.showMoreHidden", { n: hidden })}
                   >
-                    Show more
+                    {t("sidebar.showMore")}
                   </button>
                 )}
               </section>
@@ -314,26 +334,6 @@ function SessionsView({
         </section>
       )}
     </>
-  );
-}
-
-/** The open-folder glyph, drawn in the muted text colour. */
-function FolderIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.25"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M1.4 11.7V4.3c0-.7.5-1.2 1.2-1.2h2.9l1.4 1.5h4.6c.7 0 1.2.5 1.2 1.2v.9" />
-      <path d="M1.5 12.3 3.3 7.6c.2-.5.6-.8 1.1-.8h9.5c.6 0 1 .6.8 1.1l-1.6 4.4c-.2.5-.6.7-1.1.7H2.4c-.5 0-.9-.3-.9-.7Z" />
-    </svg>
   );
 }
 
@@ -349,6 +349,7 @@ function FlatView({
   selectedId?: string;
   onSelect: (sessionId: string) => void;
 }) {
+  const t = useT();
   // Pull requests appear once the session summary reports them; until then the view says so.
   const rows = useMemo(
     () =>
@@ -361,10 +362,10 @@ function FlatView({
   );
   const now = Date.now();
   return (
-    <section aria-label={VIEW_TITLES[view]}>
-      <h2 className="acpmux-sidebar-title">{VIEW_TITLES[view]}</h2>
+    <section aria-label={t(VIEW_TITLES[view])}>
+      <h2 className="acpmux-sidebar-title">{t(VIEW_TITLES[view])}</h2>
       {rows.length === 0 ? (
-        <div className="acpmux-sidebar-empty">{view === "pulls" ? "No pull requests yet" : "Nothing here yet"}</div>
+        <div className="acpmux-sidebar-empty">{view === "pulls" ? t("sidebar.noPulls") : t("sidebar.nothing")}</div>
       ) : (
         <ul>
           {rows.map((session) => (
@@ -374,7 +375,7 @@ function FlatView({
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
-              trailing={shortAge(session.updatedAt, now)}
+              trailing={shortAge(session.updatedAt, now, t)}
             />
           ))}
         </ul>
@@ -398,13 +399,14 @@ const SessionRow = memo(function SessionRow({
   flat?: boolean;
   trailing?: string;
 }) {
+  const t = useT();
   const open = useContext(OpenSessions)?.has(session.sessionId);
   const mark = sessionMark(session, selected);
   const title = session.displayTitle || session.sessionId.slice(0, 8);
   const place = sessionPlace(session, groupHost);
   const placeLabel =
     place &&
-    `${PLACE_LABELS[place.kind]} ${place.label}${place.branch ? `, ${PLACE_LABELS.branch} ${place.branch}` : ""}`;
+    `${t(PLACE_LABELS[place.kind])} ${place.label}${place.branch ? `, ${t(PLACE_LABELS.branch)} ${place.branch}` : ""}`;
   return (
     <li>
       <button
@@ -413,7 +415,7 @@ const SessionRow = memo(function SessionRow({
         aria-current={selected ? "true" : undefined}
         aria-label={
           mark || place || trailing || open
-            ? [title, open && "Already open in a tab", trailing, placeLabel, mark && MARK_LABELS[mark]]
+            ? [title, open && t("sidebar.alreadyOpen"), trailing, placeLabel, mark && t(MARK_LABELS[mark])]
                 .filter(Boolean)
                 .join(", ")
             : undefined
@@ -436,7 +438,7 @@ const SessionRow = memo(function SessionRow({
           <span
             className={`acpmux-session-mark acpmux-session-mark-${mark}`}
             aria-hidden="true"
-            title={MARK_LABELS[mark]}
+            title={t(MARK_LABELS[mark])}
           >
             {MARK_GLYPHS[mark]}
           </span>

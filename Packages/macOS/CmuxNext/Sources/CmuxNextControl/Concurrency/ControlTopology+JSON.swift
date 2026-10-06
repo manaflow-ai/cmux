@@ -1,15 +1,30 @@
 public import CmuxNextSettings
 
-/// Wire form of the topology for `snapshot.get` (cmux-next native). Compat
-/// methods build the old app's shapes from the typed values instead.
+/// Wire form of the topology for `snapshot.get` (cmux-next native). Every
+/// object prints its public id as `id` (`win_…`, `ws_…`, `screen_…`,
+/// `pane_…`, `tab_…`, `term_…`) and a model key as `key` where the two
+/// differ, so the CLI can pass `id` back as a target
+/// (plans/cmux-next/state-ownership.md 4.3).
 extension ControlTopology {
     public var json: JSONValue {
-        [
+        let workspaceIDs = Dictionary(workspaces.map { ($0.id, $0.publicID) }, uniquingKeysWith: { first, _ in first })
+        func workspace(_ key: String?) -> JSONValue { .optional(key.map { workspaceIDs[$0] ?? $0 }) }
+        return [
             "loaded": .bool(isLoaded),
             "daemon_state": .string(daemonState),
             "daemon_failure": daemonFailure.map { .string($0) } ?? .null,
-            "focus": focus.json,
-            "windows": .array(windows.map(\.json)),
+            "sequence": JSONValue.number(Double(daemonSequence)),
+            "focus": [
+                "window": .optional(focus.windowID.map(ControlWindowInfo.publicID(forKey:))), "workspace": workspace(focus.workspaceID),
+                "pane": .optional(focus.paneID), "tab": .optional(focus.tabID),
+            ],
+            "windows": .array(windows.map { window in
+                [
+                    "id": .string(window.publicID), "key": .string(window.id), "workspace": workspace(window.workspaceID),
+                    "workspaces": .array(window.workspaceIDs.map { .string(workspaceIDs[$0] ?? $0) }),
+                    "key_window": .bool(window.isKey), "visible": .bool(window.isVisible), "focused_pane": .optional(window.focusedPaneID),
+                ]
+            }),
             "workspace_groups": .array(workspaceGroups.map(\.json)),
             "workspaces": .array(workspaces.map(\.json)),
             "sessions": .array(sessions.map(\.json)),
@@ -24,19 +39,6 @@ extension ControlSessionInfo {
     }
 }
 
-extension ControlFocus {
-    public var json: JSONValue {
-        ["window": .optional(windowID), "workspace": .optional(workspaceID), "pane": .optional(paneID), "tab": .optional(tabID)]
-    }
-}
-
-extension ControlWindowInfo {
-    public var json: JSONValue {
-        ["id": .string(id), "workspace": .optional(workspaceID), "key": .bool(isKey), "visible": .bool(isVisible),
-         "focused_pane": .optional(focusedPaneID)]
-    }
-}
-
 extension ControlWorkspaceGroupInfo {
     public var json: JSONValue {
         ["id": .string(id), "name": .string(name), "color": .optional(color), "collapsed": .bool(isCollapsed)]
@@ -45,9 +47,9 @@ extension ControlWorkspaceGroupInfo {
 
 extension ControlWorkspaceInfo {
     public var json: JSONValue {
-        ["id": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title), "color": .optional(color),
-         "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount), "screens": .array(screens.map(\.json)),
-         "session": .optional(sessionID)]
+        ["id": .string(publicID), "key": .string(id), "handle": .string(handle), "name": .string(name), "title": .optional(title),
+         "color": .optional(color), "icon": .optional(icon), "group": .optional(groupID), "unread": JSONValue(unreadCount),
+         "machine": .optional(machine), "screens": .array(screens.map(\.json)), "session": .optional(sessionID)]
     }
 }
 
@@ -69,7 +71,8 @@ extension ControlTabInfo {
     public var json: JSONValue {
         [
             "id": .string(id), "surface": .string(surface), "kind": .string(kind), "title": .string(title), "name": .optional(name),
-            "terminal": .optional(terminalID), "columns": columns.map { JSONValue($0) } ?? .null,
+            "terminal": .optional(terminalResourceID ?? terminalID), "terminal_key": .optional(terminalID),
+            "columns": columns.map { JSONValue($0) } ?? .null,
             "rows": rows.map { JSONValue($0) } ?? .null, "cwd": .optional(cwd), "url": .optional(url),
             "git_branch": .optional(gitBranch), "pinned": .bool(isPinned), "dead": .bool(isDead), "unread": .bool(hasUnread),
             "tab_group": .optional(tabGroupID), "agent_state": .optional(agentState),

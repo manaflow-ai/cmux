@@ -176,6 +176,10 @@ describe("sender", () => {
     expect((await deliverInvite(deps(recorder().fetch), { inviteId: "i", address: to, suppression: null, message: sms })).state).toBe("failed")
     const declined = recorder(200, { status: "DECLINED", message_handle: "sb_9" })
     expect((await deliverInvite(deps(declined.fetch), { inviteId: "i", address: { channel: "sms", value: "+14155550100" }, suppression: null, message: sms })).state).toBe("failed")
+    // A provider error that quotes the recipient is logged without the address.
+    const quoting = recorder(422, { name: "validation_error", message: "allowed@example.com and +1 (415) 555-0100 are not valid" })
+    const reason = (await deliverInvite(deps(quoting.fetch), { inviteId: "i", address: to, suppression: null, message: email })).reason ?? ""
+    expect(reason).toBe("validation_error: [address] and [number] are not valid")
   })
 })
 

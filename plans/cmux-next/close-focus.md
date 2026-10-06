@@ -25,8 +25,8 @@ successor (right, else left), an unselected tab closed by the CLI, the workspace
 order (next, else previous). Closing the last column springs back to the clamp, which is
 forced (no empty space past the last column).
 
-Not reproducible live on this build: sticky columns (the pinned daemon lacks
-`sticky-columns-v1`); closing a window and the last workspace were not exercised.
+Not reproducible live on this build: docked columns (the pinned daemon lacks
+`dock-columns-v1`); closing a window and the last workspace were not exercised.
 
 ## Rules
 
@@ -45,10 +45,10 @@ the strip's scroll function (column-scroll.md).
   (column identity, not liveness: a neighbor moved to another column in the same snapshot
   does not count; found by the rows lead's LayoutRows.tla), else a pane that joined the
   column; when the column went, the nearest column to the left, else to
-  the right, in visual order (left sticky, strip, right sticky; a split screen is one
+  the right, in visual order (left docked, strip, right docked; a split screen is one
   column), entering it at its most recently focused pane, else its first. `mostRecent`:
   the newest surviving pane of this window's history on that screen, else the default.
-  Closing the right sticky column focuses the strip's last column; the left one, the
+  Closing the right docked column focuses the strip's last column; the left one, the
   strip's first.
 - Tab: the next shown tab, else the previous shown one; members of a collapsed
   group are skipped while a shown tab survives.
@@ -68,7 +68,7 @@ Scroll (strip and sidebar):
 - Sidebar reveal happens when the active workspace changed, or when it was fully visible
   before. A user who scrolled the list away from the active row keeps that view through
   unrelated closes.
-- Sticky columns are not in `ColumnStrip`, so they never enter strip scroll math.
+- Docked columns are not in `ColumnStrip`, so they never enter strip scroll math.
 
 ## Entry points
 
@@ -99,7 +99,7 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
   clamped, target shows focus); action properties UnfocusedCloseKeepsFocus, NoJump,
   MinimalReveal, SuccessorRule, NoSecondScroll; liveness Settles (after the last user step
   the view settles with the focus visible).
-- Behavior tests: `CloseFocusReducerTests` (B1, B2, sticky, screens, reject),
+- Behavior tests: `CloseFocusReducerTests` (B1, B2, docked, screens, reject),
   `SidebarCloseScrollTests` (S1-S3, no jump), `FocusReducerTests`.
 
 ## Last results (2026-10-01, Debug build, shared Mac under load)
@@ -127,7 +127,7 @@ closing the focused pane: its left neighbor, no scroll), C1 (CLI close of an unf
 column: focus kept), S1 (new workspace revealed), S2 (CLI close above the viewport: rows
 unchanged pixel for pixel), S3 (selected workspace closed: successor fully visible, no
 jump) all pass. `debug.focus`: `app_active` false, `key_window` null throughout.
-UNVERIFIED live: sticky columns (pinned daemon lacks `sticky-columns-v1`; covered by
+UNVERIFIED live: docked columns (pinned daemon lacks `dock-columns-v1`; covered by
 `CloseFocusReducerTests`), closing the last workspace, closing a window, a selected
 workspace closed while scrolled out of view (covered by `SidebarCloseScrollTests`), the
 pill and animation smoothness (screenshots are settled frames).

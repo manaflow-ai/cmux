@@ -86,7 +86,7 @@ final class ScreenBarController {
         }
         guard let active, state.activeScreenID != active else { return }
         state.activeScreenID = active
-        content.services.windows.stateDidChange(state)
+        content.services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Opens the inline editor on `screen` when the bar shows it.
@@ -145,7 +145,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .trailingButton, .focusLocation:
+        case .moveToNewSplit, .moveToNewColumn, .trailingButton:
             break
         }
     }

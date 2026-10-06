@@ -1,3 +1,4 @@
+import CmuxAgentBrands
 import SwiftUI
 
 /// The selected task: title, status, agent session with its plan.
@@ -24,7 +25,13 @@ struct TaskDetailView: View {
                     }
                     PriorityGlyph(priority: task.priority)
                     Spacer()
-                    AssigneeBadge(assignee: task.assignee, delegate: task.delegate)
+                    Menu {
+                        AssigneeMenu(task: task, model: model)
+                    } label: {
+                        AssigneeBadge(assignee: task.assignee, delegate: task.delegate)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                    .help(TasksStrings.assignee)
                 }
                 Text(task.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(colors.primary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -46,7 +53,7 @@ private struct SessionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Image(systemName: "sparkle").font(.system(size: 11, weight: .semibold)).foregroundStyle(colors.ansi(5))
+                AgentBrandMark(agent: session.agent.harness, size: 12).foregroundStyle(colors.ansi(5))
                 Text(session.agent.harness).font(.system(size: 12, weight: .medium)).foregroundStyle(colors.primary)
                 Text(TasksStrings.session(session.status)).font(.system(size: 11.5)).foregroundStyle(statusColor)
                 Spacer()

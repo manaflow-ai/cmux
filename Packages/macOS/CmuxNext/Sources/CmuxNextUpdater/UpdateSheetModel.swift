@@ -22,7 +22,8 @@ public final class UpdateSheetModel: UpdateSheetSource {
 
     public var content: UpdateSheetContent? {
         if let controller = service.controller, service.disabledReason == nil {
-            return UpdateSheetContent.sparkle(controller.model.effectiveState, current: service.identity)
+            let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: service.identity)
+            return service.requiredMinimumVersion.map { content?.requiring($0) } ?? content
         }
         return UpdateSheetContent.probe(result: service.lastProbe, error: service.lastProbeError,
                                         probing: service.isProbing, disabledReason: service.disabledReason)

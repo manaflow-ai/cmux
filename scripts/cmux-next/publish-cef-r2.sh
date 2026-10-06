@@ -9,8 +9,11 @@
 # Uploads are write-once (If-None-Match: *); an existing key is only
 # re-verified. After upload every object is downloaded again, with the
 # read-only credentials when they are set, and its sha256 checked.
-# With --manifest, the matching r2_bucket, r2_key and debug_r2_key fields are
-# written into that manifest (run it on your pin commit).
+# With --manifest, the r2_bucket, r2_key and debug_r2_key fields of every
+# artifact (top level and the x86_64 object, added when missing) are written
+# into that manifest by cef_manifest_r2.py (run it on your pin commit).
+# Only the artifacts this run published change; entries of another tag
+# (a manifest that still pins the previous release) stay as they are.
 #
 # --dir takes assets already on disk (for example the fork's
 # binary_distrib output); without it the assets are fetched with
@@ -24,7 +27,7 @@
 #   CMUX_CEF_R2_BUCKET (default cmux-cef), CMUX_CEF_R2_ENDPOINT (optional)
 set -euo pipefail
 
-usage() { sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
 
 tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""
 while (( $# )); do
@@ -121,33 +124,5 @@ done
 printf '%s\n' "${keys[@]}"
 
 if [[ -n "$manifest" ]]; then
-  printf '%s\n' "${keys[@]}" | /usr/bin/python3 -c '
-import json, sys
-path, bucket = sys.argv[1], sys.argv[2]
-with open(path) as f:
-    data = json.load(f)
-found = {}
-for line in sys.stdin:
-    name, sha, key = line.split()
-    found[name] = (sha, key)
-out = {}
-for k, v in data.items():
-    if k in ("r2_bucket", "r2_key", "debug_r2_key"):
-        continue
-    out[k] = v
-    if k == "sha256":
-        out["r2_bucket"] = bucket
-        sha, key = found.get(data["asset"], (None, None))
-        if sha != data["sha256"]:
-            sys.exit("manifest asset %s was not published with sha256 %s" % (data["asset"], data["sha256"]))
-        out["r2_key"] = key
-    if k == "debug_sha256" and data.get("debug_asset") in found:
-        sha, key = found[data["debug_asset"]]
-        if sha != data["debug_sha256"]:
-            sys.exit("manifest debug asset sha256 differs from the published one")
-        out["debug_r2_key"] = key
-with open(path, "w") as f:
-    f.write(json.dumps(out, indent=2) + "\n")
-print("==> updated", path, file=sys.stderr)
-' "$manifest" "$bucket"
+  printf '%s\n' "${keys[@]}" | /usr/bin/python3 "$(dirname "$0")/cef_manifest_r2.py" "$manifest" "$bucket"
 fi

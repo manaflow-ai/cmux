@@ -167,6 +167,8 @@ export const diffUnsafeCSS = /* css */ `
   --diffs-fg-number-override: ${c.muted};
   --diffs-bg-separator-override: ${c.separator};
   --diffs-gap-block: 0px;
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, ${c.addition} 22%, transparent);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, ${c.deletion} 22%, transparent);
   background: ${c.bg};
 }
 [data-column-number][data-line-type="change-addition"],
@@ -176,6 +178,7 @@ export const diffUnsafeCSS = /* css */ `
 [data-line][data-line-type="change-addition"] { --diffs-line-bg: ${c.additionLine}; }
 [data-line][data-line-type="change-deletion"] { --diffs-line-bg: ${c.deletionLine}; }
 [data-separator="line-info"] { height: 32px; }
+[data-acpmux-current] { box-shadow: inset 2px 0 0 var(--agent-accent, ${c.fg}); }
 [data-expand-button], [data-separator-content] { color: ${c.muted}; }
 [data-separator-content] { font-size: 12px; padding: 0 9px; }
 `;
@@ -189,8 +192,8 @@ export const treeUnsafeCSS = /* css */ `
   --trees-fg-override: ${c.fg};
   --trees-fg-muted-override: ${c.muted};
   --trees-selected-fg-override: ${c.fg};
-  --trees-selected-bg-override: ${c.selected};
-  --trees-bg-muted-override: ${c.selected};
+  --trees-selected-bg-override: color-mix(in srgb, ${c.fg} 10%, transparent);
+  --trees-bg-muted-override: color-mix(in srgb, ${c.fg} 5%, transparent);
   --trees-padding-inline-override: 8px;
   --trees-item-margin-x-override: 0px;
   --trees-item-padding-x-override: 2px;

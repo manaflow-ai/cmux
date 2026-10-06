@@ -35,7 +35,7 @@ export function statusSection(d: Core) {
     if (!s.signed_in)
       return VStack({ spacing: 6 }, [
         EmptyState({ title: t("problem.signedOut", "Sign in to cmux"), message: t("problem.signedOut.body", "CodeRouter acts as your cmux account and team."), symbol: "person.crop.circle" }),
-        Button(t("action.signIn", "Sign In"), act.signIn)
+        HStack([Spacer(), Button(t("action.signIn", "Sign In"), act.signIn), Spacer()])
       ])
     const scope = s.scope?.kind === "team" ? s.scope.team_name : t("scope.personal", "Personal")
     return VStack({ spacing: 4 }, [
@@ -84,7 +84,7 @@ export function accountsSection(d: Core) {
       return VStack({ spacing: 2 }, [
         ...accounts.map(accountRow),
         found.length ? caption(t("accounts.found", "Found on this Mac")) : null,
-        ...found.map((x) => line(() => x.name, () => x.identity ?? null, () => (isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => act.connect(x.provider, x.name)))))
+        ...found.map((x) => line(() => x.name, () => x.label ?? null, () => (isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => act.connect(x.provider, x.name)))))
       ])
     })
   ])

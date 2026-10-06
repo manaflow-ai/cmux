@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct WindowActivationTests {
     @Test func noActivateNeverMakesAWindowKeyOrActivatesTheApp() {
-        for intent in [WindowActivation.Intent.present, .presentBehind, .raise, .focus] {
+        for intent in [WindowActivation.Intent.present, .presentBehind, .raise, .focus, .bringForward] {
             for testScreen in [false, true] {
                 let plan = WindowActivation.plan(intent, noActivate: true, testScreen: testScreen)
                 #expect(plan.order != .makeKeyAndOrderFront, "\(intent), test screen \(testScreen)")
@@ -39,6 +39,18 @@ struct WindowActivationTests {
                 == .init(order: .makeKeyAndOrderFront, activatesApp: false))
         #expect(WindowActivation.plan(.focus, noActivate: false, testScreen: false)
                 == .init(order: .makeKeyAndOrderFront, activatesApp: true))
+    }
+
+    /// A link opened in the background (Cmd held, or by a script) brings
+    /// its window forward and never takes the key window or activates the
+    /// app, in any launch.
+    @Test func bringForwardOrdersFrontWithoutTheKeys() {
+        for noActivate in [false, true] {
+            for testScreen in [false, true] {
+                #expect(WindowActivation.plan(.bringForward, noActivate: noActivate, testScreen: testScreen)
+                        == .init(order: .orderFront, activatesApp: false), "no-activate \(noActivate), test screen \(testScreen)")
+            }
+        }
     }
 
     /// A window shown through the owner under no-activate is on screen and

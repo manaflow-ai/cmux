@@ -183,6 +183,196 @@ body {
   color: var(--agent-text);
 }
 
+/* Opt-in row detail: off by default, every piece muted so the title still leads. */
+.proto-workspace.is-detailed {
+  align-items: flex-start;
+  height: auto;
+  min-height: 32px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.proto-workspace-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.proto-workspace-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 16px;
+}
+.proto-row-age {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.proto-row-preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: 12px;
+}
+.proto-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: 11.5px;
+}
+.proto-row-branch,
+.proto-row-pr {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.proto-row-branch span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.proto-row-pr {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.proto-workspace .proto-row-pr svg {
+  color: var(--agent-muted);
+}
+.proto-workspace .proto-row-pr[data-tone="passing"] svg {
+  color: var(--agent-primary, var(--agent-accent));
+}
+.proto-workspace .proto-row-pr[data-tone="failing"] svg {
+  color: var(--agent-danger);
+}
+.proto-workspace .proto-row-pr[data-tone="pending"] svg {
+  color: var(--agent-warning, var(--agent-accent));
+}
+.proto-row-agents {
+  flex: none;
+  display: inline-flex;
+  gap: 5px;
+  margin-left: auto;
+}
+.proto-row-agent {
+  position: relative;
+  display: inline-flex;
+}
+.proto-row-agent i {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--agent-page-bg);
+  background: var(--agent-muted);
+}
+.proto-row-agent[data-status="input"] i {
+  background: var(--agent-warning, var(--agent-accent));
+}
+.proto-row-agent[data-status="running"] i {
+  background: var(--agent-accent);
+}
+.proto-row-agent[data-status="error"] i {
+  background: var(--agent-danger);
+}
+.proto-stack-group + .proto-stack-group {
+  margin-top: 8px;
+}
+.proto-status-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding-left: 9px;
+  color: var(--agent-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.proto-status-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.proto-rail-settings {
+  margin-top: auto;
+  margin-bottom: 12px;
+}
+.proto-row-settings {
+  position: absolute;
+  z-index: 4;
+  bottom: 12px;
+  left: 60px;
+  width: 248px;
+  padding: 12px;
+  border: 0.5px solid var(--agent-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-surface) 92%, transparent);
+  -webkit-backdrop-filter: blur(30px);
+  backdrop-filter: blur(30px);
+  box-shadow: 0 12px 36px var(--agent-shadow, rgb(0 0 0 / 40%));
+  color: var(--agent-text);
+}
+.proto-row-settings h2 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.proto-row-settings fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.proto-row-settings fieldset:disabled {
+  opacity: 0.5;
+}
+.proto-row-levels {
+  display: flex;
+  margin-bottom: 8px;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+.proto-row-levels label {
+  flex: 1;
+  padding: 4px 0;
+  border-radius: 6px;
+  text-align: center;
+  font-size: 12px;
+}
+.proto-row-levels label.is-on {
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+}
+.proto-row-levels label:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--agent-accent) 60%, transparent);
+}
+.proto-row-levels input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.proto-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  font-size: 12.5px;
+}
+.proto-row-toggle input {
+  margin: 0;
+  accent-color: var(--agent-accent);
+}
+.proto-row-settings p {
+  margin: 8px 0 0;
+  color: var(--agent-muted);
+  font-size: 12px;
+}
+
 /* History: a temporary layer over the stack, not working state. */
 .proto-scrim {
   position: absolute;

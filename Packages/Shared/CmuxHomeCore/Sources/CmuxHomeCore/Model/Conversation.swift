@@ -22,9 +22,15 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public var updatedAt: Date
     public var lastMessage: Message?
     public var readCursors: [ParticipantID: Seq]
+    /// When each participant's cursor last moved (for "Read 9:41" receipts).
+    public var readCursorTimes: [ParticipantID: Date]
     /// Account inbox state (owned by the user's inbox owner, not the conversation).
     public var pinRank: Int?
     public var muted: Bool
+    /// The owner's `preview_attachments` for the last message, when the
+    /// source has only the inbox entry (no `lastMessage`). Rows derive it
+    /// from `lastMessage` otherwise.
+    public var previewAttachments: AttachmentPreview?
 
     public init(
         id: ConversationID,
@@ -37,8 +43,10 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         updatedAt: Date,
         lastMessage: Message? = nil,
         readCursors: [ParticipantID: Seq] = [:],
+        readCursorTimes: [ParticipantID: Date] = [:],
         pinRank: Int? = nil,
-        muted: Bool = false
+        muted: Bool = false,
+        previewAttachments: AttachmentPreview? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -50,8 +58,10 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.updatedAt = updatedAt
         self.lastMessage = lastMessage
         self.readCursors = readCursors
+        self.readCursorTimes = readCursorTimes
         self.pinRank = pinRank
         self.muted = muted
+        self.previewAttachments = previewAttachments
     }
 
     public enum Kind: Hashable, Sendable {

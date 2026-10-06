@@ -11,14 +11,14 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "focusHistoryBack", title: t("action.history.back", "Go Back"),
                 keywords: ["history", "previous", "location", "jump", "back", "where"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control]),
                 category: .window, symbol: "chevron.backward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history back", mainMenu: .window
             ),
             ActionDescriptor(
                 id: "focusHistoryForward", title: t("action.history.forward", "Go Forward"),
                 keywords: ["history", "next", "location", "jump", "forward"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .command]),
+                defaultShortcut: Shortcut("-", modifiers: [.control, .shift]),
                 category: .window, symbol: "chevron.forward", surfaces: [.palette, .keyboard, .menu],
                 cliName: "history forward", mainMenu: .window
             ),
@@ -49,7 +49,7 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
                 keywords: ["history", "pages", "visited", "cmux://history", "timeline"], category: .window,
                 symbol: "clock.fill", surfaces: [.palette, .keyboard, .menu], cliName: "history show", mainMenu: .window
             ),
-            // Cmd-Y shows history in a page; elsewhere Cmd-Y stays New Cloud Machine.
+            // Cmd-Y shows history in a page (New Cloud Machine has no default shortcut).
             ActionDescriptor(
                 id: "browserShowHistory", title: t("action.history.showFromPage", "Show History"),
                 keywords: ["history", "browser"], defaultShortcut: Shortcut("y", modifiers: [.command]),
@@ -72,7 +72,30 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "history.reopen", title: t("action.history.reopen", "Reopen Last Closed Item"),
                 keywords: ["history", "reopen", "undo", "closed", "tab", "screen"], category: .window,
-                symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard], cliName: "history reopen"
+                symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard],
+                // A closed item's id (Search Tabs rows, `palette.run`); none reopens the last one.
+                arguments: [ActionArgument(name: "id", title: t("argument.history.closedItem", "Closed Item ID"), kind: .string, isRequired: false)],
+                cliName: "history reopen"
+            ),
+            // A row of the titlebar Back / Forward list (history.md 4.2a): goes to that trail entry.
+            ActionDescriptor(
+                id: "history.goTo", title: t("action.history.goTo", "Go to Location"),
+                keywords: ["history", "back", "forward", "location", "go to"], category: .window,
+                symbol: "clock.arrow.circlepath", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "index", title: t("argument.history.trailIndex", "Trail Index"), kind: .int(0...10_000))]
+            ),
+            // Runs one entry's restore action by id (open the page, go to the location, reopen,
+            // resume the agent session, run the command again). The History page's rows and
+            // `cmux history open` run it; the entry's facts come from its owner, never the caller.
+            ActionDescriptor(
+                id: "history.open", title: t("action.history.open", "Open History Entry"),
+                keywords: ["history", "open", "reopen", "resume", "run again", "go to"], category: .window,
+                symbol: "clock.arrow.circlepath", surfaces: [.palette, .keyboard],
+                arguments: [
+                    ActionArgument(name: "id", title: t("argument.history.entry", "History Entry ID"), kind: .string, isRequired: true),
+                    ActionArgument(name: "new_tab", title: t("argument.history.newTab", "In New Tab"), kind: .bool, isRequired: false),
+                ],
+                cliName: "history open"
             ),
             ActionDescriptor(
                 id: "history.clear", title: t("action.history.clear", "Clear History…"),

@@ -1,4 +1,5 @@
-import type { EventFrame, Principal } from "@cmux/ownership"
+import type { EventFrame, Principal, RowReader } from "@cmux/ownership"
+import { roleOf } from "./team-members.ts"
 import type { TeamState } from "./team.ts"
 
 /**
@@ -7,13 +8,13 @@ import type { TeamState } from "./team.ts"
  * admins see policy history, enrollment tokens, every managed device and the
  * audit chain head. A member sees their own managed installs.
  */
-const isAdmin = (state: TeamState, p: Principal) => {
-  const role = p.user ? state.members[p.user]?.role : undefined
+const isAdmin = (state: TeamState, p: Principal, rows?: RowReader) => {
+  const role = roleOf(state, rows, p.user)
   return role === "owner" || role === "admin"
 }
 
-export const teamSubscriberView = (state: TeamState, principal: Principal): TeamState => {
-  if (isAdmin(state, principal)) return state
+export const teamSubscriberView = (state: TeamState, principal: Principal, rows?: RowReader): TeamState => {
+  if (isAdmin(state, principal, rows)) return state
   const {
     policy_history: _history,
     enrollment_tokens: _tokens,
@@ -32,11 +33,11 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
 }
 
 /** The seed bumps the policy version, so members see it; the sync ack is admin-only bookkeeping. */
-const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_synced"]
+const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_synced", "sso.", "domain."]
 
-export const teamEventVisible = (state: TeamState, event: EventFrame, principal: Principal): boolean => {
+export const teamEventVisible = (state: TeamState, event: EventFrame, principal: Principal, rows?: RowReader): boolean => {
   if (!ADMIN_ONLY_PREFIXES.some((p) => event.op.startsWith(p))) return true
-  if (isAdmin(state, principal)) return true
+  if (isAdmin(state, principal, rows)) return true
   // A member sees events about their own devices.
   return event.op.startsWith("team.device.") && event.actor.user !== undefined && event.actor.user === principal.user
 }

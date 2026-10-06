@@ -8,6 +8,7 @@ use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
@@ -32,6 +33,9 @@ pub struct WgStream {
     pub(crate) outbound: PollSender<Outbound>,
     pub(crate) wake: Arc<Notify>,
     pub(crate) shutdown_sent: bool,
+    /// Set by the driver before it drops a connection whose end the owner
+    /// must see as an error (a mesh peer was removed), not as EOF.
+    pub(crate) reset: Arc<AtomicBool>,
 }
 
 impl fmt::Debug for WgStream {
@@ -67,7 +71,21 @@ impl AsyncRead for WgStream {
         let this = &mut *self;
         if this.leftover.is_empty() {
             match this.inbound.poll_recv(cx) {
-                Poll::Ready(Some(bytes)) => this.leftover = bytes,
+                Poll::Ready(Some(bytes)) => {
+                    // The driver stops copying into a full channel and waits
+                    // for an event: this read making room must be one, or
+                    // the bytes wait in the socket for an unrelated timer.
+                    if this.inbound.len() + 1 >= this.inbound.max_capacity() {
+                        this.wake.notify_one();
+                    }
+                    this.leftover = bytes;
+                }
+                Poll::Ready(None) if this.reset.load(Ordering::Acquire) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        "the tunnel peer of this connection was removed",
+                    )));
+                }
                 Poll::Ready(None) => return Poll::Ready(Ok(())),
                 Poll::Pending => return Poll::Pending,
             }

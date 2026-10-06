@@ -229,6 +229,16 @@ jobs:
           chmod +x "$wrapper_dir/create-dmg"
           echo "$wrapper_dir" >> "$GITHUB_PATH"
 
+      - name: Build in-tree acpmux for the app bundle
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        env:
+          CMUX_NEXT_ACPMUX_ARCHS: arm64,x86_64
+        run: |
+          set -euo pipefail
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
@@ -306,6 +316,8 @@ jobs:
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
+            # Chromium's license notices must ship with the engine (not CEF's sample page).
+            ./scripts/cmux-next/check-cef-credits.sh "$app"
           else
             echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this release ships the browser as unavailable."
           fi
@@ -380,9 +392,13 @@ jobs:
             build-universal/Build/Products/Release/cmux.app \
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+            --require-capability wireguard-hub \
+            --require-acpmux
           ./scripts/cmux-next/write-cmux-tui-version.sh \
             build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit"
+          # The pinned daemon must serve every capability the app relies on.
+          ./scripts/cmux-next/check-daemon-capabilities.sh \
+            --binary build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui
 
       - name: Verify binary architectures
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -403,19 +419,13 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          TUI_ARCHS="$(lipo -archs "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui")"
-          echo "cmux-tui architectures: $TUI_ARCHS"
-          [[ "$TUI_ARCHS" == *arm64* && "$TUI_ARCHS" == *x86_64* ]]
+          # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
+          for alias in cmux-tui acpmux; do
+            [[ "$(readlink "build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/$alias")" == cmux ]] || {
+              echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
+          done
           ./scripts/verify-diff-sidecar-artifact.sh "$DIFF_SIDECAR"
           [[ "$SDK_VERSION" == 26.* ]]
-
-      - name: Run CLI version memory guard regression
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
-          [ -x "$CLI_BINARY" ] || { echo "cmux CLI binary not found at $CLI_BINARY" >&2; exit 1; }
-          CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Verify bundled Ghostty theme picker helper
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -517,8 +527,8 @@ jobs:
         run: |
           set -euo pipefail
           # Launch-only smoke proves the process lives; this drives the shipped
-          # app through the CLI inside the same bundle (version, help, SSH
-          # daemon manifest, ping, capabilities, workspace create/list/close).
+          # app through the CLI inside the same bundle (version, help, acp,
+          # the cmux-tui and acpmux symlinks, app ping and identify).
           ./scripts/smoke-signed-app-cli.sh \
             "build-universal/Build/Products/Release/cmux.app"
 
@@ -633,8 +643,16 @@ jobs:
             cmux-macos.dmg
             appcast.xml
             remote-daemon-assets/cmuxd-remote-*
+            docs/mdm/com.manaflow.cmux.*
+            docs/mdm/cmux-example.mobileconfig
+            docs/mdm/ddm-legacy-profile-declaration.json
+            docs/mdm/managed-preferences.md
           if-no-files-found: error
 
+      # The MDM schema for this release (enterprise P17-5): administrators fetch
+      # https://github.com/manaflow-ai/cmux/releases/download/<tag>/com.manaflow.cmux.plist
+      # (Jamf JSON, Intune plist, example profile, DDM declaration, key table) for the
+      # exact version they deploy. ManagedPreferencesManifestTests keeps docs/mdm current.
       - name: Upload release asset
         if: steps.guard_release_assets.outputs.skip_upload != 'true' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
@@ -644,6 +662,10 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --tag "$GITHUB_REF_NAME" \
             --immutable cmux-macos.dmg \
             --immutable 'remote-daemon-assets/cmuxd-remote-*' \
+            --immutable 'docs/mdm/com.manaflow.cmux.*' \
+            --immutable docs/mdm/cmux-example.mobileconfig \
+            --immutable docs/mdm/ddm-legacy-profile-declaration.json \
+            --immutable docs/mdm/managed-preferences.md \
             --feed appcast.xml
 
       # Keep a new stable release hidden until its entire asset set is verified.

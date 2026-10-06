@@ -3,8 +3,9 @@
 //! frontend restores across a relaunch. The daemon only checks that it is a
 //! bounded JSON object. It is not presentation state: it appends no journal
 //! record and never reaches the presentation snapshot, tree snapshots, or
-//! deltas. A row lives as long as its `frontend_browser_tabs` row, which a
-//! closed tab keeps (its tombstoned browser no longer resolves to a surface).
+//! deltas. A row lives as long as its `frontend_browser_tabs` row: the
+//! commit that closes the browser deletes both
+//! (state/conversation_tabs_store.rs `delete_closed_browser_rows`).
 
 use super::*;
 
@@ -87,14 +88,6 @@ impl WorkspaceRegistry {
             )
             .optional()?)
     }
-
-    /// Forget a frontend browser whose tab creation failed.
-    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
-        validate_browser_public_id(browser_id)?;
-        self.connection
-            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -118,7 +111,9 @@ mod tests {
                     title: None,
                     favicon_url: None,
                     profile_id: None,
+                    owner: None,
                 },
+                None,
             )
             .unwrap();
     }

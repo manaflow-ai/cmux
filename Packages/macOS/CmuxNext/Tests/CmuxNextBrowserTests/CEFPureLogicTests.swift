@@ -5,7 +5,7 @@ import Testing
 @Suite struct CEFSwitchesTests {
     @Test func forkBuildGetsTabbedWindowsAndNoFieldTrials() {
         let switches = CEFSwitches(forkAPIVersion: 2, useMockKeychain: false, loadExtensions: [])
-        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config"])
+        #expect(switches.arguments == ["cmux-tabbed-windows", "disable-field-trial-config", "disable-notifications"])
     }
 
     @Test func stockCEFHasNoTabbedWindows() {

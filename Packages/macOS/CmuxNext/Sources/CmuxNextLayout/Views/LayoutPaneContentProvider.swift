@@ -53,8 +53,13 @@ final class LayoutViewContext {
 
     var style: LayoutStyle { model.style }
 
+    /// Pins Reduce Motion for this view only (tests), instead of the
+    /// process-wide `Motion.reduceMotionOverride`, which leaks into every
+    /// test that runs while an async test is suspended.
+    var reduceMotionOverride: Bool?
+
     /// Movement snaps: Reduce Motion or `ui.animationSpeed` "off" (`Motion`).
-    var reduceMotion: Bool { !Motion.animatesMovement }
+    var reduceMotion: Bool { reduceMotionOverride ?? !Motion.animatesMovement }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

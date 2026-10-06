@@ -6,7 +6,7 @@ import Testing
 /// Every screen variant: a unique id under its step, and it lays out in the
 /// fixed window with sample data (no layout loop, the window keeps its size).
 @MainActor
-@Suite struct VariantRegistryTests {
+@Suite(.serialized) struct VariantRegistryTests {
     func sample() -> MockOnboardingServices {
         MockOnboardingServices.gallerySample(themes: (0..<9).map { ThemeChoice(name: "Theme \($0)", input: .ghosttyDefault) },
                                              accountsView: NSView())
@@ -65,7 +65,11 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let store = GalleryReviewStore(url: url)
         let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
-        // The gallery opens on Role; review starts on Default Browser, after First Task.
+        // The gallery opens on Role; the current flow reaches Default Browser
+        // after First Task, Projects, Classic Sessions and Chats.
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
         gallery.handle(.nextScreen)
         gallery.handle(.nextScreen)
         gallery.handle(.nextVariant)
@@ -81,7 +85,7 @@ import Testing
         #expect(store.pick(for: .defaultBrowser) == browser)
         #expect(store.pick(for: .importData) == OnboardingModel.Step.importData.variants[0].id)
         let summary = GalleryReviewStore.summary(store.review)
-        #expect(summary.hasPrefix("Role: — · First Task: — · Default Browser: C (note: too much copy) · Import: A · Theme: —"))
+        #expect(summary.hasPrefix("Role: — · First Task: — · Projects: — · Classic Sessions: — · Chats: — · Default Browser: C (note: too much copy) · Import: A · Theme: —"))
         // A relaunch finds position, picks and notes.
         let reloaded = GalleryReviewStore(url: url)
         #expect(reloaded.review == store.review)

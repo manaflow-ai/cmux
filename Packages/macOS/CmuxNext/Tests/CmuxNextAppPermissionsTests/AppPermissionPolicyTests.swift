@@ -164,7 +164,20 @@ import Testing
         #expect(AppScopeKind("terminal:execute").axis == .processes && AppScopeKind("terminal:execute").risk.tone == .danger)
         #expect(AppScopeKind("integration:github:read").risk == .read && AppScopeKind("integration:github").risk == .external)
         #expect(AppScopeKind("coderouter:keys").isRestricted && AppScopeKind("fs:write:r1").isRestricted)
-        #expect(AppPermissionPolicy.restrictedScopes(for: .unverified) == AppScopeKind.restrictedScopes)
-        #expect(AppPermissionPolicy.restrictedScopes(for: .firstParty).isEmpty)
+        let asked: Set<String> = ["workspace:read", "fs:write", "feed:answer", "coderouter:keys", "git:write"]
+        #expect(AppPermissionPolicy.refusedScopes(asked, for: .unverified) == ["fs:write", "feed:answer", "coderouter:keys"])
+        #expect(AppPermissionPolicy.refusedScopes(asked, for: .firstParty).isEmpty)
+    }
+
+    @Test func elevatedScopesNeverStartCheckedAndAnyTierMayHoldThem() {
+        let kind = AppScopeKind("terminal:backend")
+        #expect(kind.isElevated && !kind.isRestricted)
+        for tier in AppTier.allCases {
+            #expect(!AppInstallDraft.onByDefault(kind, tier: tier), "\(tier)")
+            #expect(AppPermissionPolicy.mayHold("terminal:backend", tier: tier), "\(tier)")
+        }
+        // The consent title names the effect (coordinator, Cloud connector grant); the app's
+        // own reason (for Cloud: "Open terminals on your Cloud machines.") shows under it.
+        #expect(AppScopeStrings.title("terminal:backend") == "Open terminals on other machines for you")
     }
 }

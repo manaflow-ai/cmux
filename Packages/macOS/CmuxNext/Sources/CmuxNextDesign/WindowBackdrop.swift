@@ -8,19 +8,29 @@ public import CoreGraphics
 /// The window is non-opaque for every material other than
 /// ``WindowMaterial/opaque``, with a white background at alpha 0.001 (not
 /// clear, so it keeps its shadow and hit
-/// testing). The material view blurs by itself, so the CGS radius blur
-/// (`ghostty_set_window_background_blur`) is never applied on top of it.
+/// testing). A frosted window takes its blur as the window's CGS radius
+/// (``windowBlurRadius``, 0 for every other material), so only Liquid
+/// Glass hosts a material view, which blurs by itself.
 ///
 /// ```swift
 /// let backdrop = WindowBackdrop(themeTokens, reduceTransparency: false)
-/// if backdrop.material == .frosted { /* host an NSVisualEffectView */ }
+/// window.setBackgroundBlurRadius(backdrop.windowBlurRadius)
 /// ```
 public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The one material behind the window's content.
     public var material: WindowMaterial
-    /// Alpha of the theme tint laid over the material: the resolved
+    /// Alpha of the theme tint over the material (glass carries it as its
+    /// own tint): the resolved
     /// `background-opacity`, or 1 for an opaque window.
     public var tintOpacity: Double
+    /// Optional bundled art beneath the material; hidden in opaque mode.
+    public var art: BackdropArt? = nil
+    /// Optional bundled or system image beneath the material.
+    public var selection: BackdropSelection? = nil
+    /// Live experimental adjustments applied to the tint.
+    public var tuning: AppearanceTuning = .identity
+    /// The one-time texture pass applied when artwork is loaded.
+    public var texture: BackdropTexture = .default
     /// Alpha of the white window background while non-opaque.
     public let windowBackgroundAlpha: CGFloat = 0.001
 
@@ -31,6 +41,11 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// translucent sheet and every layer above it stays clear, so the
     /// terminal shows the background at the configured opacity once.
     public var panesPaintBackground: Bool { isOpaque }
+    /// The behind-window blur radius the window takes for this backdrop
+    /// (``NSWindow/setBackgroundBlurRadius(_:)``): frosted's own `background-blur` radius, and
+    /// 0 for every other material, which clears an earlier frost (glass
+    /// blurs in its own view; see-through and opaque have none).
+    public let windowBlurRadius: Int
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -56,6 +71,7 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
         }
         self.material = material
         tintOpacity = material == .opaque ? 1 : opacity
+        windowBlurRadius = material == .frosted ? backgroundBlur : 0
     }
 
     /// The window the tokens' resolved opacity and blur describe: the one
@@ -63,8 +79,19 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     ///
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
-    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false) {
-        self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur,
+    /// - Parameter art: Bundled art below the window's material and tint.
+    public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
+                selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
+                texture: BackdropTexture = .default) {
+        let resolvedSelection = selection ?? art.map(BackdropSelection.art)
+        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
+            ? tokens.backgroundOpacity
+            : tokens.wallpaperTintOpacity
+        self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        self.art = art
+        self.selection = resolvedSelection
+        self.tuning = tuning
+        self.texture = texture
     }
 }

@@ -32,7 +32,7 @@ pub const MAX_PERSONAL_JSON_BYTES: usize = 4096;
 /// Longest accepted theme spec, in characters.
 pub const MAX_THEME_CHARS: usize = 256;
 
-pub(super) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS profiles (
            profile_id TEXT PRIMARY KEY NOT NULL,
@@ -96,7 +96,7 @@ pub(super) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
 /// session (followed by `default`), and its shared groups, membership and
 /// order copied into personal rows. Idempotent: a flag in `meta` records it,
 /// and every insert ignores existing rows.
-pub(super) fn migrate_personal_v1(
+pub(crate) fn migrate_personal_v1(
     connection: &Connection,
     registry_id: &str,
     session_name: &str,
@@ -350,7 +350,7 @@ pub fn validate_profile_defaults(value: &Value) -> anyhow::Result<String> {
     Ok(text)
 }
 
-pub(super) fn validate_appearance(color: Option<&str>, icon: Option<&str>) -> anyhow::Result<()> {
+pub(crate) fn validate_appearance(color: Option<&str>, icon: Option<&str>) -> anyhow::Result<()> {
     if let Some(color) = color {
         validate_presentation_color(color)?;
     }
@@ -360,7 +360,7 @@ pub(super) fn validate_appearance(color: Option<&str>, icon: Option<&str>) -> an
     Ok(())
 }
 
-pub(super) fn validate_name(label: &str, value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_name(label: &str, value: &str) -> anyhow::Result<()> {
     validate_presentation_text(label, value)
 }
 
@@ -371,7 +371,7 @@ fn parse_json(text: Option<String>) -> anyhow::Result<Option<Value>> {
         .transpose()
 }
 
-pub(super) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> {
+pub(crate) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> {
     let value = connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [REVISION_META_KEY], |row| {
             row.get::<_, String>(0)
@@ -380,7 +380,7 @@ pub(super) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> 
     Ok(value.map(|value| value.parse()).transpose()?.unwrap_or(0))
 }
 
-pub(super) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<PersonalSession>> {
+pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<PersonalSession>> {
     let mut statement = connection.prepare(
         "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
                 capabilities_json, migrated
@@ -415,7 +415,7 @@ pub(super) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<Perso
     Ok(sessions)
 }
 
-pub(super) fn read_session(
+pub(crate) fn read_session(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalSession>> {
@@ -436,7 +436,7 @@ fn read_follows(connection: &Connection) -> anyhow::Result<HashMap<String, Vec<S
     Ok(follows)
 }
 
-pub(super) fn read_profiles(connection: &Connection) -> anyhow::Result<Vec<PersonalProfile>> {
+pub(crate) fn read_profiles(connection: &Connection) -> anyhow::Result<Vec<PersonalProfile>> {
     let mut follows = read_follows(connection)?;
     let mut statement = connection.prepare(
         "SELECT profile_id, name, color, icon, theme, browser_profile_id, default_session_id, defaults_json
@@ -473,14 +473,14 @@ pub(super) fn read_profiles(connection: &Connection) -> anyhow::Result<Vec<Perso
     Ok(profiles)
 }
 
-pub(super) fn read_profile(
+pub(crate) fn read_profile(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalProfile>> {
     Ok(read_profiles(connection)?.into_iter().find(|profile| profile.id == id))
 }
 
-pub(super) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalPin>> {
+pub(crate) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalPin>> {
     let mut statement = connection.prepare(
         "SELECT session_id, workspace_key, profile_id FROM profile_pins ORDER BY session_id, workspace_key",
     )?;
@@ -494,7 +494,7 @@ pub(super) fn read_pins(connection: &Connection) -> anyhow::Result<Vec<PersonalP
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub(super) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<PersonalGroup>> {
+pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<PersonalGroup>> {
     let mut statement = connection.prepare(
         "SELECT group_id, profile_id, name, color, collapsed FROM personal_groups
          ORDER BY position ASC, group_id ASC",
@@ -516,14 +516,14 @@ pub(super) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
     Ok(groups)
 }
 
-pub(super) fn read_group(
+pub(crate) fn read_group(
     connection: &Connection,
     id: &str,
 ) -> anyhow::Result<Option<PersonalGroup>> {
     Ok(read_groups(connection)?.into_iter().find(|group| group.id == id))
 }
 
-pub(super) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<PersonalWorkspace>> {
+pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<PersonalWorkspace>> {
     let mut statement = connection.prepare(
         "SELECT session_id, workspace_key, group_id, browser_profile_id, theme FROM personal_workspaces
          ORDER BY position ASC, session_id ASC, workspace_key ASC",
@@ -552,7 +552,7 @@ pub(super) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
     Ok(workspaces)
 }
 
-pub(super) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
+pub(crate) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalSnapshot> {
     Ok(PersonalSnapshot {
         personal_revision: personal_revision(connection)?,
         sessions: read_sessions(connection)?,
@@ -565,7 +565,7 @@ pub(super) fn read_snapshot(connection: &Connection) -> anyhow::Result<PersonalS
     })
 }
 
-pub(super) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<PersonalTerminal>> {
+pub(crate) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<PersonalTerminal>> {
     let mut statement = connection.prepare(
         "SELECT session_id, terminal_key, theme FROM personal_terminals
          ORDER BY session_id ASC, terminal_key ASC",
@@ -580,7 +580,7 @@ pub(super) fn read_terminals(connection: &Connection) -> anyhow::Result<Vec<Pers
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
-pub(super) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
+pub(crate) fn next_workspace_position(connection: &Connection) -> anyhow::Result<i64> {
     Ok(connection.query_row(
         "SELECT COALESCE(MAX(position) + 1, 0) FROM personal_workspaces",
         [],
@@ -592,7 +592,7 @@ pub(super) fn next_workspace_position(connection: &Connection) -> anyhow::Result
 
 /// Bump `personal_revision` and append the journal fact of one personal
 /// mutation, in the caller's transaction. Returns the new revision.
-pub(super) fn commit_personal(
+pub(crate) fn commit_personal(
     transaction: &Transaction<'_>,
     kind: &str,
     subjects: Vec<JournalSubject>,
@@ -612,13 +612,13 @@ pub(super) fn commit_personal(
     Ok(revision)
 }
 
-pub(super) fn subject(kind: &str, id: &str) -> JournalSubject {
+pub(crate) fn subject(kind: &str, id: &str) -> JournalSubject {
     JournalSubject { kind: kind.into(), id: id.to_string() }
 }
 
 /// Rewrite `position` of the rows of `table` keyed by `column` to follow
 /// `order`.
-pub(super) fn write_order(
+pub(crate) fn write_order(
     transaction: &Connection,
     table: &str,
     column: &str,
@@ -633,6 +633,6 @@ pub(super) fn write_order(
 
 /// Insertion-point semantics of `move-workspace`: `index` is a slot in the
 /// list before removal. Returns the final index.
-pub(super) fn insertion_final_index(old_index: usize, index: usize, count: usize) -> usize {
+pub(crate) fn insertion_final_index(old_index: usize, index: usize, count: usize) -> usize {
     if index > old_index { index.saturating_sub(1) } else { index }.min(count.saturating_sub(1))
 }

@@ -12,8 +12,10 @@ typealias BrowserEngineTag = CmuxNextDaemon.BrowserEngine
 /// for tests.
 final class BrowserTabService {
     /// `new-frontend-browser-tab` in `pane` with a browser profile id (nil
-    /// for an incognito tab). Returns the new surface.
-    var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag, _ profile: String?) async throws -> SurfaceID
+    /// for an incognito tab). With `activate` false the tab stays in the
+    /// background (`frontend-browser-activate-v1`). Returns the new surface.
+    var create: @MainActor (_ pane: PaneID, _ url: String, _ engine: BrowserEngineTag, _ profile: String?,
+                            _ activate: Bool) async throws -> SurfaceID
     /// The browser profile a new tab in `pane` gets: the explicit one, else
     /// the workspace's, the room's or `default` (`BrowserProfileService`).
     var resolveProfile: @MainActor (_ pane: PaneID, _ explicit: String?) -> String? = { _, explicit in explicit }
@@ -22,6 +24,11 @@ final class BrowserTabService {
     private var pendingNotices: [SurfaceID: String] = [:]
     /// `update-frontend-browser-tab`. Returns false when the command failed.
     var update: @MainActor (SurfaceID, BrowserRecordUpdate) async -> Bool
+    /// `tab.update` (zoom, back/forward) on the tab's public id. Returns
+    /// false when the command failed.
+    var updateState: @MainActor (ResourceID, BrowserRecordUpdate) async -> Bool
+    /// Whether the tab's daemon keeps zoom and history (state resources).
+    var keepsState: @MainActor (TabModel) -> Bool
     /// `set-frontend-browser-history`. Returns false when the command failed.
     var storeHistory: @MainActor (SurfaceID, FrontendBrowserHistory) async -> Bool
     /// `get-frontend-browser-history`; nil when there is none or the daemon
@@ -57,15 +64,24 @@ final class BrowserTabService {
     private(set) var openedSurfaces: Set<SurfaceID> = []
 
     init(daemon: DaemonService, cef: CEFEngine) {
-        create = { [weak daemon] pane, url, engine, profile in
+        create = { [weak daemon] pane, url, engine, profile, activate in
             guard let connection = daemon?.connection else { throw DaemonError.notConnected }
-            return try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile).surface
+            // An older daemon without the capability would ignore the field: send it only when served.
+            let background = !activate && daemon?.supports(DaemonCapabilities.shared.frontendBrowserActivate) == true
+            return try await connection.newFrontendBrowserTab(url: url, engine: engine, in: pane, profileID: profile,
+                                                              activate: background ? false : nil).surface
         }
         update = { [weak daemon] surface, update in
             await daemon?.run("update-frontend-browser-tab") { connection in
                 _ = try await connection.updateFrontendBrowserTab(surface, url: update.url, title: update.title, faviconURL: update.favicon)
             } ?? false
         }
+        updateState = { [weak daemon] tab, update in
+            await daemon?.run("tab.update") { connection in
+                try await connection.state.updateTabRecord(tab, zoom: update.zoom, back: update.back, forward: update.forward)
+            } ?? false
+        }
+        keepsState = { [weak daemon] _ in daemon?.store.servesStateResources ?? false }
         storeHistory = { [weak daemon] surface, history in
             guard daemon?.supports(DaemonCapabilities.shared.frontendBrowserHistory) == true else { return false }
             return await daemon?.run(SetFrontendBrowserHistoryRequest.command) { connection in
@@ -125,10 +141,10 @@ final class BrowserTabService {
     /// known one, else the cascade) and stored on its record; an incognito
     /// tab stores none (its window's session is its store).
     func open(_ choice: BrowserEngineChoice, in pane: PaneID, url: String, incognito: Bool? = nil, profile explicit: String? = nil,
-              notice: String? = nil) async throws -> SurfaceID {
+              notice: String? = nil, activate: Bool = true) async throws -> SurfaceID {
         let offTheRecord = incognito ?? isIncognitoPane(pane)
         let profile = offTheRecord ? nil : resolveProfile(pane, explicit)
-        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile)
+        let surface = try await create(pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate)
         if offTheRecord { incognitoURLs[surface] = url }
         if let notice { pendingNotices[surface] = notice }
         openedSurfaces.insert(surface)
@@ -145,16 +161,26 @@ final class BrowserTabService {
     /// tab id; one writer per live page).
     /// An incognito tab is never written back: its page's URL, title and
     /// favicon stay in memory (the tab strip reads the live page).
+    /// A page restores the zoom its record keeps.
     func track(_ page: any BrowserTab, for tab: TabModel) {
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
-        let update = update, id = tab.id
+        let update = update, updateState = updateState, id = tab.id
+        let keeps = keepsState(tab)
+        if keeps, let zoom = tab.zoom, abs(page.state.zoom - zoom) > 0.001 { page.setZoom(zoom) }
         // The surface is looked up by tab id at send time. A moved tab (a
         // split, another window) keeps its record, but the store gives it a
         // new TabModel in the destination pane, so the writer must not hold
         // the original one.
-        let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(tab: tab), delay: writeBackDelay, sleep: sleep) { [weak self] fields in
-            guard let surface = self?.tabModel(id)?.surface else { return false }
-            return await update(surface, fields)
+        let writer = BrowserRecordWriter(
+            tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
+            daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
+            delay: writeBackDelay, sleep: sleep
+        ) { [weak self] fields in
+            guard let tab = self?.tabModel(id) else { return false }
+            if fields.hasRecordFields, !(await update(tab.surface, fields)) { return false }
+            guard fields.hasStateFields else { return true }
+            guard let resource = tab.resourceID else { return false }
+            return await updateState(resource, fields)
         }
         writers[id] = writer
         trackHistory(page, id: id, surface: tab.surface, recordURL: tab.url, while: writer)

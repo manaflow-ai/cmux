@@ -1,21 +1,22 @@
 import React, { useEffect, useId, useRef, useState } from "react";
+import { sessionModels } from "./modelCatalog";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
-import { t } from "./i18n";
+import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
-  model: "Model",
-  mode: "Mode",
-  effort: "Effort",
-  plan: "Plan",
-  build: "Build",
-  planHint: "Plan reads and proposes without editing; Build makes the changes",
+  model: "picker.model",
+  mode: "picker.mode",
+  effort: "picker.effort",
+  plan: "picker.plan",
+  build: "picker.build",
+  planHint: "picker.planHint",
   /// `{percent}` is the share of the context window used.
-  context: "{percent}% of context used",
-};
+  context: "picker.context",
+} as const satisfies Record<string, StringKey>;
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
 export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
@@ -60,17 +61,31 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
 
 export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
+/// Runs `run` after `ms` unless the returned cancel runs first.
+export type SettleTimer = (run: () => void, ms: number) => () => void;
+
+const browserSettleTimer: SettleTimer = (run, ms) => {
+  const timer = setTimeout(run, ms);
+  return () => clearTimeout(timer);
+};
+
 type Props = {
   snapshot: AcpmuxSnapshot;
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
-  /// How long a combo must hold before it counts as recent (tests shorten it).
+  /// How long a combo must hold before it counts as recent.
   settleMs?: number;
+  /// Schedules the settle check and returns its cancel; tests run it by hand.
+  settleTimer?: SettleTimer;
   /// Starts a new chat in another harness (the model picker offers it).
   onHarness?(harness: string): void;
+  /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
+  onHarnessHint?(harness: string | undefined): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
+  /// Mode and Plan live in the composer's + menu in the default pane.
+  showModePlan?: boolean;
 };
 
 /// The composer bar's controls: the
@@ -84,13 +99,15 @@ export function ComposerPickers({
   onMode,
   onEffort,
   onHarness,
+  onHarnessHint,
   settleMs = RECENT_SETTLE_MS,
+  settleTimer = browserSettleTimer,
   measurePickerRoom,
+  showModePlan = true,
 }: Props) {
+  const t = useT();
   const summary = snapshot.summary;
-  const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
-    (model) => ({ id: model.id, name: model.name || model.id }),
-  );
+  const models: Choice[] = sessionModels(snapshot.catalog, summary);
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => ({
     id: mode.id,
     name: mode.name || mode.id,
@@ -118,20 +135,24 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
-  const current = summary?.model;
+  // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
+  // reports (`confirmedModel`, set while a pick is unconfirmed).
+  const shown = summary?.model;
+  const current = summary?.confirmedModel ?? shown;
   const currentEffort = effort?.currentValue;
   const offersEffort = effort !== undefined;
+  // A harness still starting reports nothing yet: what it draws is not a combo the viewer used.
+  const switching = snapshot.switching !== undefined;
   useEffect(() => {
-    if (!harness || !current || (offersEffort && !currentEffort)) return;
-    const timer = setTimeout(
+    if (switching || !harness || !current || (offersEffort && !currentEffort)) return;
+    return settleTimer(
       () =>
         setRecents((list) =>
           rememberCombo(list, { harness, model: current, effort: currentEffort, effortName: effortName }),
         ),
       settleMs,
     );
-    return () => clearTimeout(timer);
-  }, [harness, current, currentEffort, offersEffort, effortName, settleMs]);
+  }, [switching, harness, current, currentEffort, offersEffort, effortName, settleMs, settleTimer]);
   // A combo for another model sends the model first, then its effort once the
   // agent reports that model and offers the effort; anything else drops it.
   const pending = useRef<
@@ -158,7 +179,7 @@ export function ComposerPickers({
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
-    if (pickedModel !== current) {
+    if (pickedModel !== shown) {
       pending.current = pickedEffort
         ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
         : undefined;
@@ -175,15 +196,15 @@ export function ComposerPickers({
 
   return (
     <div className="acpmux-chips">
-      {modes.length > 0 && (
+      {showModePlan && modes.length > 0 && (
         <Picker
-          label={PICKER_LABELS.mode}
+          label={t(PICKER_LABELS.mode)}
           warnUnrestricted
           className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? PICKER_LABELS.mode}</span>
+              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
@@ -192,16 +213,16 @@ export function ComposerPickers({
           align="start"
         />
       )}
-      {plan && (
+      {showModePlan && plan && (
         <button
           type="button"
           className="acpmux-plan"
           aria-pressed={planning}
-          title={PICKER_LABELS.planHint}
+          title={t(PICKER_LABELS.planHint)}
           onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
         >
           {planning ? <PlanIcon /> : <BuildIcon />}
-          <span>{planning ? PICKER_LABELS.plan : PICKER_LABELS.build}</span>
+          <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
         </button>
       )}
       <span className="acpmux-chips-spacer" />
@@ -209,8 +230,8 @@ export function ComposerPickers({
         <ModelPicker
           catalog={snapshot.catalog}
           harness={harness}
-          model={current}
-          label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
+          model={shown}
+          label={model?.name ?? summary?.model ?? t(PICKER_LABELS.model)}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -220,12 +241,18 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={onHarness}
+          onHarnessHint={onHarnessHint}
+          harnessNotes={
+            snapshot.switching?.phase === "failed"
+              ? { [snapshot.switching.harness]: t("switch.failedShort") }
+              : undefined
+          }
           measureRoom={measurePickerRoom}
         />
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
-          label={PICKER_LABELS.effort}
+          label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
           model={model?.name ?? summary?.model}
@@ -250,9 +277,10 @@ export function isPlan(modeId: string): boolean {
 
 /// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
+  const t = useT();
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
-  const label = PICKER_LABELS.context.replace("{percent}", String(percent));
+  const label = t(PICKER_LABELS.context, { percent });
   const radius = 7;
   const circumference = 2 * Math.PI * radius;
   return (
@@ -582,6 +610,12 @@ export const AtIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="2.4" />
     <path d="M10.4 8v.9a1.8 1.8 0 0 0 3.6 0V8A6 6 0 1 0 11 13.2" />
+  </Icon>
+);
+export const MicIcon = () => (
+  <Icon>
+    <rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" />
+    <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
   </Icon>
 );
 export const SlashIcon = () => (

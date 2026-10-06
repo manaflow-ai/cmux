@@ -8,15 +8,28 @@
     "typecheck": "tsc -p .",
     "e2e": "bun e2e.ts",
     "test": "bun test test",
-    "lint": "bun migrate.ts --lint"
+    "lint": "bun migrate.ts --lint",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts",
+    "migrate:mysql": "bun migrate-mysql.ts",
+    "lint:mysql": "bun migrate-mysql.ts --lint",
+    "db:generate:mysql": "drizzle-kit generate --config drizzle-mysql.config.ts",
+    "test:mysql": "bun test test-mysql"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
     "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
     "pg": "8.23.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "libpg-query": "18.1.5"
+    "drizzle-orm": "0.45.3",
+    "libpg-query": "18.1.5",
+    "mysql2": "3.15.3"
+  },
+  "exports": {
+    "./schema": "./schema/index.ts",
+    "./schema-mysql": "./schema-mysql/index.ts",
+    "./projection-compare": "./projection-compare.ts"
   }
 }

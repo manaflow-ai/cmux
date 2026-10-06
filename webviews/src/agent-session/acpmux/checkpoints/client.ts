@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   CHECKPOINT_OPS,
   checkpointList,
@@ -54,6 +55,7 @@ type StoredMutation = {
   body: Record<string, unknown>;
 };
 type MutationOperation = "create" | "pin" | "unpin";
+const RECONCILIATION_BLOCKED_REASON = "reconciliation_blocked";
 const defaultPersistence: CheckpointPersistence = {
   async get(key) {
     const value = globalThis.localStorage?.getItem(key);
@@ -91,12 +93,18 @@ function requestError(error: unknown): CheckpointRpcError {
   }
   return new CheckpointRpcError({
     code: "operation.failed",
-    userMessage: error instanceof Error ? error.message : "Request failed",
+    userMessage: error instanceof Error ? error.message : translate("error.requestFailed"),
   });
+}
+const reconciliationErrors = new WeakSet<CheckpointRpcError>();
+function reconciliationError(error: unknown): CheckpointRpcError {
+  const parsed = requestError(error);
+  reconciliationErrors.add(parsed);
+  return parsed;
 }
 function targetParams(target: CheckpointTarget): Record<string, unknown> {
   if (typeof target.cwd !== "string" || target.cwd.length === 0)
-    throw new CheckpointRpcError("validation.invalid", "A working directory is required.");
+    throw new CheckpointRpcError("validation.invalid", translate("checkpoint.error.folderRequired"));
   return { cwd: target.cwd };
 }
 function isNotFound(error: unknown): boolean {
@@ -173,6 +181,7 @@ export class CheckpointClient {
     }
   }
   setOnline(online: boolean): void {
+    if (online !== this.online) this.generation += 1;
     this.online = online;
     if (!online) {
       this.capabilityGeneration++;
@@ -185,21 +194,21 @@ export class CheckpointClient {
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Checkpoint capture is unavailable while offline.",
+          userMessage: translate("checkpoint.error.offline"),
           details: { reason: "offline" },
         },
         undefined,
         "offline",
       );
     if (!this.state.supported)
-      throw new CheckpointRpcError("operation.unsupported", "Checkpoint capture is unavailable.");
+      throw new CheckpointRpcError("operation.unsupported", translate("checkpoint.error.unsupported"));
     const target = this.state.target;
-    if (!target) throw new CheckpointRpcError("validation.invalid", "Select an agent working directory first.");
+    if (!target) throw new CheckpointRpcError("validation.invalid", translate("checkpoint.error.noFolder"));
     if (target.hostKind === "cloud")
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Cloud sessions do not expose local checkpoints.",
+          userMessage: translate("checkpoint.error.cloud"),
           details: { reason: "cloud_unsupported" },
         },
         undefined,
@@ -243,6 +252,7 @@ export class CheckpointClient {
   }
   async get(params: { checkpoint_id?: string; idempotency_key?: string }): Promise<Checkpoint> {
     if ((params.checkpoint_id === undefined) === (params.idempotency_key === undefined))
+      // l10n-allow: a caller's bug, never a user's
       throw new CheckpointRpcError("validation.invalid", "Use exactly one checkpoint lookup.");
     const target = this.requireReady();
     return checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...params }));
@@ -284,7 +294,7 @@ export class CheckpointClient {
     this.changed();
     try {
       const result = pending.attempted
-        ? await this.reconcile(pending.operation, target, pending.body, pending.idempotency_key)
+        ? await this.reconcile(pending.operation, target, pending.body, pending.idempotency_key, generation)
         : undefined;
       if (result) {
         await this.persistence.delete(this.mutationStorageKey(target));
@@ -314,13 +324,52 @@ export class CheckpointClient {
     target: CheckpointTarget,
     body: Record<string, unknown>,
     key: string,
+    generation: number,
   ): Promise<MutationEnvelope<Checkpoint> | undefined> {
+    const ensureCurrent = () => {
+      if (generation !== this.generation || !this.online)
+        throw new CheckpointRpcError({
+          code: "native.not_connected",
+          userMessage: translate("checkpoint.error.paused"),
+          details: { reason: RECONCILIATION_BLOCKED_REASON },
+          origin: "native",
+        });
+    };
     try {
+      ensureCurrent();
       const lookup = operation === "create" ? { idempotency_key: key } : { checkpoint_id: String(body.checkpoint_id) };
-      const found = checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
-      if (operation === "create") return { result: found, revision: found.revision, replayed: true };
+      checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...lookup }));
     } catch (error) {
-      if (!isNotFound(error)) throw requestError(error);
+      if (!isNotFound(error)) throw reconciliationError(error);
+      if (generation !== this.generation || !this.online)
+        throw reconciliationError(
+          new CheckpointRpcError({
+            code: "native.not_connected",
+            userMessage: translate("checkpoint.error.paused"),
+            details: { reason: RECONCILIATION_BLOCKED_REASON },
+            origin: "native",
+          }),
+        );
+      return undefined;
+    }
+    if (operation === "create") {
+      ensureCurrent();
+      // The checkpoint record revision is separate from the session mutation
+      // ledger revision carried by the mutation envelope. Replay the exact
+      // original write to recover that envelope instead of synthesizing one
+      // from the record returned by the read-first reconciliation.
+      try {
+        const replay = mutationEnvelope<Checkpoint>(
+          await this.call(CHECKPOINT_OPS.create, {
+            ...targetParams(target),
+            ...body,
+            idempotency_key: key,
+          }),
+        );
+        return { ...replay, result: checkpointRecord(replay.result) };
+      } catch (error) {
+        throw reconciliationError(error);
+      }
     }
     return undefined;
   }
@@ -349,7 +398,7 @@ export class CheckpointClient {
         throw new CheckpointRpcError({ code: "native.not_connected", origin: "native" });
       this.state = { ...this.state, pending: record };
       if (record.attempted) {
-        const reconciled = await this.reconcile(operation, target, body, record.idempotency_key);
+        const reconciled = await this.reconcile(operation, target, body, record.idempotency_key, generation);
         if (reconciled) {
           await this.persistence.delete(storageKey);
           if (generation === this.generation)
@@ -368,9 +417,11 @@ export class CheckpointClient {
       return { ...result, result: parsedRecord };
     } catch (error) {
       const parsed = requestError(error);
-      if (!parsed.uncertain && storageKey) await this.persistence.delete(storageKey);
+      const preservePending =
+        parsed.uncertain || parsed.reason === RECONCILIATION_BLOCKED_REASON || reconciliationErrors.has(parsed);
+      if (!preservePending && storageKey) await this.persistence.delete(storageKey);
       if (generation === this.generation)
-        this.state = { ...this.state, error: parsed, pending: parsed.uncertain ? this.state.pending : undefined };
+        this.state = { ...this.state, error: parsed, pending: preservePending ? this.state.pending : undefined };
       throw parsed;
     } finally {
       this.mutationActive = false;
@@ -393,7 +444,7 @@ export class CheckpointClient {
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Managed checkpoint pins cannot be removed.",
+          userMessage: translate("checkpoint.error.managedPin"),
           details: { reason: "managed_pin" },
         },
         undefined,

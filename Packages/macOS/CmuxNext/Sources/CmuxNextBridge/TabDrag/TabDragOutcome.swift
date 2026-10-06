@@ -11,6 +11,9 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case newSplit(paneID: String, edge: TabDropEdge)
     /// New strip column on `screenID` after `afterColumnID`.
     case newColumn(screenID: String, afterColumnID: String)
+    /// New top or bottom dock on `screenID` holding the tab
+    /// (move-tab-to-column with `dock`, edge-docks-v1).
+    case newDock(screenID: String, edge: String)
     /// New workspace at root `index`, inside `groupID` when non-nil.
     case newWorkspace(groupID: String?, index: Int?)
     /// Into an existing workspace.
@@ -61,6 +64,8 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     /// `respawn`): a single tab whose kind can respawn, on a daemon that
     /// supports it.
     public var respawnsOnSplit = false
+    /// The drag carries a whole tab group (not a single tab).
+    public var isGroupDrag = false
 
     public init(sourcePaneID: String, sourcePaneTabCount: Int, sourceWorkspaceID: String,
                 sourceWorkspaceTabCount: Int, draggedTabCount: Int, sourceWindowWorkspaceCount: Int = 1,
@@ -91,7 +96,7 @@ public nonisolated struct TabDragContext: Hashable, Sendable {
     }
 
     /// The drag carries every tab of its pane: the pane closes when they leave.
-    var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
+    public var emptiesSourcePane: Bool { draggedTabCount >= sourcePaneTabCount }
     /// The drag carries every tab of its workspace (the last tab of the last
     /// pane): the workspace moves with it, or closes once they land in
     /// another workspace (coordinator decision 2026-09-30).
@@ -110,19 +115,10 @@ public nonisolated enum TabDragResolver {
     ///   otherwise the pane would close, leaving nothing to split),
     /// - moving into the workspace the tabs already live in,
     /// - a column before the first one (no daemon command expresses it).
+    /// - a tab group on a dock edge (groups have no dock move yet).
+    /// `verdict` says which of these applies (tab-dnd).
     public static func accepts(_ kind: TabDropKind, context: TabDragContext) -> Bool {
-        switch kind {
-        case .strip(let strip, let index, let group):
-            return !context.isOwnPlace(strip: strip, index: index, groupID: group)
-        case .newSplit(let pane, _):
-            return !(pane == context.sourcePaneID && context.emptiesSourcePane && !context.respawnsOnSplit)
-        case .newColumn(_, let after):
-            return after != nil
-        case .newWorkspace:
-            return true
-        case .workspace(let id):
-            return id != context.sourceWorkspaceID
-        }
+        verdict(kind, context: context) == .accept
     }
 
     /// Whether a rejected `kind` ends the search: the tab's own strip place
@@ -165,6 +161,8 @@ public nonisolated enum TabDragResolver {
         case .newColumn(let screen, let after):
             guard let after else { return .cancel }
             return .newColumn(screenID: screen, afterColumnID: after)
+        case .newDock(let screen, let edge):
+            return .newDock(screenID: screen, edge: edge)
         case .newWorkspace(let group, let index):
             let slot = index < 0 ? nil : index
             return context.emptiesSourceWorkspace ? .moveWorkspace(groupID: group, index: slot) : .newWorkspace(groupID: group, index: slot)

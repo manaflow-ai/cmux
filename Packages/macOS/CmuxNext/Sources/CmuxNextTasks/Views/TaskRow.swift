@@ -37,7 +37,7 @@ struct TaskRow: View {
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture { model.selection = task.id }
-        .contextMenu { StatusMenu(task: task, model: model) }
+        .contextMenu { TaskContextMenu(task: task, model: model) }
     }
 }
 

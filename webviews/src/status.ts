@@ -48,6 +48,9 @@ export function initialDiffViewerStatus(config: DiffViewerConfig, label: DiffVie
 }
 
 export function applyDiffViewerStatusToDocument(status: DiffViewerStatus): void {
-  document.body.dataset.loading = status.loading ? "true" : "false";
-  document.body.dataset.statusOnly = status.statusOnly ? "true" : "false";
+  // Unchanged values are not written again: a <body> attribute write invalidates the whole page's style.
+  const loading = status.loading ? "true" : "false";
+  const statusOnly = status.statusOnly ? "true" : "false";
+  if (document.body.dataset.loading !== loading) document.body.dataset.loading = loading;
+  if (document.body.dataset.statusOnly !== statusOnly) document.body.dataset.statusOnly = statusOnly;
 }

@@ -1,3 +1,4 @@
+import { previewAttachmentsOf, type PreviewAttachments } from "./attachments.ts"
 import type { Commit, OpRequest } from "./request.ts"
 import type { ConversationHead, ConversationKind, Message, Participant } from "./types.ts"
 import { currentParticipants, findParticipant, utf8Bytes } from "./validate.ts"
@@ -21,12 +22,29 @@ export interface InboxBump {
   readonly last_seq: number
   readonly last_at: string
   readonly preview: string
+  /** The last message's attachments ({kind, count}); clients localize. Absent when it has none. */
+  readonly preview_attachments?: PreviewAttachments
   /** Absent when the owner cannot derive it from the counts the host passed. */
   readonly unread?: number
   readonly mentions?: number
   readonly dm_peer?: string
   /** The user left or was removed in this commit. */
   readonly removed?: boolean
+  /**
+   * Push facts of the last message (`last_seq`), for the UserDO push decision. Every bump of
+   * the conversation describes the same last message, so a coalesced bump keeps them.
+   */
+  readonly last_author?: string
+  readonly last_author_kind?: "human" | "agent"
+  /**
+   * The last message is an agent's approval request addressed to this user (the agent's
+   * `owner_user`): it notifies even when the conversation is muted. Other members never get it.
+   */
+  readonly last_approval?: true
+  /** The last message mentions this user. */
+  readonly last_mention?: true
+  /** This user's `joined_seq`: messages at or before it were history when the user joined. */
+  readonly joined_seq?: number
 }
 
 export type WakeReason = "dm" | "mention" | "reply"
@@ -101,6 +119,9 @@ export const truncateUtf8 = (text: string, maxBytes: number): string => {
   return out
 }
 
+/** An `approval` part (home.md section 5). Read structurally: the part type is not in the conversation vocabulary yet. */
+export const hasApprovalPart = (message: Message): boolean => message.parts.some((part) => (part as { readonly type: string }).type === "approval")
+
 export const mentionsOf = (message: Message): ReadonlySet<string> =>
   new Set(message.parts.flatMap((part) => (part.type === "text" ? (part.runs ?? []).flatMap((run) => (run.mention ? [run.mention] : [])) : [])))
 
@@ -113,7 +134,7 @@ export const previewOf = (head: ConversationHead, message: Message | null | unde
   return [...`${author}: ${text}`].slice(0, PREVIEW_CHARS).join("")
 }
 
-const searchIntent = (head: ConversationHead, message: Message): SearchIntent => {
+export const searchIntent = (head: ConversationHead, message: Message): SearchIntent => {
   const body = message.retracted_at === undefined ? truncateUtf8(textOf(message), SEARCH_BODY_BYTES) : ""
   if (body === "") return { op: "delete", conversation_id: message.conversation, seq: message.seq }
   const author = findParticipant(head, message.author)
@@ -186,6 +207,7 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
   const lastMessage = isLast ? message : request.last_message?.seq === head.last_seq ? request.last_message : undefined
   const lastAt = lastMessage?.created_at ?? head.created_at
   const preview = previewOf(head, lastMessage)
+  const previewAttachments = lastMessage && lastMessage.retracted_at === undefined ? previewAttachmentsOf(lastMessage) : undefined
   const humanIds = (participants: ReadonlyArray<Participant>) =>
     participants.filter((participant) => participant.kind === "human" && participant.left_at === undefined).map((participant) => participant.id)
   const nowHumans = humanIds(head.participants)
@@ -224,6 +246,8 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
   const row = (user: string, isRemoved: boolean): InboxBump => {
     const count = isRemoved ? undefined : countFor(user)
     const peer = dmPeer(head, user)
+    const author = lastMessage && lastMessage.retracted_at === undefined ? findParticipant(head, lastMessage.author) : undefined
+    const joined = findParticipant(head, user)?.joined_seq
     return {
       user,
       conversation: head.id,
@@ -233,9 +257,15 @@ export const fanOut = ({ before, request, commit, counts }: FanOutInput): FanOut
       last_seq: head.last_seq,
       last_at: lastAt,
       preview,
+      ...(previewAttachments ? { preview_attachments: previewAttachments } : {}),
       ...(count ? { unread: count.unread, mentions: count.mentions } : {}),
       ...(peer ? { dm_peer: peer } : {}),
-      ...(isRemoved ? { removed: true } : {})
+      ...(isRemoved ? { removed: true } : {}),
+      ...(author && lastMessage ? { last_author: author.id, last_author_kind: author.kind === "agent" ? ("agent" as const) : ("human" as const) } : {}),
+      // Only an agent asks for approval, and only its owner can decide it (home.md section 5).
+      ...(author?.kind === "agent" && author.owner_user === user && lastMessage && hasApprovalPart(lastMessage) ? { last_approval: true as const } : {}),
+      ...(author && lastMessage && mentionsOf(lastMessage).has(user) ? { last_mention: true as const } : {}),
+      ...(joined === undefined ? {} : { joined_seq: joined })
     }
   }
   const bumps = [...recipients.map((user) => row(user, false)), ...(ROW_CHANGING.has(op.kind) ? removed.map((user) => row(user, true)) : [])]

@@ -14,17 +14,17 @@ extension PaneController {
         case .select(let id):
             select(id)
         case .close(let id, _):
-            close([id])
+            CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
         case .closeToRight(let id):
             let ids = orderedIDs
             guard let index = ids.firstIndex(of: id) else { return }
-            close(Array(ids[(index + 1)...]))
+            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
-            move(id, toPane: self, index: to)
-        case .newTab:
-            StripNewTab.request(pane: paneKey) { _ = services.registry.perform($0, invocation: $1) }
+            StripOrder.reorder(id, to: to, in: self)
+        case .newTab(_, let opensWorkspace):
+            StripNewTab.request(pane: paneKey, opensWorkspace: opensWorkspace) { _ = services.registry.perform($0, invocation: $1) }
         case .pin(let id), .unpin(let id):
             setPinned(id, pinned: { if case .pin = intent { true } else { false } }())
         case .rename(let id):
@@ -41,11 +41,6 @@ extension PaneController {
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .trailingButton(let id):
             services.tabBarButtons.perform(id, paneKey: paneKey)
-        case .focusLocation:
-            let window = services.windowController(showing: self)
-            StripLocation.request(pane: paneKey, isFocused: window?.focus.state.pane == paneKey,
-                                  focus: { window?.focus.send(.focusPane(paneKey, source: .intent)) },
-                                  perform: { _ = services.registry.perform($0, invocation: $1) })
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -57,8 +52,12 @@ extension PaneController {
 
     /// A user selection (strip click, shortcut, palette, CLI): goes through
     /// the focus coordinator, which selects and focuses (`applySelection`).
+    /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
-        guard let workspace else { return applySelection(id) }
+        guard let workspace else {
+            guard ActionRunScope.viewChangeAllowed() else { return }
+            return applySelection(id)
+        }
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
     }
 
@@ -75,7 +74,7 @@ extension PaneController {
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
         services.presentation.setNeedsShowSelected(self)
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.
@@ -92,7 +91,11 @@ extension PaneController {
     /// reap grace period once its last tab closes. `fromSelectedTab` (New
     /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
     /// other callers (config commands, account logins) keep the pane's.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false) {
+    /// `typingAhead` names a new tab page whose `!` type-ahead the shell
+    /// gets after `typing`, drained until nothing new arrived (NewTabTypeAhead).
+    /// `then` runs once the new tab is selected.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, typingAhead page: String? = nil, keep: Bool? = nil,
+                        fromSelectedTab: Bool = false, then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
@@ -104,11 +107,14 @@ extension PaneController {
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
-                pendingSelectSurface = created.surface
-                apply(snapshot())
+                if let page {
+                    try await services.newTabTypeAhead.drain(page) { try await connection.send(created.surface, text: $0) }
+                }
+                selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                then?(created.surface)
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")
@@ -153,8 +159,7 @@ extension PaneController {
                     if let child { pageRequests.adopt(child, surface: surface) }
                     then?(surface)
                     guard !background else { return nil }
-                    pendingSelectSurface = surface
-                    apply(snapshot())
+                    selectWhenReported(surface: surface)
                     workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, generation: intent)
                     return nil
                 } catch {
@@ -189,11 +194,8 @@ extension PaneController {
                 services.cache.release(id.rawValue)
                 continue
             }
-            if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
-                services.agentTabs.close(id.rawValue)
-                services.cache.release(id.rawValue)
-                continue
-            }
+            if BenchSpans.measure("closeLocalTab", { services.closeLocalTab(id.rawValue) }) { continue }
+            if services.madeAgentTabs?.closeWhenCreated(id.rawValue, close: { [weak self] real in self?.close([StripTabID(real)]) }) == true { continue }
             guard let tab = tab(id) else { continue }
             pendingClosed.insert(tab.id)
             surfaces.append(tab.surface)
@@ -201,7 +203,7 @@ extension PaneController {
             // Its terminal's only view closes: that session may end it.
             if tab.kind == .remoteTerminal { services.remoteTerminals.viewClosed(tab) }
         }
-        apply(snapshot())
+        BenchSpans.measure("pane.apply") { apply(snapshot()) }
         guard !commands.isEmpty else { return }
         let keys = Set(ids.map(\.rawValue))
         let runs = surfaces.count > 1 && daemon.supports(DaemonCapabilities.shared.batchClose)
@@ -231,11 +233,12 @@ extension PaneController {
     /// Moves a tab into `target` at `index` (display order), optimistic.
     func move(_ id: StripTabID, toPane target: PaneController, index: Int) {
         guard let tab = tab(id) else { return }
+        let index = StripOrder.paneIndex(forDisplayIndex: index, moving: id, in: target) // `index` is a display index
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
-        if target !== self, services.viewChangeAllowed { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
+        if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
-            guard !ok else { return }
+            guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()
             self?.view.stripView.restoreDetachedTab(id)
@@ -245,12 +248,15 @@ extension PaneController {
     func setPinned(_ id: StripTabID, pinned: Bool) {
         guard let tab = tab(id) else { return }
         let surface = tab.surface
-        guard daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
+        // `tab.pin`/`tab.unpin` on a daemon with state resources.
+        let resource = daemon.store.servesStateResources ? tab.resourceID : nil
+        guard resource != nil || daemon.supports(DaemonCapabilities.shared.tabMetadata) else {
             services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMetadata))
             return
         }
         services.registry.track(Task {
             let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
+                if let resource { return try await connection.state.setTabPinned(resource, pinned) }
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }

@@ -27,6 +27,11 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
     public var contributes: AppContributions
     public var activation: [String]
     public var files: [String]
+    /// Manifest v2 `presentation`: sidebar item, screen, tab, typing target,
+    /// web content (app-platform.md 16).
+    public var presentation: AppPresentation?
+    /// Manifest v2 `contributes.toolbarItems` (app-platform.md 17).
+    public var toolbarItems: [AppToolbarItem]
     public var raw: AppJSON
 
     /// The publisher segment of the id (`cmux`, `local`).
@@ -50,6 +55,20 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         return AppManifest(object: o, raw: json)
     }
 
+    /// A manifest v2 (`cmux-app.v2.json`) shipped inside cmux. Read without the
+    /// v1 validator: only first-party packages reach this (the bundle scanner,
+    /// source `.firstParty`), and the Rust validator (`cmux-app-manifest`)
+    /// checks every one of them in CI. Never used for local or store apps.
+    static func decodeShippedV2(_ data: Data) throws(AppManifestError) -> AppManifest {
+        let json: AppJSON
+        do { json = try AppJSON.parse(data) } catch { throw .unreadable(error.localizedDescription) }
+        guard case .object(let o) = json, json["manifestVersion"]?.numberValue == 2,
+              o["id"]?.stringValue?.isEmpty == false, o["name"] != nil, o["version"]?.stringValue != nil else {
+            throw .invalid([AppManifestIssue(path: "", code: "manifest.v2", message: "cmux-app.v2.json needs manifestVersion 2, id, name and version")])
+        }
+        return AppManifest(object: o, raw: json)
+    }
+
     private init(object o: [String: AppJSON], raw: AppJSON) {
         self.raw = raw
         id = o["id"]?.stringValue ?? ""
@@ -65,12 +84,14 @@ public nonisolated struct AppManifest: Sendable, Hashable, Identifiable {
         categories = o["categories"]?.arrayValue?.compactMap(\.stringValue) ?? []
         keywords = o["keywords"]?.arrayValue?.compactMap(\.stringValue) ?? []
         engine = o["engines"]?["cmux"]?.stringValue ?? ""
-        main = o["main"]?.stringValue
+        main = o["main"]?.stringValue ?? o["runtime"]?["main"]?.stringValue
         scopes = AppScopeRequest.list(o["scopes"])
         optionalScopes = AppScopeRequest.list(o["optionalScopes"])
         contributes = AppContributions(json: o["contributes"])
         activation = o["activation"]?.arrayValue?.compactMap(\.stringValue) ?? []
         files = o["files"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        presentation = AppPresentation(json: o["presentation"])
+        toolbarItems = AppToolbarItem.list(raw)
     }
 }
 

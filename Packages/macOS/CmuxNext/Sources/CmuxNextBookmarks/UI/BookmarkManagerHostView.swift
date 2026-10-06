@@ -44,7 +44,7 @@ public final class BookmarkManagerHostView: NSView {
 
     private func resolveColors() {
         let colors = performWithTheme {
-            layer?.backgroundColor = Palette.pageBackground.cgColor
+            layer?.backgroundColor = nil
             return BookmarkPageColors.resolve()
         }
         if model.colors != colors { model.colors = colors }

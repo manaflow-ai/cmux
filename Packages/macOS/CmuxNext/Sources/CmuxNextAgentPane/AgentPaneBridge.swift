@@ -1,4 +1,5 @@
 import Foundation
+import os
 import WebKit
 
 /// Receives the page's `agentSession` messages. The user content controller
@@ -9,17 +10,32 @@ import WebKit
 /// carries the daemon token). Anything else is refused before the model
 /// sees it.
 final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.bridge")
     weak var view: AgentPaneView?
 
     init(view: AgentPaneView) {
         self.view = view
     }
 
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
+                               replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
         guard isTrusted(message) else {
-            return (AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
+            logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
+            return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
-        return (await reply(to: AgentPaneRequest(body: message.body)), nil)
+        let request = AgentPaneRequest(body: message.body)
+        // A page frame for the host's socket goes out on this turn when it can (no Task hop).
+        if case .transportSend(let connection, let frames) = request, let model = view?.model {
+            return model.transport.submit(connection: connection, frames: frames) { error in
+                replyHandler(AgentPaneModel.transportReply(error), nil)
+            }
+        }
+        // Transport requests carry chat content and run per batch: not logged.
+        if !request.isTransport {
+            logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
+        }
+        // task-owner: one page request; its reply goes back through replyHandler
+        Task { replyHandler(await self.reply(to: request), nil) }
     }
 
     /// The reply for a request from the pane's trusted page.
@@ -43,8 +59,10 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         // handshake, which can be after didFinish, where the theme and
         // customization were first pushed; push them again so they land.
         if request == .ready {
+            logger.info("agent pane ready accepted")
             view.applyTheme()
             view.applyShortcuts()
+            view.applyPreviewFeatures()
             view.replayCustomization()
         }
         return view.model

@@ -3,18 +3,20 @@ import CmuxNextHome
 import Foundation
 import Observation
 
-/// One window's Home: its view model (which conversation is open is this
-/// window's view state) and the intents its view sends, forwarded to the
-/// shared `HomeService` as user-origin ops.
+/// One conversation tab's Home: its view model (opened on the tab's
+/// conversation; another one picked in its list is view state) and the
+/// intents its view sends, forwarded to the shared `HomeService` as
+/// user-origin ops.
 @MainActor
 final class HomeWindowModel: HomeActions {
     let viewModel = HomeViewModel()
     private unowned let service: HomeService
     private var listObservation: Task<Void, Never>?
 
-    init(service: HomeService) {
+    init(service: HomeService, conversation: String) {
         self.service = service
         viewModel.actions = self
+        selectConversation(conversation)
         // task-owner: lives as long as the window's Home; event-driven (Observation)
         listObservation = Task { [weak self] in
             for await list in Observations({ [weak service] in service?.conversations ?? [] }) {

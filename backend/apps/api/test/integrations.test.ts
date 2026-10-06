@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers"
 import { evictDurableObject, runInDurableObject } from "cloudflare:test"
+import { settlePolicy } from "./integration-policy-settle.ts"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
@@ -31,6 +32,7 @@ const call = async (path: string, token: string, body: unknown) => {
 }
 const op = (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "cli" })
 const read = (token: string, name: string, params: unknown = {}) => call("/v1/read", token, { op: name, params })
+const setIntegrationPolicy = (token: string, team: string, fields: unknown) => settlePolicy(op, read, token, team, fields)
 const signedIn = async (stackUser: string) => {
   const token = await sessionToken(stackUser)
   const e = await op(token, "user.ensure", {})
@@ -82,23 +84,23 @@ describe("provider clients (fake HTTP)", () => {
     })
 
   it("GitHub: proves the user can access the installation and records only the user's repositories", async () => {
-    const r = await github.complete(e, ghLink({ repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }).http, { code: "c", installation_id: "42", redirectUri: "x", policy: userScope })
+    const r = await github.complete(e, ghLink({ repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })
     expect(r).toMatchObject({
       account: { key: "github:installation:42", name: "manaflow-ai" },
       scopes_granted: ["issues:write"],
       credential: { kind: "github_installation", installation_id: 42 },
       resources: { repos: ["manaflow-ai/cmux", "manaflow-ai/hq"] }
     })
-    const whole = await github.complete(e, ghLink().http, { code: "c", installation_id: "42", redirectUri: "x", policy: { githubScope: "installation", requireOrgAdmin: false } })
+    const whole = await github.complete(e, ghLink().http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: { githubScope: "installation", requireOrgAdmin: false } })
     expect(whole.resources).toEqual({ repos: null })
-    await expect(github.complete(e, ghLink({ installations: { installations: [{ id: 7 }] } }).http, { code: "c", installation_id: "42", redirectUri: "x", policy: userScope })).rejects.toThrow(/cannot access/)
-    await expect(github.complete(e, ghLink().http, { installation_id: "42", redirectUri: "x", policy: userScope })).rejects.toThrow(/no installation_id or code/)
+    await expect(github.complete(e, ghLink({ installations: { installations: [{ id: 7 }] } }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/cannot access/)
+    await expect(github.complete(e, ghLink().http, { installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: userScope })).rejects.toThrow(/no installation_id or code/)
   })
 
   it("GitHub: require_org_admin refuses a member and accepts an admin", async () => {
     const policy = { githubScope: "linking_user_repos" as const, requireOrgAdmin: true }
-    await expect(github.complete(e, ghLink({ role: "member" }).http, { code: "c", installation_id: "42", redirectUri: "x", policy })).rejects.toThrow(/organization admin/)
-    expect((await github.complete(e, ghLink({ role: "admin" }).http, { code: "c", installation_id: "42", redirectUri: "x", policy })).account.key).toBe("github:installation:42")
+    await expect(github.complete(e, ghLink({ role: "member" }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy })).rejects.toThrow(/organization admin/)
+    expect((await github.complete(e, ghLink({ role: "admin" }).http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy })).account.key).toBe("github:installation:42")
   })
 
   it("GitHub: comments with a minted installation token signed by the App key", async () => {
@@ -311,8 +313,8 @@ describe("connections end to end (workerd)", () => {
     expect(outside.json).toMatchObject({ ok: false, error: { code: "policy.denied" } })
 
     // The allowlist narrows further at call time.
-    const set = await op(token, "integration.policy.set", { github: { repo_allowlist: ["acme/api"] } })
-    expect(set.json.value).toMatchObject({ source: "admin", locked: false, github: { scope: "linking_user_repos", repo_allowlist: ["acme/api"] } })
+    const set = await setIntegrationPolicy(token, team, { github: { repo_allowlist: ["acme/api"] } })
+    expect(set.json.value).toMatchObject({ source: "team_policy", locked: true, github: { scope: "linking_user_repos", repo_allowlist: ["acme/api"] } })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/web", issue: 2, body: "hi" })).json.error.code).toBe("policy.denied")
     expect(posts).toEqual(["/repos/acme/web/issues/1/comments"])
 
@@ -348,7 +350,7 @@ describe("connections end to end (workerd)", () => {
 
   it("a stricter policy narrows existing connections: installation-scope links and denied providers stop working", async () => {
     const { token, team } = await signedIn("conn-gh-2")
-    await op(token, "integration.policy.set", { github: { scope: "installation" } })
+    await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
     const connect = await op(token, "integration.connect", { provider: "github" })
     const conn = connect.json.value.connection.id as string
     const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
@@ -365,10 +367,10 @@ describe("connections end to end (workerd)", () => {
     const done = await op(token, "integration.complete", { state, code: "c", installation_id: "77" })
     expect(done.json.value.resources).toEqual({ repos: null })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 1, body: "x" })).json.ok).toBe(true)
-    await op(token, "integration.policy.set", { github: { scope: "linking_user_repos" } })
+    await setIntegrationPolicy(token, team, { github: { scope: "linking_user_repos" } })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 2, body: "x" })).json.error.code).toBe("policy.denied")
-    await op(token, "integration.policy.set", { github: { scope: "installation" } })
-    await op(token, "integration.policy.set", { allowed_providers: ["slack"] })
+    await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
+    await setIntegrationPolicy(token, team, { allowed_providers: ["slack"] })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 3, body: "x" })).json.error.code).toBe("policy.denied")
   })
 
@@ -379,7 +381,7 @@ describe("connections end to end (workerd)", () => {
       "https://api.github.com/user/installations/42/repositories": () => ok(full),
       "https://api.github.com/user/installations": () => ok({ installations: [{ id: 42, account: { login: "acme", type: "Organization" } }] })
     })
-    await expect(github.complete(testEnv as any, f.http, { code: "c", installation_id: "42", redirectUri: "x", policy: { githubScope: "linking_user_repos", requireOrgAdmin: false } })).rejects.toThrow(/more than 1000/)
+    await expect(github.complete(testEnv as any, f.http, { code: "c", installation_id: "42", redirectUri: "x", connection: "conn_test", state: "st", scopes_requested: [], policy: { githubScope: "linking_user_repos", requireOrgAdmin: false } })).rejects.toThrow(/more than 1000/)
   })
 
   it("pending connections expire once after 30 minutes from the alarm, even after a restart; late callbacks are refused; active ones are untouched", async () => {

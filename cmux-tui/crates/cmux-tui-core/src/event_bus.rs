@@ -220,6 +220,7 @@ impl MuxEventFilter {
                     | MuxEvent::TreeSelectionChanged
                     | MuxEvent::TreeDelta(_)
                     | MuxEvent::LayoutChanged(_)
+                    | MuxEvent::PersonalChanged { .. }
                     | MuxEvent::FrontendProjectionChanged { .. }
                     | MuxEvent::Empty
             ),
@@ -269,6 +270,7 @@ impl SurfaceSessionScope {
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::Conversation(_)
+            | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)

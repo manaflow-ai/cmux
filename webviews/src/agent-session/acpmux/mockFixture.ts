@@ -22,7 +22,14 @@ export type MockSession = {
   pinned?: boolean;
   unread?: boolean;
   pendingPermissions?: number;
-  pullRequest?: { number: number; title: string; state: "open" | "draft" | "merged"; reviewReady?: boolean };
+  pullRequest?: {
+    number: number;
+    title: string;
+    state: "open" | "draft" | "merged";
+    reviewReady?: boolean;
+    /// The head commit's CI rollup.
+    checks?: "passing" | "failing" | "pending";
+  };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
   /// What a session needing input waits on: the tool call its permission card names.
@@ -121,6 +128,7 @@ export const mockSessions: MockSession[] = [
       title: "fleet: retry artifact uploads with backoff",
       state: "open",
       reviewReady: true,
+      checks: "passing",
     },
   },
   {
@@ -134,6 +142,7 @@ export const mockSessions: MockSession[] = [
     host: "hearty-beige-elk",
     hostKind: "cloud",
     branch: "fix-sidebar-flicker",
+    pullRequest: { number: 18231, title: "Read the theme after applyTheme", state: "draft", checks: "pending" },
     reply:
       "The sidebar reads the theme before the window applies it, so the first frame uses the old background. I'm moving the read after `applyTheme` and checking every theme.",
     working: { title: "Run bun test Sources/Sidebar", kind: "execute", command: "bun test Sources/Sidebar" },
@@ -267,6 +276,7 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "stream-tool-output",
+    pullRequest: { number: 219, title: "Stream tool output in 8 KiB chunks", state: "open", checks: "failing" },
     reply: "Splitting tool output into 8 KiB chunks so long shell runs stream instead of arriving at the end.",
     working: { title: "Edit src/tools/stream.rs", kind: "edit" },
   },
@@ -283,7 +293,13 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "resume-after-restart",
-    pullRequest: { number: 212, title: "Resume sessions after a daemon restart", state: "open", reviewReady: true },
+    pullRequest: {
+      number: 212,
+      title: "Resume sessions after a daemon restart",
+      state: "open",
+      reviewReady: true,
+      checks: "passing",
+    },
     reply: "Sessions now reload from the event log on start. All 48 replay tests pass.",
   },
   {

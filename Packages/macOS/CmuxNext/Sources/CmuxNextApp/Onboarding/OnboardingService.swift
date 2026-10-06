@@ -20,6 +20,9 @@ final class OnboardingService {
     /// The role step's saved answer, read off the main thread at launch;
     /// "Onboarding…" opens the step with it.
     private(set) var profile: OnboardingProfile?
+    /// Background-discovered local folders offered by new agent tabs.
+    private(set) var projectFolders: [String] = []
+    private var projectScanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -40,6 +43,31 @@ final class OnboardingService {
             let saved = await Task.detached { state.profile() }.value
             guard let self, profile == nil else { return }
             profile = saved
+        }
+        // Keep Cmd-T off the file system hot path. The scan is bounded and runs
+        // once in the background while the app is starting.
+        projectScanTask = Task { [weak self] in
+            let folders = await Task.detached {
+                var scan = AgentProjectScan.live()
+                scan.filesPerApp = 200
+                let agent = scan.run().map(\.id)
+                func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
+                    switch layout {
+                    case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
+                    case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
+                    }
+                }
+                let classic = (try? ClassicSessionImporter().read())?.flatMap { workspace in
+                    [workspace.workingDirectory] + classicDirectories(workspace.layout)
+                } ?? []
+                var seen = Set<String>()
+                return (agent + classic).compactMap { path in
+                    let normalized = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+                    return seen.insert(normalized).inserted ? normalized : nil
+                }
+            }.value
+            guard let self else { return }
+            projectFolders = folders
         }
     }
 
@@ -165,7 +193,7 @@ final class OnboardingService {
     }
 
     /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionProvider`), not as visits.
+    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
     nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
         batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
     }

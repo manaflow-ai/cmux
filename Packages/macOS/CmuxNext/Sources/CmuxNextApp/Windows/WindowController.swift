@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
+import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
@@ -11,6 +13,7 @@ import Observation
 /// Which workspace that is, plus frame and sidebar width, persist in the
 /// daemon's personal projection through `WindowManager`.
 final class WindowController: NSWindowController, NSWindowDelegate {
+    var shortcutHints: WindowShortcutHints?
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
@@ -36,16 +39,22 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        let rail = WindowRailView(model: sidebar.model, registry: services.registry)
-        // The rail's items take the sidebar's menus (pin, remove, reorder).
-        rail.column.contextMenuProvider = { [weak sidebar] target in sidebar?.contextMenu(for: target) }
-        root = WindowRootView(sidebar: sidebar.container, rail: rail)
+        root = WindowRootView(sidebar: sidebar.container)
+        // The static toggle runs the same action as the shortcut, palette and menu (R68).
+        root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
+            _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
+        }
+        let registry = services.registry
+        root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
+                                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -60,31 +69,33 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Backdrop first: changing it while AppKit installs the content
-        // view puts the content above the titlebar (see WindowRootView).
-        root.applyBackdrop(to: window)
-        window.contentView = root
+        super.init(window: window)
+        installHistoryButtons()
+        // Kind, scope and backdrop before the content view (the root paints
+        // the backdrop: `WindowSurfacePainting`).
+        window.install(kind: .main, content: root, scope: themeScope)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        super.init(window: window)
-        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
+        observeSidebarHidden()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
-        badgeObservation?.cancel()
+        sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
         roomObservation?.cancel()
@@ -214,7 +225,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // now that the content is installed, re-applies it.
         controller.sendTopology()
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.windows.contentDidAppear(self)
     }
@@ -247,23 +258,34 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        let snapshots = services.sidebarSnapshots, id = state.id
+        Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.stateDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.stateDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
-    private var badgeObservation: Task<Void, Never>?
+    var sidebarObservation: Task<Void, Never>?
 
     /// Marks this window incognito: the badge shows in the sidebar header,
     /// and in the top row after the traffic lights while the sidebar is
@@ -271,16 +293,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showIncognitoBadge() {
         sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
         root.titlebarBadge = IncognitoBadgeView()
-        let model = sidebar.model
-        badgeObservation = Task { [weak self] in
-            for await hidden in Observations({ model.isHidden }) {
-                guard let self else { return }
-                root.showsTitlebarBadge = hidden
-                root.layoutSubtreeIfNeeded()
-                for pane in content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
-            }
-        }
+        root.showsTitlebarBadge = sidebar.model.isHidden
+        root.needsLayout = true
     }
+
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).
@@ -299,6 +315,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        services.keyRouter.cancelChord()
+        removeHistoryObserver()
         services.windows.windowWillClose(self)
     }
 }
@@ -308,9 +326,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
-    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarBadgeFrame }
+    var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
+    var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
@@ -344,8 +364,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     // MARK: OverlayPlaneHosting
@@ -358,7 +381,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     // MARK: BrowserWindowOcclusionProviding
 
-    var browserOcclusionRectsInWindow: [CGRect] { overlayLayer.interactiveRects }
+    /// Interactive overlays in the window, and occluders (the sidebar) that stay above pages.
+    var browserOcclusionRectsInWindow: [CGRect] {
+        overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
+    }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)

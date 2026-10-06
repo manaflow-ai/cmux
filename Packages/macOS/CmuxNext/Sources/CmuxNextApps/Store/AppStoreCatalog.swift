@@ -5,19 +5,17 @@ public nonisolated protocol AppStoreCatalog: Sendable {
     func listing(id: String) async throws -> AppStoreListing?
 }
 
-/// The bundled first-party samples as a catalog (tier first-party).
+/// The apps shipped inside cmux (first-party apps and samples) as a catalog
+/// (tier first-party). Built from the registry's scan, never from disk here:
+/// the store opens on the main actor and must not do I/O (architecture 5a).
 /// Install counts are absent until the cloud store exists.
 public nonisolated struct BundledAppStoreCatalog: AppStoreCatalog {
     public let listings: [AppStoreListing]
 
     public init(bundles: [AppBundle]) {
-        listings = bundles.filter { $0.source == .bundled }.map { AppStoreListing(bundle: $0, tier: .firstParty) }
+        listings = bundles.filter { $0.source != .local }.map { AppStoreListing(bundle: $0, tier: .firstParty) }
     }
 
-    /// Scans the module's bundled samples.
-    public static func scanned() -> BundledAppStoreCatalog {
-        BundledAppStoreCatalog(bundles: AppBundleScanner.scan(AppPlatformResources.samples, source: .bundled).bundles)
-    }
 
     public func search(query: String, category: String?) async throws -> [AppStoreListing] {
         listings.filter { listing in
@@ -26,4 +24,28 @@ public nonisolated struct BundledAppStoreCatalog: AppStoreCatalog {
     }
 
     public func listing(id: String) async throws -> AppStoreListing? { listings.first { $0.id == id } }
+}
+
+/// The bundled catalog over the registry's current scan: reads the bundles
+/// the registry already loaded off the main actor, so opening the store does
+/// no disk I/O. Empty until the first scan finishes; the owner refreshes the
+/// store model after `AppRegistry.load()`.
+public nonisolated struct RegistryAppStoreCatalog: AppStoreCatalog {
+    private let bundles: @Sendable () async -> [AppBundle]
+
+    public init(bundles: @escaping @Sendable () async -> [AppBundle]) {
+        self.bundles = bundles
+    }
+
+    @MainActor public init(registry: AppRegistry) {
+        self.init { [weak registry] in await MainActor.run { registry?.apps.map(\.bundle) ?? [] } }
+    }
+
+    public func search(query: String, category: String?) async throws -> [AppStoreListing] {
+        try await BundledAppStoreCatalog(bundles: bundles()).search(query: query, category: category)
+    }
+
+    public func listing(id: String) async throws -> AppStoreListing? {
+        try await BundledAppStoreCatalog(bundles: bundles()).listing(id: id)
+    }
 }

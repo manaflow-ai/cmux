@@ -82,12 +82,19 @@ describe("feed end to end (workerd)", () => {
     const id = post.json.value.item.id as string
     expect((await op(s.token, "feed.post", approve, "cli", "post-1")).json).toMatchObject({ ok: true, replayed: true, transaction: post.json.transaction })
     await wire.until((fs) => fs.some((f) => f.t === "event" && f.op === "feed.post"))
+    // Live events carry the owner-written items they changed (clients never replay the reducer).
+    const posted = wire.frames.find((f) => f.t === "event" && f.op === "feed.post")
+    expect(posted.items.map((i: any) => i.id)).toEqual([id])
+    expect(posted.present).toContain(id)
 
     // An answer must come from a user action; the first answer wins.
     expect((await op(s.token, "feed.answer", { item: id, answer: { decision: "allow" } }, "cli")).json.error.code).toBe("auth.forbidden")
     const answer = await op(s.session, "feed.answer", { item: id, answer: { decision: "allow", scope: "session" } }, "user")
     expect(answer.json).toMatchObject({ ok: true, value: { item: { state: "answered" } } })
     await wire.until((fs) => fs.some((f) => f.t === "event" && f.op === "feed.answer"))
+    const answered = wire.frames.find((f) => f.t === "event" && f.op === "feed.answer")
+    expect(answered.items).toMatchObject([{ id, state: "answered" }])
+    expect(answered.present).toBeUndefined()
     const late = await op(s.token, "feed.answer", { item: id, answer: { decision: "deny" } }, "user")
     expect(late.json.error).toMatchObject({ code: "feed.closed" })
 

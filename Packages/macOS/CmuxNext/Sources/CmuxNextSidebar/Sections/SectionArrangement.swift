@@ -1,8 +1,8 @@
 import Foundation
 
 /// How a section lays out its items, like a small flexbox
-/// (plans/cmux-next/sidebar-sections.md 4): rows, one line, or a grid.
-/// Wire: `{"layout": "list"|"inline"|"grid", "align": …, "gap": n, "columns": n}`,
+/// (plans/cmux-next/sidebar-sections.md 4): rows, one line, a grid, or tiles.
+/// Wire: `{"layout": "list"|"inline"|"grid"|"tiles", "align": …, "gap": n, "columns": n}`,
 /// every key optional.
 public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
     public enum Layout: String, Hashable, Sendable, Codable, CaseIterable {
@@ -14,6 +14,10 @@ public nonisolated struct SectionArrangement: Hashable, Sendable, Codable {
         case inline
         /// Tiles in columns.
         case grid
+        /// Large tiles in columns, each a glyph well over a short label
+        /// (Safari's favorites), on one tonal card set apart from the list
+        /// below. Opt-in; the default top section is a list.
+        case tiles
     }
 
     /// Where leftover space on a line goes (inline, and grid with fixed

@@ -1,22 +1,27 @@
-// A changed file's More menu: Copy path,
+// A changed file's More menu: Copy path, Open file in a tab,
 // and Collapse file (Expand file when folded). It is a menu button: it opens on its first
 // item, arrows move through the items, Enter or Space runs one, and Escape, Tab or a press
 // elsewhere closes it.
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { More } from "../changeIcons";
 import { copyText } from "../conversation/clipboard";
+import { useT } from "../i18n";
 
 export function FileMenu({
   path,
   name,
   collapsed,
   onToggleCollapsed,
+  onOpenInTab,
 }: {
   path: string;
   name: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  /// Absent for a file with nothing on disk to open, such as a deleted one.
+  onOpenInTab?: () => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -38,8 +43,9 @@ export function FileMenu({
   }, [open]);
   const items = [
     // The copy can fall back to a selection copy, which takes focus; focus returns after it.
-    { label: "Copy path", run: () => copyText(path) },
-    { label: collapsed ? "Expand file" : "Collapse file", run: onToggleCollapsed },
+    { label: t("changes.copyPath"), run: () => copyText(path) },
+    ...(onOpenInTab ? [{ label: t("changes.openInTab"), run: onOpenInTab }] : []),
+    { label: collapsed ? t("changes.expandFile") : t("changes.collapseFile"), run: onToggleCollapsed },
   ];
   const onKeyDown = (event: React.KeyboardEvent) => {
     const all = [...(menu.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
@@ -67,10 +73,10 @@ export function FileMenu({
         ref={button}
         type="button"
         className="acpmux-fh-btn"
-        aria-label={`More actions for ${name}`}
+        aria-label={t("changes.moreActionsFor", { name })}
         aria-haspopup="menu"
         aria-expanded={open}
-        title="More actions"
+        title={t("changes.moreActions")}
         // WebKit does not focus a clicked button, so closing from it puts focus there.
         onClick={() => (open ? close(true) : setOpen(true))}
       >
@@ -82,7 +88,7 @@ export function FileMenu({
           role="menu"
           tabIndex={-1}
           className="acpmux-file-menu-list"
-          aria-label={`Actions for ${name}`}
+          aria-label={t("changes.actionsFor", { name })}
           onKeyDown={onKeyDown}
         >
           {items.map((item) => (

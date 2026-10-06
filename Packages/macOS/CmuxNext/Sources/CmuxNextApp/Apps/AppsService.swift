@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextApps
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextPages
 import Foundation
 import Synchronization
 
@@ -17,8 +18,19 @@ final class AppsService {
     let host: AppHost
     let storage: AppStorageStore
     private let sink = DeferredAppSink()
+    /// The control router once the socket starts (the CodeRouter page's ops run on it).
+    private(set) var controlRouter: ControlRouter?
+    /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
+    private var coderouterPage: CodeRouterPageTab?
     private var fingerprints: [String: Int] = [:]
     private var store: AppStoreWindowController?
+    private var storeModel: AppStoreModel?
+    /// App pages (`app:<id>`), one provider per app, registered on first open.
+    private var appPages: [String: AppPanePage] = [:]
+    /// The React App Store page per tab (Debug Settings `apps.store.surface = web`), else empty.
+    private var webStorePages: [String: PageWebView] = [:]
+    /// The App Store tabs (internal page), one store model per tab.
+    private(set) lazy var storePages = AppStorePages { [unowned self] in makeStoreModel() }
     /// Runs previews of apps that are not installed (sample data, no grant).
     private lazy var previewHost = AppHost(sink: AppPreviewSink())
 
@@ -34,13 +46,24 @@ final class AppsService {
         registry.onChange = { [weak self] app in self?.host.refreshGrants(app.manifest) }
     }
 
+    /// Turning apps off stops every running app and refuses new starts
+    /// (DisabledFeatures); open app pages show "Turned off by your organization".
+    func applyPolicy(disabled: Bool) {
+        host.disabledReason = disabled ? RefusalStrings.turnedOffByOrganization : nil
+    }
+
     func start() {
-        // task-owner: one-shot registry scan at launch
-        Task { await registry.load() }
+        // task-owner: one-shot registry scan at launch; an open store lists the result.
+        Task { [weak self] in
+            await self?.registry.load()
+            self?.storeModel?.refresh()
+            self?.storePages.refreshAll()
+        }
     }
 
     /// Wires the sink to the control router (reads, action.run) and the daemon.
     func attach(router: ControlRouter) {
+        controlRouter = router
         let daemon = services.daemon
         let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry] = {
             guard let connection = await MainActor.run(body: { daemon.connection }) else {
@@ -51,19 +74,70 @@ final class AppsService {
         sink.attach(AppOperationRouter(router: router, storage: storage, ledger: ledger))
     }
 
-    /// Opens the App Store window (palette "App Store", `appStore.show`):
-    /// on a listing when `appID` is given, else on Installed when asked.
-    /// Drawn in the theme of the window it was opened from.
-    func showStore(appID: String? = nil, installed: Bool = false) {
+    /// Opens the App Store (palette "App Store", `appStore.show`) as a tab
+    /// of the active window (internal page `app-store`, one per window);
+    /// `appID` opens that listing, `installed` the Installed tab. A user run
+    /// selects and focuses the tab; automation opens it without moving
+    /// focus. Falls back to the App Store window when no main window can
+    /// hold the tab.
+    func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
+        if let view = services.pages.show(.appStore, in: services.windows.active, focus: focus) {
+            if let page = webStorePages[view.key] {
+                page.open(route: Self.storeRoute(appID: appID, installed: installed))
+            } else {
+                storePages.present(view.key, appID: appID, installed: installed)
+            }
+            return
+        }
         if store == nil {
-            let model = AppStoreModel(catalog: BundledAppStoreCatalog.scanned(), registry: registry, host: host, previewHost: previewHost)
-            model.onRemoved = { [storage] id in await storage.clear(app: id) }
+            // No disk I/O here: the catalog reads the registry's launch scan.
+            let model = makeStoreModel()
+            storeModel = model
             let controller = AppStoreWindowController(model: model)
-            controller.onClose = { [weak self] in self?.store = nil }
+            controller.onClose = { [weak self] in
+                self?.store = nil
+                self?.storeModel = nil
+            }
             store = controller
         }
         store?.setThemeScope(services.windows.active?.themeScope ?? .app)
         store?.present(appID: appID, installed: installed)
+    }
+
+    /// Opens an app's page as a tab of the active window (one per window),
+    /// then runs `command` (a `contributes.commands` id) in the app when
+    /// given, for example CodeRouter's connectAccount. User runs select and
+    /// focus the tab; automation opens it without moving focus.
+    func openApp(_ appID: String, command: String? = nil, focus: Bool = true) throws(AppsServiceError) {
+        guard let app = registry.app(appID), app.isActive else { throw .unknownApp }
+        if appID == CodeRouterPageTab.appID, command == nil, PageTunables.coderouter.value == .web {
+            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            if coderouterPage == nil {
+                coderouterPage = tab
+                services.pages.register(tab)
+            }
+            guard services.pages.show(tab.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+            return
+        }
+        guard AppPanePage.opens(app) else { throw .noPage }
+        let provider = appPages[appID] ?? AppPanePage(appID: appID, apps: self)
+        if appPages[appID] == nil {
+            appPages[appID] = provider
+            services.pages.register(provider)
+        }
+        guard services.pages.show(provider.page, in: services.windows.active, focus: focus) != nil else { throw .noWindow }
+        if let command {
+            guard let entry = AppCommandPalette.entries(registry, includingNonPalette: true).first(where: { $0.app.id == appID && $0.command.id == command }) else {
+                throw .unknownCommand
+            }
+            AppCommandPalette.run(entry, services: services)
+        }
+    }
+
+    private func makeStoreModel() -> AppStoreModel {
+        let model = AppStoreModel(catalog: RegistryAppStoreCatalog(registry: registry), registry: registry, host: host, previewHost: previewHost)
+        model.onRemoved = { [storage] id in await storage.clear(app: id) }
+        return model
     }
 
     var storeWindow: NSWindow? { store?.window }
@@ -97,3 +171,41 @@ nonisolated final class DeferredAppSink: AppOperationSink, Sendable {
         return await sink.perform(request)
     }
 }
+
+// MARK: InternalPageProvider (the App Store as a tab)
+
+extension InternalPageID {
+    static let appStore = InternalPageID(rawValue: "app-store")
+}
+
+extension AppsService: InternalPageProvider {
+    var page: InternalPageID { .appStore }
+    var title: String { AppStoreModel.title }
+    var symbol: String { "bag" }
+
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        if let page = PageFactory(services: services).appsWebPage(route: Self.storeRoute(appID: nil, installed: false)) {
+            webStorePages[key] = page
+            return page
+        }
+        return storePages.makeView(for: key)
+    }
+
+    func tabClosed(_ key: String) {
+        webStorePages.removeValue(forKey: key)?.close()
+        storePages.tabClosed(key)
+    }
+
+    /// The React page's fragment for a listing or the Installed tab.
+    nonisolated static func storeRoute(appID: String?, installed: Bool) -> String {
+        if installed { return "#/installed" }
+        guard let appID, var query = URLComponents(string: "x:") else { return "#/discover" }
+        query.queryItems = [URLQueryItem(name: "app", value: appID)]
+        return "#/discover?" + (query.percentEncodedQuery ?? "")
+    }
+}
+
+enum AppsServiceError: Error {
+    case unknownApp, noPage, noWindow, unknownCommand
+}
+

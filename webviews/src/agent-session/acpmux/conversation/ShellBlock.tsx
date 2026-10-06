@@ -1,15 +1,19 @@
 // An opened shell call: a "Shell" card with the command line, its output
 // and, when the command failed, its exit code.
+import { useT } from "../i18n";
 
 export function ShellBlock({ command, output, exitCode }: { command?: string; output?: string; exitCode?: number }) {
+  const t = useT();
   return (
     <div className="cv-shell">
-      <div className="cv-shell__label">Shell</div>
-      <pre className="cv-shell__body">
+      <div className="cv-shell__label">{t("shell.label")}</div>
+      <pre className="cv-shell__body selectable">
         {command && <span className="cv-shell__command">$ {command}</span>}
         {output && <span className="cv-shell__output">{output}</span>}
       </pre>
-      {exitCode !== undefined && exitCode !== 0 && <div className="cv-shell__exit">Exit code {exitCode}</div>}
+      {exitCode !== undefined && exitCode !== 0 && (
+        <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>
+      )}
     </div>
   );
 }

@@ -126,11 +126,11 @@ test "package consumer imports handwritten root and generated raw module" {
         wheel.pointer_frame_seq,
     );
     try std.testing.expectEqual(
-        @as(usize, 207),
+        @as(usize, 228),
         cmux.raw.protocol.command_count,
     );
     try std.testing.expectEqual(
-        @as(usize, 58),
+        @as(usize, 66),
         cmux.raw.protocol.event_count,
     );
     try std.testing.expect(

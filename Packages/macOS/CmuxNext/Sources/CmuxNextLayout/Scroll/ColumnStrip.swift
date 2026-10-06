@@ -24,6 +24,14 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     public var viewportWidth: CGFloat
     public var contentWidth: CGFloat
     public var gap: CGFloat
+    /// How much of the viewport's leading and trailing ends a floating side
+    /// dock covers (layout-model.md F6). Reveal, visibility and snapping
+    /// measure against the uncovered window between them; 0 without one.
+    public var leadingCover: CGFloat = 0
+    public var trailingCover: CGFloat = 0
+
+    /// Width of the uncovered window.
+    public var visibleWidth: CGFloat { max(1, viewportWidth - leadingCover - trailingCover) }
 
     public init(columns: [Column], viewportWidth: CGFloat, contentWidth: CGFloat, gap: CGFloat) {
         self.columns = columns
@@ -35,7 +43,7 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
     /// Builds the strip of a columns screen; nil for a split screen.
     public init?(layout: ScreenLayout, geometry: ScreenGeometry, gap: CGFloat) {
         guard geometry.isColumns else { return nil }
-        // Sticky columns never scroll: the strip is the scrolling columns only.
+        // Docked columns never scroll: the strip is the scrolling columns only.
         let scrolling = Set(geometry.columnOrder)
         let columns = layout.columns.compactMap { column -> Column? in
             guard scrolling.contains(column.id), let frame = geometry.columns[column.id] else { return nil }
@@ -45,6 +53,8 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
             return Column(id: column.id, frame: frame, panes: panes, paneFrames: frames)
         }
         self.init(columns: columns, viewportWidth: geometry.stripWidth, contentWidth: geometry.contentWidth, gap: gap)
+        leadingCover = max(0, geometry.uncoveredMinX - geometry.stripMinX)
+        trailingCover = max(0, geometry.stripMinX + geometry.stripWidth - geometry.uncoveredMaxX)
     }
 
     public var maxOffset: CGFloat { max(0, contentWidth - viewportWidth) }
@@ -59,22 +69,22 @@ public nonisolated struct ColumnStrip: Hashable, Sendable {
 
     /// A column at least as wide as the viewport cannot show whole (it is
     /// left-aligned). Narrower columns shrink their padding instead.
-    public func isWide(_ frame: CGRect) -> Bool { frame.width >= viewportWidth - 0.5 }
+    public func isWide(_ frame: CGRect) -> Bool { frame.width >= visibleWidth - 0.5 }
 
     /// Padding: the gap, shrunk when the column is nearly as wide as the view.
-    public func padding(for width: CGFloat) -> CGFloat { min(max((viewportWidth - width) / 2, 0), gap) }
+    public func padding(for width: CGFloat) -> CGFloat { min(max((visibleWidth - width) / 2, 0), gap) }
 
     /// True when `rect` (with its padding) lies inside the viewport at `offset`.
     public func isFullyVisible(_ rect: CGRect, at offset: CGFloat) -> Bool {
         let pad = padding(for: rect.width)
-        return rect.minX - pad >= offset - 0.5 && rect.maxX + pad <= offset + viewportWidth + 0.5
+        return rect.minX - pad >= offset + leadingCover - 0.5 && rect.maxX + pad <= offset + leadingCover + visibleWidth + 0.5
     }
 
     /// A column counts as visible when it shows whole, or when it is wider
     /// than the view and covers all of it.
     public func isColumnVisible(_ index: Int, at offset: CGFloat) -> Bool {
         let frame = columns[index].frame
-        if isWide(frame) { return frame.minX <= offset + 0.5 && frame.maxX >= offset + viewportWidth - 0.5 }
+        if isWide(frame) { return frame.minX <= offset + leadingCover + 0.5 && frame.maxX >= offset + leadingCover + visibleWidth - 0.5 }
         return isFullyVisible(frame, at: offset)
     }
 

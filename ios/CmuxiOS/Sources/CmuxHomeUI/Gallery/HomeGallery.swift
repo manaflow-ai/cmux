@@ -46,8 +46,15 @@ public enum HomeGallery {
         let group = store.rows.first { $0.kind == .group }?.id
         for (name, id) in [("chief", chief), ("group", group)] {
             guard let id else { continue }
+            // The gallery's own open (the page is in before the screen draws)
+            // pairs with the close after its captures; the screen's binding
+            // pairs its own.
             await store.open(id)
-            navigation.setViewControllers([home, ConversationViewController(store: store, conversation: id)], animated: false)
+            defer { store.close(id) }
+            let screen = ConversationViewController(store: store, conversation: id)
+            navigation.setViewControllers([home, screen], animated: false)
+            navigation.view.layoutIfNeeded()
+            await screen.rendered()
             try await shot.capture("conversation-\(name)-light")
             if name == "chief" {
                 window.overrideUserInterfaceStyle = .dark
@@ -75,7 +82,10 @@ public enum HomeGallery {
             await waitUntil(store) { !$0.isOnline }
             try await shot.install(navigation, name: "home-comfortable-offline-light")
             if let chief {
-                navigation.setViewControllers([home, ConversationViewController(store: store, conversation: chief)], animated: false)
+                let screen = ConversationViewController(store: store, conversation: chief)
+                navigation.setViewControllers([home, screen], animated: false)
+                navigation.view.layoutIfNeeded()
+                await screen.rendered()
                 try await shot.capture("conversation-chief-offline-light")
                 navigation.setViewControllers([home], animated: false)
             }

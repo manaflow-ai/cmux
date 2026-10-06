@@ -36,6 +36,10 @@ public enum ControlActionOutcome: Sendable, Hashable {
     /// The action cannot run, with a typed reason: a missing daemon
     /// capability, an unported feature, or a target it cannot act on.
     case refused(String)
+    /// An explicit target names nothing (`not_found`), with the reason.
+    case notFound(String)
+    /// An administrator turned off the action's feature (`DisabledFeatures`).
+    case featureDisabled(String)
     /// A destructive action ran without `confirm: true`; nothing happened.
     case confirmationRequired
 }

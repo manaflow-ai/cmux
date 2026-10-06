@@ -6,9 +6,9 @@ struct TasksListView: View {
     @Environment(\.tasksColors) private var colors
 
     var body: some View {
-        let tasks = model.visibleTasks
+        let tasks = model.shownTasks
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 1, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 1, pinnedViews: colors.surfaceIsOpaque ? [.sectionHeaders] : []) {
                 ForEach(model.statuses.filter { $0.category != .canceled }) { status in
                     let rows = tasks.filter { $0.status == status.id }
                     if !rows.isEmpty {
@@ -44,6 +44,6 @@ struct StatusHeader: View {
             Spacer()
         }
         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 4)
-        .background(colors.background)
+        .background(colors.surface)
     }
 }

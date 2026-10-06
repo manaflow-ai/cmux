@@ -68,9 +68,14 @@ impl TimerSchedule {
         now < self.last_activity + ACTIVE_WINDOW
     }
 
-    /// Whether a tick or more has passed since `update_timers` last ran.
-    pub(crate) fn overdue(&self, now: Instant) -> bool {
-        now >= self.last_tick + TIMER_TICK
+    /// Whether `update_timers` must run at `now`: a tick or more has passed
+    /// since it last ran, or the scheduled tick (a sweep or a keepalive that
+    /// can fall less than a tick after an event-driven run) has come. The
+    /// second condition matters: without it a scheduled tick that is not
+    /// overdue never runs, `next_tick` stays in the past, and the driver
+    /// wakes for it without pause.
+    pub(crate) fn due(&self, now: Instant) -> bool {
+        now >= self.last_tick + TIMER_TICK || self.next_tick().is_some_and(|tick| tick <= now)
     }
 
     /// `update_timers` ran at `now`.
@@ -136,6 +141,20 @@ mod tests {
         assert!(next <= later, "the first tick after an idle period is due now");
         schedule.on_tick(later);
         assert_eq!(schedule.next_tick(), Some(later + TIMER_TICK));
+    }
+
+    #[test]
+    fn a_scheduled_tick_soon_after_an_event_driven_run_is_still_due() {
+        let start = Instant::now();
+        let mut schedule = TimerSchedule::new(start, false);
+        // An event-driven run 100 ms before the key sweep: the sweep is not
+        // overdue by the 250 ms rule, but it is due.
+        let sweep = start + EXPIRY_SWEEP;
+        schedule.on_tick(sweep - Duration::from_millis(100));
+        assert_eq!(schedule.next_tick(), Some(sweep));
+        assert!(schedule.due(sweep), "the sweep must run when it comes");
+        schedule.on_tick(sweep);
+        assert_eq!(schedule.next_tick(), None, "and then nothing is pending");
     }
 
     #[test]

@@ -605,22 +605,21 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let uid = fs::metadata(&root).unwrap().uid();
     let terminal_id = TERMINAL_ONE;
-    let incarnation = INCARNATION_ONE;
-    let host_start_nonce = "02".repeat(32);
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
         terminal_id: terminal_id.to_string(),
-        incarnation: incarnation.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
         owner_token: "01".repeat(32),
         host_pid: std::process::id(),
-        host_start_nonce,
+        host_start_nonce: "02".repeat(32),
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -716,6 +715,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -810,12 +810,11 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
     let uid = fs::metadata(&host_root).unwrap().uid();
-    let terminal_id = TERMINAL_ONE;
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
-        terminal_id: terminal_id.to_string(),
+        terminal_id: TERMINAL_ONE.to_string(),
         incarnation: INCARNATION_ONE.to_string(),
-        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
         owner_token: "01".repeat(32),
         host_pid: u32::MAX,
         host_start_nonce: "02".repeat(32),
@@ -825,6 +824,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -2188,6 +2188,7 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
             &json!({"kind":"test","id":"boundary"}),
             &json!([]),
             None,
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -2293,6 +2294,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
                 &json!({"created":true}),
                 &created_path,
                 &json!([]),
+                None,
                 None,
             )
             .unwrap();
@@ -3871,7 +3873,7 @@ fn registries_created_before_workspace_pin_gain_the_column_unpinned() {
             "workspace-changed",
             "one",
             &[workspace(1, "one", "Workspace")],
-            None,
+            Some(&workspace(1, "one", "Workspace").public_id),
             &update,
             &json!({"key":"one"}),
         )
@@ -3928,7 +3930,7 @@ fn registries_created_before_marked_unread_gain_the_column_unmarked() {
             "workspace-changed",
             "one",
             &[workspace(1, "one", "Workspace")],
-            None,
+            Some(&workspace(1, "one", "Workspace").public_id),
             &update,
             &json!({"key":"one"}),
         )
@@ -6311,32 +6313,4 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
     fs::remove_dir_all(root).unwrap();
 }
 
-#[test]
-fn terminal_keep_persists_and_rejects_unknown_and_closed_terminals() {
-    let root = temp_root("terminal-keep-set");
-    {
-        let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
-        seed_workspace(&mut registry, "one");
-        reserve_terminal(&mut registry, TERMINAL_ONE, 0);
-        assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
-        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-        registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-        let unknown = registry.set_terminal_keep(TERMINAL_TWO, true).unwrap_err();
-        assert!(unknown.to_string().contains("terminal_not_found"));
-    }
-    let mut registry = WorkspaceRegistry::open(&root, "terminal-keep-set").unwrap();
-    assert!(registry.terminal_keep(TERMINAL_ONE).unwrap());
-    assert_eq!(registry.kept_terminals().unwrap().len(), 1);
-    registry.set_terminal_keep(TERMINAL_ONE, false).unwrap();
-    assert!(!registry.terminal_keep(TERMINAL_ONE).unwrap());
-
-    registry.set_terminal_keep(TERMINAL_ONE, true).unwrap();
-    let close = WorkspaceMutation::new("close-kept", "test").unwrap();
-    registry.close_terminal(&close, None, Some(1), TERMINAL_ONE, None).unwrap();
-    assert_eq!(registry.prune_terminal_keep().unwrap(), 1);
-    assert!(registry.kept_terminals().unwrap().is_empty());
-    let closed = registry.set_terminal_keep(TERMINAL_ONE, true).unwrap_err();
-    assert!(closed.to_string().contains("terminal_not_found"));
-    drop(registry);
-    fs::remove_dir_all(root).unwrap();
-}
+mod terminal_keep_tests;

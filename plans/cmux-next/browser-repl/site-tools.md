@@ -1,4 +1,4 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570. History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570 and resynced with main at 3b15ee455cb (#17256). History and authorship are in those PRs. Lines that start with "cmux-next:" mark where cmux-next differs from main. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Site tools (`sites`)
 
@@ -20,7 +20,12 @@ page assets, WebMCP and a secure sign-in handoff, with three rules:
    cmux enforces this in the API, not as policy text
    ([confirmation taxonomy](#confirmation-taxonomy)): a write without a draft id is a draft, `{ confirm: true }` without a
    draft id is an error, a draft is single-use, expires after 30 minutes and
-   lives only in the REPL session that made it.
+   lives only in the REPL session that made it. The tool copies its input
+   when it makes the draft, and the draft it returns is a frozen copy with
+   a frozen preview, so changing the input object, the draft or its preview
+   afterwards changes nothing: the confirmed call performs the action the
+   preview showed. The status and expiry the confirm step checks stay in the
+   session; `sites.drafts.get(id)` reads the current status.
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
    later from script) fails with `not_signed_in` and names the fix; a CAPTCHA
    is reported, never solved; a wrong Google account is an HTTP 403 that names
@@ -61,11 +66,11 @@ Read and write columns name the method.
 | LinkedIn | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
 | X (Twitter) | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
 | GitHub | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
-| Linear | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query()` (read-only GraphQL) |
+| Linear | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query(text, variables, { operationName })` (read-only GraphQL) |
 | Jira | `sites.jira.issue` (description and comments as Markdown), `.search(jql, { site })`, `.me` |
 | Other site guides (Airtable, Amazon, Asana, ClickUp, Confluence, Discord, Google Forms, Trello, Notion UI) | none: they are hints, not tools; `snapshot()` and Playwright drive these sites |
 | Page assets | `sites.pageAssets.list(page?)`, `.bundle(inventory, { kinds, assetIds, dir })`; also writes inline SVGs and fetches through the session |
-| WebMCP | `sites.webmcp.tools(page?)`, `.call(name, input)`; WebKit has no WebMCP, so only tools a page registers with its own implementation; non-read-only tools are drafts |
+| WebMCP | `sites.webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })`; WebKit has no WebMCP, so only tools a page registers with its own implementation; every call is a draft (see "WebMCP calls") |
 | Secure sign-in | `sites.browserAuth.request(page?, { origin, fields, submit })`: a cmux sheet collects the values and the app fills them; sign-in method choice (`options`) and QR are not implemented |
 | Background content | `tabs.content({ urls, format })` (not in `sites`) |
 | History | `tabs.history({ query, from, to, limit })` over cmux history |
@@ -86,8 +91,8 @@ files go to `options.path`, else the session's temporary directory. Every
 error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `not_found`, `forbidden`, `timeout`, `captcha`, `consent_required`,
 `no_captions`, `confirm_required`, `draft_required`, `draft_not_found`,
-`draft_used`, `draft_expired`, `compose_mismatch`, `write_requires_draft`,
-`unsupported`.
+`draft_mismatch`, `draft_used`, `draft_expired`, `draft_changed`,
+`compose_mismatch`, `write_requires_draft`, `unsupported`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
@@ -96,16 +101,16 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleSheets.info(url)`, `.read(url, { gid, sheet, range })`, `.readAll(url)`, `.export(url, { format, gid })` | `/htmlview` for sheet names, `/export?format=csv&gid=` | read |
 | `googleSlides.read(url)`, `.export(url, { format })` | `/export?format=` | read |
 | `googleDrive.download(url)`, `.export(url, { kind, format })` | drive.usercontent.google.com `/download`, Docs export | read |
-| `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first), attachment links fetched with the session | read |
+| `gmail.search(q, { limit, page, uid })`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)` | Gmail web app in a background tab: thread rows (`tr.zA`), messages (`.adn`, expanded first); attachments are Gmail's attachment chips (`.aQH`, `.aZo`, never a link in the message body) whose link is Gmail's own `https://mail.google.com/mail/...view=att` URL, fetched with the session | read |
 | `gmail.send({ to, cc, bcc, subject, body } \| { threadId, body, replyAll })` | draft; confirmed: Gmail compose (`?view=cm`) or the thread's Reply, body checked in the composer, Send, wait for "Message sent" and the undo window | write [9], [14] |
 | `googleCalendar.events({ date, view, query, limit })` | Calendar view or search in a background tab; each `[data-eventid]` and its screen-reader description | read |
 | `googleCalendar.create({ title, start, end, allDay, description, location, guests, timeZone, recurrence })` | draft; confirmed: `calendar/render?action=TEMPLATE`, Save, Send invitations only when the draft has guests | write [9], [14] |
 | `googleSearch.search(q, options)` | the basic results page from the session's fetch (`/url?q=` links carry the destination), parsed in a blank tab; else the full page in a background tab (`div[data-rpos]` blocks, whose opaque `/goto` links are kept with `displayUrl`) | read |
 | `youtube.search`, `.metadata`, `.captions`, `.comments` | desktop watch/results HTML (`ytInitialPlayerResponse`, `ytInitialData`, also as an escaped string), InnerTube `/youtubei/v1/next` | read |
-| `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A video with no track fails as `no_captions` | read |
+| `youtube.transcript(v, { lang, timestamps, format })` | in order: InnerTube `/youtubei/v1/player` as the IOS, then ANDROID_VR client through the session's fetch (native clients' caption URLs need no player token; YouTube requires one for WEB subtitles, as yt-dlp's PO Token Guide documents), the track read as json3; the same calls from a youtube.com page; the watch page's track URL; last, the player in a muted background tab. A caption URL is fetched only when it is https on `www.youtube.com`, `m.youtube.com` or `youtube.com` (track URLs come from page data); other tracks are skipped. A video with no track fails as `no_captions` | read |
 | `slack.workspaces()`, `.channels`, `.history`, `.replies`, `.search`, `.user`, `.call(team, readMethod, params)` | Slack Web API from an app.slack.com tab, token from that page's `localStorage` | read |
 | `slack.post({ team, channel, text, threadTs })` | draft; confirmed: `chat.postMessage` | write [9] |
-| `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin | read |
+| `notion.accounts()`, `.search(q, { spaceId })`, `.read(url)` | `/api/v3` (`getSpaces`, `search`, `loadPageChunk`, `syncRecordValues`) same-origin, on `app.notion.com`, else `www.notion.so`; `{ origin }` pins one of those two exactly and refuses any other | read |
 | `notion.append(page, markdown)` | draft; confirmed: `saveTransactions` (`set` and `listAfter` per block, after the last block) | write [9] |
 | `linkedin.me()`, `.profile(id)` | Voyager API same-origin, CSRF from the page's cookie | read |
 | `linkedin.search(q, { type })`, `.feed()` | result and feed cards in a background tab | read |
@@ -117,9 +122,10 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
-| `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin | read |
-| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads with the session | read |
-| `webmcp.tools(page?)`, `.call(name, input)` | the page's `navigator.modelContext` implementation | read-only tools read; others write |
+| `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
+| `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin, only on a site whose exact origin is in the signed-in account's `jira.sites()` list (read once per session, again when a site is missing); any other `*.atlassian.net` site fails as `invalid` before a request. When the domain policy blocks `home.atlassian.com` (`allowedDomains: ["*.atlassian.net"]`), the site is checked on its own origin instead: its `/rest/api/3/myself` must answer with an account (one cookie-bearing request to that site, which the policy allows), else the call fails naming `home.atlassian.com` to allow; `jira.sites()` then fails as `blocked` | read |
+| `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads through the session's fetch, with cookies (`credentials: "same-origin"`) only for assets on the page's own origin while the current tab is on it, and none (`"omit"`) for every other asset, since the page chooses the URLs | read |
+| `webmcp.tools(page?)`, `.call(name, input, { trustReadOnlyHint })` | the page's `navigator.modelContext` implementation | write; a call with `trustReadOnlyHint: true` to a tool that declares `readOnlyHint` reads |
 | `browserAuth.request(page?, { origin, fields, submit })` | native sheet, `sites/auth-fill.js` run by the app | fills user-typed values |
 | `sites.list()`, `sites.help(name)`, `sites.drafts.list()/get(id)/discard(id)` | | |
 
@@ -173,20 +179,43 @@ user approved this exact preview; the API cannot see the user, so it makes
 the preview and the second call unavoidable and makes approval impossible to
 skip by accident.
 
+### WebMCP calls
+
+A page writes its WebMCP tools' annotations, so `readOnlyHint` is advisory: a
+page can mark a tool that changes or sends data as read-only.
+`sites.webmcp.call(name, input)` therefore returns a draft for every tool,
+whatever it declares, and only `call(draftId, { confirm: true })` runs it.
+The agent can skip the draft for one call with
+`call(name, input, { trustReadOnlyHint: true })`, which runs the tool at once
+only when it declares `readOnlyHint`; any other tool still returns a draft.
+That option is the agent's statement that it accepts the page's claim for
+this call. A name the page does not list fails as `not_found` and is not run.
+
 ## Secure sign-in
 
 `sites.browserAuth.request({ origin, fields, submit })` checks that each
-selector is one visible, enabled text field in the tab's origin and that all
-are in one frame, marks them with a random attribute, and calls the driver's
-`auth.request`. The app shows a sheet on the browser pane's window with the
-origin and one field per request (secure text for passwords). On Fill, the
-app runs `sites/auth-fill.js` in the agent content world of that frame: it
-sets each value with the native setter and dispatches `input` and `change`,
-so framework-controlled fields see it. The REPL receives only a status:
+selector is one visible, enabled credential field (a password input, or a
+username or one-time-code input by type, `autocomplete` or name; a
+requested password only into a password input) in the tab's origin and that
+all are in one frame, marks them with a random attribute, and calls the
+driver's `auth.request`. The app shows a sheet on the browser pane's window
+naming the origin of the frame that holds the fields, from WebKit's record of
+it (and the page's origin when the frame is embedded from another), with one
+field per request (secure text for passwords). On Fill, the app runs
+`sites/auth-fill.js` in its own content world of that frame, which agent
+code cannot script: it checks the credential rule again, sets each value
+with the native setter and dispatches `input` and `change`, so
+framework-controlled fields see it. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
-`page_changed`, `locator_invalid` or `submission_failed`. The fill script is
-read from the signed app bundle, never from the REPL, so an agent cannot
-substitute code that receives the values.
+`page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
+or `submission_failed`. The fill script is read from the signed app bundle,
+never from the REPL, so an agent cannot substitute code that receives the
+values. The sheet says what holds: the agent does not receive the values,
+but the page's scripts, and code the agent runs in the page, can read a
+filled field. Under a domain policy the driver refuses the request
+(`blocked`) when the tab's page, or the frame that holds the fields (by
+WebKit's record of it and by the document it shows when the request
+arrives), is on a domain the policy blocks.
 
 ## Decisions for the user
 

@@ -135,7 +135,7 @@ public actor LoopbackForwardClient {
 
     private static func map(_ error: DaemonError) -> LoopbackForwardError {
         switch error {
-        case .command(_, let message, let code): .from(code: code, message: message)
+        case .command(_, let message, let code, _, _): .from(code: code, message: message)
         case .timedOut: .timedOut
         default: .unavailable(error.description)
         }

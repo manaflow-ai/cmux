@@ -3,6 +3,7 @@ import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";
 import { sessionEntry } from "../acpmux/sessionList";
+import { workedTurnRows } from "../acpmux/workedTurn";
 
 const catalog = [
   {
@@ -18,12 +19,14 @@ const catalog = [
 
 export type PreviewFixture = { id: string; label: string; snapshot: AcpmuxSnapshot; replay?: AcpmuxRow[] };
 
+const previewStartedAt = Date.now() - 5 * 60_000;
+
 function baseSnapshot(title: string, harness = "codex"): AcpmuxSnapshot {
   return {
     type: "snapshot",
     protocolVersion: 1,
     rows: [],
-    sessions: [{ sessionId: "preview-session", title }],
+    sessions: [sessionEntry({ sessionId: "preview-session", title, harness })],
     summary: {
       sessionId: "preview-session",
       title,
@@ -152,7 +155,7 @@ function syntheticSnapshot(): AcpmuxSnapshot {
     return {
       id: `seed-${index}`,
       version: 1,
-      at: index,
+      at: previewStartedAt + index,
       kind,
       text:
         kind === "activity"
@@ -181,13 +184,19 @@ function syntheticSnapshot(): AcpmuxSnapshot {
 }
 
 function permissionSnapshot(): AcpmuxSnapshot {
-  const snapshot = baseSnapshot("Permission and queue", "codex");
+  const snapshot = baseSnapshot("Update project dependencies", "codex");
   snapshot.rows = [
-    { id: "permission-user", version: 1, at: 1, kind: "user", text: "Please update the project dependencies." },
+    {
+      id: "permission-user",
+      version: 1,
+      at: previewStartedAt,
+      kind: "user",
+      text: "Please update the project dependencies.",
+    },
     {
       id: "permission-plan",
       version: 1,
-      at: 2,
+      at: previewStartedAt + 1000,
       kind: "plan",
       text: "I need to edit package files and run the test suite.",
     },
@@ -208,8 +217,77 @@ function permissionSnapshot(): AcpmuxSnapshot {
   return snapshot;
 }
 
+function groupedPermissionSnapshot(): AcpmuxSnapshot {
+  const snapshot = permissionSnapshot();
+  snapshot.permission = undefined;
+  snapshot.permissionGroups = {
+    supported: true,
+    ready: true,
+    loading: false,
+    busy: false,
+    chatAllowance: false,
+    groups: [
+      {
+        groupId: "preview-group",
+        sessionId: snapshot.sessionId!,
+        turnId: "preview-turn",
+        revision: 4,
+        state: "pending",
+        decision: null,
+        decisions: ["allow_once", "allow_chat", "deny"],
+        items: [
+          {
+            permissionId: "edit-package",
+            state: "pending",
+            request: {
+              toolCall: {
+                title: "Update package.json",
+                kind: "edit",
+                rawInput: { path: "package.json", dependency: "typescript" },
+              },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+          {
+            permissionId: "edit-lockfile",
+            state: "pending",
+            request: {
+              toolCall: { title: "Update bun.lock", kind: "edit", rawInput: { path: "bun.lock" } },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+          {
+            permissionId: "run-tests",
+            state: "pending",
+            request: {
+              toolCall: { title: "Run project tests", kind: "execute", rawInput: { command: "bun test" } },
+              options: [
+                { optionId: "yes", name: "Allow", kind: "allow_once" },
+                { optionId: "no", name: "Deny", kind: "reject_once" },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  };
+  return snapshot;
+}
+
 const codex = recordingRows(codexRecording, "Codex recorded session", "codex");
 const claude = recordingRows(claudeRecording, "Claude recorded session", "claude");
+
+function workedTurnSnapshot(): AcpmuxSnapshot {
+  const snapshot = baseSnapshot("Add retries to the fetch helper", "codex");
+  snapshot.rows = workedTurnRows(previewStartedAt);
+  return snapshot;
+}
 
 function sessionListSnapshot(): AcpmuxSnapshot {
   const now = Date.now();
@@ -286,6 +364,8 @@ export const previewFixtures: PreviewFixture[] = [
     replay: codex.replay,
   },
   { id: "synthetic-5000", label: "5,000 row fling", snapshot: syntheticSnapshot() },
+  { id: "grouped-permissions", label: "Grouped tool permissions", snapshot: groupedPermissionSnapshot() },
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
   { id: "session-list", label: "Session list", snapshot: sessionListSnapshot() },
+  { id: "worked-turn", label: "Worked turn with edits", snapshot: workedTurnSnapshot() },
 ];

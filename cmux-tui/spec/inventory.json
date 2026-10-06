@@ -27,14 +27,27 @@
     "client.metadata.update",
     "client.sizing.release",
     "client.sizing.set",
+    "closed.list",
+    "closed.reopen",
+    "column.update",
     "frontend_projection.get",
     "frontend_projection.put",
+    "git.checkpoint.create",
+    "git.checkpoint.diff",
+    "git.checkpoint.get",
+    "git.checkpoint.list",
+    "git.checkpoint.pin",
+    "git.checkpoint.unpin",
+    "git.diff",
+    "git.files.search",
+    "git.status",
     "machine.get",
     "machine.list",
     "notification.ack",
     "notification.clear",
     "notification.create",
     "notification.list",
+    "origin.confirmation.issue",
     "pairing_request.list",
     "pairing_request.resolve",
     "pane.close",
@@ -52,6 +65,18 @@
     "pane.viewport_width.set",
     "pane.zoom",
     "request.cancel",
+    "room.create",
+    "room.delete",
+    "room.follow",
+    "room.list",
+    "room.move",
+    "room.pin",
+    "room.unpin",
+    "room.update",
+    "saved_tab_group.delete",
+    "saved_tab_group.list",
+    "saved_tab_group.reopen",
+    "saved_tab_group.save",
     "screen.close",
     "screen.create",
     "screen.focus",
@@ -59,7 +84,16 @@
     "screen.layout.export",
     "screen.layout.undo",
     "screen.list",
+    "screen.move",
     "screen.rename",
+    "screen.update",
+    "screen_group.add_screens",
+    "screen_group.create",
+    "screen_group.get",
+    "screen_group.list",
+    "screen_group.remove_screens",
+    "screen_group.ungroup",
+    "screen_group.update",
     "session.creation.resolve",
     "session.events",
     "session.get",
@@ -97,7 +131,19 @@
     "tab.get",
     "tab.list",
     "tab.move",
+    "tab.pin",
     "tab.rename",
+    "tab.unpin",
+    "tab.update",
+    "tab_group.add_tabs",
+    "tab_group.close",
+    "tab_group.create",
+    "tab_group.get",
+    "tab_group.list",
+    "tab_group.move",
+    "tab_group.remove_tabs",
+    "tab_group.ungroup",
+    "tab_group.update",
     "terminal.attach",
     "terminal.close",
     "terminal.copy",
@@ -121,15 +167,35 @@
     "terminal.viewport.scroll",
     "terminal.wait",
     "terminal.wait_exit",
+    "window_record.delete",
+    "window_record.list",
+    "window_record.put",
     "workspace.close",
     "workspace.create",
+    "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",
     "workspace.layout.apply",
     "workspace.list",
     "workspace.move",
+    "workspace.place",
+    "workspace.placement.list",
     "workspace.rename",
-    "workspace.run"
+    "workspace.run",
+    "workspace.update",
+    "workspace_group.create",
+    "workspace_group.delete",
+    "workspace_group.list",
+    "workspace_group.move",
+    "workspace_group.update",
+    "workspace_log.append",
+    "workspace_log.clear",
+    "workspace_log.list",
+    "workspace_progress.clear",
+    "workspace_progress.set",
+    "workspace_status.clear",
+    "workspace_status.list",
+    "workspace_status.set"
   ],
   "profiles": {
     "control": "Base authenticated session-control commands available to ordinary SDK clients.",
@@ -143,6 +209,7 @@
       "add-screens-to-screen-group",
       "add-tabs-to-tab-group",
       "apply-layout",
+      "bind-conversation-tab-session",
       "clear-history",
       "clear-window-title",
       "client-focus",
@@ -218,9 +285,11 @@
       "move-workspace-group",
       "move-workspace-to-group",
       "new-browser-tab",
+      "new-conversation-tab",
       "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",
+      "new-row",
       "new-screen",
       "new-tab",
       "new-workspace",
@@ -261,13 +330,14 @@
       "send-key",
       "set-client-info",
       "set-client-sizing",
-      "set-column-sticky",
+      "set-column-dock",
       "set-default-colors",
       "set-frontend-browser-history",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
       "set-ratio",
+      "set-row-heights",
       "set-screen-metadata",
       "set-screen-pinned",
       "set-size-counts",
@@ -282,6 +352,8 @@
       "split",
       "swap-pane",
       "terminal-events",
+      "terminal-history",
+      "terminal-read-range",
       "terminal-resources",
       "undo-layout",
       "ungroup-screen-group",
@@ -327,7 +399,10 @@
       "detach-attached-view",
       "url-open-subscribe",
       "url-open-claim",
-      "url-open-result"
+      "url-open-result",
+      "terminal-clipboard-subscribe",
+      "terminal-clipboard-reply",
+      "snapshot-request"
     ],
     "local-admin": [
       "server-stats",
@@ -346,7 +421,19 @@
       "conversation-op",
       "conversation-typing",
       "conversation-bind",
-      "conversation-agent-token"
+      "conversation-agent-token",
+      "browser-host-provider",
+      "cloud-session-set",
+      "cloud-session-clear",
+      "cloud-session-status",
+      "cloud-inbox-list",
+      "cloud-conversation-snapshot",
+      "cloud-conversation-history",
+      "cloud-conversation-op",
+      "cloud-inbox-subscribe",
+      "cloud-inbox-unsubscribe",
+      "cloud-conversation-subscribe",
+      "cloud-conversation-unsubscribe"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -675,6 +762,18 @@
       ]
     },
     {
+      "name": "terminal-clipboard-read",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "terminal-clipboard-read-cancelled",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "vt-state",
       "streams": [
         "attach-byte"
@@ -714,6 +813,42 @@
       "name": "workspace-renamed",
       "streams": [
         "subscribe-deltas"
+      ]
+    },
+    {
+      "name": "cloud-conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-conversation-resynced",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-inbox-reset",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-subscription-state",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "cloud-session-needed",
+      "streams": [
+        "subscribe"
       ]
     }
   ],
@@ -1504,6 +1639,8 @@
         "TerminateAck": 21,
         "DetachAck": 22,
         "InputAck": 23,
+        "ClipboardReadRequest": 24,
+        "ClipboardReadCancel": 25,
         "Input": 100,
         "Paste": 101,
         "ViewerSize": 102,
@@ -1515,7 +1652,8 @@
         "SetCellPixelSize": 108,
         "SetKittyGraphicsLimits": 109,
         "Activate": 110,
-        "Detach": 111
+        "Detach": 111,
+        "ClipboardReadReply": 112
       }
     },
     "machine_provider_v1": {

@@ -5,11 +5,13 @@ import {
   TriggerId,
   AutomationCreateParams,
   AutomationDeliverParams,
+  AutomationDeployParams,
   AutomationFireParams,
   AutomationSelector,
   AutomationUpdateParams,
   Run,
   RunDispatchedParams,
+  RunPolicyApplyParams,
   RunReportParams,
   RunsListParams
 } from "./automations.ts"
@@ -21,6 +23,9 @@ import { TeamId } from "./schemas.ts"
  * SchedulerDO of the caller's team (a personal account is a team of one).
  */
 
+/** Errors of ops that set a code body: the Worker checks the commit and its bundle in the team repository. */
+export const codeErrors = ["code.not_found", "code.unavailable", "deploy.limit"]
+
 export const AutomationCreate = def({
   name: "automation.create",
   owner: "cloud:SchedulerDO",
@@ -30,7 +35,7 @@ export const AutomationCreate = def({
   principals: ["session", "install"],
   params: AutomationCreateParams,
   result: Automation,
-  errors: [...mutationErrors, "automation.limit", "trigger.invalid"],
+  errors: [...mutationErrors, "automation.limit", "trigger.invalid", ...codeErrors],
   docs: "Create an automation (triggers, body, target policy) in the caller's team.",
   cli: { path: "automation create", visible: true },
   mcp: { expose: "opt_in", group: "automation" }
@@ -45,7 +50,7 @@ export const AutomationUpdate = def({
   principals: ["session", "install"],
   params: AutomationUpdateParams,
   result: Automation,
-  errors: [...mutationErrors, "selector.not_found", "trigger.invalid", "version.conflict"],
+  errors: [...mutationErrors, "selector.not_found", "trigger.invalid", "version.conflict", ...codeErrors],
   docs: "Change an automation; the version increments and later runs use the new version.",
   cli: { path: "automation update", visible: true },
   mcp: { expose: "opt_in", group: "automation" }
@@ -64,6 +69,21 @@ export const AutomationDelete = def({
   docs: "Delete an automation. Its run history stays.",
   cli: { path: "automation delete", visible: true },
   mcp: { expose: "never", group: "automation" }
+})
+
+export const AutomationDeploy = def({
+  name: "automation.deploy",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "execute",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationDeployParams,
+  result: Automation,
+  errors: [...mutationErrors, "selector.not_found", "version.conflict", "body.not_code", ...codeErrors],
+  docs: "Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day.",
+  cli: { path: "automation deploy", visible: true },
+  mcp: { expose: "opt_in", group: "automation" }
 })
 
 export const AutomationRunNow = def({
@@ -186,6 +206,7 @@ export const automationOps = [
   AutomationCreate,
   AutomationUpdate,
   AutomationDelete,
+  AutomationDeploy,
   AutomationRunNow,
   AutomationList,
   AutomationGet,
@@ -216,5 +237,6 @@ export const schedulerInternalOps: ReadonlyArray<CloudOpDef> = [
   internal("automation.fire", AutomationFireParams, "Internal: a cron trigger fired for one scheduled instant."),
   internal("automation.deliver", AutomationDeliverParams, "Internal: a verified webhook delivery for one trigger."),
   internal("run.report", RunReportParams, "Internal: a run's Workflow reports progress."),
-  internal("run.dispatched", RunDispatchedParams, "Internal: the run's Workflow instance exists.")
+  internal("run.dispatched", RunDispatchedParams, "Internal: the run's Workflow instance exists."),
+  internal("scheduler.run_policy", RunPolicyApplyParams, "Internal: TeamDO pushed whether the team allows automation runs (agents.allowedClasses run).")
 ]

@@ -244,11 +244,13 @@ Not decided here, or UNVERIFIED: ScreenCaptureKit content filters for "authentic
 
 | Step | State | Where |
 | --- | --- | --- |
-| a | done: reducer, redaction, retention, thumbnail sizing; CI red then green | https://github.com/manaflow-ai/cmux-cua/pull/28 (draft, base `cmux-cua-native`) |
+| a | landed: reducer, redaction, retention, thumbnail sizing; CI red then green | https://github.com/manaflow-ai/cmux-cua/pull/28, merged 2026-10-04 (84a78a91) |
 | b | done: file store, `ActivityHost`, daemon gate on every tool call, thumbnails, idle sweep; hosted Linux CI green (31 core + 3 daemon tests); Windows compiles | same PR, 68d1e0aec, b5f791766 |
 | c | done for the activity methods of 6a (list, get, timeline, frame, subscribe stream, stop/pause/resume, agent stop/allow, recording, policy); `cmux-cua sessions` CLI verbs and the MCP read tools are not done | same PR |
 | e | done (SwiftUI prototype views) | feat-cmux-next |
 | f | partly done: `AgentActivitySocketSource` (stream + requests, fake-host tests), `cmux://agent-activity` page in a browser tab record, palette and Window menu "Agent Activity"; not done: AppKit rewrite (decision 10), titlebar indicator, Stop All, Computer Use Stop/Focus rebinding, live watch | feat-cmux-next d7c609149b0, 04b1f9019c4 |
-| d, g, h, i | not started | |
+| g | landed: pin 16e8b38a (cmux-cua #30, #32, #25, #28, #31); fleet build e9227f3fd80f8a4ece82159d bundles the helper with the activity_* methods | feat-cmux-next de8f522a4d9 |
+| lease | landed in cmux-cua-core (#31, pure reducer, shared vectors); daemon wiring not done | automation-lease.md |
+| d, h, i | not started. Step i adds: the Linux backend opens one X11 connection per display (not the process DISPLAY), so each session can get its own display; until then one shared display per machine | |
 
 Notes: user stop, pause and resume are enforced by the connection's authenticated class (`user`, the host-authorized connection), not by the claimed `origin` channel. `StopAgent {actor}` stops every live session of one agent and refuses its new sessions until the user allows it again. Until step d, agents are keyed by the parent process of their MCP proxy (`agent:<ppid>`, kind from its process name), attribution `none`. The act frame is captured after the tool returns, before the reply, with a 300 ms budget. The HTTP MCP transport and the second (non-Unix) call loop in `serve.rs` do not log activity yet. cmux-cua's full Linux test step is red on trunk (6 pre-existing failures in `bundle`, `telemetry`, `version_check`), so the activity tests run in their own CI step first.

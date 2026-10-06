@@ -11,7 +11,7 @@ final class HomeSearchResultsController: UIViewController, UISearchResultsUpdati
     /// cancels the previous task, so at most one search is in flight.
     static let debounce: Duration = .milliseconds(150)
 
-    var onOpen: (@MainActor (ConversationID, IdempotencyKey) -> Void)?
+    var onOpen: (@MainActor (ConversationID, HomeTranscriptFocus) -> Void)?
     var isOnline = true {
         didSet { if oldValue != isOnline { showState() } }
     }
@@ -158,7 +158,7 @@ final class HomeSearchResultsController: UIViewController, UISearchResultsUpdati
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
         guard let id = dataSource?.itemIdentifier(for: indexPath), let hit = hits[id] else { return }
-        onOpen?(hit.conversation, hit.message.clientMessageID)
+        onOpen?(hit.conversation, HomeTranscriptFocus(hit))
     }
 }
 

@@ -44,7 +44,8 @@ import Testing
     /// Old scripts pass `--room`; it reaches the `space` argument.
     @Test func theOldRoomArgumentStillValidates() throws {
         let action = try #require(Self.catalog.resolve("workspace move-to-room"))
-        let request = try ControlRouter.validatedRequest(for: action, params: ["args": .object(["room": .string("Work")])], knownKinds: [])
+        let request = try ControlRouter.validatedRequest(for: action, params: ["args": .object(["room": .string("Work")])], knownKinds: [],
+                                                         connection: .inProcess)
         #expect(request.arguments["space"] != nil)
         #expect(request.arguments["room"] == nil)
     }

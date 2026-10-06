@@ -1,18 +1,20 @@
 import AppKit
+import CmuxNextIcons
 import CmuxNextDesign
 import QuartzCore
 
-/// Workspace icon, shown only when the user chose one: an SF Symbol, one
-/// emoji, or a color shown as a small dot.
+/// Workspace icon, shown only when the user chose one: an SF Symbol (tinted
+/// with the workspace color), one emoji (on a chip of the workspace color),
+/// or a color alone shown as a small dot.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
     private let emoji = NSTextField(labelWithString: "")
     private var icon: WorkspaceIcon?
 
-    /// Rows reserve room only for a chosen icon.
-    static func showsIcon(_ icon: WorkspaceIcon?) -> Bool {
-        icon != nil
+    /// Rows reserve room for a chosen icon or a built-in type glyph.
+    static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
+        icon != nil || fallback != nil
     }
 
     override init(frame: NSRect) {
@@ -31,15 +33,23 @@ final class SidebarIconView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// The chip behind a colored emoji: the color, light enough that the emoji reads.
+    static let chipAlpha: CGFloat = 0.35
+
     /// The emoji drawn now, or nil (tests).
     var emojiText: String? { emoji.isHidden ? nil : emoji.stringValue }
 
-    func configure(icon: WorkspaceIcon?) {
+    /// Whether the emoji sits on a color chip (tests).
+    var showsChip: Bool {
+        if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
+    }
+
+    func configure(icon: WorkspaceIcon?, fallback: IconName? = nil) {
         self.icon = icon
-        isHidden = !Self.showsIcon(icon)
+        isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true
         switch icon {
-        case let .emoji(text)?:
+        case let .emoji(text, _)?:
             emoji.stringValue = text
             emoji.isHidden = false
             imageView.isHidden = true
@@ -48,8 +58,11 @@ final class SidebarIconView: NSView {
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
             imageView.isHidden = false
-        case .swatch?, nil:
+        case .swatch?:
             imageView.isHidden = true
+        case nil:
+            imageView.image = fallback.map { NSImage.icon($0, size: Metrics.smallIconSize, style: .line) }
+            imageView.isHidden = fallback == nil
         }
         needsDisplay = true
         needsLayout = true
@@ -59,13 +72,22 @@ final class SidebarIconView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            if case let .symbol(_, tint)? = icon {
-                imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            let tint: NSColor? = if case let .symbol(_, tint)? = icon {
+                tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            } else if icon == nil {
+                Palette.textSecondary
+            } else {
+                nil
             }
-            if case let .swatch(color)? = icon {
+            if let tint { imageView.contentTintColor = tint }
+            switch icon {
+            case let .swatch(color)?:
                 swatch.isHidden = false
                 swatch.backgroundColor = SidebarStyle.color(color).cgColor
-            } else {
+            case let .emoji(_, chip?)?:
+                swatch.isHidden = false
+                swatch.backgroundColor = SidebarStyle.color(chip).withAlphaComponent(Self.chipAlpha).cgColor
+            default:
                 swatch.isHidden = true
             }
         }
@@ -78,12 +100,17 @@ final class SidebarIconView: NSView {
         emoji.font = .systemFont(ofSize: max(8, bounds.height * 0.72))
         let height = ceil(emoji.intrinsicContentSize.height)
         emoji.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
-        let side = SidebarStyle.dotSize
-        let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        swatch.frame = rect
-        swatch.cornerRadius = side / 2
+        if case .emoji(_, _?)? = icon {
+            // The chip fills the icon square behind the emoji.
+            swatch.frame = bounds
+            swatch.cornerRadius = bounds.height * 0.25
+        } else {
+            let side = SidebarStyle.dotSize
+            swatch.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
+            swatch.cornerRadius = side / 2
+        }
         CATransaction.commit()
         needsDisplay = true
     }

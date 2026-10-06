@@ -41,7 +41,7 @@ describe("cron", () => {
 
 describe("SchedulerDO reducer", () => {
   const created = () => {
-    const r = apply(schedulerDomain.initial(), user, "automation.create", { name: "hourly", triggers: [{ type: "cron", expr: "0 * * * *", tz: "UTC" }, { type: "manual" }, { type: "presence", when: "user_active" }], body: steps }, T0)
+    const r = apply(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), user, "automation.create", { name: "hourly", triggers: [{ type: "cron", expr: "0 * * * *", tz: "UTC" }, { type: "manual" }, { type: "presence", when: "user_active" }], body: steps }, T0)
     return { state: r.state, a: r.value as any }
   }
 
@@ -55,7 +55,7 @@ describe("SchedulerDO reducer", () => {
   })
 
   it("refuses bad cron, another team, and public calls to internal ops", () => {
-    expect(() => apply(schedulerDomain.initial(), user, "automation.create", { name: "x", triggers: [{ type: "cron", expr: "nope", tz: "UTC" }], body: steps }, T0)).toThrow(/cron|field/)
+    expect(() => apply(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), user, "automation.create", { name: "x", triggers: [{ type: "cron", expr: "nope", tz: "UTC" }], body: steps }, T0)).toThrow(/cron|field/)
     const { state } = created()
     expect(() => apply(state, other, "automation.list", {}, T0)).toThrow(/not this team/)
     expect(() => apply(state, user, "automation.fire", {}, T0)).toThrow(/not allowed for session/)
@@ -135,7 +135,7 @@ describe("SchedulerDO reducer", () => {
   })
 
   it("continue schedules the next run after the cooldown until the goal is met or max_runs", () => {
-    let state = schedulerDomain.initial()
+    let state: SchedulerState = { ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }
     const c = apply(state, user, "automation.create", { name: "loop", triggers: [{ type: "manual" }, { type: "continue", until: ["goal_met"], cooldown_seconds: 60, max_runs: 3 }], body: steps }, T0)
     state = c.state
     const a = c.value as any
@@ -175,7 +175,7 @@ describe("SchedulerDO reducer", () => {
 
   it("integration events match connection, pattern and filters, and private connections only start their creator's automations", () => {
     const conn = "conn_aaaaaaaaaaaaaaaaaaaa"
-    const r = apply(schedulerDomain.initial(), user, "automation.create", {
+    const r = apply(({ ...schedulerDomain.initial(), run_policy: { version: 0, runs_allowed: true } }), user, "automation.create", {
       name: "on pr",
       triggers: [{ type: "event", source: "integration", connection: conn, event: "pull_request.*", filter: { "repository.full_name": "manaflow-ai/cmux" } }],
       body: steps
@@ -208,8 +208,9 @@ describe("SchedulerDO reducer", () => {
     const active = apply(state, user, "automation.run", { automation: a.id }, T0)
     state = active.state
     for (let i = 0; i < MAX_FINISHED_RUNS + 5; i++) {
-      const r = apply(state, user, "automation.run", { automation: a.id }, T0 + 1 + i)
-      state = apply(r.state, system, "run.report", { run: (r.value as any).id, state: "succeeded", step: 0 }, T0 + 1 + i).state
+      // 200 ms apart: the team's creation bucket refills 5 tokens a second.
+      const r = apply(state, user, "automation.run", { automation: a.id }, T0 + 1 + i * 200)
+      state = apply(r.state, system, "run.report", { run: (r.value as any).id, state: "succeeded", step: 0 }, T0 + 1 + i * 200).state
     }
     const runs = Object.values(state.runs)
     expect(runs.filter((r) => r.state === "succeeded")).toHaveLength(MAX_FINISHED_RUNS)

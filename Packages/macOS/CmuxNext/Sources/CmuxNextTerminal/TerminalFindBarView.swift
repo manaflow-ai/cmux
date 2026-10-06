@@ -133,9 +133,9 @@ final class TerminalFindBarView: NSView {
         shown = presented
         if presented {
             isHidden = false
-            Motion.animate(.fadeIn) { animator().alphaValue = 1 }
+            Motion.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
         } else {
-            Motion.animate(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
+            Motion.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
                 // Reopened while fading out: stay visible.
                 guard let self, !self.shown else { return }
                 self.isHidden = true

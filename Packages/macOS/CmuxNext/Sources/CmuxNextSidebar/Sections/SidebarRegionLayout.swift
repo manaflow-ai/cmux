@@ -17,10 +17,12 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
     public var iconButtonWidth: CGFloat
     /// Thickness of a section line (lines looks).
     public var lineWidth: CGFloat
+    /// Height of one large labeled tile (the tiles arrangement).
+    public var favoriteHeight: CGFloat
 
     public init(rowHeight: CGFloat, headerHeight: CGFloat, inset: CGFloat, sectionGap: CGFloat, padding: CGFloat,
                 cardPadding: CGFloat, tileMinWidth: CGFloat, tileHeight: CGFloat, tileGap: CGFloat,
-                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1) {
+                iconButtonWidth: CGFloat? = nil, lineWidth: CGFloat = 1, favoriteHeight: CGFloat? = nil) {
         self.rowHeight = rowHeight
         self.headerHeight = headerHeight
         self.inset = inset
@@ -32,6 +34,7 @@ public nonisolated struct SidebarRegionMetrics: Hashable, Sendable {
         self.tileGap = tileGap
         self.iconButtonWidth = iconButtonWidth ?? rowHeight
         self.lineWidth = lineWidth
+        self.favoriteHeight = favoriteHeight ?? rowHeight * 2 + tileGap
     }
 }
 
@@ -44,19 +47,23 @@ public nonisolated struct SidebarRegionRow: Hashable, Sendable {
         case tile(LayoutItemID, section: LayoutSectionID)
         /// An inline item with icon and label.
         case chip(LayoutItemID, section: LayoutSectionID)
+        /// The content of an app's section (`SectionContent.app`).
+        case app(LayoutSectionID)
     }
 
     public var kind: Kind
     public var frame: CGRect
 }
 
-/// Frames of a sticky region's sections: rows, headers, icon tiles, card
+/// Frames of a pinned region's sections: rows, headers, icon tiles, card
 /// backgrounds, section lines and each section's full frame. Pure, so
 /// every look is tested without views.
 public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var rows: [SidebarRegionRow]
     /// Card backgrounds (card look only), one per section.
     public var cards: [CGRect]
+    /// Indices into `cards` of tiles sections, which take a stronger step.
+    public var tiledCards: Set<Int> = []
     /// Lines between sections (lines looks).
     public var separators: [CGRect]
     /// Each shown section's full-width frame, in order (the tonal step
@@ -64,7 +71,7 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
     public var sectionFrames: [CGRect]
     public var height: CGFloat
     /// Height of the first `maxRows` rows of each section (the content a
-    /// sticky region shows before it scrolls), summed.
+    /// pinned region shows before it scrolls), summed.
     public var cappedHeight: CGFloat
 
     public static let empty = SidebarRegionLayout(rows: [], cards: [], separators: [], sectionFrames: [], height: 0, cappedHeight: 0)
@@ -73,8 +80,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
 
     public static func make(sections: [LayoutSection], width: CGFloat, look: SectionsLookVariant,
                             collapsed: Set<LayoutSectionID>, metrics m: SidebarRegionMetrics,
-                            labelWidths: [LayoutItemID: CGFloat] = [:]) -> SidebarRegionLayout {
-        let shown = sections.filter { $0.content == .items && (!$0.items.isEmpty || header($0, look) != nil) }
+                            labelWidths: [LayoutItemID: CGFloat] = [:], appHeights: [LayoutSectionID: CGFloat] = [:]) -> SidebarRegionLayout {
+        // An app section shows only with content (a height from its provider).
+        let shown = sections.filter { section in
+            switch section.content {
+            case .items: !section.items.isEmpty || header(section, look) != nil
+            case .app: (appHeights[section.id] ?? 0) > 0
+            default: false
+            }
+        }
         guard !shown.isEmpty else { return .empty }
         var result = SidebarRegionLayout.empty
         var y = m.padding
@@ -87,7 +101,10 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 y += m.sectionGap
                 capped += m.sectionGap
             }
-            let carded = look == .card
+            // A tiles section sits on its own card in every look: the tonal
+            // step, plus a section gap below it, sets it apart from the list.
+            let tiled = if case .tiles = SectionFlow.mode(section, look: look) { true } else { false }
+            let carded = look == .card || tiled
             let x = carded ? m.inset : 0
             let innerWidth = max(0, width - x * 2)
             let top = y
@@ -100,8 +117,13 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
                 sectionCapped += m.headerHeight
             }
             if !(title != nil && collapsed.contains(section.id)) {
-                if let mode = SectionFlow.mode(section, look: look) {
-                    let flow = SectionFlow.place(section, mode: mode, x: x + m.inset, y: y, width: max(0, innerWidth - m.inset * 2),
+                if section.content == .app, let height = appHeights[section.id] {
+                    result.rows.append(SidebarRegionRow(kind: .app(section.id), frame: CGRect(x: x, y: y, width: innerWidth, height: height)))
+                    y += height
+                    sectionCapped += height
+                } else if let mode = SectionFlow.mode(section, look: look) {
+                    let flowInset = tiled ? m.cardPadding : m.inset
+                    let flow = SectionFlow.place(section, mode: mode, x: x + flowInset, y: y, width: max(0, innerWidth - flowInset * 2),
                                                  labelWidths: labelWidths, metrics: m)
                     result.rows += flow.rows
                     y += flow.height
@@ -118,10 +140,15 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
             }
             if carded {
                 y += m.cardPadding
+                if tiled { result.tiledCards.insert(result.cards.count) }
                 result.cards.append(CGRect(x: x, y: top, width: innerWidth, height: y - top))
             }
             result.sectionFrames.append(CGRect(x: 0, y: top, width: width, height: y - top))
             capped += sectionCapped
+            if tiled {
+                y += m.sectionGap
+                capped += m.sectionGap
+            }
         }
         y += m.padding
         capped += m.padding
@@ -135,10 +162,10 @@ public nonisolated struct SidebarRegionLayout: Hashable, Sendable {
         look.showsHeaders ? section.headerTitle : nil
     }
 
-    /// The height a sticky region takes: its content, capped by the
+    /// The height a pinned region takes: its content, capped by the
     /// sections' `maxRows` and by `share` of the sidebar's `available`
     /// height. Beyond that the region scrolls inside.
-    public func stickyHeight(available: CGFloat, share: CGFloat) -> CGFloat {
+    public func pinnedHeight(available: CGFloat, share: CGFloat) -> CGFloat {
         min(cappedHeight, max(0, available * share))
     }
 }
@@ -161,10 +188,19 @@ extension Array where Element == LayoutSection {
     /// These sections without the items in `hidden` (items that draw
     /// nothing, such as a hidden app's); the layout keeps them.
     public func hidingItems(_ hidden: Set<LayoutItemID>) -> [LayoutSection] {
-        guard !hidden.isEmpty else { return self }
-        return map { section in
+        presenting(hidingItems: hidden, apps: [])
+    }
+
+    /// What draws: no section and no item of a suppressed app (no
+    /// placeholder either: hiding an app is a choice, not an error), and no
+    /// item in `hidden`. The layout keeps every place, so unhiding an app
+    /// brings its sections and items back where they were.
+    public func presenting(hidingItems hidden: Set<LayoutItemID>, apps: Set<String>) -> [LayoutSection] {
+        guard !hidden.isEmpty || !apps.isEmpty else { return self }
+        return compactMap { section in
+            if let app = section.owningAppID, apps.contains(app) { return nil }
             var section = section
-            section.items.removeAll { hidden.contains($0.id) }
+            section.items.removeAll { hidden.contains($0.id) || $0.owningAppID.map(apps.contains) == true }
             return section
         }
     }

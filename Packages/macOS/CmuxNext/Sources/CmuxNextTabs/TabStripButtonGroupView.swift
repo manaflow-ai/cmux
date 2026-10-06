@@ -20,32 +20,14 @@ final class TabStripButtonGroupView: NSView {
     var onPress: ((String) -> Void)?
     /// VoiceOver moved its focus onto (true) or off (false) every button.
     var onAccessibilityFocus: ((Bool) -> Void)?
-    /// Shown or faded out (`TabStripButtonReveal`). Hidden buttons keep
-    /// their frames and accessibility elements.
-    private(set) var isRevealed = false
 
+    /// Shown or faded out by the strip's `buttonsReveal` (HoverReveal,
+    /// alpha only): hidden buttons keep their frames and accessibility
+    /// elements.
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        layer?.opacity = 0
-    }
-
-    /// Fades the buttons in or out with the `hover` token, from what is on
-    /// screen (an interrupted fade reverses in place).
-    func setRevealed(_ revealed: Bool, animated: Bool) {
-        guard revealed != isRevealed, let layer else { return }
-        isRevealed = revealed
-        let opacity: Float = revealed ? 1 : 0
-        if animated {
-            Motion.set(layer, "opacity", to: opacity, fade: .hover)
-        } else {
-            layer.removeAnimation(forKey: "opacity")
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer.opacity = opacity
-            CATransaction.commit()
-        }
     }
 
     private var focusedElements: Set<ObjectIdentifier> = [] {

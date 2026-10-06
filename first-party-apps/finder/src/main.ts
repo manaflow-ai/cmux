@@ -11,7 +11,6 @@ import { cycleVariant as cycle, showPreview, variant } from "./settings.ts"
 import { start } from "./store.ts"
 import { addFolder as pickFolder, connect, filesSection } from "./views/sidebar.ts"
 import { columnsView, dualPaneView, listPreviewView } from "./views/variants.ts"
-import { gesture } from "./runtime.ts"
 
 /** Sidebar section "Files". */
 export function renderFiles(ctx: Record<string, unknown> = {}) {
@@ -38,8 +37,8 @@ export function renderFinder(ctx: Record<string, unknown> = {}) {
   ])
 }
 
-export async function openFinder() {
-  return ops.openPane(gesture())
+export async function openFinder(_args: Record<string, unknown> = {}, ctx?: CmuxCommandContext) {
+  return ops.openPane(ctx?.gesture ?? null)
 }
 
 export async function addFolder() {

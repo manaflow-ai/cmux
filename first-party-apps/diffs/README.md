@@ -2,7 +2,7 @@
 
 Review changes in cmux: the working tree against HEAD, two refs, an agent's proposed diff (a feed `review` request), or a run's diff. Inline or side by side, comments on lines, accept or reject per hunk or per file. Decisions go to the diff's owner (git stages or restores; an agent's proposal applies or drops), always from a user tap.
 
-Status: prototype on the current app runtime. Every data and action op it uses is proposed (see below), so today it shows which op is missing. Platform v2 sketch: `cmux-app.v2.json`.
+Status: prototype on the current app runtime. Every data and action op it uses is proposed (see below), so today it shows which op is missing. Manifest v2: `cmux-app.v2.json` and `catalog/` (section Manifest v2).
 
 ## Interfaces
 
@@ -61,6 +61,26 @@ Recommendation: `split` for git changes and `review` automatically for a feed re
 | `ui.open` | `{interface, props \| target}` | | shell | mutate-own, gesture | | | Open File with the user's editor |
 | `app.pane.open` | `{kind, input, focus_path?}` | `{pane}` | shell (workspace store) | mutate-own, gesture | `workspace:write` | | open this app's pane with an input |
 | `app.settings.set` | `{key, value}` | | config layer | mutate-own | | `settings` push | persist variant and layout |
+
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderChanges`), `cmux.pane/1` and `cmux.diff.renderer/1` (both `renderDiffPane`, inputs in `options.inputs`), `consumes` `cmux.editor/1` and `cmux.diff.source/1`, handles `diff` and `document`, and the catalog fragment `catalog/diffs-catalog.json`. Every v1 command is one catalog op of family `diffs` (owner `app:cmux/diffs`, `export` names the JS function, CLI `apps run cmux/diffs <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. Scope `embed:run` (show file diffs with your editor app): not in the v2 scope grammar. Embedded editors wait for a grammar entry.
+2. Setting `editorApp` as an app-id typed setting bound to `cmux.editor/1`: settings are plain JSON Schema, so it stays a string.
+
+Platform gaps found by the earlier v2 sketch (still open):
+
+- No Embed scene node in the v2 scene vocabulary (V7 lists List, Section, Row, Detail, Form, ActionPanel, Table, Meter): V4 embeds need a placement node.
+- No generic hunk decision op across producers: V5 names git.stage/apply only; diff.decide routes accept/reject to any producer.
+- No diff.file.read for an embedded editor to read one side of a diff resource.
+- No pane open with input (app.pane.open {kind, input}) or pane input in the mount context.
+- No ScrollView and no vertical alignment for HStack in the scene (split view clips at the pane height).
+- No confirmation primitive for destructive scene actions (Discard uses a second tap).
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
 
 ## Platform gaps (most important first)
 

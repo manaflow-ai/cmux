@@ -15,6 +15,8 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case urlChanged(URL?)
     case titleChanged(String?)
     case historyChanged(canGoBack: Bool, canGoForward: Bool)
+    /// The URLs of the back and forward lists (engines that expose them).
+    case historyListed(back: [String], forward: [String])
     case faviconChanged(URL?)
     case zoomChanged(Double)
     case contentFullscreenChanged(Bool)
@@ -133,6 +135,10 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.canGoBack = back
             state.canGoForward = forward
 
+        case .historyListed(let back, let forward):
+            state.backURLs = back
+            state.forwardURLs = forward
+
         case .faviconChanged(let url):
             state.faviconURL = url
 
@@ -186,5 +192,15 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
         case "file", "about", "data", "blob": .local
         default: .none
         }
+    }
+
+    /// The security of a committed page from what the engine knows: mixed
+    /// content, and a page loaded past an untrusted certificate the user
+    /// proceeded through, which is broken ("Not secure"), as in Chrome.
+    public static func security(for url: URL?, hasOnlySecureContent: Bool, certificateBypassed: Bool) -> BrowserSecurityState {
+        let security = Self.security(for: url)
+        guard security == .secure else { return security }
+        if certificateBypassed { return .broken }
+        return hasOnlySecureContent ? .secure : .mixedContent
     }
 }

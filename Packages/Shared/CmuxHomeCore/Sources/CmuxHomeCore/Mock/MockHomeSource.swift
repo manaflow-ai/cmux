@@ -1,4 +1,5 @@
 public import Foundation
+import UniformTypeIdentifiers
 
 /// An in-memory owner for Home, used until the messaging backend lands and in
 /// tests, previews and demos. It behaves like a real owner: it assigns seqs and
@@ -34,11 +35,56 @@ public actor MockHomeSource: HomeSource {
     /// Materialized messages; the generated Chief history before `generatedUpTo` is computed on read.
     private var stored: [ConversationID: [Message]] = [:]
     private var generated: [ConversationID: Seq] = [:]
-    private var ledger: [IdempotencyKey: HomeOpResult] = [:]
+    /// Decided keys, like the owner's request ledger: a result or a refusal
+    /// that is not retryable. The same key answers the same again; with
+    /// another op it is refused `idempotency_conflict`.
+    private var ledger: [IdempotencyKey: (op: HomeOp, outcome: Result<HomeOpResult, HomeRejection>)] = [:]
+    /// Hashes whose record the next submits drop first (an unreferenced
+    /// upload swept after 24 hours, an expired slot), with the count left.
+    private var forgetOnSubmit: [String: Int] = [:]
     private var subscribers: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
     private var people: [ParticipantID: Participant] = [:]
     private var members: [ContactAddress: ParticipantID] = [:]
     private var nextID = 1
+    /// One attachment record: the first upload of a hash wins, so a later
+    /// upload of the same bytes gets this record's mime type and poster back.
+    private struct BlobRecord {
+        var data: Data
+        var mimeType: String
+        var poster: AttachmentPoster?
+        var preview: AttachmentDerivedImage?
+    }
+
+    /// The attachment records, by content hash.
+    private var blobs: [String: BlobRecord] = [:]
+    /// Poster and preview bytes by hash. Neither has a record of its own:
+    /// each belongs to its attachment's record.
+    private var posterBlobs: [String: Data] = [:]
+    private var uploadsPaused = false
+    private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
+    /// Paused uploads whose task was cancelled before they registered.
+    private var cancelledPauses: Set<UUID> = []
+    private var failingUploads: [String: (times: Int, error: HomeRejection)] = [:]
+    /// Submits of these keys fail before the ledger, `times` more times.
+    private var failingSubmits: [IdempotencyKey: (times: Int, error: HomeRejection)] = [:]
+    /// The next submit of each key commits, then loses its answer and holds
+    /// back its events; the value is how many later submits fail after it.
+    private var losingAnswers: [IdempotencyKey: Int] = [:]
+    /// True while a commit whose answer is lost runs: its events wait in
+    /// `withheldEvents` until `releaseWithheldEvents`.
+    private var holdingEvents = false
+    private var withheldEvents: [HomeEvent] = []
+    /// The progress callback of every upload call, in call order (tests
+    /// replay late callbacks with `replayProgress`).
+    private var progressCallbacks: [@Sendable (Double) -> Void] = []
+    /// Every upload call, by hash, in call order (for tests).
+    public private(set) var uploadCalls: [String] = []
+    /// The location of every fetch, in call order (for tests).
+    public private(set) var fetchLocations: [AttachmentLocation] = []
+    /// Where `fetch` writes files (one directory per source instance).
+    private let fetchDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("cmux-home-mock-blobs", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
 
     public let me: Participant
     public let chief: Participant
@@ -101,12 +147,40 @@ public actor MockHomeSource: HomeSource {
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
         guard online else { throw HomeRejection.ownerUnreachable }
-        if var replay = ledger[intent.key] {
+        if let failing = failingSubmits[intent.key] {
+            failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
+            throw failing.error
+        }
+        if let failingAfter = losingAnswers.removeValue(forKey: intent.key), ledger[intent.key] == nil {
+            // Committed, but neither the answer nor the echo arrives.
+            holdingEvents = true
+            let outcome = Result { try apply(intent) }
+            holdingEvents = false
+            if case .success(let result) = outcome { ledger[intent.key] = (intent.op, .success(result)) }
+            if failingAfter > 0 { failingSubmits[intent.key] = (failingAfter, .indeterminate) }
+            throw HomeRejection.indeterminate
+        }
+        if let decided = ledger[intent.key] {
+            guard decided.op == intent.op else { throw HomeRejection.invalid("idempotency_conflict") }
+            var replay = try decided.outcome.get()
             replay.replayed = true
             return replay
         }
-        let result = try apply(intent)
-        ledger[intent.key] = result
+        if case .sendMessage(_, let parts) = intent.op {
+            for case .attachment(let ref) in parts {
+                guard let left = forgetOnSubmit[ref.hash] else { continue }
+                blobs[ref.hash] = nil
+                forgetOnSubmit[ref.hash] = left > 1 ? left - 1 : nil
+            }
+        }
+        let result: HomeOpResult
+        do {
+            result = try apply(intent)
+        } catch let rejection as HomeRejection where !rejection.isRetryable {
+            ledger[intent.key] = (intent.op, .failure(rejection))
+            throw rejection
+        }
+        ledger[intent.key] = (intent.op, .success(result))
         if case .sendMessage(let conversation, _) = intent.op { scheduleReplies(in: conversation) }
         return result
     }
@@ -137,7 +211,217 @@ public actor MockHomeSource: HomeSource {
         return .invitable(contact)
     }
 
+    /// Stores the bytes under their hash (verified) and reports progress in
+    /// four steps: 0.25 and 0.5, a pause while `setUploadsPaused(true)`, then
+    /// 0.75 and 1. Like the owner, the first upload of a hash wins: a hash
+    /// already recorded answers `exists` with the recorded mime type, byte
+    /// count and poster (or no poster), whatever this upload declared.
+    public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
+        uploadCalls.append(file.ref.hash)
+        progressCallbacks.append(file.progress)
+        if options.latency > .zero { try await clock.sleep(for: options.latency) }
+        guard online else { throw HomeRejection.ownerUnreachable }
+        file.progress(0.25)
+        file.progress(0.5)
+        if uploadsPaused { try await pause() }
+        // The connection may have dropped while the bytes were in flight.
+        guard online else { throw HomeRejection.ownerUnreachable }
+        if let failing = failingUploads[file.ref.hash] {
+            failingUploads[file.ref.hash] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
+            throw failing.error
+        }
+        // The owner's upload intent rules: an allowed type spelled as on
+        // the allow list, positive dimensions, a duration within 24 hours.
+        guard HomeAttachmentPolicy.allowedTypes[file.ref.mimeType.lowercased()] != nil else {
+            throw HomeRejection.invalid("type_refused")
+        }
+        let dimensions = [file.ref.width, file.ref.height].compactMap { $0 }
+        guard dimensions.allSatisfy(HomeAttachmentPolicy.dimensionRange.contains),
+              file.ref.durationMs.map(HomeAttachmentPolicy.durationRange.contains) ?? true else {
+            throw HomeRejection.invalid("validation_invalid")
+        }
+        if let record = blobs[file.ref.hash] {
+            file.progress(1)
+            return Self.stored(file.ref, record)
+        }
+        // The owner's order: the declared poster lands before the video.
+        if let meta = file.ref.poster, posterBlobs[meta.hash] == nil {
+            guard file.ref.mimeType.hasPrefix("video/") else { throw HomeRejection.invalid("poster_refused") }
+            guard let posterURL = file.posterURL else { throw HomeRejection.invalid("poster_missing") }
+            let poster = try Data(contentsOf: posterURL)
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), poster.count <= HomeAttachmentPolicy.posterMaxBytes,
+                  poster.count == meta.byteCount, AttachmentMedia.sha256(of: poster) == meta.hash else {
+                throw HomeRejection.invalid("hash_mismatch")
+            }
+            posterBlobs[meta.hash] = poster
+        }
+        // The same for an image's preview.
+        if let meta = file.ref.preview, posterBlobs[meta.hash] == nil {
+            guard file.ref.mimeType.hasPrefix("image/") else { throw HomeRejection.invalid("preview_refused") }
+            guard let previewURL = file.previewURL else { throw HomeRejection.invalid("preview_missing") }
+            let preview = try Data(contentsOf: previewURL)
+            guard HomeAttachmentPolicy.posterTypes.contains(meta.mimeType), preview.count <= HomeAttachmentPolicy.previewMaxBytes,
+                  preview.count == meta.byteCount, AttachmentMedia.sha256(of: preview) == meta.hash else {
+                throw HomeRejection.invalid("hash_mismatch")
+            }
+            posterBlobs[meta.hash] = preview
+        }
+        let data = try Data(contentsOf: file.fileURL)
+        guard AttachmentMedia.sha256(of: data) == file.ref.hash else { throw HomeRejection.invalid("hash_mismatch") }
+        let record = BlobRecord(data: data, mimeType: file.ref.mimeType.lowercased(), poster: file.ref.poster,
+                                preview: file.ref.preview)
+        blobs[file.ref.hash] = record
+        file.progress(0.75)
+        file.progress(1)
+        return Self.stored(file.ref, record)
+    }
+
+    /// The ref an upload answers: the declared one with the record's mime
+    /// type, byte count and poster.
+    private static func stored(_ declared: AttachmentRef, _ record: BlobRecord) -> AttachmentRef {
+        var ref = declared
+        ref.mimeType = record.mimeType
+        ref.byteCount = record.data.count
+        ref.poster = record.poster
+        ref.preview = record.preview
+        return ref
+    }
+
+    /// Writes the blob (or a JPEG thumbnail of it or of the video's poster, or
+    /// the poster itself)
+    /// to a file named by hash and variant. Atomic writes, so a cancelled
+    /// fetch leaves nothing partial; a second fetch returns the same file.
+    public func fetch(_ ref: AttachmentRef, at location: AttachmentLocation, variant: AttachmentVariant) async throws -> URL {
+        fetchLocations.append(location)
+        guard let blob = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_blob") }
+        try FileManager.default.createDirectory(at: fetchDirectory, withIntermediateDirectories: true)
+        switch variant {
+        case .original:
+            let ext = UTType(mimeType: blob.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-original\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try blob.data.write(to: target, options: .atomic)
+            return target
+        case .thumbnail(let maxPixel):
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            // An image's own bytes, or a video's recorded poster.
+            let imageVariant: AttachmentVariant
+            if blob.mimeType.hasPrefix("image/") {
+                imageVariant = .original
+            } else if blob.poster != nil {
+                imageVariant = .poster
+            } else {
+                throw HomeRejection.invalid("no_thumbnail")
+            }
+            let original = try await fetch(ref, at: location, variant: imageVariant)
+            let data = try AttachmentMedia.thumbnailJPEG(of: original, maxPixel: maxPixel)
+            try Task.checkCancellation()
+            try data.write(to: target, options: .atomic)
+            return target
+        case .poster:
+            // A part without a poster has none to fetch; otherwise the
+            // record's poster (the owner mints the URL from the record).
+            guard ref.poster != nil, let meta = blob.poster, let poster = posterBlobs[meta.hash] else { throw HomeRejection.invalid("no_poster") }
+            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-poster\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try poster.write(to: target, options: .atomic)
+            return target
+        case .preview:
+            guard ref.preview != nil, let meta = blob.preview, let preview = posterBlobs[meta.hash] else {
+                throw HomeRejection.invalid("no_preview")
+            }
+            let ext = UTType(mimeType: meta.mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+            let target = fetchDirectory.appendingPathComponent("\(ref.hash)-preview\(ext)")
+            if FileManager.default.fileExists(atPath: target.path) { return target }
+            try Task.checkCancellation()
+            try preview.write(to: target, options: .atomic)
+            return target
+        }
+    }
+
+    /// Waits until uploads resume; a cancelled task stops waiting at once
+    /// and throws `CancellationError`.
+    private func pause() async throws {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if cancelledPauses.remove(id) != nil {
+                    continuation.resume()
+                } else {
+                    pausedUploads[id] = continuation
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelPause(id) }
+        }
+        try Task.checkCancellation()
+    }
+
+    private func cancelPause(_ id: UUID) {
+        if let continuation = pausedUploads.removeValue(forKey: id) {
+            continuation.resume()
+        } else {
+            cancelledPauses.insert(id)
+        }
+    }
+
     // MARK: Test and demo controls
+
+    /// While paused, uploads stop at 0.5 progress until resumed (previews of
+    /// the uploading state, and tests).
+    public func setUploadsPaused(_ paused: Bool) {
+        uploadsPaused = paused
+        guard !paused else { return }
+        let waiting = pausedUploads.values
+        pausedUploads.removeAll()
+        for continuation in waiting { continuation.resume() }
+    }
+
+    /// The next `times` uploads of this hash fail with `error`.
+    public func failNextUpload(hash: String, with error: HomeRejection = .invalid("attachment_upload_failed"), times: Int = 1) {
+        failingUploads[hash] = times > 0 ? (times, error) : nil
+    }
+
+    /// Calls the progress callback of upload call `index` again (a late
+    /// callback that arrives after its upload ended).
+    public func replayProgress(ofCall index: Int, _ fraction: Double) {
+        guard progressCallbacks.indices.contains(index) else { return }
+        progressCallbacks[index](fraction)
+    }
+
+    /// The next `times` submits of `key` fail with `error` before the owner
+    /// looks at them (an answer lost in flight, by default); 0 clears it.
+    public func failNextSubmits(of key: IdempotencyKey, times: Int, with error: HomeRejection = .indeterminate) {
+        failingSubmits[key] = times > 0 ? (times, error) : nil
+    }
+
+    /// The next submit of `key` commits, then throws `indeterminate` and
+    /// holds back its events (the answer and the echo are lost); the
+    /// `failingAfter` submits after it fail before the ledger, like
+    /// `failNextSubmits`. `releaseWithheldEvents` delivers the echo.
+    public func commitThenLoseAnswer(of key: IdempotencyKey, failingAfter: Int = 0) {
+        losingAnswers[key] = failingAfter
+    }
+
+    /// Publishes the events a lost answer held back, in order.
+    public func releaseWithheldEvents() {
+        let events = withheldEvents
+        withheldEvents.removeAll()
+        for event in events { publish(event) }
+    }
+
+    /// The next `times` submits that reference `hash` drop its record first,
+    /// so the owner answers `unknown_attachment`.
+    public func forgetBlobBeforeNextSubmits(_ hash: String, times: Int = 1) {
+        forgetOnSubmit[hash] = times
+    }
+
+    /// True once the blob store holds this hash.
+    public func hasBlob(_ hash: String) -> Bool { blobs[hash] != nil }
 
     /// Simulates losing or regaining the owners.
     public func setOnline(_ value: Bool) {
@@ -163,6 +447,16 @@ public actor MockHomeSource: HomeSource {
         case .sendMessage(let conversation, let parts):
             let text = parts.map(\.plainText).joined()
             guard !text.isEmpty, text.utf8.count <= 65_536 else { throw HomeRejection.invalid("invalid_parts") }
+            // The owner's checkAttachments: a recorded hash, and the part's
+            // type, size and claimed poster equal to the record.
+            for case .attachment(let ref) in parts {
+                guard let record = blobs[ref.hash] else { throw HomeRejection.invalid("unknown_attachment") }
+                guard record.mimeType == ref.mimeType, record.data.count == ref.byteCount,
+                      ref.poster == nil || ref.poster == record.poster,
+                      ref.preview == nil || ref.preview == record.preview else {
+                    throw HomeRejection.invalid("attachment_mismatch")
+                }
+            }
             let rev = try commitMessage(in: conversation, author: me.id, parts: parts, key: intent.key)
             return HomeOpResult(rev: rev, conversation: conversation)
         case .setReadCursor(let conversation, let seq):
@@ -171,6 +465,7 @@ public actor MockHomeSource: HomeSource {
             guard seq <= summary.lastSeq else { throw HomeRejection.invalid("cursor_beyond_end") }
             guard seq > current else { return HomeOpResult(rev: summary.rev) }
             summary.readCursors[me.id] = seq
+            summary.readCursorTimes[me.id] = Date()
             summary.rev += 1
             conversations[conversation] = summary
             publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
@@ -211,6 +506,11 @@ public actor MockHomeSource: HomeSource {
             // An invite changes no inbox entry, so the current revision settles it.
             let (_, receipt) = personFor(contact)
             return HomeOpResult(rev: inboxRev, invite: receipt ?? InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: true))
+        case .setTyping(let conversation, let on):
+            // Ephemeral: broadcast, never stored, no revision.
+            guard let summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
+            publish(.typing(conversation, me.id, on: on))
+            return HomeOpResult(rev: summary.rev)
         case .addReaction(let messageID, let conversation, let kind, let partIndex):
             guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
                   var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }
@@ -323,6 +623,10 @@ public actor MockHomeSource: HomeSource {
     }
 
     private func publish(_ event: HomeEvent) {
+        if holdingEvents {
+            withheldEvents.append(event)
+            return
+        }
         for continuation in subscribers.values { continuation.yield(event) }
     }
 

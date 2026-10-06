@@ -249,6 +249,7 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 edited_at: None,
                 retracted_at: None,
                 reactions: Vec::new(),
+                origin: None,
             };
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
@@ -389,10 +390,14 @@ pub fn valid_token(token: &str) -> bool {
     !token.is_empty() && token.len() <= 128 && token.bytes().all(|byte| byte.is_ascii_graphic())
 }
 
-/// `user_<id>` or `agent_<name>`, where the suffix is 1 to 64 characters of
-/// ASCII letters, digits, `_`, `.` or `-`.
+/// `user_<id>`, `agent_<name>` or `remote_<install>` (a paired device of a
+/// person), where the suffix is 1 to 64 characters of ASCII letters, digits,
+/// `_`, `.` or `-`.
 pub fn valid_participant_id(id: &str) -> bool {
-    let suffix = id.strip_prefix("user_").or_else(|| id.strip_prefix("agent_"));
+    let suffix = id
+        .strip_prefix("user_")
+        .or_else(|| id.strip_prefix("agent_"))
+        .or_else(|| id.strip_prefix("remote_"));
     suffix.is_some_and(|suffix| {
         !suffix.is_empty()
             && suffix.len() <= 64
@@ -411,11 +416,21 @@ fn validate_title(title: &str) -> Result<(), Reject> {
 }
 
 fn validate_participant(participant: &Participant) -> Result<(), Reject> {
+    // A `remote_` device is a human that names its person (a `user_` id);
+    // every other participant has no person.
+    let person = participant.person.as_deref();
     let prefix_matches = match participant.kind {
-        ParticipantKind::Human => {
-            participant.id.starts_with("user_") && participant.agent_class.is_none()
+        ParticipantKind::Human if participant.id.starts_with("remote_") => {
+            participant.agent_class.is_none()
+                && person.is_some_and(|person| person.starts_with("user_"))
+                && person.is_some_and(valid_participant_id)
         }
-        ParticipantKind::Agent => participant.id.starts_with("agent_"),
+        ParticipantKind::Human => {
+            participant.id.starts_with("user_")
+                && participant.agent_class.is_none()
+                && person.is_none()
+        }
+        ParticipantKind::Agent => participant.id.starts_with("agent_") && person.is_none(),
     };
     let name_chars = participant.display_name.chars().count();
     let valid = valid_participant_id(&participant.id)

@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// Sticky section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
+/// Pinned section bands (plans/cmux-next/sidebar-sections.md 1, 7): the
 /// band split around the workspace list, each look's frames, caps, the
 /// sidebar view's placement, and the model's section intents.
 @MainActor @Suite struct SidebarRegionLayoutTests {
@@ -19,10 +19,10 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreHomeAboveSettingsCustomizeAndAccountBelow() {
+    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.app("cmux/home"), .app("cmux/app-store")])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
@@ -122,17 +122,17 @@ import Testing
 
     // MARK: Caps
 
-    @Test func maxRowsCapsTheStickyHeight() {
+    @Test func maxRowsCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", maxRows: 2, items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
         #expect(layout.height == CGFloat(288))
         #expect(layout.cappedHeight == CGFloat(64))
-        #expect(layout.stickyHeight(available: 1_000, share: 0.5) == 64)
+        #expect(layout.pinnedHeight(available: 1_000, share: 0.5) == 64)
     }
 
-    @Test func theShareCapsTheStickyHeight() {
+    @Test func theShareCapsThePinnedHeight() {
         let layout = SidebarRegionLayout.make(sections: [section("a", items: 10)], width: 240, look: .quiet, collapsed: [], metrics: m)
-        #expect(layout.stickyHeight(available: 600, share: 1.0 / 3.0) == 200)
-        #expect(layout.stickyHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
+        #expect(layout.pinnedHeight(available: 600, share: 1.0 / 3.0) == 200)
+        #expect(layout.pinnedHeight(available: 6_000, share: 1.0 / 3.0) == layout.height)
     }
 
     // MARK: Model
@@ -203,4 +203,32 @@ import Testing
         #expect(view.aboveRegion.itemView(LayoutItemID("itm_app")) != nil)
     }
 
+
+    /// A suppressed app's sections and items draw nothing (no placeholder)
+    /// and come back in their places when it is presented again.
+    @Test func suppressedAppsDrawNothingAndReturnInPlace() {
+        var doc = SidebarLayoutDocument.defaults
+        doc.sections.insert(LayoutSection(id: LayoutSectionID("sec_app"), region: .top, content: .app, contribution: "a/prs#prs"), at: 1)
+        doc.sections[0].items.insert(LayoutItem(id: LayoutItemID("itm_app"), ref: .app("a/prs")), at: 1)
+        let hidden = doc.sections.presenting(hidingItems: [], apps: ["a/prs"])
+        #expect(!hidden.contains { $0.id == LayoutSectionID("sec_app") })
+        #expect(!hidden[0].items.contains { $0.id == LayoutItemID("itm_app") })
+        let shown = doc.sections.presenting(hidingItems: [], apps: [])
+        #expect(shown == doc.sections)
+        #expect(shown[1].id == LayoutSectionID("sec_app") && shown[0].items[1].id == LayoutItemID("itm_app"))
+    }
+
+
+    /// An app section draws only with content from its provider, at the provider's height, under its header.
+    @Test func appSectionsDrawOnlyWithContent() {
+        let app = LayoutSection(id: LayoutSectionID("sec_app"), title: "CodeRouter", region: .bottom, look: .list, content: .app,
+                                contribution: "cmux/coderouter#coderouter")
+        let metrics = SidebarRegionMetrics(rowHeight: 28, headerHeight: 20, inset: 8, sectionGap: 6, padding: 4,
+                                           cardPadding: 4, tileMinWidth: 60, tileHeight: 48, tileGap: 4)
+        let none = SidebarRegionLayout.make(sections: [app], width: 240, look: .quiet, collapsed: [], metrics: metrics)
+        #expect(none.rows.isEmpty)
+        let shown = SidebarRegionLayout.make(sections: [app], width: 240, look: .quiet, collapsed: [], metrics: metrics,
+                                             appHeights: [app.id: 90])
+        #expect(shown.rows.contains { $0.kind == .app(app.id) && $0.frame.height == 90 })
+    }
 }

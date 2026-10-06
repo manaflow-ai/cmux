@@ -97,6 +97,14 @@ export const Undo = (p: CvIconProps) => (
   </Svg>
 );
 
+/// A counterclockwise arrow: send the prompt again.
+export const Retry = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
+    <path d="M3.25 2.75v2.5h2.5" />
+  </Svg>
+);
+
 export const Lock = (p: CvIconProps) => (
   <Svg {...p}>
     <rect x="3.25" y="7" width="9.5" height="7" rx="2" />
@@ -314,5 +322,20 @@ export const FileDoc = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <path d="M4.25 2.25h5l3 3v8.5h-8Z" />
     <path d="M9.25 2.25v3h3" />
+  </Svg>
+);
+
+/** Envelope of agent-to-agent message cards ("Coordinator · cmux-ci to leo"). */
+export const Envelope = (p: CvIconProps) => (
+  <Svg strokeWidth={1.1} {...p}>
+    <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
+    <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** Arrow between a message's sender and recipient. */
+export const ArrowRight = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 8h9M9.25 4.75 12.5 8l-3.25 3.25" />
   </Svg>
 );

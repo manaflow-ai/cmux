@@ -29,8 +29,9 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
-        setThemeScope(SettingsTheme.shared.scope)
+        SettingsTheme.shared.follow(SettingsTheme.shared.scope)
+        window.install(kind: .debugSettings, content: NSHostingView(rootView: DebugSettingsRootView(model: model)),
+                       scope: SettingsTheme.shared.scope)
     }
 
     @available(*, unavailable)
@@ -57,26 +58,9 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     }
 }
 
-/// The hosting view; it repaints the window background on theme changes.
-final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
-    }
-}
-
-/// Cmd-W closes this window (it is no cmux shell window, so the app's
-/// Close Tab shortcut must not reach the main window), Cmd-F focuses the
-/// search, Escape clears the search first and then closes.
+/// Cmd-F focuses the search, Escape clears the search first and then
+/// closes. Cmd-W closes it through the app's window key table
+/// (`WindowKeyTable`, kind `.debugSettings`), like every window of its own.
 final class DebugSettingsWindow: NSWindow {
     weak var model: DebugSettingsModel?
 
@@ -84,10 +68,6 @@ final class DebugSettingsWindow: NSWindow {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased()
-        if flags == .command, key == "w" {
-            performClose(nil)
-            return true
-        }
         if flags == .command, key == "f" {
             model?.searchFocusRequest += 1
             return true

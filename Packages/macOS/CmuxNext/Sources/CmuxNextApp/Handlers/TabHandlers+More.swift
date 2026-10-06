@@ -4,7 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 
 // Tab moves out of the pane (split, column, workspace, window), unread
-// state, per-kind tab verbs, and identifier copies.
+// state, per-kind tab verbs, and identifier copies (links: LinkHandlers).
 extension TabHandlers {
     static func bindMoreActions(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindLayoutMoves(registry, ctx)
@@ -43,7 +43,7 @@ extension TabHandlers {
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: whether this run may change the view,
             // and the window it acts in.
-            let allowed = ctx.services.viewChangeAllowed
+            let allowed = ActionRunScope.viewChangeAllowed()
             let source = ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
             let preferred = (source ?? windows.active)?.state
             if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
@@ -61,7 +61,7 @@ extension TabHandlers {
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
             // Read before the await: a run this client's user did not start
             // opens the window behind, never key.
-            let allowed = ctx.services.viewChangeAllowed
+            let allowed = ActionRunScope.viewChangeAllowed()
             Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else { return }
                 windows.placeMoved(key.rawValue, from: origin, preferred: nil, newWindow: true, select: allowed)
@@ -106,9 +106,6 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             copy("surface_id=\(tab.id)")
         })
-        let noLinks = RefusalStrings.deepLinksUnported
-        registry.bindUnavailable("palette.copyPaneLink", reason: noLinks)
-        registry.bindUnavailable("palette.copySurfaceLink", reason: noLinks)
     }
 
     private static func copy(_ text: String) {
@@ -119,7 +116,7 @@ extension TabHandlers {
 
 extension TabHandlers {
     /// The view change after a tab move an action started, captured before
-    /// any await (`viewChangeAllowed`, the landing window): focus follows
+    /// any await (`ActionRunScope.viewChangeAllowed()`, the landing window): focus follows
     /// the tab into the window that will show it (an expectation set now,
     /// so a newer user choice wins), and the returned closure, called with
     /// whether the move landed, shows the workspace and makes the window
@@ -129,7 +126,7 @@ extension TabHandlers {
     static func revealer(_ ctx: AppActionContext, tab: TabModel, outcome: TabDragOutcome,
                          workspaceID: String?) -> @MainActor (Bool) -> Void {
         let services = ctx.services
-        let allowed = services.viewChangeAllowed
+        let allowed = ActionRunScope.viewChangeAllowed()
         let source = services.landingWindow(tab: tab.id, workspaceID: nil)
         let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
         if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }

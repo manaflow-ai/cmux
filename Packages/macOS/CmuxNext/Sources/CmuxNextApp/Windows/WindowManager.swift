@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextBridge
@@ -19,7 +20,8 @@ import Observation
 /// the launch window, which shows the daemon's connecting state before any
 /// membership exists and is registered once it receives workspaces. Both persist in
 /// the daemon's `personal` frontend projection (architecture.md 1), written
-/// 500 ms after the last change and flushed on quit.
+/// on every selection or focus change (geometry 500 ms after it settles)
+/// and flushed on quit (WindowRecordSaver).
 final class WindowManager {
     unowned let services: AppServices
     let registry = WindowRegistryStore()
@@ -29,8 +31,8 @@ final class WindowManager {
     private weak var lastActive: WindowController?
     /// Called after a window is ordered in (the restart notice attaches).
     var onPresent: ((WindowController) -> Void)?
-    /// Debounced save of window geometry (architecture.md 1: 500 ms).
-    private let saveTimer = DemandTimer(owner: "WindowManager.save")
+    /// Writes the window records (WindowRecordSaver).
+    lazy var recordSaver = WindowRecordSaver(manager: self)
     private var loadObservation: Task<Void, Never>?
     var membershipObservation: Task<Void, Never>?
     /// Records connected sessions in the home session (rooms, data-model.md 1.1).
@@ -81,7 +83,10 @@ final class WindowManager {
     var incognitoSession: BrowserProfileID?
     /// Workspaces of open incognito windows, closed at the next launch when
     /// this run ends without closing them.
-    private(set) lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+    lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
+    /// Incognito windows waiting for the ephemeral workspace created for
+    /// them (`WindowManager+Ephemeral`).
+    var pendingEphemeralWindows: [String] = []
     /// Incognito window of each tab it lists (`rememberIncognitoTabs`).
     var incognitoTabHomes: [String: String] = [:]
     /// Clears what the incognito session kept in memory (omnibar history).
@@ -92,7 +97,7 @@ final class WindowManager {
     }
 
     var active: WindowController? {
-        if let key = NSApp.keyWindow, let controller = owner(of: key) { return controller }
+        if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
 
@@ -142,13 +147,13 @@ final class WindowManager {
 
     // MARK: Restore
 
-    /// Opens one window at once (it shows the connecting state until the
-    /// daemon answers; it is not a registry window, since it has no
-    /// workspace yet), then restores the saved windows once the first
-    /// snapshot arrives, the launch window becoming the frontmost of them.
-    /// Creates a workspace only when the daemon tree is empty.
+    /// Opens one window at once (from the launch snapshot, else in the
+    /// connecting state, outside the registry), then restores the saved
+    /// windows once the first live snapshot arrives, the launch window
+    /// becoming the frontmost. Creates a workspace only for an empty tree.
     func restoreWhenLoaded() {
-        if controllers.isEmpty, !showLaunchSnapshot() {
+        registry.isLaunching = !restored
+        if controllers.isEmpty, !LaunchSnapshotWindow(manager: self).show() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
@@ -171,13 +176,18 @@ final class WindowManager {
         if let windowState = services.daemon.windowState {
             document = (try? await windowState.load()) ?? WindowStateDocument()
         }
-        // Incognito workspaces a crashed run left: closed, never shown.
+        // Incognito workspaces a crashed run left on a daemon without state
+        // resources: the app's ledger owns them, so they close, never shown.
+        // A daemon with state resources owns its ephemeral workspaces (it
+        // closes them at its next start); until then they show in an
+        // incognito window, never a normal one, so wait for its flags.
         let leftover = await incognitoLedger.load()
         if !leftover.isEmpty {
             registry.apply { $0.markDiscarding(leftover); return WindowRegistry.Changes() }
             discard(leftover)
         }
-        if services.daemon.store.workspaces.contains(where: { !leftover.contains($0.id) }) == false {
+        await EphemeralWorkspaces.awaitFlags(self)
+        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
             _ = await createWorkspace()
         }
         let restoredRegistry = WindowRegistry(records: document.windows)
@@ -206,6 +216,7 @@ final class WindowManager {
         if let adopted, controllers.count > 1 { present(adopted) }
         observeMembership()
         sessionRegistrar.start()
+        registry.isLaunching = false
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -265,8 +276,10 @@ final class WindowManager {
 
     /// Runs `body` once `controller` next shows a workspace, if that is
     /// `workspaceID`.
+    /// `body` keeps the view-change permission of the run that called this.
     func afterNextContent(in controller: WindowController, showing workspaceID: String, _ body: @escaping () -> Void) {
-        contentWaiters[controller.state.id, default: []].append((workspaceID, body))
+        let run = ActionRunScope.current
+        contentWaiters[controller.state.id, default: []].append((workspaceID, { ActionRunScope.carrying(run, body) }))
     }
 
     /// The window installed its first workspace content: a window kept off
@@ -295,7 +308,9 @@ final class WindowManager {
 
     /// Brings a window forward (not key and no activation under
     /// `CMUX_NEXT_NO_ACTIVATE=1`).
+    /// An action run without view-change permission brings nothing forward.
     func bringToFront(_ controller: WindowController) {
+        guard ActionRunScope.viewChangeAllowed() else { return }
         if awaitingContent[controller.state.id] != nil {
             awaitingContent[controller.state.id] = true
             return
@@ -320,41 +335,11 @@ final class WindowManager {
         userClosed(id)
     }
 
-    // MARK: Persistence
-
-    func stateDidChange(_ state: WindowState) {
-        guard restored, !isTerminating else { return }
-        saveTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in await self?.saveNow() }
-    }
-
-    func scheduleSave() {
-        guard let any = states.values.first else { return }
-        stateDidChange(any)
-    }
-
-    func saveNow() async {
-        guard let windowState = services.daemon.windowState else { return }
-        captureGeometry()
-        let records = currentRecords()
-        // Keys on every machine, plus those whose machine has not loaded yet
-        // (they must survive until it reconnects).
-        let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
-            .union(records.flatMap(\.workspaceKeys).filter { !isDead($0.rawValue) })
-        do {
-            try await windowState.update { document in
-                document.windows = records
-                document.prune(liveWorkspaces: live)
-            }
-        } catch {
-            services.daemon.logger.error("window state save failed: \(String(describing: error), privacy: .public)")
-        }
-    }
-
     /// Flushes state and stops saving (quit).
     func prepareForTermination() async {
-        saveTimer.cancel()
+        recordSaver.geometryTimer.cancel()
         await closeIncognitoWindowsForTermination()
-        await saveNow()
+        await recordSaver.flushSaves()
         isTerminating = true
         membershipObservation?.cancel()
         // Chromium stops later, as the last quit step (QuitCompletion).
@@ -370,30 +355,5 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-    }
-
-    private func currentRecords() -> [WindowRecord] {
-        let ordered = NSApp.orderedWindows
-        let value = registry.value
-        return value.windows.compactMap { window in
-            let controller = controller(for: window.id)
-            let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
-                ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
-            return value.record(window.id, state: states[window.id], order: order,
-                                isFullScreen: controller?.window?.styleMask.contains(.fullScreen) ?? false,
-                                selectedTabs: selectedTabs(window: window))
-        }
-    }
-
-    /// Remembered tab per pane across the window's workspaces.
-    private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
-        guard let state = states[window.id] else { return [:] }
-        var selected: [String: String] = [:]
-        for id in window.workspaceIDs {
-            for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {
-                if let tab = state.selection.selection(in: pane.id) { selected[pane.id] = tab }
-            }
-        }
-        return selected
     }
 }

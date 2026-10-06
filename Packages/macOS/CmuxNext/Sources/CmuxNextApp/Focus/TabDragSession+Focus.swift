@@ -40,7 +40,7 @@ extension TabDragSession {
             let inPlace = sourcePane?.stripModel.stripID == stripID
             if drop !== source { source?.focus.send(.dragEnded(.movedAway)) }
             drop?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: inPlace ? nil : sourcePane?.paneKey)))
-        case .newSplit, .newColumn, .newWorkspace:
+        case .newSplit, .newColumn, .newDock, .newWorkspace:
             if drop !== source { source?.focus.send(.dragEnded(.movedAway)) }
             drop?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: sourcePane?.paneKey)))
         }

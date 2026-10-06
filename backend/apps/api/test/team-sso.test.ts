@@ -164,13 +164,13 @@ describe("SSO connections over the API (workerd)", () => {
 
 describe("sign-in discovery rate limit", () => {
   it("answers 429 with one body shape after 30 requests a minute from one IP", async () => {
-    const statuses: Array<number> = []
-    let limited: unknown
-    for (let i = 0; i < 35; i++) {
-      const res = await worker.fetch(`https://api.test/v1/sso/discover?email=u${i}@limit-test-${i}.dev`, { headers: { "cf-connecting-ip": "203.0.113.9" } })
-      statuses.push(res.status)
-      if (res.status === 429) limited = await res.json()
-    }
+    // One domain and all requests at once: the old loop made 35 sequential lookups of 35 new domains
+    // (35 cold DomainDOs), whose wall time grew past the 5 s test limit when the suite ran in parallel.
+    const responses = await Promise.all(Array.from({ length: 35 }, (_, i) => worker.fetch(`https://api.test/v1/sso/discover?email=u${i}@limit-test.dev`, { headers: { "cf-connecting-ip": "203.0.113.9" } })))
+    const statuses = responses.map((r) => r.status)
+    const limitedRes = responses.find((r) => r.status === 429)
+    const limited: unknown = limitedRes ? await limitedRes.json() : undefined
+    await Promise.all(responses.filter((r) => r !== limitedRes).map((r) => r.body?.cancel()))
     expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0)
     expect(limited).toEqual({ error: "rate limited" })
   })

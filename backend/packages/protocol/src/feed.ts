@@ -278,8 +278,23 @@ export const FeedAdopt = def({
   principals: ["install"],
   params: Schema.Struct({ item: FeedItem }),
   result: ItemResult,
-  errors: feedErrors,
+  errors: [...feedErrors, "feed.adopt_cancelled"],
   docs: "Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect.",
+  cli: { path: "", visible: false },
+  mcp: { expose: "never", group: "feed" }
+})
+
+export const FeedAdoptCancel = def({
+  name: "feed.adopt.cancel",
+  owner: "cloud:FeedDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "feed_item",
+  principals: ["install"],
+  params: Schema.Struct({ key: Schema.String.check(Schema.isPattern(/^adopt:fi_[a-z0-9]{20}$/)) }),
+  result: Schema.Struct({ cancelled: Schema.Boolean, item: Schema.optionalKey(FeedItem) }),
+  errors: feedErrors,
+  docs: "Handoff abort: a daemon's local feed owner withdraws `feed.adopt` with key `adopt:<item>`. Not adopted: a tombstone refuses a later adopt with that key and the reply is cancelled true. Adopted: cancelled false with the cloud item.",
   cli: { path: "", visible: false },
   mcp: { expose: "never", group: "feed" }
 })
@@ -376,7 +391,7 @@ export const FeedKinds = def({
   mcp: { expose: "default", group: "feed" }
 })
 
-export const feedOps = [FeedPost, FeedAnswer, FeedCancel, FeedRead, FeedSeen, FeedArchive, FeedUnarchive, FeedSnooze, FeedPrefsSet, FeedAdopt, FeedList, FeedGet, FeedCounts, FeedKinds] as const
+export const feedOps = [FeedPost, FeedAnswer, FeedCancel, FeedRead, FeedSeen, FeedArchive, FeedUnarchive, FeedSnooze, FeedPrefsSet, FeedAdopt, FeedAdoptCancel, FeedList, FeedGet, FeedCounts, FeedKinds] as const
 
 const internal = (name: string, docs: string, params: Schema.Top): CloudOpDef =>
   ({

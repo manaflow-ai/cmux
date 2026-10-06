@@ -3,8 +3,9 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SchemaValidator } from "../../tools/json-schema.ts"
-import { validatePackage } from "../../tools/validate-manifest.ts"
+import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
 import { generate, scopeFor } from "../../tools/gen-cmux-global.ts"
+import { loadAppCatalogs, schemaType } from "../../tools/app-catalogs.ts"
 
 const root = join(import.meta.dir, "../..")
 const schema = new SchemaValidator(JSON.parse(readFileSync(join(root, "schema/cmux-app.schema.json"), "utf8")))
@@ -19,6 +20,27 @@ describe("manifest schema", () => {
       const expected = JSON.parse(readFileSync(join(fixtures, "invalid", f.replace(".json", ".expect.json")), "utf8"))
       const errors = schema.validate(JSON.parse(readFileSync(join(fixtures, "invalid", f), "utf8")))
       expect(errors.some((e) => e.path === expected.path && e.code === expected.code)).toBe(true)
+    })
+  }
+})
+
+// Palette fixtures live in fixtures/palette/ until the Swift manifest validator
+// (CmuxNextApps) knows contributes.paletteScopes; sync-app-runtime.sh copies only
+// fixtures/{valid,invalid}. They run the schema plus the manifest-level palette rules.
+describe("palette manifest fixtures", () => {
+  const dir = join(fixtures, "palette")
+  const check = (manifest: Record<string, unknown>) => {
+    const errors = schema.validate(manifest)
+    return errors.length ? errors : checkPalette(manifest).errors
+  }
+  for (const f of readdirSync(join(dir, "valid"))) {
+    test(`palette/valid/${f}`, () => expect(check(JSON.parse(readFileSync(join(dir, "valid", f), "utf8")))).toEqual([]))
+  }
+  for (const f of readdirSync(join(dir, "invalid")).filter((f) => !f.endsWith(".expect.json"))) {
+    test(`palette/invalid/${f}`, () => {
+      const expected = JSON.parse(readFileSync(join(dir, "invalid", f.replace(".json", ".expect.json")), "utf8"))
+      const errors = check(JSON.parse(readFileSync(join(dir, "invalid", f), "utf8")))
+      expect(errors.map((e) => `${e.path} ${e.code}`)).toContain(`${expected.path} ${expected.code}`)
     })
   }
 })
@@ -54,9 +76,27 @@ describe("package validation", () => {
     const r = validatePackage(pkg({ ...base, main: "src/m.js", files: ["dist/"] }, { "src/m.js": "var __cmuxAppExports = { a() {} }" }))
     expect(r.errors.map((e) => e.code)).toContain("path.notInFiles")
   })
+  const paletteManifest = (source: Record<string, unknown>, detail?: Record<string, unknown>) => ({
+    ...base,
+    main: "m.js",
+    contributes: { paletteScopes: [{ id: "notes", title: "Notes", source, ...(detail ? { detail } : {}) }] }
+  })
+  test("palette source and detail exports must exist in main", () => {
+    const r = validatePackage(pkg(paletteManifest({ kind: "snapshot", export: "corpus" }, { export: "noteDetail" }), { "m.js": "var __cmuxAppExports = { other: palette.snapshot(() => []) }" }))
+    expect(r.errors.map((e) => `${e.path} ${e.code}`)).toEqual(["/contributes/paletteScopes/0/source/export export.missing", "/contributes/paletteScopes/0/detail/export export.missing"])
+  })
+  test("a palette export of the wrong kind is reported", () => {
+    const r = validatePackage(pkg(paletteManifest({ kind: "query", export: "corpus" }), { "m.js": "var __cmuxAppExports = { corpus: palette.snapshot(() => [act('a.b', {})]) }" }))
+    expect(r.errors.map((e) => e.code)).toEqual(["export.kind"])
+  })
+  test("an op source outside the catalog is a warning", () => {
+    const r = validatePackage(pkg({ ...base, contributes: { paletteScopes: [{ id: "notes", title: "Notes", source: { kind: "op", op: "note.search", item: { id: "$.id", title: "$.t" } } }] } }))
+    expect(r.ok).toBe(true)
+    expect(r.warnings.map((e) => e.code)).toContain("op.unknown")
+  })
   test("sample apps are valid", () => {
     const samples = join(root, "../../../samples/apps")
-    for (const name of ["github-prs", "running-agents", "agent-status"]) {
+    for (const name of ["github-prs", "running-agents", "agent-status", "palette-notes"]) {
       const r = validatePackage(join(samples, name))
       expect({ name, errors: r.errors }).toEqual({ name, errors: [] })
     }
@@ -76,6 +116,28 @@ describe("generator", () => {
     expect(scopeFor("terminal.close", { class: "mutation" })).toBeNull()
     expect(scopeFor("install.revoke", { class: "mutation", risk: "destructive" })).toBeNull()
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
+  })
+  test("first-party app catalog ops get scopes and typed clients", () => {
+    const files = generate()
+    const scopes = JSON.parse(files["scopes.json"]!).ops
+    expect(scopes["rd.session.start"]).toEqual({ scope: "rd:execute", class: "mutation" })
+    expect(scopes["rd.session.list"]).toEqual({ scope: "rd:read", class: "read" })
+    expect(JSON.parse(files["ops.json"]!).ops).toContain("rd.session.start")
+    expect(files["cmux-app.d.ts"]).toContain("owner `app:cmux/remote-desktop`")
+    expect(files["cmux-app.d.ts"]).toContain('start: CmuxOp<{ host: string; target?: string; mode?: "view" | "control" }, { session: string; tab: string }>')
+  })
+  test("app catalog fragments are validated", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-app-catalogs-"))
+    mkdirSync(join(dir, "bad/catalog"), { recursive: true })
+    writeFileSync(join(dir, "bad/cmux-app.v2.json"), JSON.stringify({ catalog: "catalog/c.json" }))
+    writeFileSync(join(dir, "bad/catalog/c.json"), JSON.stringify({ family: "bad", operations: [{ name: "bad.x" }] }))
+    expect(() => loadAppCatalogs(dir)).toThrow(/bad\/catalog\/c.json/)
+  })
+  test("JSON Schema to TypeScript", () => {
+    expect(schemaType({ type: "object", properties: { a: { type: "integer" }, b: { type: "array", items: { enum: ["x", "y"] } } }, required: ["a"] }))
+      .toBe('{ a: number; b?: Array<"x" | "y"> }')
+    expect(schemaType({ type: "object", additionalProperties: false })).toBe("Record<string, never>")
+    expect(schemaType({ oneOf: [{ type: "string" }, { type: "null" }] })).toBe("string | null")
   })
 })
 

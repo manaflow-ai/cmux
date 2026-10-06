@@ -39,10 +39,10 @@ import Testing
             let (registry, layout) = make()
             #expect(!registry.canPerform("sidebar.home.add"))
             #expect(registry.perform("sidebar.home.remove"))
-            #expect(layout.document.firstItem(with: .builtIn(.home)) == nil)
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
             #expect(!registry.canPerform("sidebar.home.remove"))
             #expect(registry.perform("sidebar.home.add"))
-            #expect(layout.document.firstTopItem(room: nil)?.ref == .builtIn(.home))
+            #expect(layout.document.firstTopItem(room: nil)?.ref == .app("cmux/home"))
         }
     }
 
@@ -54,7 +54,7 @@ import Testing
             #expect(layout.document.item(LayoutItemID("itm_settings")) == nil)
             // A built-in name also names the item (`cmux sidebar item remove home`).
             #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "home"))))
-            #expect(layout.document.firstItem(with: .builtIn(.home)) == nil)
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
         }
     }
 
@@ -82,12 +82,12 @@ import Testing
         withPrototype(true) {
             let (registry, layout) = make()
             #expect(registry.perform("sidebar.item.add", invocation: ActionInvocation(arguments: ["item": .string("home"), "section": .string("sec_bottom")])))
-            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .builtIn(.home) }.count == 2)
+            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .app("cmux/home") }.count == 2)
             #expect(registry.perform("sidebar.item.remove", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "itm_home"))))
-            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .builtIn(.home) }.count == 1)
+            #expect(layout.document.sections.flatMap(\.items).filter { $0.ref == .app("cmux/home") }.count == 1)
             #expect(registry.perform("sidebar.item.removeEverywhere", invocation: ActionInvocation(target: ActionTargetRef(kind: .sidebarItem, id: "home"))))
-            #expect(layout.document.firstItem(with: .builtIn(.home)) == nil)
-            #expect(layout.document.firstTopItem(room: nil)?.ref == .builtIn(.appStore))
+            #expect(layout.document.firstItem(with: .app("cmux/home")) == nil)
+            #expect(layout.document.firstTopItem(room: nil)?.ref == .app("cmux/app-store"))
         }
     }
 
@@ -105,7 +105,7 @@ import Testing
         func ids(_ context: ActionMenuContext) -> [ActionID] { menus.referencedIDs(menus.entries(for: context)) }
         #expect(ids(.sidebarSection).contains("sidebar.section.rename") && ids(.sidebarSection).contains("sidebar.section.remove"))
         #expect(ids(.sidebarItem).contains("sidebar.item.remove") && ids(.sidebarItem).contains("sidebar.item.removeEverywhere"))
-        #expect(ids(.sidebarItem).contains("sidebar.item.hideApp"))
+        #expect(ids(.sidebarItem).contains("sidebar.item.hideApp") && ids(.sidebarSection).contains("sidebar.item.hideApp"))
         #expect(ids(.sidebarBackground).contains("sidebar.home.add"))
     }
 }

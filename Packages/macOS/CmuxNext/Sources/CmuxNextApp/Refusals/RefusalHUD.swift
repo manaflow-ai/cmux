@@ -22,8 +22,15 @@ final class RefusalHUD {
 
     /// The message currently shown (tests, `debug.layers` style checks).
     var message: String? { view.isShowing ? view.text : nil }
+    /// Messages asked for so far: a caller that may refuse after another
+    /// layer already did compares it, so one failure shows one reason.
+    private(set) var shownCount = 0
+    /// The window that draws the message (tests: it must sit above
+    /// Chromium page child windows, R84).
+    var hostWindow: NSWindow? { view.window }
 
     func show(_ text: String, in window: NSWindow?) {
+        shownCount += 1
         guard let content = window?.contentView else { return }
         if view.superview !== content { content.addSubview(view, positioned: .above, relativeTo: nil) }
         view.show(text, in: content.bounds)
@@ -77,19 +84,19 @@ final class RefusalHUDView: NSView {
         let height = size.height + Metrics.space4 * 2
         frame = CGRect(x: container.midX - width / 2, y: container.minY + Metrics.space6 * 2, width: width, height: height)
         surface.frame = bounds
-        surface.cornerRadius = height / 2
+        surface.cornerRadius = Metrics.chipCornerRadius(height: height)
         label.frame = bounds.insetBy(dx: inset, dy: Metrics.space4)
         isHidden = false
         isShowing = true
         NSAccessibility.post(element: self, notification: .announcementRequested,
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
-        Motion.animate(.fadeIn) { animator().alphaValue = 1 }
+        Motion.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
     }
 
     func hide() {
         guard isShowing else { return }
         isShowing = false
-        Motion.animate(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, !self.isShowing else { return }
             self.isHidden = true
         })

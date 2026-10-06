@@ -2,6 +2,7 @@
 import CmuxHomeUI
 import CmuxiOSDesign
 import SwiftUI
+import CmuxiOSTerminal
 import UIKit
 
 /// DEV switcher for the Home prototypes, opened by shaking the phone.
@@ -25,6 +26,15 @@ enum DevMenu {
                 options.set(composeFlow: flow)
             })
         }
+        // DEBUG-only: a ghostty-next terminal fed by the mock session host.
+        sheet.addAction(UIAlertAction(title: "Terminal (mock host)", style: .default) { [weak presenter] _ in
+            let terminal = UINavigationController(rootViewController: DevTerminal.make())
+            presenter?.present(terminal, animated: true)
+        })
+        // DEBUG-only: the text confirmation settings against the mock owner.
+        sheet.addAction(UIAlertAction(title: "Text confirmation (mock owner)", style: .default) { [weak presenter] _ in
+            presenter?.present(DevTextConfirm.make(), animated: true)
+        })
         // DEBUG-only lab for the transport lane's Wi-Fi to cellular test (no user strings).
         sheet.addAction(UIAlertAction(title: "Network Lab", style: .default) { [weak presenter] _ in
             let lab = UINavigationController(rootViewController: UIHostingController(rootView: NetLabView()))

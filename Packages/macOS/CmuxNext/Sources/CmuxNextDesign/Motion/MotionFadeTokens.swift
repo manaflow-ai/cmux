@@ -19,6 +19,10 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// A Settings row found by search or a deep link: its highlight fades
     /// out over this long (held this long, then removed, under Reduce Motion).
     case highlight
+    /// The launch mark resolving on the window glass (`LaunchMarkView`).
+    case launch
+    /// An agent cursor's click ripple grows and fades (cmux-cua timing).
+    case clickPulse
 
     /// Seconds at `MotionSpeed.fast` (`MotionTunables`; overridable in
     /// Debug Settings).

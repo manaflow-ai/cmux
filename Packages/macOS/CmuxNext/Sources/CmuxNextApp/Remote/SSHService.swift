@@ -41,7 +41,32 @@ final class SSHService {
     }
 
     /// Why SSH machines cannot connect in this build, or nil.
-    var unavailableReason: String? { binary == nil ? RemoteStrings.noClient : nil }
+    var unavailableReason: String? {
+        if policyDisabled { return RefusalStrings.turnedOffByOrganization }
+        return binary == nil ? RemoteStrings.noClient : nil
+    }
+
+    /// Set while an administrator turned remote hosts off (`DisabledFeatures`).
+    private(set) var policyDisabled = false
+    /// Machines that were set to connect when the policy turned them off.
+    private var reconnectWhenAllowed: Set<String> = []
+
+    /// Turning remote hosts off disconnects every SSH machine, keeps its
+    /// workspaces (their terminals show "Turned off by your organization")
+    /// and leaves the remote daemon and its processes running. Turning it on
+    /// again reconnects the machines that were connecting before.
+    func applyPolicy(disabled: Bool) {
+        guard disabled != policyDisabled else { return }
+        policyDisabled = disabled
+        for session in machines.ssh { session.daemon.policyBlock.set(disabled) }
+        if disabled {
+            reconnectWhenAllowed = Set(machines.ssh.filter(\.autoConnect).map(\.machineID))
+            for session in machines.ssh { session.disconnect(keepAutoConnect: true) }
+        } else {
+            for session in machines.ssh where session.autoConnect && reconnectWhenAllowed.contains(session.machineID) { session.connect() }
+            reconnectWhenAllowed = []
+        }
+    }
 
     var sessions: [SSHMachineSession] { machines.ssh }
 
@@ -60,7 +85,12 @@ final class SSHService {
         })
         let machines = machines
         observers.append(Task { [weak self] in
-            for await records in Observations({ machines.local.store.personal.isLoaded ? machines.local.store.personal.sessions : [] }) {
+            // Live state only: restoring connects and prunes saved hosts,
+            // which the launch snapshot's cached registry must not drive.
+            for await records in Observations({ () -> [SessionRecord] in
+                let store = machines.local.store
+                return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
+            }) {
                 self?.restore(records)
                 self?.restoreSavedHosts(registered: records)
             }
@@ -74,6 +104,7 @@ final class SSHService {
     }
 
     private func wakeAll(_ wake: SSHConnectionMachine.Wake) {
+        guard !policyDisabled else { return }
         for session in machines.ssh where session.autoConnect { session.wake(wake) }
     }
 
@@ -92,6 +123,11 @@ final class SSHService {
         guard let host = SSHHost(transportFields: fields), !forgotten.contains(host.machineID),
               machines.sshSession(host.machineID) == nil, let session = makeSession(host) else { return }
         session.autoConnect = fields["connect"] != "false"
+        if policyDisabled {
+            session.daemon.policyBlock.set(true)
+            if session.autoConnect { reconnectWhenAllowed.insert(session.machineID) }
+            return
+        }
         if session.autoConnect { session.connect() }
     }
 
@@ -136,6 +172,7 @@ final class SSHService {
     }
 
     func reconnect(_ session: SSHMachineSession) {
+        guard !policyDisabled else { return }
         if session.linkStatus == .offline { session.connect() } else { session.wake(.user) }
     }
 
@@ -209,6 +246,7 @@ final class SSHService {
 
     /// Installs the app's cmux-tui build on the machine and reconnects.
     func install(_ session: SSHMachineSession) async throws {
+        if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }
         guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
         let link = session.link, host = session.host
@@ -223,6 +261,8 @@ final class SSHService {
         do {
             session.installPhase = .manifest
             let plan = try await installer.plan(commit: commit, platform: platform, remoteBinary: host.remoteBinary)
+            // Turned off while planning: refuse before the remote work starts (never mid-install).
+            if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
                 // task-owner: one main-actor hop per install step
                 Task { @MainActor in session.installPhase = phase }

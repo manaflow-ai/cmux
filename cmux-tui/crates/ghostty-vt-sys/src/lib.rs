@@ -1,8 +1,8 @@
 //! Raw FFI bindings to libghostty-vt.
 //!
-//! The static library is compiled from the `ghostty/` submodule at build
+//! The static library is compiled from the `ghostty-next/` submodule at build
 //! time (see build.rs) and the bindings are generated with bindgen from
-//! `ghostty/include/ghostty/vt.h`.
+//! `ghostty-next/include/ghostty/vt.h`.
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]

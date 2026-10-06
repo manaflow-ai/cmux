@@ -27,6 +27,25 @@ import Testing
         }
     }
 
+    /// This build's scheme goes to `link.open`, the one resolution path;
+    /// the sign-in callback keeps going to auth, and other builds' schemes
+    /// are not ours to open.
+    @Test func thisBuildsLinksGoToLinkOpen() {
+        let router = ExternalOpenRouter(linkScheme: "cmux-dev-mytag")
+        let tab = URL(string: "cmux-dev-mytag://tab/tab_0123456789abcdef0123456789abcdef")!
+        #expect(router.route(tab) == .deepLink(tab))
+        let session = URL(string: "CMUX-DEV-MYTAG://session/s1#turn-t1")!
+        #expect(router.route(session) == .deepLink(session))
+        // Anything else in the scheme is still link.open's to refuse with a reason.
+        let unknown = URL(string: "cmux-dev-mytag://bogus/1")!
+        #expect(router.route(unknown) == .deepLink(unknown))
+        for text in ["cmux-dev-mytag://auth-callback?code=1", "cmux-dev-mytag://AUTH-CALLBACK", "cmux://tab/tab_0123456789abcdef0123456789abcdef",
+                     "cmux-dev://tab/tab_0123456789abcdef0123456789abcdef"] {
+            #expect(router.route(URL(string: text)!) == .unsupported, "\(text)")
+        }
+        #expect(ExternalOpenRouter().route(tab) == .unsupported, "no scheme, no links")
+    }
+
     @Test func manPageLinks() {
         #expect(router.route(URL(string: "x-man-page://ls")!) == .terminal(cwd: nil, command: "man 'ls'"))
         #expect(router.route(URL(string: "x-man-page://1/printf")!) == .terminal(cwd: nil, command: "man '1' 'printf'"))

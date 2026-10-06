@@ -1,4 +1,4 @@
-import { EVENT_RETENTION_MS, LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type SqlStore } from "@cmux/ownership"
 import type { Attachment, OwnerEngineOptions } from "./owner-do.ts"
 
 /**
@@ -30,7 +30,9 @@ export class SecondaryStream<S> {
   constructor(
     private readonly ctx: DurableObjectState,
     private readonly store: SqlStore,
-    readonly spec: SecondarySpec<S>
+    readonly spec: SecondarySpec<S>,
+    /** The owner's socket gate (token expiry): a socket that fails it gets no frame. */
+    private readonly live: (ws: WebSocket, a: Attachment) => boolean = () => true
   ) {}
 
   open(entity: string): OwnerEngine<S> {
@@ -52,7 +54,7 @@ export class SecondaryStream<S> {
     const text = JSON.stringify(frame)
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.streams?.includes(this.spec.prefix)) send(ws, text)
+      if (a?.streams?.includes(this.spec.prefix) && this.live(ws, a)) send(ws, text)
     }
   }
 
@@ -93,14 +95,15 @@ export class SecondaryStream<S> {
   prune(now: number): void {
     if (!this.engine) return
     this.engine.pruneLedger(now - LEDGER_RETENTION_MS)
-    this.engine.pruneEvents(now - EVENT_RETENTION_MS)
+    this.engine.pruneEventWindow(now)
   }
 
   /** When this stream next needs the alarm (pruning), or null. */
   nextWakeAt(): number | null {
     if (!this.engine) return null
     const oldest = this.engine.oldestLedgerAt()
-    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, this.engine.nextEventPruneAt()].filter((t): t is number => t !== null)
+    const events = this.engine.eventWindowDue(Date.now()) ? Date.now() : this.engine.nextEventPruneAt()
+    const times = [oldest === null ? null : oldest + LEDGER_RETENTION_MS + 3600_000, events].filter((t): t is number => t !== null)
     return times.length ? Math.min(...times) : null
   }
 }

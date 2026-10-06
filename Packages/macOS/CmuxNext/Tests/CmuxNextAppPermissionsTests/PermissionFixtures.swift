@@ -29,9 +29,13 @@ enum Fixtures {
         var scopes = Set(table.ops.values.map(\.scope)).filter { !$0.contains("<") && $0 != "storage:local" }
         scopes.formUnion(hosts.map { "net:\($0)" })
         scopes.formUnion(["net:*.example.com", "integration:github", "integration:github:read", "storage:synced"])
-        scopes.formUnion(AppScopeKind.restrictedScopes)
+        scopes.formUnion(restrictedSamples)
         return scopes.sorted()
     }()
+
+    /// Restricted scopes of the shared scope table (`scope-classes.json`).
+    static let restrictedSamples: Set<String> = ["coderouter:keys", "usage:read", "fs:write", "mcp:expose", "clipboard:write",
+                                                 "feed:answer", "terminal:input"]
 
     /// Ops to probe, with params that name hosts, roots and workspaces.
     static func probes(_ rng: inout SeededRandom) -> [(String, AppJSON)] {
@@ -59,7 +63,7 @@ enum Fixtures {
         let declared = scopeUniverse.filter { _ in rng.next() % 3 == 0 }
         let required = declared.filter { _ in rng.next() % 2 == 0 }
         let optional = declared.filter { !required.contains($0) }
-        let reviewed: Set<String> = tier == .verified ? AppScopeKind.restrictedScopes.filter { _ in rng.next() % 2 == 0 } : []
+        let reviewed: Set<String> = tier == .verified ? restrictedSamples.filter { _ in rng.next() % 2 == 0 } : []
         var draft = AppInstallDraft(appID: "pub/app", tier: tier, required: required.map { AppScopeRequest(scope: $0, reason: "r") },
                                     optional: optional.map { AppScopeRequest(scope: $0, reason: "r") }, reviewed: reviewed,
                                     profile: AppSandboxProfile.allCases.randomElement(using: &rng))

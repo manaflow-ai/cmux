@@ -46,6 +46,32 @@ impl Driver {
         });
     }
 
+    /// Force one new handshake when the session sent data and nothing came
+    /// back in time (see `crate::watchdog`).
+    pub(super) fn run_watchdog(&mut self) {
+        if !self.watchdog.fire(Instant::now(), self.pacer.srtt()) {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) =
+            self.tunn.format_handshake_initiation(&mut self.scratch, true)
+        {
+            self.underlay.send(packet);
+            self.schedule.on_activity(Instant::now());
+        }
+    }
+
+    /// Send again, on the session the watchdog forced, what the silent
+    /// session sent.
+    pub(super) fn replay(&mut self, packets: Vec<Vec<u8>>) {
+        for packet in packets {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
+    }
+
     pub(super) fn initiate_handshake(&mut self) {
         if !self.underlay.has_peer() {
             return;
@@ -96,7 +122,7 @@ impl Driver {
     /// adds no wakeup; it only runs when something else woke the driver.
     pub(super) fn catch_up_timers(&mut self) {
         let now = Instant::now();
-        if self.schedule.overdue(now) {
+        if self.schedule.due(now) {
             self.schedule.on_tick(now);
             self.update_timers();
         }

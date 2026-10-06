@@ -1,5 +1,5 @@
 import AppKit
-import GhosttyKit
+import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
 // model or forwarded to the delegate.
@@ -23,7 +23,7 @@ extension TerminalSurfaceView {
             if let delegate = session.delegate {
                 delegate.terminalSessionDidRingBell(session)
             } else {
-                NSSound.beep()
+                GhosttyRuntime.shared.bellSettings.ring()
             }
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }

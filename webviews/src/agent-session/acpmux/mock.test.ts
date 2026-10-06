@@ -11,6 +11,7 @@ describe("mock transport", () => {
   const connectMock = async (
     snapshots: AcpmuxSnapshot[],
     delay: (ms: number) => Promise<void> = () => Promise.resolve(),
+    gitRoute?: "native" | "daemon",
   ) => {
     (globalThis as any).window ??= globalThis;
     return AcpmuxDirectClient.connect(
@@ -18,6 +19,7 @@ describe("mock transport", () => {
       (snapshot) => snapshots.push(snapshot),
       undefined,
       () => new MockAcpmuxSocket(delay) as unknown as WebSocket,
+      gitRoute,
     );
   };
   const until = async (done: () => boolean) => {
@@ -25,9 +27,14 @@ describe("mock transport", () => {
   };
 
   test("a file search outside a repository fails through the client with the service's code", async () => {
-    const client = await connectMock([]);
+    // Mock mode's in-page daemon answers file search; the native host does in the app.
+    const client = await connectMock([], undefined, "daemon");
     const failure = await client.fileSearch("~/Downloads", "x", 10).catch((error: unknown) => error);
-    expect(failure).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
+    expect(failure).toMatchObject({
+      code: "operation.failed",
+      details: { extra: { code: "not_a_repository" } },
+      message: "~/Downloads is not in a git repository",
+    });
     expect(await client.fileSearch("~/code/acpmux", "trust", 10)).toMatchObject({
       root: "~/code/acpmux",
       results: [{ path: "src/trust.rs" }],
@@ -37,6 +44,31 @@ describe("mock transport", () => {
 
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
+  test("in the app, a file search goes to the native host with the folder, not to acpmux", async () => {
+    const client = await connectMock([]);
+    const posted: { method: string; params: Record<string, unknown> }[] = [];
+    const saved = (globalThis as any).webkit;
+    (globalThis as any).webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string; params: Record<string, unknown> }) => {
+            posted.push(message);
+            return Promise.resolve({ ok: true, value: { root: "/repo", search_root: "/repo", results: [] } });
+          },
+        },
+      },
+    };
+    try {
+      expect(await client.fileSearch("/repo", "app", 20)).toEqual({ root: "/repo", search_root: "/repo", results: [] });
+    } finally {
+      (globalThis as any).webkit = saved;
+      client.close();
+    }
+    expect(posted.map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: "file.search", params: { cwd: "/repo", query: "app", limit: 20 } },
+    ]);
+  });
+
   test("a prompt streams a scripted turn through the real client", async () => {
     const snapshots: AcpmuxSnapshot[] = [];
     (globalThis as any).window ??= globalThis;
@@ -359,6 +391,31 @@ describe("mock transport", () => {
     expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000 - SLACK_MS);
     client.close();
   });
+
+  /// Mock mode keeps its git answers in the in-page daemon; nothing reaches a native host.
+  test("mock mode reads git scopes and the status from the in-page daemon", async () => {
+    const posted: unknown[] = [];
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: { agentSession: { postMessage: (message: unknown) => posted.push(message) } },
+    };
+    try {
+      const client = await AcpmuxDirectClient.connect(
+        mockHost,
+        () => {},
+        undefined,
+        () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+        "daemon",
+      );
+      const staged = (await client.gitDiff("staged")) as { files: { path: string }[] };
+      expect(staged.files.map((file) => file.path)).toEqual(["Sources/Fleet/retry.ts"]);
+      expect(await client.gitStatus()).toMatchObject({ branch: "feat-upload-retry", ahead: 1 });
+      expect(posted).toEqual([]);
+      client.close();
+    } finally {
+      delete (globalThis as any).webkit;
+    }
+  });
 });
 
 describe("mock daemon", () => {
@@ -471,7 +528,7 @@ describe("mock daemon", () => {
       detached: false,
       branch: "feat-upload-retry",
       upstream: "origin/main",
-      base: "main",
+      base: "origin/main",
       ahead: 1,
       behind: 0,
     });

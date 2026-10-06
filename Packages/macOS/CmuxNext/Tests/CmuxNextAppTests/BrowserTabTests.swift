@@ -43,7 +43,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .notBundled }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -95,7 +95,7 @@ struct BrowserTabTests {
         let browserTabs = try #require(services.cache.browserTabs)
         browserTabs.isAvailable = { true }
         browserTabs.cefUnavailable = { .startFailed("no CEF here") }
-        browserTabs.create = { pane, url, engine, _ in
+        browserTabs.create = { pane, url, engine, _, _ in
             recorder.created.append((pane, url, engine))
             return SurfaceID(rawValue: 9)
         }
@@ -106,7 +106,8 @@ struct BrowserTabTests {
         let menu = registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: "pane:3"))
         let chromium = try #require(menu.items.first { $0.title == "New Browser Tab" })
         #expect(chromium.subtitle == "no CEF here")
-        #expect(menu.items.map(\.title) == ["New Terminal Tab", "New Browser Tab", "New Tab with Browser Profile…", "New Agent Chat"])
+        #expect(menu.items.map(\.title) == ["New Terminal Tab", "New Browser Tab", "New Tab with Browser Profile…", "New Agent Chat",
+                                                "New Tab Page"])
 
         let pane = ActionTargetRef(kind: .pane, id: "pane:3")
         let refusal = registry.capturingRefusal {

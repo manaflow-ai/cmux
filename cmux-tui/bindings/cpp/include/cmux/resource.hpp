@@ -88,6 +88,7 @@ enum class Operation {
     screen_close,
     screen_layout_export,
     screen_layout_undo,
+    screen_column_update,
     pane_list,
     pane_get,
     pane_create,
@@ -436,6 +437,16 @@ struct CreateBrowserTabOptions {
     [[nodiscard]] Result<Json::Object> to_params() const;
 };
 
+/// `column.update`: set `dock`, `width`, or both. `edge` ("left",
+/// "right", "top" or "bottom") and `mode` ("docked" or "overlay") apply only
+/// when `dock` is true.
+struct ColumnUpdateOptions {
+    std::optional<bool> dock;
+    std::optional<std::string> edge;
+    std::optional<std::string> mode;
+    std::optional<double> width;
+};
+
 struct UndoLayoutOptions {
     bool confirm_close = false;
     std::optional<std::string> confirmation_token;
@@ -709,10 +720,19 @@ struct LayoutStack {
     PaneId expanded_pane_id;
 };
 
+/// A pinned column's `edge` ("left", "right", "top" or "bottom") and
+/// `mode` ("docked" or "overlay").
+struct LayoutColumnDock {
+    std::string edge;
+    std::string mode;
+};
+
 struct LayoutColumn {
     SplitId column_id;
     double width = 1.0;
     std::shared_ptr<const LayoutNode> root;
+    /// The column's dock flag (dock-columns-v1); empty while it scrolls.
+    std::optional<LayoutColumnDock> dock;
 };
 
 struct LayoutViewport {
@@ -2135,6 +2155,11 @@ public:
     [[nodiscard]] Result<LayoutDocument> export_layout() const;
     [[nodiscard]] Result<MutationResult<ScreenSnapshot>> undo_layout(
         UndoLayoutOptions undo = {},
+        MutationOptions options = MutationOptions::unique()) const;
+    /// Pins, unpins, or resizes the viewport column `column` (`column.update`).
+    [[nodiscard]] Result<MutationResult<ScreenSnapshot>> update_column(
+        SplitId column,
+        ColumnUpdateOptions update,
         MutationOptions options = MutationOptions::unique()) const;
 };
 

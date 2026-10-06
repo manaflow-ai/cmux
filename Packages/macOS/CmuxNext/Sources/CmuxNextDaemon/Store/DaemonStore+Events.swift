@@ -28,6 +28,7 @@ extension DaemonStore {
         let followup = applyState(event)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
+            ProvisionalTab.echoed(event, transaction: transaction, in: self)
             settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
         }
         return followup
@@ -53,7 +54,7 @@ extension DaemonStore {
         return withOverlayLifted {
             var followup = Followup.none
             for envelope in batch {
-                if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
+                if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
                     if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
@@ -77,17 +78,11 @@ extension DaemonStore {
         runAppliedWaiters(nil)
     }
 
-    private func isLifecycle(_ event: DaemonEvent) -> Bool {
-        switch event {
-        case .connected, .disconnected, .daemonShutdown: true
-        default: false
-        }
-    }
-
     private func applyState(_ event: DaemonEvent) -> Followup {
         switch event {
         case .connected(let identity, _):
             connectionEpoch += 1
+            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
             connectionState = .connected(identity)
             noteHandshake(identity)
             return .resync
@@ -202,7 +197,7 @@ extension DaemonStore {
             // tab-drag-v1 reports a move as the moved tab's tab-changed
             // naming its new pane (another pane, screen or a new workspace).
             guard let target = panesByHandle[delta.pane] else { return .resync }
-            if relocate(tab, to: target, index: delta.index) {
+            if target.adopt(tab, at: delta.index, from: panesByHandle.values) {
                 structureChanged()
             } else if let index = delta.index {
                 // A move inside the pane: the delta names the tab's index.
@@ -235,25 +230,15 @@ extension DaemonStore {
             tabsBySurface[status.surface]?.setAgent(status)
             return .none
 
-        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+        case .sessionState(let item): session.apply(item, to: workspaces); return .none
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .cloudConversations,
+             .terminalClipboardRead, .terminalClipboardReadCancelled:
             sideEvents.deliver(event)
             return .none
 
         case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
             return .none
         }
-    }
-
-    /// Moves `tab` into `target` at `index` when another pane holds it.
-    /// Returns whether anything moved.
-    private func relocate(_ tab: TabModel, to target: PaneModel, index: Int?) -> Bool {
-        let holders = panesByHandle.values.filter { $0 !== target && $0.tabs.contains { $0.surface == tab.surface } }
-        guard !holders.isEmpty else { return false }
-        for pane in holders { _ = pane.removeTab(surface: tab.surface) }
-        if !target.tabs.contains(where: { $0.surface == tab.surface }) {
-            target.insertTab(tab, at: min(max(index ?? target.tabs.count, 0), target.tabs.count))
-        }
-        return true
     }
 
     private func applyWorkspaceDelta(_ delta: WorkspaceDelta, _ body: (DaemonStore, WorkspaceDelta) -> Void) -> Followup {

@@ -29,7 +29,8 @@ public enum TabStripIntent: Equatable, Sendable {
     /// Drag reorder inside one strip. `to` is the final index of the tab.
     case reorder(TabID, from: Int, to: Int)
     /// `after` is nil for the new-tab button and empty-space double-click (append).
-    case newTab(after: TabID?)
+    /// `opensWorkspace` is a one-shot Option-click override for terminal tabs.
+    case newTab(after: TabID?, opensWorkspace: Bool = false)
     case pin(TabID)
     case unpin(TabID)
     case rename(TabID)
@@ -41,10 +42,6 @@ public enum TabStripIntent: Equatable, Sendable {
     case moveToNewColumn(TabID)
     /// A trailing group button (`TabStripModel.trailingButtons`) was clicked.
     case trailingButton(String)
-    /// The location field (the selected browser tab's address,
-    /// `TabItem.location`) was clicked or pressed with VoiceOver: the App
-    /// focuses that page's address bar through the same action as Cmd-L.
-    case focusLocation
     /// A tab was dragged out of the strip. The App's drag session takes over
     /// pointer tracking; the strip keeps the slot collapsed until the model
     /// drops the tab or the App calls `TabStripView.restoreDetachedTab`.

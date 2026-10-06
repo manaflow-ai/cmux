@@ -17,6 +17,8 @@ import { apply } from "../src/conversation/apply.ts"
 import { CoreHost } from "../test/support/harness.ts"
 import { cloudCases } from "./cloud-cases.ts"
 import { localCases } from "./local-cases.ts"
+import { searchCases } from "./search-cases.ts"
+import { importCases } from "./import-cases.ts"
 
 export type Expect = string | "commit"
 
@@ -71,11 +73,11 @@ export class Corpus {
 
 const NOTES = [
   "Each case is {name, head, request, expect} or {name, create, expect}. expect is {commit}, {head} (create) or {reject: code}.",
-  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus recent (newest first) and actor_addresses.",
-  "A runner calls apply(head, request); when request.recent is an array and the op is message.send, it also runs check_agent_budget(head, actor, parts, recent, parse(now)) after every other rule passes.",
+  "request = the Rust OpRequest fields (actor, idempotency_key, op tagged by kind, now, new_message_id, target, reply_target, last_message) plus actor_addresses (cloud only).",
+  "A runner calls apply(head, request). REQUIRED for the Rust owner: every head carries agent_text_streak (0 at create) and last_agent_text_at; a text send by an agent adds 1 and sets last_agent_text_at, a human text resets the streak to 0, a text-less work card changes neither; an agent text is refused with agent_budget at streak >= 4 and agent_rate within 2000 ms of last_agent_text_at, after every other rule passes.",
   "Compare JSON values: optional fields are omitted when absent; object key order does not matter.",
   "Commit = {head, message?, change}; change kinds: message, message-updated, read-cursor, conversation, invite.",
-  "Cloud heads (with kind) keep the agent loop guard in the head (agent_text_streak, last_agent_text_at) and ignore request.recent; local heads use the Rust row window. Same limits; the head guard also counts a retracted agent message and applies the gap to the last agent text message however old.",
+  "The head guard counts a retracted agent message and applies the gap to the last agent text message however old. The cases named 'loop guard:' are the work-card bypass that a row window misses.",
   "Cloud participants.add of an agent: only its owner (a stored record's owner_user wins over the op's), unless request.trusted_participant is true (the host's reach policy approved it and stamped owner_user and display_name).",
   "Cloud invite.accept: request.actor_addresses holds the address ids of the actor's verified emails; the host passes it only when the email is verified. Group invites bind at once only for email with a matching address; otherwise status pending_approval.",
   "The host derives token_hash: invite.create stores hash(hash(secret)), and the Domain hashes the accept proof hash(secret), so no event carries a value that can accept."
@@ -93,3 +95,17 @@ write("conversation-cases.json", local.cases)
 const cloud = new Corpus()
 cloudCases(cloud)
 write("conversation-cloud-cases.json", cloud.cases)
+
+const search = searchCases()
+writeFileSync(
+  new URL("conversation-search-cases.json", import.meta.url),
+  `${JSON.stringify({ format: "cmux-conversation-search/1", notes: ["Each case: {name, actor, input {query, limit 1-100}, sources [{head, messages}], expect {hits} | {reject}}. Run searchConversations(actor, input, sources) and compare JSON values exactly (order and snippets included)."], cases: search }, null, 1)}\n`
+)
+console.log(`conversation-search-cases.json: ${search.length} cases`)
+
+const imports = importCases()
+writeFileSync(
+  new URL("conversation-import-cases.json", import.meta.url),
+  `${JSON.stringify({ format: "cmux-conversation-import/1", notes: ["Cloud only. Replay the cases in order on one ConversationDO (MemoryRows) with origin user; compare ok, the reject code, or the head, value and number of row writes."], cases: imports }, null, 1)}\n`
+)
+console.log(`conversation-import-cases.json: ${imports.length} cases`)

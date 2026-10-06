@@ -34,6 +34,32 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 defaultShortcut: Shortcut("w", modifiers: [.control, .command]), category: .window,
                 symbol: "xmark.rectangle", surfaces: [.palette, .keyboard], cliName: "app close-window"
             ),
+            // Ghostty's close_all_windows, toggle_maximize and goto_window
+            // route here (GHOSTTY-CONFIG item (c), coordinator A1, B1, E1).
+            ActionDescriptor(
+                id: "closeAllWindows",
+                title: String(localized: "action.closeAllWindows", defaultValue: "Close All Windows", bundle: .module),
+                keywords: ["close", "windows", "all"], category: .window, symbol: "xmark.rectangle.portrait",
+                surfaces: [.palette, .keyboard, .menu], cliName: "app close-all-windows", mainMenu: .file
+            ),
+            ActionDescriptor(
+                id: "zoomWindow",
+                title: String(localized: "action.zoomWindow", defaultValue: "Zoom", bundle: .module),
+                keywords: ["maximize", "window", "resize", "fill"], category: .window, symbol: "arrow.up.left.and.arrow.down.right.square",
+                surfaces: [.palette, .keyboard, .menu], cliName: "app zoom-window", mainMenu: .window
+            ),
+            ActionDescriptor(
+                id: "selectNextWindow",
+                title: String(localized: "action.selectNextWindow", defaultValue: "Select Next Window", bundle: .module),
+                keywords: ["cycle", "window", "switch"], category: .window, symbol: "macwindow.and.cursorarrow",
+                surfaces: [.palette, .keyboard], cliName: "app select-next-window"
+            ),
+            ActionDescriptor(
+                id: "selectPreviousWindow",
+                title: String(localized: "action.selectPreviousWindow", defaultValue: "Select Previous Window", bundle: .module),
+                keywords: ["cycle", "window", "switch"], category: .window, symbol: "macwindow.and.cursorarrow",
+                surfaces: [.palette, .keyboard], cliName: "app select-previous-window"
+            ),
             ActionDescriptor(
                 id: "minimizeWindow",
                 title: String(localized: "action.minimizeWindow", defaultValue: "Minimize", bundle: .module),
@@ -87,13 +113,18 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["exit", "close", "kill", "terminals", "cmux-tui", "stop", "workspaces", "fresh", "reset"], category: .window,
                 symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-end-everything", mainMenu: .app
             ),
-            ActionDescriptor(
-                id: "showHideAllWindows",
-                title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
-                keywords: ["global", "hotkey", "summon"],
-                defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
-                symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
-            ),
+            {
+                var showHide = ActionDescriptor(
+                    id: "showHideAllWindows",
+                    title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
+                    keywords: ["global", "hotkey", "summon"],
+                    defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
+                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
+                )
+                // Summons cmux from any app, so the key works while cmux is in the background.
+                showHide.isGlobalHotKey = true
+                return showHide
+            }(),
             ActionDescriptor(
                 id: "globalSearch",
                 title: String(localized: "action.globalSearch", defaultValue: "Search All Windows…", bundle: .module),
@@ -101,6 +132,17 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.textString],
                 cliName: "app search-all-windows", mainMenu: .window
+            ),
+            // Opens one palette scope (plans/cmux-next/palette-scopes.md):
+            // `cmux palette open --arg scope=tabs --focus`. CLI and MCP runs
+            // need focus (the palette takes the keyboard); agents read rows
+            // with the `palette.query` socket method instead.
+            ActionDescriptor(
+                id: "palette.open",
+                title: String(localized: "action.palette.open", defaultValue: "Open Palette Scope…", bundle: .module),
+                keywords: ["palette", "scope", "search in"], category: .window, symbol: "square.grid.2x2",
+                surfaces: [.palette, .keyboard], arguments: [CatalogArgument.scopeString, CatalogArgument.queryString],
+                cliName: "palette open", surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "commandPalette",

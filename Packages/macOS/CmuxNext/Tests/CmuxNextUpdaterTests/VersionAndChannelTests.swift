@@ -45,6 +45,19 @@ import Testing
         #expect(stable.feed(architecture: .arm64).url == "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml")
     }
 
+    /// A cmux-next NIGHTLY (same bundle id as main's NIGHTLY) is on the nightly track but
+    /// reads only its own per-architecture feed, never main's NIGHTLY feed.
+    @Test func nightlyNextBuildReadsOnlyItsOwnFeed() {
+        let next = AppcastFixtures.identity(bundle: "com.cmuxterm.app.nightly",
+                                            feed: "https://files-next.cmux.com/nightly-next/appcast.xml")
+        #expect(next.track == .nightly)
+        #expect(next.feed(architecture: .arm64).url == "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        #expect(next.feed(architecture: .x86_64).url == "https://files-next.cmux.com/nightly-next/appcast-x86_64.xml")
+        for architecture in [UpdateHostArchitecture.arm64, .x86_64] {
+            #expect(!next.feed(architecture: architecture).url.hasPrefix("https://files.cmux.com/"))
+        }
+    }
+
     @Test func sparkleRunsOnlyForSignedReleaseBuilds() {
         #expect(AppcastFixtures.identity().sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
         #expect(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t").sparkleDisabledReason(managedPolicyDisablesUpdates: false) == .developmentBuild)

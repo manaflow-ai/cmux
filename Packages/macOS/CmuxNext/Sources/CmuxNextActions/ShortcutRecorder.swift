@@ -37,7 +37,8 @@ public import AppKit
         guard editor != nil, let descriptor = registry.descriptor(for: id) else { return false }
         writeState(ShortcutRecorderState(
             actionID: descriptor.id, actionTitle: descriptor.title, currentKeycaps: registry.shortcutKeycaps(for: descriptor.id),
-            message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil))
+            message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil || descriptor.defaultChord != nil))
+        setOpen(true)
         return true
     }
 
@@ -151,18 +152,32 @@ public import AppKit
     private func finish(notice: String?) {
         guard let state = readState() else { return }
         writeState(nil)
+        setOpen(false)
         didFinish(state.actionID, notice)
+    }
+
+    /// The owner dropped the recorder's state itself (the palette hid or
+    /// changed page): stop counting it as open, without a notice.
+    public func abandon() { setOpen(false) }
+
+    /// Counts this recorder among the open ones; `.recordingShortcut` holds
+    /// while any is open, so the Settings and palette recorders can overlap.
+    private func setOpen(_ open: Bool) {
+        if open {
+            registry.openShortcutRecorders.insert(ObjectIdentifier(self))
+        } else {
+            registry.openShortcutRecorders.remove(ObjectIdentifier(self))
+        }
+        if registry.openShortcutRecorders.isEmpty {
+            registry.context.remove(.recordingShortcut)
+        } else {
+            registry.context.insert(.recordingShortcut)
+        }
     }
 
     // MARK: Text
 
-    private func title(_ id: ActionID) -> String {
-        registry.descriptor(for: id)?.title ?? id.rawValue
-    }
-
-    private func titles(_ ids: [ActionID]) -> String {
-        ListFormatter.localizedString(byJoining: ids.map(title))
-    }
+    private func titles(_ ids: [ActionID]) -> String { ShortcutAssessmentText(registry).titles(ids) }
 
     private func savedNotice(_ shortcut: Shortcut, removedFrom owners: [ActionID]) -> String {
         owners.isEmpty ? ShortcutRecorderStrings.shortcutSaved(shortcut.displayString)
@@ -170,18 +185,11 @@ public import AppKit
     }
 
     private func conflict(_ shortcut: Shortcut, owners: [ActionID], canKeepBoth: Bool) -> String {
-        let used = ShortcutRecorderStrings.shortcutUsedBy(shortcut.displayString, titles(owners))
-        return canKeepBoth ? used + " " + ShortcutRecorderStrings.shortcutCanKeepBoth : used
+        ShortcutAssessmentText(registry).conflict(shortcut, owners: owners, canKeepBoth: canKeepBoth)
     }
 
     private func message(for refusal: ShortcutRefusal, shortcut: Shortcut, id: ActionID) -> String {
-        switch refusal {
-        case .needsModifier: ShortcutRecorderStrings.shortcutNeedsModifier
-        case .reservedByMacOS(let name): ShortcutRecorderStrings.shortcutReservedByMacOS(shortcut.displayString, name)
-        case .systemAction(let owner): ShortcutRecorderStrings.shortcutOwnedBySystemAction(shortcut.displayString, title(owner))
-        case .numberedFamily(let owner): ShortcutRecorderStrings.shortcutInNumberedFamily(shortcut.displayString, title(owner))
-        case .editsNumberedFamily: ShortcutRecorderStrings.shortcutFamilyInConfig(id.rawValue)
-        }
+        ShortcutAssessmentText(registry).refusal(refusal, shortcut: shortcut, id: id)
     }
 
     private func note(_ note: ShortcutNote, shortcut: Shortcut) -> String {

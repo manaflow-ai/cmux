@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { diffHunks, diffLines, editPatch, turnFiles, turnRows } from "./diff";
+import {
+  diffHunks,
+  diffLines,
+  editPatch,
+  hunkKey,
+  hunkPatch,
+  rejectionPrompt,
+  turnFiles,
+  turnRows,
+  undoPrompt,
+} from "./diff";
 import { mergeToolItem, toolDiffs } from "./direct";
 import type { AcpmuxRow } from "./model";
 
@@ -222,6 +232,69 @@ describe("highlighted languages", () => {
       false,
       false,
       false,
+    ]);
+  });
+});
+
+describe("hunk review", () => {
+  const rows: AcpmuxRow[] = [
+    { id: "user-1", version: 1, at: 1, kind: "user", text: "go" },
+    {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      items: [
+        ...edit("t1", [
+          { path: "/repo/src/a.ts", oldText: "one\ntwo\nthree\n", newText: "one\n2\nthree\n", line: 10 },
+        ])!,
+        ...edit("t2", [{ path: "/repo/src/b.ts", oldText: "x\n", newText: "y\n" }])!,
+      ],
+    },
+  ];
+  const files = turnFiles(rows);
+
+  test("a numbered hunk carries its ranges", () => {
+    const [a] = files;
+    expect(hunkPatch(a, a.edits[0], a.edits[0].hunks[0])).toBe(
+      ["--- /repo/src/a.ts", "+++ /repo/src/a.ts", "@@ -10,3 +10,3 @@", " one", "-two", "+2", " three"].join("\n"),
+    );
+  });
+
+  test("a fragment's hunk has no ranges to get wrong", () => {
+    const b = files[1];
+    expect(hunkPatch(b, b.edits[0], b.edits[0].hunks[0]).split("\n")[2]).toBe("@@");
+  });
+
+  test("keys tell hunks apart across tool calls and files", () => {
+    expect(hunkKey(files[0], 0, 0)).not.toBe(hunkKey(files[1], 0, 0));
+  });
+
+  test("the rejection prompt fences every patch and appends the note", () => {
+    const prompt = rejectionPrompt(["P1", "P2"], "  use a constant instead ");
+    expect(prompt).toBe(
+      [
+        "I reviewed your changes and rejected these 2. Please revert them and keep your other changes:",
+        "",
+        "```diff",
+        "P1\nP2",
+        "```",
+        "",
+        "use a constant instead",
+      ].join("\n"),
+    );
+    expect(rejectionPrompt(["+```js"]).split("\n")[2]).toBe("````diff");
+    expect(rejectionPrompt(["P"]).startsWith("I reviewed your changes and rejected this one.")).toBe(true);
+  });
+
+  test("a turn's Undo asks for every patch in one fence, longer than any backtick run", () => {
+    expect(undoPrompt(["P1", "+```js"]).split("\n")).toEqual([
+      "Please undo the changes you made in that turn, so these files read as they did before it:",
+      "",
+      "````diff",
+      "P1",
+      "+```js",
+      "````",
     ]);
   });
 });

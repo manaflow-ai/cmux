@@ -28,6 +28,8 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var title: String
     public var name: String?
     public var terminalID: String?
+    /// Public terminal id (`term_…`) on registry daemons.
+    public var terminalResourceID: String?
     public var columns: Int?
     public var rows: Int?
     public var cwd: String?
@@ -38,10 +40,14 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var hasUnread: Bool
     public var tabGroupID: String?
     public var agentState: String?
+    /// The agent running in the tab (`claude`, `codex`), when known.
+    public var agent: String?
     /// A remote-terminal tab's terminal: its session (`registry_id`) and
     /// host terminal id there (data-model.md 1.2b).
     public var remoteSessionID: String?
     public var remoteTerminalID: String?
+    /// A browser tab's browser profile id (`default` or a lowercase UUID); nil for other tabs.
+    public var browserProfileID: String?
 
     public init(id: String, surface: String, kind: String, title: String, name: String? = nil, terminalID: String? = nil,
                 columns: Int? = nil, rows: Int? = nil, cwd: String? = nil, url: String? = nil, gitBranch: String? = nil,

@@ -29,7 +29,7 @@ journal (cmux-tui/spec/session-journal.md).
 
 | Kind | Fact | Owner (writes) | Store | Retention | Restore action |
 | --- | --- | --- | --- | --- | --- |
-| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the app (browsers always run locally) | per browser profile, app-local SQLite `BrowserProfiles/<profile>/History.sqlite` (one history database per profile) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
+| `page` | a finished main-frame navigation: URL, title, time, browser profile, tab | the daemon history module `cmux-history` (R62, decided 2026-10-04; react-pages.md 2.2); the app reports each visit with `cmux.history.visit.record` | per browser profile, SQLite in the daemon state dir (until H3 lands: app-local `BrowserProfiles/<profile>/History.sqlite`) | 90 days, at most 100,000 visits per profile | Open (current tab, new tab) |
 | `location` | where the user was: window, space, machine, workspace, screen, pane, tab (the "where was I" trail) | the app, from each window's settled focus | home session personal projection `history.trail` (≤ 1 MiB CAS document) | 200 entries | Go Back / Go Forward, Go To |
 | `closed` | a closed tab, screen or workspace with what reopens it (kind, pane, index, cwd, URL, engine, terminal id) | the app observes the daemon trees (a tab gone while its workspace lives); later the daemon (`closed-history-v1`) | memory (25 tabs, 20 screens) | session of the app; terminals reopen live within the daemon's 30 s reap grace, else a new shell in the same directory | Reopen |
 | `layout` | a structural layout change on a screen (split, column resize, swap, zoom, tab move) | the daemon (`layout-undo-v1`, 32 entries per screen, memory) | daemon | daemon lifetime | Undo Layout Change |
@@ -38,10 +38,13 @@ journal (cmux-tui/spec/session-journal.md).
 
 Why these owners:
 
-- Page visits stay app-local because pages render only in the local app and
-  history can exceed the 1 MiB projection limit. The home session is the same
-  Mac, so moving it there buys nothing. The engines stay the source of each
-  tab's own back/forward list (with scroll and form state).
+- Page visits move to the daemon history module (R62, decided 2026-10-04,
+  react-pages.md 2.2): the CLI, MCP and TUI read page history with no app
+  running. The module keeps its own SQLite file per profile, so the 1 MiB
+  projection limit does not apply. The browser in the app still observes
+  each navigation first and reports it with `cmux.history.visit.record`. The
+  engines stay the source of each tab's own back/forward list (with scroll
+  and form state).
 - The location trail is personal state (data-model.md 1.2c): two Macs that
   attach to one build box keep separate trails. A projection survives app
   relaunch and daemon restart and costs no daemon change.
@@ -115,21 +118,16 @@ one cursor.
 
 | Action (id kept as the cmux.json key) | Title | Default | Tier |
 | --- | --- | --- | --- |
-| `focusHistoryBack` | Go Back | Ctrl-Cmd-Left | 1 (navigation) |
-| `focusHistoryForward` | Go Forward | Ctrl-Cmd-Right | 1 |
+| `focusHistoryBack` | Go Back | Ctrl-- | 1 (navigation) |
+| `focusHistoryForward` | Go Forward | Ctrl-Shift-- | 1 |
 | `focusHistoryLast` | Go to Last Location | none | 1 |
 | `recentlyFocused` | Location History… | none | palette page |
 
-Chord choice. Ctrl-Cmd-Left/Right is Xcode's Go Back/Forward, so Mac users
-already know it for this meaning. Checked against: macOS (Ctrl-Left/Right
-switch Spaces, Ctrl-Cmd-F full screen, Ctrl-Cmd-Q lock, Ctrl-Cmd-Space
-characters; Ctrl-Cmd-arrows are free), the standard browser chords (no
-Ctrl-Cmd-arrow chord; BrowserChordTable unchanged), cmux (free; Ctrl-Cmd-[ / ] stay
-Previous/Next Workspace, Ctrl-Shift-HJKL resize panes), Ghostty (macOS
-default `super+ctrl+left/right = resize_split`; tier 1 wins in a terminal,
-and cmux's own resize keys remain). Rejected: Cmd-[ / Cmd-] (now page history,
-the user's rule), Ctrl-Cmd-[ / ] (workspaces), Ctrl-- / Ctrl-Shift-- (Ctrl-Shift-- is Ctrl-_, undo in readline, zsh and Emacs, which tier 1 would
-steal from every terminal), Ctrl-Opt-arrows (Rectangle's defaults).
+Chord choice. Ctrl-- and Ctrl-Shift-- follow the VS Code navigation pair,
+while Ctrl-Cmd arrows remain available for pane resize. Checked against macOS,
+the standard browser chords, cmux's workspace keys, and Ghostty's split resize
+bindings. Rejected: Cmd-[ / Cmd-] (page history), Ctrl-Cmd-[ / ] (workspaces),
+and Ctrl-Opt-arrows (Rectangle's defaults).
 
 Cmd-[ / Cmd-] act only in a browser context (user 2026-09-30, "consistency
 is most important for keyboard shortcuts"). In a terminal or any other
@@ -180,11 +178,36 @@ Mouse: the side buttons (button 4 and 5) and the two-finger swipe follow the
 same split, page history over a page and location history elsewhere
 (follow-up; needs `debug.mouse` coverage first).
 
+### 4.2a Scope of Back / Forward (R69, titlebar-area spec section 2)
+
+Setting `navigation.historyScope` (Settings, cmux.json, palette, CLI, MCP like every setting):
+
+| Value | Back / Forward walk | Mechanism |
+| --- | --- | --- |
+| `workspace` (default) | trail entries of the current workspace (same machine and workspace key as the current location) | a scope filter on the one trail |
+| `window` | trail entries recorded in the current window, across its workspaces | the same filter on the entry's window id |
+| `surface` | the focused surface's own list: a browser page walks its page history (`browserBack` / `browserForward`); a surface without a list does nothing | the actions delegate to the surface |
+
+Rules:
+
+1. One trail stays the single record (4.2 rules 1 to 9 unchanged). The scope only filters which
+   entries Back, Forward, Go to Last Location, `canGoBack/Forward` and the entry list see; entries
+   out of scope are kept, never dropped, and come back when the scope or the current workspace changes.
+2. The filter is pure: `LocationTrail.back(isAvailable:)` gets `isAvailable && inScope(entry, current, scope)`.
+   Property tests: an out-of-scope entry is never returned; changing scope never changes `entries`.
+3. One pair of actions for every entry point: `focusHistoryBack` / `focusHistoryForward` (titlebar
+   buttons, Ctrl-- / Ctrl-Shift--, palette, CLI `history back|forward`, MCP). No new bindings.
+4. Long press or right-click on a titlebar button lists the in-scope entries before (Back) or after
+   (Forward) the cursor, newest nearest, with title and workspace; choosing one runs
+   `history.goTo {index}` (new action, same execution path as Back, origin user).
+5. With `surface` scope and a browser page focused, the actions run the page's back/forward; the
+   page's own entry menu (4.1) is the list.
+
 ### 4.3 Existing actions mapped
 
 | Old | New |
 | --- | --- |
-| `focusHistoryBack` / `Forward` "Focus Back/Forward", Cmd-[ / Cmd-], unbuilt | Go Back / Go Forward on the trail, Ctrl-Cmd-Left/Right |
+| `focusHistoryBack` / `Forward` "Focus Back/Forward", Cmd-[ / Cmd-], unbuilt | Go Back / Go Forward on the trail, Ctrl-- / Ctrl-Shift-- |
 | `focusHistoryLast` "Focus Last", unbuilt | Go to Last Location: toggles between the current and the previous entry (Alt-Tab for locations) |
 | `recentlyFocused` "Recently Focused…", unbuilt | Location History… (palette page of the trail) |
 | `recentlyClosed` "Recently Closed…", unavailable | Recently Closed… (palette page of the closed-items log) |
@@ -272,6 +295,25 @@ Commands (this terminal), Resume Agent Session (this terminal).
   (actions), `HistoryPageTab` (the `cmux://history` `BrowserTab`), palette
   pages through `PaletteSources`.
 
+### 7.1 Page visit writer cutover (one writer at every step)
+
+Page visits have exactly one writer. The steps, in order:
+
+1. Today: the Swift writer `CmuxNextApp/History/BrowserVisitSink.swift`
+   (into `BrowserVisitLog`, app-local `History.sqlite`) is the only writer.
+   The `cmux-history` crate may build and test (H2), but nothing links it
+   into the daemon, so it writes nothing.
+2. H3, one landing: the daemon links the crate and serves
+   `cmux.history/1`; in the same change the app stops `BrowserVisitSink`
+   (no sink is made for a profile) and reports each visit with
+   `cmux.history.visit.record` instead. The crate is then the only writer.
+   An app whose daemon does not serve `cmux.history/1` keeps the Swift
+   writer (and the daemon does not write), so the two never write the same
+   profile.
+3. After H3: delete `BrowserVisitSink` and `BrowserVisitLog` with the other
+   Swift owners (react-pages.md 2.5, H3). The crate never goes live while
+   the Swift writer still runs.
+
 ## 8. Not decided here
 
 - Syncing page history between Macs: out of scope.
@@ -280,7 +322,7 @@ Commands (this terminal), Resume Agent Session (this terminal).
 
 ## 9. Status (2026-10-01)
 
-Built: the location trail with Go Back / Go Forward (Ctrl-Cmd-Left/Right)
+Built: the location trail with Go Back / Go Forward (Ctrl-- / Ctrl-Shift--)
 and its app wiring test; Cmd-[ / Cmd-] only in browser contexts, consumed
 elsewhere (focus.md section 5); durable page visits per browser profile
 (a reload of a tab its connection found already there, or of a tab this
@@ -296,8 +338,8 @@ and for Chromium from fork API 14.
 Terminal command history (user decision 2026-09-30: off by default):
 cmux-tui `terminal-command-journal-v1` (`set-terminal-command-history`,
 `shell.command.finished` from producer `cmux_shell`) and the app setting
-`history.terminalCommands`. The capability is `awaitingPin` in the app
-until a cmux-tui pin carries it.
+`history.terminalCommands`. The capability is in the app's
+`optional` list; builds bundle the same-tree daemon, which serves it.
 
 Not built: mouse side buttons and swipe for either axis; a daemon list of
 closed workspaces (`closed-history-v1`; the app lists what it saw close).

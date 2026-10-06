@@ -95,12 +95,10 @@ pub enum Session {
     Remote(Arc<RemoteSession>),
 }
 
-/// Stable frontend boundary for session reads.
-///
-/// This is deliberately small: mutations and transport recovery remain on
-/// `Session` until their command and acknowledgement semantics are migrated.
-/// Agent metadata is exposed through this boundary while the normal tree read
-/// remains on `Session::tree`.
+/// Stable frontend boundary for session reads. It is deliberately small:
+/// mutations and transport recovery remain on `Session` until their command
+/// and acknowledgement semantics are migrated. Agent metadata is exposed
+/// through this boundary while the normal tree read remains on `Session::tree`.
 pub(crate) trait SessionPort: Send + Sync {
     fn agents(&self) -> Vec<AgentInfo>;
 }
@@ -218,6 +216,7 @@ fn localized_layout_ratio_error(error: LayoutRatioError) -> anyhow::Error {
         LayoutRatioError::UnrepresentableViewportWidth { split, ratio, width } => {
             messages.unrepresentable_viewport_width(split, ratio, width)
         }
+        LayoutRatioError::RowSplitCompatReadonly { .. } => messages.row_split_readonly.into(),
     };
     anyhow::anyhow!(message)
 }

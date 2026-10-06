@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextSettings
 import Testing
 @testable import CmuxNextApp
 
@@ -16,6 +17,49 @@ import Testing
     @Test func terminalAndEmptyPanesGetATerminalTab() {
         #expect(NewTabKind.resolve(selectedKind: .pty, engine: nil, isLocalBrowser: false) == .terminal)
         #expect(NewTabKind.resolve(selectedKind: nil, engine: nil, isLocalBrowser: false) == .terminal)
+    }
+
+    @Test func anAgentTabGetsAnAgentTab() {
+        #expect(NewTabKind.resolve(selectedKind: nil, engine: nil, isLocalBrowser: false, isAgent: true) == .agent)
+    }
+
+    /// `tabs.newTabKind` (user decision 2026-10-01): the same kind unless
+    /// set; a fixed kind ignores the pane; Auto takes what was last opened
+    /// and falls back to the same kind.
+    @Test func theSettingChoosesOverTheSameKind() {
+        let same = NewTabKind.browser(engine: "cef")
+        #expect(NewTabDefaultKind.fallback == .agent)
+        #expect(NewTabKind.resolve(.sameKind, sameKind: same, recent: .agent) == same)
+        #expect(NewTabKind.resolve(.terminal, sameKind: same, recent: nil) == .terminal)
+        #expect(NewTabKind.resolve(.browser, sameKind: .terminal, recent: nil) == .browser(engine: nil))
+        #expect(NewTabKind.resolve(.agent, sameKind: same, recent: nil) == .agent)
+        #expect(NewTabKind.resolve(.page, sameKind: same, recent: nil) == .page)
+        #expect(NewTabKind.resolve(.auto, sameKind: same, recent: .agent) == .agent)
+        #expect(NewTabKind.resolve(.auto, sameKind: same, recent: nil) == same)
+    }
+
+    @Test func autoRemembersTheLastKindPerFolder() {
+        var memory = NewTabKindMemory()
+        #expect(memory.recent(in: "/src/api") == nil)
+        memory.record(.agent, folder: "/src/api")
+        memory.record(.browser(engine: nil), folder: "/src/web")
+        #expect(memory.recent(in: "/src/api") == .agent)
+        #expect(memory.recent(in: "/src/web") == .browser(engine: nil))
+        // An unseen folder, or none, takes the last kind anywhere.
+        #expect(memory.recent(in: "/elsewhere") == .browser(engine: nil))
+        #expect(memory.recent(in: nil) == .browser(engine: nil))
+        // The page is a chooser, not a kind.
+        memory.record(.page, folder: "/src/api")
+        #expect(memory.recent(in: "/src/api") == .agent)
+    }
+
+    @Test func autoForgetsTheOldestFolderPastItsBound() {
+        var memory = NewTabKindMemory()
+        memory.record(.agent, folder: "/first")
+        for index in 0..<NewTabKindMemory.maximumFolders { memory.record(.terminal, folder: "/f\(index)") }
+        memory.record(.browser(engine: nil), folder: "/last")
+        #expect(memory.recent(in: "/first") == .browser(engine: nil))
+        #expect(memory.recent(in: "/f1") == .terminal)
     }
 
     /// One action owns Cmd-T for every entry point (keyboard, palette,
@@ -38,7 +82,7 @@ import Testing
         let chords: [ActionID: Shortcut] = [
             "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
             "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
-            "palette.newAgentChat": Shortcut("i", modifiers: [.command, .shift]),
+            "palette.newAgentChat": Shortcut("i", modifiers: [.command]),
         ]
         // Ghostty's macOS defaults near these keys: scroll to selection,
         // write screen file, select all, inspector, clear screen.

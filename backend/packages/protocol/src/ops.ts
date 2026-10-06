@@ -8,6 +8,7 @@ import {
   Install,
   InstallId,
   InstallKind,
+  OpClass,
   Platform,
   PublicJwk,
   TeamId,
@@ -16,11 +17,21 @@ import {
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
+import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
+import { pushOps } from "./push.ts"
+import { userConfirmOps } from "./user-confirm-ops.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
+import { homeOps } from "./ops-home.ts"
 import { networkOps } from "./network-ops.ts"
+import { serverOps } from "./server-ops.ts"
+import { usageOps } from "./usage.ts"
+import { teamVmOps } from "./team-vm-ops.ts"
+import { teamSshOps } from "./team-ssh-ops.ts"
+import { cloudMachineOps } from "./cloud-machine-ops.ts"
+import { cloudVmOps } from "./cloud-vm-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -54,11 +65,15 @@ export const InstallRegister = def({
     name: DisplayName,
     device_name: DisplayName,
     platform: Platform,
-    device: Schema.optionalKey(DeviceId)
+    device: Schema.optionalKey(DeviceId),
+    /** Narrows the install's default grant (never widens it); a paired cmux server registers with read and mutate-own only. */
+    op_classes: Schema.optionalKey(Schema.Array(OpClass)),
+    /** Lets this team's TeamDO revoke the install (a paired server); only the user can bind it. */
+    bound_team: Schema.optionalKey(TeamId)
   }),
   result: Install,
-  errors: mutationErrors,
-  docs: "Register an install's public key under the signed-in user; returns the install with its default grant.",
+  errors: [...mutationErrors, "install.kind_reserved"],
+  docs: "Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind).",
   cli: { path: "install register", visible: true },
   mcp: { expose: "never", group: "account" }
 })
@@ -76,6 +91,21 @@ export const InstallRename = def({
   docs: "Rename an install. An install may rename only itself; the user's session may rename any of its installs.",
   cli: { path: "install rename", visible: true },
   mcp: { expose: "opt_in", group: "account" }
+})
+
+export const InstallSignOut = def({
+  name: "install.sign_out",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "install",
+  principals: ["install"],
+  params: Schema.Struct({}),
+  result: Install,
+  errors: [...mutationErrors],
+  docs: "Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.",
+  cli: { path: "install sign-out", visible: true },
+  mcp: { expose: "never", group: "account" }
 })
 
 export const InstallRevoke = def({
@@ -118,8 +148,43 @@ export const TeamDirectory = def({
   params: Schema.Struct({ team: Schema.optionalKey(TeamId) }),
   result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), hosts: Schema.Array(Host), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "Read a team's directory: members and enrolled hosts (U2).",
+  docs: "Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.",
   cli: { path: "team directory", visible: true },
+  mcp: { expose: "default", group: "team" }
+})
+
+const PageParams = {
+  cursor: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(128))),
+  limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(200)))
+}
+
+export const TeamMembersList = def({
+  name: "team.members.list",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams, role: Schema.optionalKey(Schema.Literals(["owner", "admin", "member"])) }),
+  result: Schema.Struct({ team: TeamId, members: Schema.Array(TeamMember), member_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Page a team's members by user id (keyset: pass next_cursor as cursor), optionally one role.",
+  cli: { path: "team members", visible: true },
+  mcp: { expose: "default", group: "team" }
+})
+
+export const TeamHostsList = def({
+  name: "team.hosts.list",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({ team: Schema.optionalKey(TeamId), ...PageParams }),
+  result: Schema.Struct({ team: TeamId, hosts: Schema.Array(Host), host_count: Schema.Number, next_cursor: Schema.NullOr(Schema.String), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor).",
+  cli: { path: "team hosts", visible: true },
   mcp: { expose: "default", group: "team" }
 })
 
@@ -158,17 +223,30 @@ export const cloudOps = [
   InstallRegister,
   InstallRename,
   InstallRevoke,
+  InstallSignOut,
   InstallList,
   TeamDirectory,
+  TeamMembersList,
+  TeamHostsList,
   HostEnroll,
   HostRemove,
   ...automationOps,
+  ...usageOps,
   ...integrationOps,
+  ...googleOps,
   ...feedOps,
+  ...pushOps,
+  ...userConfirmOps,
   ...policyOps,
   ...networkOps,
   ...enrollmentOps,
-  ...ssoOps
+  ...ssoOps,
+  ...serverOps,
+  ...teamVmOps,
+  ...teamSshOps,
+  ...cloudMachineOps,
+  ...cloudVmOps,
+  ...homeOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

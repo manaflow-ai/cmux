@@ -5,38 +5,36 @@
 //! before it runs an app, and the store registry before it records a version.
 //! Structure comes from the JSON Schema (`cmux-app-host/schema/v2`); the
 //! semantic rules a schema cannot express (publisher ownership, native code
-//! tiers, interface names, package paths) live in [`rules`].
+//! tiers, interface names and options, scope classes, package paths, the
+//! catalog fragment, CLI names and MCP tool names) live in [`rules`],
+//! [`catalog`], [`cli`] and [`package`].
 
+mod catalog;
+mod cli;
+mod interfaces;
 mod issue;
 mod package;
+mod presentation;
 mod rules;
+mod scopes;
+mod toolbar;
 
+pub use catalog::{CATALOG_SCHEMA, validate_catalog};
+pub use cli::{
+    CLI_RESERVED, Conflict, ConflictKind, MCP_TOOL_NAME_MAX, conflicts, first_party_cli_names,
+    first_party_cli_owner, is_mcp_tool, is_reserved_cli_name, mcp_tool_name,
+};
+pub use interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES};
 pub use issue::{Issue, Severity};
-pub use package::{PackageReport, validate_package};
+pub use package::{PackageReport, validate_package, validate_package_file};
+pub use scopes::{SCOPE_CLASSES, ScopeClass, ScopeInfo, scope_info};
+pub use toolbar::{OVERRIDABLE_TOOLBAR_ITEMS, SIDEBAR_TOGGLE_ITEM, TOOLBAR_VISIBLE_APP_ITEMS};
 
 use serde_json::Value;
 use std::sync::OnceLock;
 
 /// The manifest v2 JSON Schema, embedded so every consumer validates identically.
 pub const SCHEMA: &str = include_str!("../../cmux-app-host/schema/v2/cmux-app.schema.json");
-
-/// Interface names this cmux version knows (`cmux-app-host/interfaces/<name>/<major>.json`).
-pub const KNOWN_INTERFACES: &[&str] = &[
-    "cmux.contact.provider/1",
-    "cmux.credential.provider/1",
-    "cmux.diff.renderer/1",
-    "cmux.diff.source/1",
-    "cmux.editor/1",
-    "cmux.feed.source/1",
-    "cmux.fs.provider/1",
-    "cmux.opener/1",
-    "cmux.palette.scope/1",
-    "cmux.pane/1",
-    "cmux.search.provider/1",
-    "cmux.section/1",
-    "cmux.status/1",
-    "cmux.viewer/1",
-];
 
 fn schema_validator() -> &'static jsonschema::Validator {
     static VALIDATOR: OnceLock<jsonschema::Validator> = OnceLock::new();
@@ -57,6 +55,13 @@ pub fn validate_manifest(manifest: &Value) -> Vec<Issue> {
         issues.extend(rules::check(manifest));
     }
     issues
+}
+
+/// The one pane-protocol namespace of an app id (app-platform.md 18):
+/// `<publisher>.<name>` with '-' replaced by '_' (`octo/ssh-terminal` ->
+/// `octo.ssh_terminal`). Third-party op and scope families must use it.
+pub fn app_namespace(id: &str) -> String {
+    id.replace('-', "_").replacen('/', ".", 1)
 }
 
 /// True when no issue is an error.

@@ -54,7 +54,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url)
         let descriptor = try #require(SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath))
-        try await settings.setSetting(descriptor, to: .string("end-everything"))
+        try await settings.setSetting(descriptor, to: .string("end-everything"), by: .user)
         let written = try JSONC.parse(String(contentsOf: url, encoding: .utf8))
         #expect(written.value(at: ["app", "quitBehavior"]) == .string("end-everything"))
         #expect(try parse(String(contentsOf: url, encoding: .utf8)).quitBehavior == .endEverything)

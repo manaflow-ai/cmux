@@ -16,8 +16,11 @@ workspace = true
 [workspace]
 resolver = "2"
 members = [
+    "crates/acpmux",
+    "crates/cmux-history",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
+    "crates/cmux-chief",
     "bindings/rust",
     "bindings/rust-sidebar",
     "bindings/rust-daemon-client",
@@ -27,6 +30,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
+    "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -44,8 +48,18 @@ members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-remote-browser",
+    "crates/cmux-local-auth",
+    "crates/cmux-link",
+    "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
 default-members = [
+    "crates/acpmux",
     "crates/cmux-cloud-cli",
     "crates/cmux-conversation",
     "bindings/rust",
@@ -73,13 +87,22 @@ default-members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-terminal-iface",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
+    "crates/cmux-rd-engine",
+    "crates/cmux-remote-browser",
+    "crates/cmux-local-auth",
+    "crates/cmux-link",
+    "crates/cmux-pane-protocol",
+    "crates/cmux-app-host",
 ]
-exclude = ["vendor/crossterm"]
+exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 [workspace.lints.rust]
@@ -99,14 +122,20 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-local-auth = { path = "crates/cmux-local-auth" }
+cmux-link = { path = "crates/cmux-link" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
+cmux-app-manifest = { path = "crates/cmux-app-manifest" }
+cmux-terminal-iface = { path = "crates/cmux-terminal-iface" }
+cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
@@ -147,6 +176,10 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls-no-p
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
 jsonschema = { version = "0.30", default-features = false }
+# QuickJS-ng for the app host (one VM per app process). Exact pin: the app
+# host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
+# lets the host count every byte the VM allocates (32 MiB limit per app).
+rquickjs = { version = "=0.14.0", default-features = false, features = ["std", "allocator"] }
 flate2 = "1"
 bindgen = "0.72"
 smallvec = "1"
@@ -175,6 +208,10 @@ wait-timeout = "0.2"
 # rusqlite 0.40's libsqlite3-sys build script requires Rust 1.95 without
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
+# Unicode normalization for history search folding (cmux-history). Already in
+# the graph through url -> idna -> idna_adapter at this version; compiled
+# data only, no new transitive code.
+icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
 sha2 = "0.10"
 # Ed25519 verification of the signed channel manifest (cmux-server-core).
 # ring is already in the graph through rustls; this adds no new code.

@@ -69,6 +69,7 @@ fn title_and_pty_callbacks() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: Some(Box::new(move || *tc.lock().unwrap() = true)),
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -90,6 +91,7 @@ fn default_colors_answer_osc_queries() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: None,
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -962,17 +964,23 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     assert!(!term.palette_overridden(7));
     assert!(term.palette_overridden(8), "query must not alter authored state");
 
+    // Protocol integers are plain ASCII decimal (ghostty-next lib/parse_int):
+    // no digit separators and no sign.
+    let default_eighteen = state.palette_color(18);
     term.vt_write(b"\x1b]21;1_8=#112233;_19=#ffffff;20_=#ffffff\x1b\\");
-    assert!(term.palette_overridden(18), "OSC 21 must accept Zig's embedded underscores");
+    assert!(!term.palette_overridden(18), "OSC 21 keys take no digit separators");
     assert!(!term.palette_overridden(19), "OSC 21 must reject a leading underscore");
     assert!(!term.palette_overridden(20), "OSC 21 must reject a trailing underscore");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(18), Rgb { r: 0x11, g: 0x22, b: 0x33 });
+    assert_eq!(state.palette_color(18), default_eighteen);
 
     term.vt_write(b"\x1b]4;+19;#223344;-0;#001122;20_;#ffffff\x1b\\");
-    assert!(term.palette_overridden(19), "OSC 4 must accept Zig's positive sign grammar");
-    assert!(term.palette_overridden(0), "OSC 4 must accept Zig's negative zero grammar");
+    assert!(!term.palette_overridden(19), "OSC 4 indices take no sign");
+    assert!(!term.palette_overridden(0), "OSC 4 indices take no sign");
     assert!(!term.palette_overridden(20), "OSC 4 must reject a trailing underscore");
+    term.vt_write(b"\x1b]4;19;#223344;0;#001122\x1b\\");
+    assert!(term.palette_overridden(19));
+    assert!(term.palette_overridden(0));
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(19), Rgb { r: 0x22, g: 0x33, b: 0x44 });
     assert_eq!(state.palette_color(0), Rgb { r: 0x00, g: 0x11, b: 0x22 });
@@ -1048,10 +1056,11 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     state.update(&mut term).unwrap();
     assert_eq!(state.palette_color(0), Rgb { r: 0x10, g: 0x10, b: 0x10 });
 
+    let default_sixteen = state.palette_color(16);
     term.vt_write(b"\x1b]4;16;#161616\x18");
-    assert!(term.palette_overridden(16), "CAN dispatches Ghostty's valid OSC prefix");
+    assert!(!term.palette_overridden(16), "CAN cancels the OSC (ghostty-next)");
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(16), Rgb { r: 0x16, g: 0x16, b: 0x16 });
+    assert_eq!(state.palette_color(16), default_sixteen);
     term.vt_write(b"\x1bPab\x1b]4;17;#171717\x07");
     assert!(term.palette_overridden(17), "ESC must leave DCS before the next OSC");
     state.update(&mut term).unwrap();
@@ -1072,8 +1081,14 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     let revision_before_ris = term.color_revision();
     let reapply_before_ris = term.color_reapply_revision();
+    let default_four = {
+        let mut fresh = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
+        let mut fresh_state = RenderState::new().unwrap();
+        fresh_state.update(&mut fresh).unwrap();
+        fresh_state.palette_color(4)
+    };
     term.vt_write(b"\x1bc");
-    assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
+    assert!(!term.palette_overridden(4), "RIS resets palette overrides (ghostty-next)");
     assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
     assert_ne!(
         term.color_reapply_revision(),
@@ -1081,7 +1096,7 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
         "RIS must advance the forced palette-reapply revision"
     );
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
+    assert_eq!(state.palette_color(4), default_four);
 }
 
 #[test]
@@ -1196,4 +1211,32 @@ fn theme_portable_replay_omits_terminal_color_osc_state() {
     target.vt_write(&portable);
     assert_no_dynamic_color_overrides(&target.color_overrides());
     assert!(target.viewport_text().unwrap().contains("hello"));
+}
+
+/// zsh PROMPT_SP pads a partial line past the right edge so the terminal
+/// wraps, returns to column 0 and starts the prompt there (OSC 133;A). A
+/// resize must not reflow the prompt onto the padded row: the shell redraws
+/// it from column 0, so a joined prompt leaves a stale copy on screen.
+/// ghostty-next 59a70ffc6 (OSC 133 prompts start their own logical line).
+#[test]
+fn osc133_prompt_after_padded_partial_line_stays_on_its_own_line_across_resize() {
+    let mut term = Terminal::new(10, 5, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"ab%        \r \r");
+    term.vt_write(b"\x1b]133;A;redraw=0\x07$ \x1b]133;B\x07ls");
+
+    term.resize(20, 5, 8, 16).unwrap();
+    let mut rs = RenderState::new().unwrap();
+    rs.update(&mut term).unwrap();
+    let lines = rs.text_lines().unwrap();
+    assert_eq!(lines[0], "ab%", "padded row after widening: {lines:?}");
+    assert_eq!(lines[1], "$ ls", "prompt row after widening: {lines:?}");
+
+    term.resize(6, 5, 8, 16).unwrap();
+    rs.update(&mut term).unwrap();
+    let lines = rs.text_lines().unwrap();
+    assert!(lines.iter().any(|line| line == "$ ls"), "prompt row after narrowing: {lines:?}");
+    assert!(
+        !lines.iter().any(|line| line.contains('%') && line.contains('$')),
+        "prompt joined the padded row: {lines:?}"
+    );
 }

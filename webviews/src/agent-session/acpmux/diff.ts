@@ -3,7 +3,12 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type DiffLine = { type: "context" | "add" | "del"; text: string; oldLine?: number; newLine?: number };
-export type DiffHunk = { lines: DiffLine[] };
+export type DiffHunk = {
+  lines: DiffLine[];
+  /// Checkpoint hunks can point back to the tool hunks that produced them. The tool view leaves
+  /// this unset and uses its own hunkKey as the review identity.
+  reviewKeys?: string[];
+};
 /// One tool call's change to a file. Line numbers are known for a new file, a file the agent
 /// sent whole, or an edit whose tool call located its first line; a bare fragment has none.
 export type DiffEdit = { toolId: string; hunks: DiffHunk[]; numbered: boolean };
@@ -17,6 +22,10 @@ export type TurnFile = {
   /// A git scope's file that the change removed, or whose contents are not text.
   deleted?: boolean;
   binary?: boolean;
+  /// A turn checkpoint's file that none of the turn's tool calls changed: read-only.
+  outside?: boolean;
+  /// The host returned only part of this file's patch, so hunk review is unsafe.
+  patchTruncated?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
@@ -225,4 +234,54 @@ export function editPatch(file: TurnFile, edit: DiffEdit): string {
       lines.push(`${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/// A hunk's identity within a turn: the tool call, its file, which of that call's edits to the
+/// file it is in, and its place in that edit. Counting within the call keeps the key when an
+/// earlier call's diff arrives late.
+export const hunkKey = (file: TurnFile, editIndex: number, hunkIndex: number) => {
+  const toolId = file.edits[editIndex]!.toolId;
+  const inCall = file.edits.slice(0, editIndex).filter((edit) => edit.toolId === toolId).length;
+  return `${toolId}\u0000${file.path}\u0000${inCall}\u0000${hunkIndex}`;
+};
+
+/// One hunk as unified diff text, under the full path the tool call reported, so the agent
+/// finds the file. Ranges use the edit's line numbers when they are known; a bare fragment
+/// has none, and its context lines place it.
+export function hunkPatch(file: TurnFile, edit: DiffEdit, hunk: DiffHunk): string {
+  const oldLines = hunk.lines.filter((line) => line.type !== "add");
+  const newLines = hunk.lines.filter((line) => line.type !== "del");
+  const range = (lines: DiffLine[], key: "oldLine" | "newLine") => `${lines[0]?.[key] ?? 0},${lines.length}`;
+  const header = edit.numbered ? `@@ -${range(oldLines, "oldLine")} +${range(newLines, "newLine")} @@` : "@@";
+  const body = hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
+  return [`--- ${file.path}`, `+++ ${file.path}`, header, ...body].join("\n");
+}
+
+/// The prompt that asks the agent to undo the hunks the reader rejected and keep the rest.
+export function rejectionPrompt(patches: string[], note?: string): string {
+  const intro =
+    patches.length === 1
+      ? "I reviewed your changes and rejected this one. Please revert it and keep your other changes:"
+      : `I reviewed your changes and rejected these ${patches.length}. Please revert them and keep your other changes:`;
+  return [intro, "", ...fencedPatches(patches), ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+}
+
+/// The prompt behind a turn's Undo: revert everything the turn changed.
+export function undoPrompt(patches: string[]): string {
+  return [
+    "Please undo the changes you made in that turn, so these files read as they did before it:",
+    "",
+    ...fencedPatches(patches),
+  ].join("\n");
+}
+
+/// The patches in one diff fence, longer than any backtick run in them so code containing one
+/// cannot close it.
+function fencedPatches(patches: string[]): string[] {
+  const longest = Math.max(
+    0,
+    ...patches.map((patch) => Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length))),
+  );
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return [`${fence}diff`, patches.join("\n"), fence];
 }

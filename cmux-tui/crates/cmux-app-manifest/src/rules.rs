@@ -1,17 +1,23 @@
 //! Rules the schema cannot express.
 
-use crate::KNOWN_INTERFACES;
+use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
+use crate::scopes::{ScopeClass, scope_info};
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
 const FIRST_PARTY: &[&str] = &["cmux", "manaflow-ai"];
 
+/// Whether `publisher` is reserved for first-party apps.
+pub(crate) fn is_first_party(publisher: &str) -> bool {
+    FIRST_PARTY.contains(&publisher)
+}
+
 pub(crate) fn check(m: &Value) -> Vec<Issue> {
-    let mut out = Vec::new();
+    let mut out = crate::cli::check_manifest(m);
     let id = m["id"].as_str().unwrap_or_default();
     let publisher = id.split('/').next().unwrap_or_default();
-    let first_party = FIRST_PARTY.contains(&publisher);
+    let first_party = is_first_party(publisher);
     let repository = m["repository"].as_str();
 
     match (publisher, repository) {
@@ -66,6 +72,22 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     "an export implementation needs runtime.main",
                 ));
             }
+            if let Some(options) = imp.get("options") {
+                for (path, message) in option_errors(name, options) {
+                    out.push(Issue::error(
+                        format!("{at}/options{path}"),
+                        "interface.options",
+                        message,
+                    ));
+                }
+            }
+            if imp.get("server").is_some() && m.get("server").is_none() {
+                out.push(Issue::error(
+                    format!("{at}/server"),
+                    "implements.serverMissing",
+                    "a server implementation needs the top-level server block",
+                ));
+            }
             if imp.get("web").is_some() && m.pointer("/runtime/web").is_none() {
                 out.push(Issue::error(
                     format!("{at}/web"),
@@ -75,24 +97,82 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             }
         }
     }
-    if let Some(consumes) = m["consumes"].as_array() {
-        for (i, name) in consumes.iter().enumerate() {
-            let name = name.as_str().unwrap_or_default();
-            if !KNOWN_INTERFACES.contains(&name) {
-                out.push(Issue::error(
-                    format!("/consumes/{i}"),
-                    "interface.unknown",
-                    format!("{name} is not an interface of this cmux version"),
-                ));
-            }
+    for (i, name) in m
+        .pointer("/consumes/interfaces")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let name = name.as_str().unwrap_or_default();
+        if !KNOWN_INTERFACES.contains(&name) {
+            out.push(Issue::error(
+                format!("/consumes/interfaces/{i}"),
+                "interface.unknown",
+                format!("{name} is not an interface of this cmux version"),
+            ));
         }
     }
-    if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") && !first_party {
-        out.push(Issue::error(
-            "/server/kind",
-            "tier.native",
-            "native servers are allowed only for first-party apps",
+    for (i, name) in m
+        .pointer("/requires/hostCapabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let name = name.as_str().unwrap_or_default();
+        if !KNOWN_HOST_CAPABILITIES.contains(&name) {
+            out.push(Issue::error(
+                format!("/requires/hostCapabilities/{i}"),
+                "hostCapability.unknown",
+                format!("{name} is not a host capability of this cmux version"),
+            ));
+        }
+    }
+    for (i, entry) in m["openWith"].as_array().into_iter().flatten().enumerate() {
+        let interface = entry["interface"].as_str().unwrap_or_default();
+        if m.pointer(&format!("/implements/{}", escape(interface))).is_none() {
+            out.push(Issue::error(
+                format!("/openWith/{i}/interface"),
+                "openWith.notImplemented",
+                format!("the app does not implement {interface}"),
+            ));
+        }
+    }
+    check_scopes(m, first_party, &mut out);
+    crate::presentation::check(m, first_party, &mut out);
+    crate::toolbar::check(m, &mut out);
+    if !m["icon"].is_string() {
+        out.push(Issue::warning(
+            "/icon",
+            "icon.noImage",
+            "give the app an image icon: symbol icons render only on Mac hosts; other clients show a generic glyph",
         ));
+    }
+    if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") {
+        // First-party servers ship inside cmux (binaries); every other native
+        // server is a signed download (artifacts) that needs a Verified review.
+        if first_party && m.pointer("/server/artifacts").is_some() {
+            out.push(Issue::error(
+                "/server/artifacts",
+                "tier.native",
+                "first-party native servers ship with cmux: use binaries",
+            ));
+        }
+        if !first_party && m.pointer("/server/binaries").is_some() {
+            out.push(Issue::error(
+                "/server/binaries",
+                "tier.native",
+                "only first-party servers ship with cmux: give signed artifacts",
+            ));
+        }
+        if !first_party {
+            out.push(Issue::warning(
+                "/server/kind",
+                "tier.nativeReview",
+                "a native server runs only for Verified apps; unverified apps use kind js or external",
+            ));
+        }
     }
     if let Some(variants) = m["variants"].as_array() {
         for (i, v) in variants.iter().enumerate() {
@@ -108,4 +188,55 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
     out
+}
+
+/// Scope classes: server-only scopes belong in `server.scopes`; restricted
+/// scopes need first party or a Verified review; `process:spawn` needs a
+/// native (first-party) server.
+fn check_scopes(m: &Value, first_party: bool, out: &mut Vec<Issue>) {
+    let native_server = m.pointer("/server/kind").and_then(Value::as_str) == Some("native");
+    for (field, server) in
+        [("/scopes", false), ("/optionalScopes", false), ("/server/scopes", true)]
+    {
+        for scope in m.pointer(field).and_then(Value::as_object).into_iter().flat_map(|o| o.keys())
+        {
+            let at = format!("{field}/{}", escape(scope));
+            let Some(info) = scope_info(scope) else {
+                out.push(Issue::error(
+                    at,
+                    "scope.unclassified",
+                    format!("{scope} has no risk class"),
+                ));
+                continue;
+            };
+            if info.server_only && !server {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.serverOnly",
+                    format!("{scope} is a server scope; declare it in server.scopes"),
+                ));
+            }
+            if scope.starts_with("process:spawn:") && !native_server {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.processSpawn",
+                    "process:spawn needs a native server that ships with cmux",
+                ));
+            }
+            if info.class == ScopeClass::Elevated && field == "/scopes" {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.elevatedOptional",
+                    format!("{scope} is never granted at install: declare it in optionalScopes"),
+                ));
+            }
+            if info.class == ScopeClass::Restricted && !first_party {
+                out.push(Issue::warning(
+                    at,
+                    "scope.restricted",
+                    format!("{scope} is restricted: only first-party apps and Verified apps reviewed for it hold it"),
+                ));
+            }
+        }
+    }
 }

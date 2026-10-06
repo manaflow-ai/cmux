@@ -33,22 +33,23 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
-mod kept_tab_store;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
-mod personal_mutations;
-mod personal_store;
+pub(crate) mod personal_mutations;
+pub(crate) mod personal_store;
 mod personal_terminals;
-mod presentation_store;
+pub(crate) mod presentation_store;
 mod public_fold;
 mod public_projection_store;
-mod resource_store;
-mod screen_store;
-mod session_journal;
+mod resource_effect_commit;
+pub(crate) mod resource_store;
+pub(crate) mod screen_store;
+pub(crate) mod session_journal;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod topology_close_store;
 
+pub use crate::state::kept_tab_store::KeptTabRecord;
 pub(crate) use effect_store::ResourceWorkspaceClose;
 pub use effect_store::{
     ResourceCreationPreparation, ResourceCreationRecovery, ResourceEffectOutcome,
@@ -69,10 +70,9 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
-pub use kept_tab_store::KeptTabRecord;
 pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
-pub use personal_store::PersonalSnapshot;
+pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
@@ -94,8 +94,8 @@ pub(crate) use resource_store::{
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
-    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
-    RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
+    RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryRow, RegistryScreen,
+    RegistryTab, RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
     ResourceWorkspaceLedger,
 };
@@ -103,12 +103,12 @@ use resource_store::{
     apply_resource_patch, complete_terminal_close_patch, create_resource_schema,
     initialize_resource_mutation_retention, migrate_resource_agent_projections,
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
+    migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use screen_store::{
-    SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationState,
-    new_saved_screen_group_id, new_screen_group_id,
+    SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
+    ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -160,7 +160,7 @@ const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
-type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
+pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnsupportedWorkspaceRegistrySchema {
@@ -708,7 +708,7 @@ pub struct ProjectionCommit {
 /// calls, and the OS lease prevents another daemon from opening the same
 /// session concurrently.
 pub struct WorkspaceRegistry {
-    connection: Connection,
+    pub(crate) connection: Connection,
     database_path: Option<PathBuf>,
     registry_id: String,
     generation: String,
@@ -2311,7 +2311,7 @@ fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::R
 }
 
 pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default())
+    open_registry_database_with_flags(path, OpenFlags::default()).map(crate::debug_spans::traced)
 }
 
 fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
@@ -2725,7 +2725,7 @@ impl WorkspaceRegistry {
             recover_resource_effects(&tx)?;
             initialize_resource_input_receipt_retention(&tx)?;
             initialize_resource_mutation_retention(&tx)?;
-            repair_dangling_terminal_resources(&tx)?;
+            repair_resources_at_open(&tx)?;
             terminal_keep_store::classify_legacy_terminals(&tx)?;
             tx.commit()?;
         }
@@ -2739,6 +2739,8 @@ impl WorkspaceRegistry {
         validate_identifier("registry id", &registry_id)?;
         let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
         personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
+        crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
+        crate::state::window_record_store::migrate_window_projection(&connection)?;
         let quick_check: String =
             connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
         if quick_check != "ok" {
@@ -3468,39 +3470,6 @@ impl WorkspaceRegistry {
         )
     }
 
-    /// Stage a legacy workspace row inside a prepared resource effect.
-    ///
-    /// The outer effect must subsequently commit a full resource projection.
-    /// This stage deliberately leaves the public revision and event stream
-    /// untouched so one logical creation produces one public batch.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn commit_for_resource_effect(
-        &mut self,
-        mutation: &WorkspaceMutation,
-        fingerprint: &Value,
-        expected_generation: Option<&str>,
-        expected_revision: Option<u64>,
-        event_kind: &str,
-        workspace_key: &str,
-        workspaces: &[RegistryWorkspace],
-        active_workspace: Option<&WorkspacePublicId>,
-        result: &Value,
-    ) -> anyhow::Result<RegistryCommit> {
-        self.commit_workspace_registry(
-            mutation,
-            fingerprint,
-            expected_generation,
-            expected_revision,
-            event_kind,
-            workspace_key,
-            workspaces,
-            active_workspace,
-            result,
-            false,
-            None,
-        )
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn commit_workspace_registry(
         &mut self,
@@ -3576,6 +3545,11 @@ impl WorkspaceRegistry {
             workspaces,
             &result_json,
         )?;
+        // Presentation rows land before the resource batch, so its restated
+        // workspaces carry the new identity fields.
+        if let Some(extra) = extra {
+            extra(&tx)?;
+        }
         let previous_resource_revision =
             project_resource.then(|| transaction_resource_revision(&tx)).transpose()?;
         let resource_revision = previous_resource_revision
@@ -3691,9 +3665,6 @@ impl WorkspaceRegistry {
                 &resource_deltas,
             )?;
             resource_store::prune_resource_mutations(&tx)?;
-        }
-        if let Some(extra) = extra {
-            extra(&tx)?;
         }
         tx.commit()?;
         Ok(RegistryCommit { revision, result: result.clone(), replayed: false })
@@ -4017,7 +3988,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
-    kept_tab_store::create_kept_tab_schema(transaction)?;
+    crate::state::store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,
@@ -5067,7 +5038,7 @@ fn terminal_replay(
     }))
 }
 
-fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
+pub(crate) fn validate_identifier(label: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("{label} cannot be empty");
     }
@@ -5165,13 +5136,13 @@ fn try_preflight_unsupported_schema(
     }))
 }
 
-fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
+pub(crate) fn meta_value(connection: &Connection, key: &str) -> anyhow::Result<Option<String>> {
     Ok(connection
         .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| row.get(0))
         .optional()?)
 }
 
-fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
+pub(crate) fn required_meta(connection: &Connection, key: &str) -> anyhow::Result<String> {
     meta_value(connection, key)?
         .ok_or_else(|| anyhow::anyhow!("workspace registry is missing {key}"))
 }
@@ -5197,7 +5168,7 @@ fn current_resource_revision(connection: &Connection) -> anyhow::Result<u64> {
     required_meta(connection, "resource_revision")?.parse().context("resource revision is invalid")
 }
 
-fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
+pub(crate) fn transaction_resource_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let value: String = transaction.query_row(
         "SELECT value FROM meta WHERE key = 'resource_revision'",
         [],

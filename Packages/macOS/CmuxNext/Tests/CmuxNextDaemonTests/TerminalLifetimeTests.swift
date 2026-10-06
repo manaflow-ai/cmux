@@ -131,7 +131,7 @@ import Testing
         await #expect {
             try await connection.projectTerminal(ResourceID(rawValue: "term_gone"), into: path, index: 0)
         } throws: { error in
-            if case DaemonError.command(_, _, let code) = error { return code == "selector.not_found" }
+            if case DaemonError.command(_, _, let code, _, _) = error { return code == "selector.not_found" }
             return false
         }
         await connection.close()

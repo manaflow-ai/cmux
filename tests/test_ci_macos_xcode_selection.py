@@ -47,10 +47,18 @@ EXEMPT = {
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
-    ("ci.yml", "claude-wrapper"): "shell wrapper tests only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
+    ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"):
+        "Rust only; no Xcode (the cmux_next_ tests gating the tree publication)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
+    ("cmux-tui.yml", "macos"):
+        "Rust and Zig only (cargo clippy/test with libghostty-vt from Zig); no "
+        "Swift or xcodebuild, like the lint and test jobs it combines (#17051)",
+    ("cmux-next-source-archive.yml", "archive"):
+        "Zig and Python only: Zig fetch lists and the source archive, and link "
+        "sets read from the pinned xcframework; the CLI helper fetch list must "
+        "come from the macOS 15 image's SDK 15 default, like the release helper",
     ("cmux-tui-build-package.yml", "build"):
         "Rust release binaries linked against the runner's default macOS SDK, "
         "as the nightly and release callers always have; pinning it would "

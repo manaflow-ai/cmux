@@ -1,0 +1,22 @@
+[package]
+name = "cmux-rd-proto"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux remote desktop wire formats (cmux.rd/1): datagram header, frame body, input, feedback (no I/O)"
+
+[lints]
+workspace = true
+
+[features]
+# Typed control messages (`control::Control`) for hosts and Rust viewers.
+serde = ["dep:serde"]
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+proptest = { version = "1", default-features = false, features = ["std"] }

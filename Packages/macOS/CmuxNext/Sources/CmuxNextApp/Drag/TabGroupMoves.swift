@@ -19,11 +19,12 @@ enum TabGroupMoves {
         }
     }
 
-    static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices,
+    /// `roomDecided`: see `TabMoves.toNewSplit`.
+    static func toNewSplit(_ group: TabGroupID, pane: PaneModel, edge: PaneEdge, services: AppServices, roomDecided: Bool = false,
                            transaction: ClientTransactionID, completion: @escaping Completion) {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
-        switch services.splitRoom(for: pane, edge: edge) {
+        switch roomDecided ? SplitRoomDecision.split : services.splitRoom(for: pane, edge: edge) {
         case .split:
             break
         case .newColumn(let afterColumn, _):
@@ -59,13 +60,30 @@ enum TabGroupMoves {
                                transaction: ClientTransactionID) async -> WorkspaceKey? {
         guard let daemon = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines) else { return nil }
         let before = Set(daemon.store.workspaces.compactMap(\.key))
+        let name = newWorkspaceName(for: group, store: daemon.store, services: services)
         let key = await daemon.request("move-tab-group-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabGroupToNewWorkspace(group, workspaceGroup: workspaceGroup, index: index,
                                                                          transaction: transaction)
-            if let key = result.key { return key }
-            return try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
+            let created = if let key = result.key { key } else {
+                try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
+            }
+            // The workspace takes the group's name, else its first tab's (R15).
+            // A failed rename keeps the default name; the move stands.
+            if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
+            return created
         }
         return key ?? nil
+    }
+
+    private static func newWorkspaceName(for group: TabGroupID, store: DaemonStore, services: AppServices) -> String? {
+        let model = store.tabGroup(group)
+        let first = model?.members.lazy.compactMap { member -> TabModel? in
+            switch member {
+            case .surface(let surface): store.tab(surface: surface)
+            case .tab(let resource): store.tab(id: resource.rawValue)
+            }
+        }.first
+        return NewWorkspaceName.forGroup(name: model?.name, firstTab: first.map { TabMoves.nameInput($0, services: services) })
     }
 
     /// True (and refused with a message) when `group` would move between an

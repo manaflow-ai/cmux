@@ -1261,7 +1261,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cmux-tui-manifest-url)
-      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui pinned in scripts/cmux-next/cmux-tui.pin (CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
+      echo "error: --cmux-tui-manifest-url was removed with the legacy app; the cmux scheme bundles the cmux-tui built from this checkout's cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; CMUX_NEXT_TUI_BIN=<path> bundles a local build)" >&2
       exit 1
       ;;
     --derived-data)
@@ -1391,14 +1391,11 @@ fi
 
 # feat-cmux-next: the cmux scheme builds cmux-next.app, whose "Bundle cmux-tui"
 # phase (scripts/cmux-next/bundle-cmux-tui.sh) bundles the hosted cmux-tui
-# pinned in scripts/cmux-next/cmux-tui.pin. No published release client exists
-# for these commits: the pinned binary is fetched (public URL, sha256-verified, no GitHub
-# credentials) before the build and checked in the bundle after it.
+# built from this checkout's own cmux-tui tree (pin-cmux-tui.sh --help). It
+# is fetched (public URL, sha256-verified, no GitHub credentials) before the
+# build, waiting while the artifacts workflow publishes a new tree, and the
+# bundle phase fails when it does not serve a capability the app relies on.
 # CMUX_NEXT_TUI_BIN=<path> bundles a local build instead.
-if [[ ! -f "$PWD/scripts/cmux-next/cmux-tui.pin" ]]; then
-  echo "error: scripts/cmux-next/cmux-tui.pin is missing; the cmux scheme cannot bundle cmux-tui" >&2
-  exit 1
-fi
 # cmux-next reads no web API origin, so a local reload provisions no shared
 # GCP backend stack. An explicit mode or CMUX_DEV_BACKEND_URL (the fleet's
 # cmux-ci passes one) still wins.
@@ -1429,6 +1426,26 @@ if [[ -n "${CMUX_NEXT_TUI_BIN:-}" ]]; then
   echo "==> cmux-next: bundling cmux-tui from CMUX_NEXT_TUI_BIN=$CMUX_NEXT_TUI_BIN"
 else
   "$PWD/scripts/cmux-next/pin-cmux-tui.sh" fetch || exit 1
+fi
+
+# cmux-next's agent pane starts the acpmux daemon from Resources/bin. CI and
+# reload-build provision CMUX_NEXT_ACPMUX_BIN from the in-tree source; a
+# tagged reload outside CI may reuse that commit-addressed cache, but never runs
+# Cargo on the developer machine.
+if [[ -n "${CMUX_NEXT_ACPMUX_BIN:-}" ]]; then
+  echo "==> cmux-next: bundling acpmux from CMUX_NEXT_ACPMUX_BIN=$CMUX_NEXT_ACPMUX_BIN"
+elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
+  if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
+    echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-acpmux.sh"
+    export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
+    echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"
+  else
+    echo "error: no cached acpmux for this checkout; provision it on CI/fleet or set CMUX_NEXT_ACPMUX_BIN" >&2
+    exit 1
+  fi
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
@@ -2019,15 +2036,16 @@ else
   mkdir -p "$BIN_DIR"
   "$PWD/scripts/build-cmux-cua.sh" --output "$CMUX_CUA_DEST"
 fi
-# The Bundle cmux-tui phase already placed the pinned cmux-tui; refuse anything else.
+# The Bundle cmux-tui phase already placed the same-tree cmux-tui (or the pin
+# with CMUX_NEXT_TUI_MODE=pin, or CMUX_NEXT_TUI_BIN); refuse anything else.
 cmux_next_tui_version="$APP_PATH/Contents/Resources/bin/cmux-tui.version"
 cmux_next_tui_source="$(awk -F= '$1=="source"{print $2}' "$cmux_next_tui_version" 2>/dev/null || true)"
 case "$cmux_next_tui_source" in
-  pinned-hosted|override)
+  tree-hosted|tree-local-build|pinned-hosted|override)
     echo "Bundled cmux-tui: $(tr '\n' ' ' < "$cmux_next_tui_version")"
     ;;
   *)
-    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the pinned hosted build; see $cmux_next_tui_version" >&2
+    echo "error: cmux-next bundle carries cmux-tui source '${cmux_next_tui_source:-none}', not the same-tree hosted build; see $cmux_next_tui_version" >&2
     exit 1
     ;;
 esac
@@ -2043,6 +2061,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""

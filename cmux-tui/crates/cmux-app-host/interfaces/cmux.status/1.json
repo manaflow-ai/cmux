@@ -10,5 +10,19 @@
     "render": "scene"
   },
   "events": [],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "placement": {
+        "enum": [
+          "titlebar",
+          "roomBar",
+          "statusStrip",
+          "menuBar"
+        ]
+      }
+    }
+  },
   "status": "draft: shapes are refined with the first implementing app before the interface is public"
 }
