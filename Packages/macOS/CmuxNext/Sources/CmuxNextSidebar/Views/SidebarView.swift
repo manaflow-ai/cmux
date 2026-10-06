@@ -93,7 +93,7 @@ public final class SidebarView: NSView {
     public var helpMenuProvider: (() -> NSMenu?)? {
         didSet {
             helpButton.menuProvider = helpMenuProvider
-            helpButton.isHidden = helpMenuProvider == nil
+            helpButton.isEnabled = helpMenuProvider != nil
             needsLayout = true
         }
     }
