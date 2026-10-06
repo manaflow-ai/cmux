@@ -360,9 +360,10 @@ extension CMUXCLI {
     /// inherited `CMUX_CODEX_PID` as its own owner identity.
     static func codexSynchronousAgentHookShellCommand(
         _ command: String,
-        for def: AgentHookDef
+        for def: AgentHookDef,
+        failOpen: Bool = false
     ) -> String {
-        let dispatch = agentHookShellCommand(command, for: def)
+        let dispatch = agentHookShellCommand(command, for: def, failOpen: failOpen)
         return "CMUX_CODEX_HOOK_PID=\"${PPID:-}\"; export CMUX_CODEX_HOOK_PID; \(dispatch)"
     }
 

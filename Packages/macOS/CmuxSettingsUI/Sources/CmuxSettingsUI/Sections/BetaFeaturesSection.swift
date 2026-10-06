@@ -7,28 +7,22 @@ import SwiftUI
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
-    @State private var cloudMachines: DefaultsValueModel<Bool>
+    @State private var conversationSidebar: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
-    @State private var predictedEcho: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
-    /// `DisableCloud` (MDM). The opt-in is meaningless while an administrator
-    /// forces Cloud off, so the row says so and locks the toggle; re-read on
-    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
-    @State private var cloudMachinesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
     /// custom sidebars opt-in.
     @State private var customSidebarsManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCustomSidebars)
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
-        _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
+        _conversationSidebar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.conversationSidebar))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
-        _predictedEcho = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.predictedEcho))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -43,15 +37,13 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 feedRow
                 SettingsCardDivider()
-                cloudMachinesRow
+                conversationSidebarRow
                 SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
                 SettingsCardDivider()
                 remoteTmuxRow
-                SettingsCardDivider()
-                predictedEchoRow
                 SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
@@ -62,7 +54,6 @@ public struct BetaFeaturesSection: View {
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
                 let policy = ManagedDevicePolicy()
-                cloudMachinesManagedByPolicy = policy.isEnforced(.disableCloud)
                 customSidebarsManagedByPolicy = policy.isEnforced(.disableCustomSidebars)
             }
         }
@@ -71,15 +62,31 @@ public struct BetaFeaturesSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
-            cloudMachines,
+            conversationSidebar,
             extensions,
             customSidebars,
             remoteTmux,
-            predictedEcho,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
         ]
         models.forEach { $0.startObserving() }
+    }
+
+    @ViewBuilder
+    private var conversationSidebarRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.conversations.enabled"),
+            searchAnchorID: "setting:betaFeatures:conversationSidebar",
+            String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
+            subtitle: conversationSidebar.current
+                ? String(localized: "settings.betaFeatures.conversationSidebar.subtitleOn", defaultValue: "Shows Conversations in the left sidebar picker.")
+                : String(localized: "settings.betaFeatures.conversationSidebar.subtitleOff", defaultValue: "Hides Conversations while preserving existing agent sessions.")
+        ) {
+            Toggle("", isOn: Binding(get: { conversationSidebar.current }, set: { conversationSidebar.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaConversationSidebarToggle")
+        }
     }
 
     @ViewBuilder
@@ -135,26 +142,6 @@ public struct BetaFeaturesSection: View {
     }
 
     @ViewBuilder
-    private var cloudMachinesRow: some View {
-        SettingsCardRow(
-            configurationReview: .json("cloud.beta.machines.enabled"),
-            searchAnchorID: "setting:betaFeatures:cloudMachines",
-            String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-            subtitle: cloudMachinesManagedByPolicy
-                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
-                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off.")
-        ) {
-            Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
-                CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)
-            }))
-                .labelsHidden()
-                .controlSize(.small)
-                .disabled(cloudMachinesManagedByPolicy)
-                .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")
-        }
-    }
-
-    @ViewBuilder
     private var extensionsRow: some View {
         SettingsCardRow(
             configurationReview: .settingsOnly,
@@ -184,21 +171,6 @@ public struct BetaFeaturesSection: View {
                 .controlSize(.small)
                 .disabled(customSidebarsManagedByPolicy)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
-        }
-    }
-
-    @ViewBuilder
-    private var predictedEchoRow: some View {
-        SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:predictedEcho",
-            String(localized: "settings.betaFeatures.predictedEcho", defaultValue: "Predictive local echo"),
-            subtitle: String(localized: "settings.betaFeatures.predictedEcho.subtitle", defaultValue: "Shows typed characters right away on slow remote connections. They stay underlined until the remote host confirms them. Password prompts and full-screen apps are excluded.")
-        ) {
-            Toggle("", isOn: Binding(get: { predictedEcho.current }, set: { predictedEcho.set($0) }))
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaPredictedEchoToggle")
         }
     }
 

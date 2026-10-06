@@ -40,22 +40,30 @@ struct CloudFeatureFlagTests {
         withExtendedLifetime(observer) {}
     }
     #endif
+    @Test("Agent inbox quick view defaults off")
+    func agentInboxQuickViewDefaultsOff() throws {
+        let suite = "cmux.agentInbox.flag.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            overrideCapability: .init(bundleIdentifier: "com.cmuxterm.app", isDebugBuild: false),
+            remoteFlagValueProvider: { _ in nil }
+        )
+        flags.applyLoadedFlags()
+        #expect(!flags.isAgentInboxQuickViewEnabled)
+        let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "agent-inbox-quick-view-enabled-release" })
+        #expect(definition.defaultWhenUnavailable == false)
+    }
+
     @Test("Stable Cloud defaults off and only follows remote values")
     func remoteResolution() throws {
         let suite = "cmux.cloud.flag.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let definition = try #require(CmuxFeatureFlags.allFlags.first { $0.key == "cloud-machines-enabled-release" })
-        #if DEBUG
         #expect(definition.defaultWhenUnavailable == true)
-        #else
-        #expect(definition.defaultWhenUnavailable == false)
-        #endif
-        #if DEBUG
         let unavailableDefault = true
-        #else
-        let unavailableDefault = false
-        #endif
         for remote in [nil, false, true] as [Bool?] {
             defaults.removePersistentDomain(forName: suite)
             let flags = CmuxFeatureFlags(
@@ -121,17 +129,13 @@ struct CloudFeatureFlagTests {
         #expect(restored.effectiveValue(for: definition))
         remote = nil
         flags.applyLoadedFlags()
-        #if DEBUG
         let unavailableDefault = true
-        #else
-        let unavailableDefault = false
-        #endif
         #expect(flags.effectiveValue(for: definition) == unavailableDefault)
         restored.applyLoadedFlags()
         #expect(restored.effectiveValue(for: definition) == unavailableDefault)
     }
 
-    @Test("The shared availability observer delivers each remote/Beta transition once")
+    @Test("The shared availability observer delivers each remote/activation transition once")
     func availabilityTransitions() {
         let center = NotificationCenter()
         var enabled = false
@@ -154,6 +158,149 @@ struct CloudFeatureFlagTests {
         enabled = true
         center.post(name: .cmuxFeatureFlagsDidChange, object: nil)
         #expect(transitions == [false, true, false])
+    }
+
+    @Test("Cloud tab availability does not depend on the activation marker")
+    func tabAvailabilityBeforeActivation() throws {
+        let suite = "cmux.cloud.availability.beforeActivation.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
+        let policy = ManagedDevicePolicy(defaults: defaults, releaseDomainDefaults: nil, forcedObject: { _, _ in nil })
+        #expect(CloudMachinesFeature.isAvailable(policy: policy, remoteEnabled: true))
+        #expect(!CloudMachinesFeature.isEnabled(defaults: defaults, policy: policy, remoteEnabled: true))
+    }
+
+    @Test("Cloud activation moves from disabled through setup to success once")
+    func activationSuccess() async throws {
+        let suite = "cmux.cloud.activation.success.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
+        let started = AsyncStream<Void>.makeStream()
+        var release: CheckedContinuation<Void, Never>?
+        var prepareCalls = 0
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {
+                prepareCalls += 1
+                started.continuation.yield(())
+                await withCheckedContinuation { continuation in release = continuation }
+            }
+        )
+
+        #expect(coordinator.state == .disabled)
+        coordinator.enable()
+        #expect(coordinator.state == .enabled)
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        release?.resume()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+        #expect(coordinator.state == .enabled)
+        #expect(prepareCalls == 1)
+        #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+    }
+
+    @Test("Cloud activation exposes a retryable failure and reuses the same setup owner")
+    func activationFailureRetry() async throws {
+        let suite = "cmux.cloud.activation.retry.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
+        var prepareCalls = 0
+        var cleanupCalls = 0
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {
+                prepareCalls += 1
+                if prepareCalls == 1 {
+                    throw VMClientError.backendUnreachable(url: "https://cloud.invalid", detail: "fixture")
+                }
+            },
+            cleanup: { cleanupCalls += 1 }
+        )
+
+        coordinator.enable()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+        #expect(coordinator.state == .failed(.serviceUnavailable))
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(cleanupCalls == 1)
+
+        coordinator.retry()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+        #expect(coordinator.state == .enabled)
+        #expect(prepareCalls == 2)
+    }
+
+    @Test("Cloud activation cancellation is recoverable and unavailable Cloud never starts setup")
+    func activationCancellationAndUnavailable() async throws {
+        let suite = "cmux.cloud.activation.cancel.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
+        let started = AsyncStream<Void>.makeStream()
+        var release: CheckedContinuation<Void, Never>?
+        var prepareCalls = 0
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: {
+                prepareCalls += 1
+                started.continuation.yield(())
+                await withCheckedContinuation { continuation in release = continuation }
+            }
+        )
+        coordinator.enable()
+        var iterator = started.stream.makeAsyncIterator()
+        _ = await iterator.next()
+        coordinator.cancel()
+        release?.resume()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+        #expect(coordinator.state == .cancelled)
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+        #expect(prepareCalls == 1)
+
+        var unavailableCalls = 0
+        let unavailable = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { false },
+            prepare: { unavailableCalls += 1 }
+        )
+        #expect(unavailable.state == .unavailable)
+        unavailable.enable()
+        #expect(unavailable.state == .unavailable)
+        #expect(unavailableCalls == 0)
+    }
+
+    @Test("An existing Cloud activation opens directly without repeating setup")
+    func existingActivation() throws {
+        let suite = "cmux.cloud.activation.existing.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: CloudActivationCoordinator.activationKey)
+        var prepareCalls = 0
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: { prepareCalls += 1 }
+        )
+
+        #expect(coordinator.state == .enabled)
+        coordinator.enable()
+        #expect(coordinator.state == .enabled)
+        #expect(prepareCalls == 0)
     }
 
     @Test("Closing Cloud ignores late creates without deleting the machine or publishing a result")

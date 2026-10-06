@@ -15,6 +15,7 @@ import {
   ADMIN_ID,
   MEMBER_ID,
   MemoryInviteStore,
+  MemoryTeamSeatSync,
   noLock,
   OUTSIDER_ID,
   standardTeam,
@@ -33,7 +34,7 @@ async function setup(input: { expiresInDays?: 1 | 7 | 30 | null; maxUses?: numbe
     { expiresInDays: input.expiresInDays ?? null, maxUses: input.maxUses ?? null },
     { store, now: () => store.now },
   );
-  return { stack, store, access: access.access, ...created, deps: { store, stack: stack.app() } };
+  return { stack, store, access: access.access, ...created, deps: { store, stack: stack.app(), seats: new MemoryTeamSeatSync() } };
 }
 
 async function code(promise: Promise<unknown>): Promise<string> {
@@ -181,5 +182,22 @@ describe("rejoining after leaving or removal", () => {
     await removeMember(await accessOf(stack, OUTSIDER_ID), OUTSIDER_ID, { stack: stack.app(), lock: noLock, store });
     expect(await code(redeemTeamInviteLink(OUTSIDER_ID, token, deps))).toBe("ok");
     expect(store.links[0]!.useCount).toBe(2);
+  });
+});
+
+describe("personal plan member limit on links", () => {
+  test("a full Pro roster refuses link joins without burning a use", async () => {
+    const stack = standardTeam().addUser({ id: SECOND_OUTSIDER });
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "max" };
+    stack.addUser({ id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" }).addMember(TEAM_ID, "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", ["team_member"]);
+    const store = new MemoryInviteStore();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    const { token, link } = await createTeamInviteLink(access.access, { expiresInDays: null, maxUses: 1 }, { store, now: () => store.now });
+    const deps = { store, stack: stack.app() };
+    expect(await code(redeemTeamInviteLink(OUTSIDER_ID, token, deps))).toBe("409:seat_limit");
+    expect((await listTeamInviteLinks(access.access, deps)).find((candidate) => candidate.id === link.id)?.useCount).toBe(0);
+    // An existing member re-opening the link is still a no-op success.
+    expect(await code(redeemTeamInviteLink(MEMBER_ID, token, deps))).toBe("ok");
   });
 });

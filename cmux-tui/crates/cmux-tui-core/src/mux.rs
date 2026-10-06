@@ -1895,6 +1895,7 @@ pub(crate) struct ClientSizingIdentity {
     pub(crate) display_name: Option<String>,
     pub(crate) device_kind: TerminalDeviceKind,
     pub(crate) device_name: Option<String>,
+    pub(crate) device_id: Option<String>,
 }
 
 /// Where a size-state publication goes after the sizing lock is released.
@@ -1920,6 +1921,10 @@ struct ClientSizingState {
     workspace_size_policies: HashMap<WorkspaceId, TerminalSizingPolicy>,
     /// Runtimes whose published state changed since the last flush.
     pending_size_states: BTreeSet<SurfaceId>,
+    /// Own views (connection, placement) someone detached with a view
+    /// detach. The connection stays attached; its view is not a participant
+    /// until `reattach-view`.
+    detached_views: HashSet<(u64, SurfaceId)>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The
@@ -2602,8 +2607,13 @@ pub struct Mux {
     template_completion_failures: AtomicU64,
     server_lifecycle_ready: AtomicBool,
     shutting_down: AtomicBool,
+    /// Called after `request_daemon_shutdown`, so the owner loop that waits
+    /// for it blocks instead of polling the flag.
+    daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
+    /// Wakes the idle-close reaper when a policy changes.
+    idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3011,8 +3021,10 @@ impl Mux {
             ),
             server_lifecycle_ready: AtomicBool::new(false),
             shutting_down: AtomicBool::new(false),
+            daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
+            idle_close_waker: Mutex::new(None),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -3933,7 +3945,7 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
+                creation_order_auto_layout: Some(vec![pane_id]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -6073,6 +6085,7 @@ impl Mux {
         *self.journal_event_epoch.lock().unwrap()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_journal_event(&self, epoch: u64, timeout: Duration) -> u64 {
         let current = self.journal_event_epoch.lock().unwrap();
         if *current != epoch {
@@ -6082,10 +6095,53 @@ impl Mux {
         *current
     }
 
+    /// Like `wait_for_journal_event`, with no timeout: returns the new
+    /// epoch, or `epoch` once `interrupt` has fired.
+    pub(crate) fn wait_for_journal_event_until_interrupted(
+        &self,
+        epoch: u64,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> u64 {
+        let mut current = self.journal_event_epoch.lock().unwrap();
+        while *current == epoch && !interrupt.is_fired() {
+            current = self.journal_event_changed.wait(current).unwrap();
+        }
+        *current
+    }
+
+    /// Like `wait_for_shared_journal`, with no timeout.
+    pub(crate) fn wait_for_shared_journal_until_interrupted(
+        &self,
+        epoch: u64,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> u64 {
+        self.journal_kernel.wait_until_interrupted(epoch, interrupt)
+    }
+
+    /// Wakes this mux's journal waiters when `interrupt` fires, so a
+    /// session stream blocks until an event or its own close.
+    pub(crate) fn wake_journal_waiters_on(
+        self: &Arc<Self>,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) {
+        let mux = Arc::downgrade(self);
+        interrupt.on_fire(move || {
+            if let Some(mux) = mux.upgrade() {
+                {
+                    let _epoch =
+                        mux.journal_event_epoch.lock().unwrap_or_else(|error| error.into_inner());
+                    mux.journal_event_changed.notify_all();
+                }
+                mux.journal_kernel.notify_waiters();
+            }
+        });
+    }
+
     pub(crate) fn resource_event_epoch(&self) -> u64 {
         self.journal_event_epoch()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_resource_event(&self, epoch: u64, timeout: Duration) -> u64 {
         self.wait_for_journal_event(epoch, timeout)
     }
@@ -6127,6 +6183,7 @@ impl Mux {
         self.journal_kernel.clone()
     }
 
+    #[cfg(test)]
     pub(crate) fn wait_for_shared_journal(&self, epoch: u64, timeout: Duration) -> u64 {
         self.journal_kernel.wait(epoch, timeout)
     }
@@ -6724,6 +6781,13 @@ impl Mux {
         scans: &[crate::workspace_registry::JournalHookScan],
     ) -> anyhow::Result<Vec<bool>> {
         self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(scans)
+    }
+
+    /// When the next scheduled hook retry is due, if any.
+    pub(crate) fn next_journal_hook_attempt_deadline(&self) -> anyhow::Result<Option<Instant>> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms()?;
+        let next = self.workspace_registry.lock().unwrap().next_journal_hook_attempt_at_ms()?;
+        Ok(next.map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now_ms))))
     }
 
     pub(crate) fn pending_journal_hook_deliveries(
@@ -8871,6 +8935,7 @@ impl Mux {
         attached_surfaces: impl IntoIterator<Item = SurfaceId>,
     ) {
         let mut sizing = self.client_sizing.lock().unwrap();
+        sizing.detached_views.retain(|(viewer, _)| *viewer != client);
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
         // The registry snapshot no longer contains this client. Reconstruct
         // whether each old attachment suppressed excluded-report fallback so
@@ -8992,6 +9057,9 @@ impl Mux {
             return None;
         }
         Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            if sizing.detached_views.contains(&(client, surface)) {
+                return false;
+            }
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
             let id = view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
@@ -9092,6 +9160,7 @@ impl Mux {
                 participant.user_id = identity.user_id.clone();
                 participant.display_name = identity.display_name.clone();
                 participant.device_name = identity.device_name.clone();
+                participant.device_id = identity.device_id.clone();
                 changed |= entry.engine.update_identity(&participant);
             }
             sizing.note_size_state(runtime, changed);
@@ -9138,6 +9207,7 @@ impl Mux {
                 display_name: identity.display_name,
                 device_kind: identity.device_kind,
                 device_name: identity.device_name,
+                device_id: identity.device_id,
                 via: Some(via),
                 viewport: viewport.map(|(cols, rows)| TerminalGridSize::new(cols, rows)),
                 counts_override: None,
@@ -9211,6 +9281,75 @@ impl Mux {
                 .members
                 .get(participant)
                 .map(|member| (member.client, member.placement, member.view.clone()))
+        })
+    }
+
+    /// Resolve a host participant id on one terminal (participant ids are
+    /// per terminal, so the same `c<client>` can name views of several).
+    pub(crate) fn terminal_participant_member_on(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> Option<(u64, SurfaceId, Option<String>)> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let sizing = self.client_sizing.lock().unwrap();
+        sizing
+            .terminal_sizing
+            .get(&runtime)?
+            .members
+            .get(participant)
+            .map(|member| (member.client, member.placement, member.view.clone()))
+    }
+
+    /// Detach one connection's own view of a terminal placement, keeping the
+    /// connection, its stream and its relay sub-views. The view stays out of
+    /// the engine until [`Self::reattach_terminal_own_view`].
+    pub(crate) fn detach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+    ) -> Option<bool> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self.surface(placement)?.terminal_runtime_id()?;
+        Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            sizing.detached_views.insert((client, placement));
+            let before =
+                sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation);
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            before
+                != sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation)
+        }))
+    }
+
+    /// Restore a view detached by [`Self::detach_terminal_own_view`], with
+    /// its latest report. `counts` sets its counts override (a viewer
+    /// reattaches with `Some(false)`). Returns the view's participant id.
+    pub(crate) fn reattach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+        counts: Option<bool>,
+    ) -> anyhow::Result<String> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self
+            .surface(placement)
+            .and_then(|surface| surface.terminal_runtime_id())
+            .ok_or_else(|| anyhow::anyhow!("surface {placement} is not a terminal"))?;
+        let id = view_participant_id(runtime, placement, client);
+        self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            anyhow::ensure!(
+                sizing.detached_views.remove(&(client, placement)),
+                "view of surface {placement} is not detached"
+            );
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            if let Some(entry) = sizing.terminal_sizing.get_mut(&runtime)
+                && entry.engine.contains(&id)
+                && counts.is_some()
+            {
+                let changed = entry.engine.set_counts_override(&id, counts);
+                sizing.note_size_state(runtime, changed);
+            }
+            Ok(id.clone())
         })
     }
 
@@ -9358,6 +9497,7 @@ impl Mux {
             display_name: identity.display_name,
             device_kind: identity.device_kind,
             device_name: identity.device_name,
+            device_id: identity.device_id,
             via: None,
             viewport: sizing
                 .surfaces
@@ -9424,7 +9564,8 @@ impl Mux {
             sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
         let attached = client != 0
             && self.control_clients.attached_client_ids_for_surface(placement).contains(&client);
-        let present = attached || has_report;
+        let present =
+            (attached || has_report) && !sizing.detached_views.contains(&(client, placement));
         let known =
             sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
         if !present && !known {
@@ -11738,6 +11879,17 @@ impl Mux {
     /// and remain available for the replacement daemon to adopt.
     pub fn request_daemon_shutdown(&self) {
         self.shutting_down.store(true, Ordering::Release);
+        // The journal hook dispatcher waits on the shared journal.
+        self.journal_kernel.wake_waiters();
+        if let Some(waker) = self.daemon_shutdown_waker.lock().unwrap().as_ref() {
+            waker();
+        }
+    }
+
+    /// Install the callback that `request_daemon_shutdown` runs after it
+    /// sets the flag (the headless owner loop's wake).
+    pub fn set_daemon_shutdown_waker(&self, waker: impl Fn() + Send + Sync + 'static) {
+        *self.daemon_shutdown_waker.lock().unwrap() = Some(Box::new(waker));
     }
 
     pub fn daemon_shutdown_requested(&self) -> bool {
@@ -12413,6 +12565,11 @@ impl Mux {
     fn run_kitty_image_budget_worker(mux: Weak<Self>) {
         let mut failure_streak = 0_u32;
         let mut pending_operations = Vec::<PendingKittyImageBudgetOperation>::new();
+        // The last wave's (surface, limits). An identical next wave with no
+        // failure means an applied result did not stick (the surface was
+        // replaced): treat it as a failure so the retry is spaced instead of
+        // re-running the same wave in a hot loop.
+        let mut previous_wave = Vec::<(SurfaceId, KittyGraphicsLimits)>::new();
         loop {
             let Some(mux) = mux.upgrade() else { return };
             if mux.shutting_down.load(Ordering::Acquire) {
@@ -12613,6 +12770,11 @@ impl Mux {
                 }
             }
             mux.kitty_image_budget_changed.notify_all();
+            let wave = tasks.iter().map(|(id, _, limits, _)| (*id, *limits)).collect::<Vec<_>>();
+            if failures.is_empty() && !wave.is_empty() && wave == previous_wave {
+                failures.push("Kitty quota update did not converge".to_string());
+            }
+            previous_wave = wave;
             if failures.is_empty() {
                 failure_streak = 0;
                 continue;
@@ -14256,7 +14418,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14491,7 +14653,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14578,7 +14740,7 @@ impl Mux {
                         root: Node::Leaf(pane_id),
                         active_pane: pane_id,
                         zoomed_pane: None,
-                        zellij_auto_layout: Some(vec![pane_id]),
+                        creation_order_auto_layout: Some(vec![pane_id]),
                         viewport_splits: Default::default(),
                         viewport_base_width: None,
                         layout_columns: Vec::new(),
@@ -14742,7 +14904,7 @@ impl Mux {
                     root: Node::Leaf(pane_id),
                     active_pane: pane_id,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![pane_id]),
+                    creation_order_auto_layout: Some(vec![pane_id]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -17162,7 +17324,7 @@ impl Mux {
                 root,
                 active_pane,
                 zoomed_pane: None,
-                zellij_auto_layout: None,
+                creation_order_auto_layout: None,
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -17578,7 +17740,7 @@ impl Mux {
                 root: Node::Leaf(pane),
                 active_pane: pane,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane]),
+                creation_order_auto_layout: Some(vec![pane]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
@@ -18919,7 +19081,7 @@ fn restore_resource_state(
                 })
             })
             .transpose()?;
-        let zellij_auto_layout = screen
+        let creation_order_auto_layout = screen
             .auto_layout
             .as_ref()
             .map(|panes| {
@@ -18957,7 +19119,7 @@ fn restore_resource_state(
             root,
             active_pane,
             zoomed_pane,
-            zellij_auto_layout,
+            creation_order_auto_layout,
             viewport_splits,
             viewport_base_width,
             layout_columns,
@@ -19117,7 +19279,7 @@ fn restore_registry_viewport(
             None => anyhow::bail!("viewport references unknown boundary split {}", column.id),
         };
         let root = restore_layout_node_from_known_splits(&column.layout, panes, splits)?;
-        let zellij_auto_layout = column
+        let creation_order_auto_layout = column
             .auto_layout
             .as_ref()
             .map(|members| {
@@ -19131,7 +19293,7 @@ fn restore_registry_viewport(
                     .collect::<anyhow::Result<Vec<_>>>()
             })
             .transpose()?;
-        columns.push(LayoutColumn { id, width: column.width, root, zellij_auto_layout });
+        columns.push(LayoutColumn { id, width: column.width, root, creation_order_auto_layout });
     }
     let viewport_splits = columns.iter().skip(1).map(|column| (column.id, column.width)).collect();
     Ok((viewport_splits, viewport.base_width, columns))
@@ -19256,7 +19418,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
         let stack_expanded = root.stack_expanded_pane();
         match root.remove_leaf(pane) {
             Some(mut root) => {
-                if let Some(panes) = column.zellij_auto_layout.as_mut() {
+                if let Some(panes) = column.creation_order_auto_layout.as_mut() {
                     panes.retain(|candidate| *candidate != pane);
                     if let Some(layout) =
                         crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || {
@@ -19268,7 +19430,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
                             root.expand_stack_pane(expanded);
                         }
                     } else {
-                        column.zellij_auto_layout = None;
+                        column.creation_order_auto_layout = None;
                     }
                 }
                 column.root = root;
@@ -19289,7 +19451,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
     let Some(mut root) = root.remove_leaf(pane) else {
         return false;
     };
-    if let Some(panes) = screen.zellij_auto_layout.as_mut() {
+    if let Some(panes) = screen.creation_order_auto_layout.as_mut() {
         panes.retain(|candidate| *candidate != pane);
         if let Some(layout) =
             crate::layout::zellij_default_pane_layout_with_ids(panes, &mut || mux.next_id())
@@ -19299,7 +19461,7 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
                 root.expand_stack_pane(expanded);
             }
         } else {
-            screen.zellij_auto_layout = None;
+            screen.creation_order_auto_layout = None;
         }
     }
     screen.root = root;
@@ -28271,7 +28433,7 @@ mod tests {
                 vec![right_pane, right_added_pane]
             );
             assert_eq!(
-                screen.layout_columns[1].zellij_auto_layout.as_deref(),
+                screen.layout_columns[1].creation_order_auto_layout.as_deref(),
                 Some([right_pane, right_added_pane].as_slice())
             );
             assert_eq!(screen.viewport_splits.len(), 1);
@@ -28850,8 +29012,13 @@ mod tests {
                 panic!("test layout should have two stack branches");
             };
             screen.layout_columns = vec![
-                LayoutColumn { id: mux.next_id(), width: 1.0, root: *a, zellij_auto_layout: None },
-                LayoutColumn { id, width: 0.5, root: *b, zellij_auto_layout: None },
+                LayoutColumn {
+                    id: mux.next_id(),
+                    width: 1.0,
+                    root: *a,
+                    creation_order_auto_layout: None,
+                },
+                LayoutColumn { id, width: 0.5, root: *b, creation_order_auto_layout: None },
             ];
             screen.sync_layout_column_projection();
             Mux::rebuild_split_screen_index(&mut state);
@@ -29352,7 +29519,7 @@ mod tests {
             let mut order = Vec::new();
             screen.root.pane_ids(&mut order);
             assert_eq!(order, vec![p1, p2, p3, p4]);
-            assert_eq!(screen.zellij_auto_layout.as_deref(), Some(order.as_slice()));
+            assert_eq!(screen.creation_order_auto_layout.as_deref(), Some(order.as_slice()));
         });
     }
 
@@ -29433,7 +29600,7 @@ mod tests {
         mux.close_surface(surfaces[0].id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            let order = screen.zellij_auto_layout.as_ref().unwrap();
+            let order = screen.creation_order_auto_layout.as_ref().unwrap();
             assert_eq!(order.len(), 4);
             let layout = layout_screen(
                 &screen.root,
@@ -29564,7 +29731,7 @@ mod tests {
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
             assert_eq!(screen.active_pane, active);
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
@@ -29591,7 +29758,7 @@ mod tests {
         mux.close_surface(active_surface.id).unwrap();
         mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
             let layout = layout_screen(
                 &screen.root,
                 Rect { x: 0, y: 0, width: 80, height: 40 },
@@ -29612,7 +29779,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let stack_pane = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
 
         assert!(mux.focus_pane(stack_pane));
@@ -29645,7 +29812,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let stack_pane = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
         let outside = mux.split(active, SplitDir::Right, None).unwrap();
         let outside_pane = mux.with_state(|state| state.pane_of(outside.id).unwrap());
@@ -29697,7 +29864,7 @@ mod tests {
                                     && matches!(b.as_ref(), Node::Leaf(pane) if *pane == split_pane)
                         )
             ));
-            assert!(screen.zellij_auto_layout.is_none());
+            assert!(screen.creation_order_auto_layout.is_none());
         });
     }
 
@@ -29712,7 +29879,7 @@ mod tests {
             active = mux.with_state(|state| state.pane_of(surface.id).unwrap());
         }
         let target = mux.with_state(|state| {
-            state.workspaces[0].screens[0].zellij_auto_layout.as_ref().unwrap()[1]
+            state.workspaces[0].screens[0].creation_order_auto_layout.as_ref().unwrap()[1]
         });
 
         mux.split(target, SplitDir::Right, None).unwrap();
@@ -30042,10 +30209,15 @@ mod tests {
     fn unchanged_ratio_commands_preserve_undo_metadata_revision_and_events() {
         let mux = test_mux();
         let (p1, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let before = mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            (screen.layout_revision, screen.layout_undo.len(), screen.zellij_auto_layout.clone())
+            (
+                screen.layout_revision,
+                screen.layout_undo.len(),
+                screen.creation_order_auto_layout.clone(),
+            )
         });
         let events = mux.subscribe();
 
@@ -30058,7 +30230,7 @@ mod tests {
                 (
                     screen.layout_revision,
                     screen.layout_undo.len(),
-                    screen.zellij_auto_layout.clone(),
+                    screen.creation_order_auto_layout.clone(),
                 ),
                 before
             );
@@ -30072,7 +30244,8 @@ mod tests {
     fn set_split_ratio_updates_only_the_exact_split_and_clamps() {
         let mux = test_mux();
         let (_, _, _, root_split, inner_split) = seed_split_ratio_tree(&mux);
-        mux.state.lock().unwrap().workspaces[0].screens[0].zellij_auto_layout = Some(vec![1, 2, 3]);
+        mux.state.lock().unwrap().workspaces[0].screens[0].creation_order_auto_layout =
+            Some(vec![1, 2, 3]);
         let events = mux.subscribe();
 
         assert!(mux.set_split_ratio_checked(root_split, 2.0).is_ok());
@@ -30088,7 +30261,7 @@ mod tests {
             };
             assert_eq!(*id, inner_split);
             assert_eq!(*inner_ratio, 0.5);
-            assert!(s.workspaces[0].screens[0].zellij_auto_layout.is_none());
+            assert!(s.workspaces[0].screens[0].creation_order_auto_layout.is_none());
         });
         assert!(matches!(events.recv().unwrap(), MuxEvent::LayoutChanged(_)));
         assert!(events.try_recv().is_err());

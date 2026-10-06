@@ -28,6 +28,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
+        "terminal.paste",
         "workspace.equalize_splits",
     ]
 
@@ -68,7 +69,11 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         // to the focused panel and could target a terminal moved from another
         // owner's workspace; require the selector the handler actually reads.
         "surface.split",
+        "terminal.paste",
         "agent.hook.enqueue",
+        "agent.message.poll",
+        "agent.message.claim",
+        "agent.message.mark_read",
     ]
 
     private static let exactSurfaceSelectorMethods: Set<String> = [
@@ -81,11 +86,16 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
+        "terminal.paste",
         "agent.hook.enqueue",
+        "agent.message.poll",
+        "agent.message.claim",
+        "agent.message.mark_read",
     ]
 
     private static let workspaceSelectorKeys: Set<String> = [
         "workspace_id",
+        "sender_workspace_id",
         remoteWorkspaceIDKey,
     ]
 
@@ -94,7 +104,10 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     private static let surfaceSelectorKeys: Set<String> = [
         "surface_id",
         "terminal_id",
+        "sender_surface_id",
     ]
+
+    private static let ambiguousSelectorKeys: Set<String> = ["surface", "target"]
 
     private static let surfaceArrayKeys: Set<String> = ["panel_ids", "surface_ids"]
 
@@ -146,7 +159,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         }
 
         if let key = firstParameterKey(
-               in: parameters,
+               in: RemoteRelayRoutingSchema().commandKeyScanScope(of: parameters, method: method),
                keys: Self.localExecutionKeys.union(["command"])
            ) {
             return .denied(
@@ -159,6 +172,35 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             return .denied(
                 code: "remote_relay_workspace_denied",
                 message: "Relay selector '\(key)' is not permitted"
+            )
+        }
+
+        if method == "agent.message.mark_read",
+           parameters["id"] != nil || parameters["ids"] != nil {
+            return .denied(
+                code: "remote_relay_method_denied",
+                message: "Relay agent message reads must be scoped by surface_id"
+            )
+        }
+        if method == "agent.message.send" {
+            if parameters["reply_to"] != nil {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay agent message replies are not permitted"
+                )
+            }
+            guard parameters["target"] is String else {
+                return .denied(
+                    code: "remote_relay_workspace_denied",
+                    message: "Relay agent message send requires an explicit target"
+                )
+            }
+        }
+        if method == "agent.message.list",
+           !(parameters["surface"] is String) {
+            return .denied(
+                code: "remote_relay_surface_denied",
+                message: "Relay agent message list requires an explicit surface target"
             )
         }
 
@@ -228,8 +270,19 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
            !(parameters["surface_id"] is String) {
             return .denied(
                 code: "remote_relay_surface_denied",
-                message: "Relay tmux-compat surface methods require an explicit surface_id selector"
+                message: "Relay method requires an explicit surface_id selector"
             )
+        }
+
+        if method == "terminal.paste" {
+            guard parameters["text"] is String,
+                  let submitKey = parameters["submit_key"] as? String,
+                  ["none", "return"].contains(submitKey) else {
+                return .denied(
+                    code: "remote_relay_method_denied",
+                    message: "Relay terminal paste requires text and submit_key none|return"
+                )
+            }
         }
 
         if method == "notification.create_for_target",
@@ -286,7 +339,7 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
     /// Malformed selectors keep their scope code regardless of their JSON type.
     private func invalidSelector(_ key: String) -> SelectorFailure {
         SelectorFailure(
-            code: Self.workspaceSelectorKeys.contains(key)
+            code: Self.workspaceSelectorKeys.contains(key) || Self.ambiguousSelectorKeys.contains(key)
                 ? "remote_relay_workspace_denied" : "remote_relay_surface_denied",
             message: invalidSelectorMessage
         )
@@ -321,7 +374,10 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         ownerWorkspaceID: UUID,
         surfaceIDs: Set<UUID>
     ) -> SelectorFailure? {
-        if let key, Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key),
+        if let key,
+           Self.workspaceSelectorKeys.contains(key)
+            || Self.surfaceSelectorKeys.contains(key)
+            || Self.ambiguousSelectorKeys.contains(key),
            !(value is String) {
             return invalidSelector(key)
         }
@@ -361,7 +417,9 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
         }
 
         guard let key,
-              Self.workspaceSelectorKeys.contains(key) || Self.surfaceSelectorKeys.contains(key) else {
+              Self.workspaceSelectorKeys.contains(key)
+                || Self.surfaceSelectorKeys.contains(key)
+                || Self.ambiguousSelectorKeys.contains(key) else {
             return nil
         }
         guard let raw = value as? String,
@@ -378,6 +436,14 @@ public struct RemoteRelayAuthorizationPolicy: Sendable {
             return SelectorFailure(
                 code: "remote_relay_surface_denied",
                 message: "Relay request targets a surface outside its workspace"
+            )
+        }
+        if Self.ambiguousSelectorKeys.contains(key),
+           id != ownerWorkspaceID,
+           !surfaceIDs.contains(id) {
+            return SelectorFailure(
+                code: "remote_relay_workspace_denied",
+                message: "Relay request targets an object outside its workspace"
             )
         }
         return nil

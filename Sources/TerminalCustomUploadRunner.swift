@@ -79,6 +79,7 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
+        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy(),
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120,
         completion: @escaping (Result<String, Error>) -> Void
@@ -91,6 +92,7 @@ struct TerminalCustomUploadRunner {
                 fileURLs: fileURLs,
                 endpoint: endpoint,
                 command: command,
+                remotePastePolicy: remotePastePolicy,
                 operation: operation,
                 timeout: timeout
             ))
@@ -101,6 +103,7 @@ struct TerminalCustomUploadRunner {
         fileURLs: [URL],
         endpoint: Endpoint,
         command: String,
+        remotePastePolicy: RemotePasteFileTransferPolicy = RemotePasteFileTransferPolicy(),
         operation: TerminalImageTransferOperation,
         timeout: TimeInterval = 120
     ) -> Result<String, Error> {
@@ -113,7 +116,7 @@ struct TerminalCustomUploadRunner {
                 guard normalizedLocalURL.isFileURL else {
                     throw Self.uploadError("Dropped item is not a local file.")
                 }
-                let remotePath = RemoteSessionCoordinator.remoteDropPath(for: normalizedLocalURL)
+                let remotePath = remotePastePolicy.remotePath(for: normalizedLocalURL)
                 let env = TerminalUploadCommand.environment(
                     localPath: normalizedLocalURL.path,
                     remotePath: remotePath,
@@ -183,7 +186,13 @@ struct TerminalCustomUploadRunner {
         )
         guard let command = matchedCommand(for: endpoint) else { return false }
 
-        run(fileURLs: fileURLs, endpoint: endpoint, command: command, operation: operation) { result in
+        run(
+            fileURLs: fileURLs,
+            endpoint: endpoint,
+            command: command,
+            remotePastePolicy: session.remotePastePolicy,
+            operation: operation
+        ) { result in
             cleanup(fileURLs)
             DispatchQueue.main.async {
                 // A cancelled/finished operation means the cancel handler already
@@ -226,6 +235,25 @@ struct TerminalCustomUploadRunner {
         environment: [String: String],
         timeout: TimeInterval,
         operation: TerminalImageTransferOperation
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        try spawnCommand(
+            command: command,
+            environment: environment,
+            timeout: timeout,
+            operation: operation,
+            drainTimeout: 2
+        )
+    }
+
+    /// `drainTimeout` bounds each pipe drain after the leader exits (see
+    /// ``finishDrain(_:closing:within:)``). Tests whose command leaves an orphan
+    /// holding the pipes pass a short bound instead of waiting it out.
+    static func spawnCommand(
+        command: String,
+        environment: [String: String],
+        timeout: TimeInterval,
+        operation: TerminalImageTransferOperation,
+        drainTimeout: TimeInterval
     ) throws -> (status: Int32, stdout: String, stderr: String) {
         try operation.throwIfCancelled()
 
@@ -394,8 +422,8 @@ struct TerminalCustomUploadRunner {
         // group, so a group kill can't reach it — could still hold a write end
         // open. Bound the drain, then close our read end to force the reader to
         // return. This can't hang and doesn't signal a possibly-reused pgid.
-        finishDrain(stdoutDrained, closing: stdoutReadFD); stdoutFDs[0] = -1
-        finishDrain(stderrDrained, closing: stderrReadFD); stderrFDs[0] = -1
+        finishDrain(stdoutDrained, closing: stdoutReadFD, within: drainTimeout); stdoutFDs[0] = -1
+        finishDrain(stderrDrained, closing: stderrReadFD, within: drainTimeout); stderrFDs[0] = -1
 
         if operation.isCancelled {
             throw TerminalImageTransferExecutionError.cancelled
@@ -421,10 +449,10 @@ struct TerminalCustomUploadRunner {
         )
     }
 
-    /// Waits up to 2s for `done`, then closes `fd` to force a still-blocked reader
+    /// Waits up to `seconds` for `done`, then closes `fd` to force a still-blocked reader
     /// (a descendant holding the write end) to return — a bounded, hang-free drain.
-    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32) {
-        if done.wait(timeout: .now() + 2) == .timedOut {
+    private static func finishDrain(_ done: DispatchSemaphore, closing fd: Int32, within seconds: TimeInterval) {
+        if done.wait(timeout: .now() + seconds) == .timedOut {
             close(fd)
             done.wait()
         } else {

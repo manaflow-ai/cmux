@@ -6,7 +6,6 @@ Regression tests for OMX HUD panes through cmux's tmux compatibility shim.
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -18,6 +17,7 @@ from claude_teams_test_utils import (
     accept_fixture_socket_authentication,
     resolve_cmux_cli,
 )
+from fake_socket_env import cli_environment, unwrap_capability
 
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 PANE_ID = "33333333-3333-4333-8333-333333333333"
@@ -168,7 +168,7 @@ class FakeCmuxHandler(socketserver.StreamRequestHandler):
             if accept_fixture_socket_authentication(line, self.wfile):
                 continue
 
-            request = json.loads(line.decode("utf-8"))
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -201,14 +201,10 @@ def run_cli(
     args: list[str],
     working_directory: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    env = os.environ.copy()
-    for key in ("CMUX_SOCKET_PASSWORD", "CMUX_SOCKET_CAPABILITY", "CMUX_TAB_ID"):
-        env.pop(key, None)
-    env["CMUX_SOCKET_PATH"] = str(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
-    env["HOME"] = str(fake_home)
     env["CMUX_OMX_CMUX_BIN"] = cli_path
     if working_directory is not None:
         env["PWD"] = str(working_directory)

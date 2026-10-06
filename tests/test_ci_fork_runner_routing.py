@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -67,6 +68,27 @@ OUTSIDER_TRIGGER = re.compile(
 HOSTED_LITERAL_RUNNER = re.compile(
     r"^\s*runs-on:\s*(?:ubuntu-\d+\.\d+|ubuntu-latest|macos-\d+)\s*(?:#.*)?$"
 )
+# The one runner selector a trusted-token job may use. CI_TRUSTED_RUNNER can
+# only choose among ephemeral labels listed here, in the base-branch workflow:
+# GitHub-hosted, or a Blacksmith VM that runs one job and is destroyed. Any
+# other value, including a persistent mini's label, falls back to Blacksmith,
+# and a fork running its own CI gets GitHub-hosted. Either provider can then
+# carry the merge-gating checks while the other is down.
+TRUSTED_RUNNER_LABELS = ("ubuntu-24.04", "blacksmith-2vcpu-ubuntu-2404", "blacksmith-4vcpu-ubuntu-2404")
+TRUSTED_RUNNER_EXPRESSION = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('"
+    + json.dumps(list(TRUSTED_RUNNER_LABELS), separators=(",", ":"))
+    + "'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}"
+)
+TRUSTED_RUNNER_LINE = re.compile(r"^\s*runs-on:\s*" + re.escape(TRUSTED_RUNNER_EXPRESSION) + r"\s*(?:#.*)?$")
+# Merge-gating checks: a ruleset requires them, so they must not depend on one runner provider.
+TRUSTED_RUNNER_JOBS = (
+    ("backend-migrations.yml", "plan"),
+    ("backend-migrations.yml", "apply-staging"),
+    ("backend-migrations.yml", "apply-production"),
+    ("backend-migrations.yml", "gate"),
+    ("web-complexity-trusted.yml", "complexity"),
+)
 
 # A fork pull request into manaflow-ai runs with repository_owner ==
 # 'manaflow-ai', so the owner branches above do not catch it. Before any
@@ -120,6 +142,10 @@ FORK_GATE_EXEMPT = {
         "pr_runner_pool.py's input: it compares the lane with its default and "
         "ignores it for a fork head, and every runs-on reading its output takes "
         "the fork branch first"
+    ),
+    ("ci.yml", "MACOS_RUNNER_PR: ${{ vars.MACOS_RUNNER_PR }}"): (
+        "pr_runner_pool.py's input: it ignores the default for an untrusted fork head, "
+        "and every runs-on reading its output gates the selected label"
     ),
     ("test-ios.yml", "RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}"): (
         "ios_runner_pool.py's input: for a fork head (--fork) the picker returns "
@@ -323,19 +349,49 @@ def _blacksmith_pick(node: tuple) -> bool:
     )
 
 
+def _trusted_fork_exclusion(node: tuple) -> bool:
+    # The trusted allowlist is the one intentional exception to the hosted
+    # fork branch. Every other fork must take the Blacksmith branch first.
+    return (
+        node[0] == "not"
+        and node[1][0] == "call"
+        and node[1][1] == "contains"
+        and len(node[1][2]) == 2
+        and node[1][2][0][0] == "call"
+        and node[1][2][0][1] == "fromJSON"
+        and _refs(node[1][2][0][2][0])
+        and _refs(node[1][2][0][2][0])[0].endswith("owned_head_repos")
+        and _refs(node[1][2][1]) == ["github.event.pull_request.head.repo.full_name"]
+    )
+
+
 def _is_fork_pull_request_branch(node: tuple) -> bool:
     if node[0] == "and" and node[1] and _blacksmith_pick(node[1][-1]):
         conditions = node[1][:-1]
         keys = [_condition_key(condition) for condition in conditions]
-        return None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS
+        if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+            return True
+        return (
+            None not in keys[:2]
+            and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+            and len(conditions) == 3
+            and _trusted_fork_exclusion(conditions[2])
+        )
     guarded = _guarded_literal(node)
     if not guarded:
         return False
     conditions, label = guarded
     keys = [_condition_key(condition) for condition in conditions]
-    if None in keys:
-        return False
-    if not (set(keys) == FORK_PULL_REQUEST_CONDITIONS or keys == [PULL_REQUEST_CONDITION]):
+    if None not in keys and set(keys) == FORK_PULL_REQUEST_CONDITIONS:
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if (
+        len(conditions) == 3
+        and None not in keys[:2]
+        and set(keys[:2]) == FORK_PULL_REQUEST_CONDITIONS
+        and _trusted_fork_exclusion(conditions[2])
+    ):
+        return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
+    if None in keys or keys != [PULL_REQUEST_CONDITION]:
         return False
     return bool(FORK_PULL_REQUEST_LABEL.fullmatch(label))
 
@@ -436,14 +492,15 @@ def outsider_triggered_workflows() -> list[Path]:
 
 
 def outsider_runner_errors(name: str, text: str) -> list[str]:
-    """Every runner must be a hosted literal; no runner selector may appear."""
+    """Every runner must be a hosted literal or the trusted ephemeral selector."""
     errors: list[str] = []
     for number, line in enumerate(text.splitlines(), start=1):
         if line.lstrip().startswith("#"):
             continue
         if OWNED_RUNNER_SELECTOR.search(line):
             errors.append(f"{name}:{number} reads a runner selector: {line.strip()}")
-        elif re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line):
+        elif (re.match(r"^\s*runs-on:", line) and not HOSTED_LITERAL_RUNNER.match(line)
+              and not TRUSTED_RUNNER_LINE.match(line)):
             errors.append(f"{name}:{number} is not a GitHub-hosted label: {line.strip()}")
     return errors
 
@@ -773,6 +830,8 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         CMUX_CI_XCODE_APP_PR would fail at Xcode selection.
         """
         same_repository = "github.event.pull_request.head.repo.full_name == github.repository"
+        trusted_repository = "contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)"
+        trusted_input = "contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)"
         checked = 0
         failures = []
         for path in fork_exercised_workflows():
@@ -780,7 +839,7 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                 if line.lstrip().startswith("#") or not re.search(r"vars\.CMUX_(?:CI|CI_HELPER)_XCODE_APP_PR\b", line):
                     continue
                 checked += 1
-                if same_repository not in line:
+                if not any(clause in line for clause in (same_repository, trusted_repository, trusted_input)):
                     failures.append(f"{path.name}:{number}: {line.strip()}")
         self.assertEqual(failures, [])
         self.assertGreater(checked, 0)
@@ -909,6 +968,28 @@ class ForkRunnerRoutingTests(unittest.TestCase):
         errors = outsider_runner_errors("x.yml", text)
         self.assertEqual([error.split(" ", 1)[0] for error in errors],
                          ["x.yml:5", "x.yml:7", "x.yml:9", "x.yml:11", "x.yml:15", "x.yml:16"])
+
+    def test_merge_gating_checks_route_through_the_trusted_runner(self) -> None:
+        """A GitHub Actions outage must not stop every merge; Blacksmith carries them."""
+        for workflow, job in TRUSTED_RUNNER_JOBS:
+            with self.subTest(workflow=workflow, job=job):
+                text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+                block = re.search(rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  \S|\Z)", text)
+                self.assertIsNotNone(block, f"{workflow} has no job {job}")
+                runs_on = [line for line in block.group(1).splitlines() if re.match(r"^    runs-on:", line)]
+                self.assertEqual(len(runs_on), 1, runs_on)
+                self.assertRegex(runs_on[0], TRUSTED_RUNNER_LINE)
+
+    def test_trusted_runner_selector_admits_only_ephemeral_labels(self) -> None:
+        self.assertEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {TRUSTED_RUNNER_EXPRESSION}\n"), [])
+        for label in TRUSTED_RUNNER_LABELS:
+            self.assertTrue(label == "ubuntu-24.04" or label.startswith("blacksmith-"), label)
+        widened = TRUSTED_RUNNER_EXPRESSION.replace('"ubuntu-24.04",', '"ubuntu-24.04","glaeda-std-xcode-26.6",')
+        renamed = TRUSTED_RUNNER_EXPRESSION.replace("vars.CI_TRUSTED_RUNNER", "vars.LINUX_RUNNER")
+        unforked = TRUSTED_RUNNER_EXPRESSION.replace("github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || ", "")
+        for variant in (widened, renamed, unforked):
+            with self.subTest(variant=variant):
+                self.assertNotEqual(outsider_runner_errors("x.yml", f"jobs:\n  a:\n    runs-on: {variant}\n"), [])
 
     def test_no_workflow_falls_back_to_blacksmith_outside_manaflow_ai(self) -> None:
         """Scheduled, dispatched and push-only workflows need a fork branch too.

@@ -54,9 +54,9 @@ final class CloudDirectoryTestFixture {
         SurfaceResourceID(machine: machine, kind: .terminal, key: "term_\(index)")
     }
 
-    func state(paths: [String?], revision: UInt64, generation: String = "daemon") throws -> CloudVMState {
+    func state(paths: [String?], revision: UInt64, generation: String = "daemon", lifecycles: [String] = []) throws -> CloudVMState {
         let terminals = paths.enumerated().map { index, path -> [String: Any] in
-            ["id": "term_\(index)", "title": "bash", "cwd": path as Any? ?? NSNull(), "lifecycle": "running"]
+            ["id": "term_\(index)", "title": "bash", "cwd": path as Any? ?? NSNull(), "lifecycle": index < lifecycles.count ? lifecycles[index] : "running"]
         }
         return try #require(CmuxTuiSnapshotParser.state(fromSnapshot: [
             "cursor": ["generation": generation, "revision": String(revision)],
@@ -71,8 +71,8 @@ final class CloudDirectoryTestFixture {
     }
 
     @discardableResult
-    func install(paths: [String?], revision: UInt64, generation: String = "daemon") throws -> CloudVMState {
-        let state = try state(paths: paths, revision: revision, generation: generation)
+    func install(paths: [String?], revision: UInt64, generation: String = "daemon", lifecycles: [String] = []) throws -> CloudVMState {
+        let state = try state(paths: paths, revision: revision, generation: generation, lifecycles: lifecycles)
         #expect(provider.installSnapshotIfNewer(state))
         provider.publish(state, ports: [])
         return state
@@ -98,7 +98,10 @@ final class CloudDirectoryTestFixture {
         let defaults = try #require(UserDefaults(suiteName: name))
         defer { defaults.removePersistentDomain(forName: name) }
         return SidebarWorkspaceSnapshotFactory(
-            workspace: workspace, settings: SidebarTabItemSettingsSnapshot(defaults: defaults), showsAgentActivity: false
+            workspace: workspace,
+            settings: SidebarTabItemSettingsSnapshot(defaults: defaults),
+            showsAgentActivity: false,
+            catalog: catalog
         ).makeSnapshot()
     }
 

@@ -1,19 +1,55 @@
 "use client";
 
 import { Menu } from "@base-ui-components/react/menu";
+import { useQuery } from "@tanstack/react-query";
 import { UserAvatar, useStackApp } from "@hexclave/next";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
-import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { localizedVaultPath, vaultSignInHref, vaultSwitchAccountHref } from "@/app/lib/vault-auth";
 import { Link } from "@tanstack/react-router";
 import type { DashboardSessionUser } from "../lib/session-types";
-import { localeHomeHref } from "../lib/locale-href";
-import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
+import { signOutOfDashboard } from "../lib/sign-out";
 import { useThemeToggle } from "@/app/[locale]/theme";
+import { Badge } from "../components/settings-ui";
+import { planQuery } from "../queries/billing";
 import { useDashboardTeamScope, type DashboardCatalogTeam } from "./dashboard-team-scope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
+
+/** The personal plan under the viewer's name; nothing until it loads. */
+function AccountPlanLine() {
+  const billing = useTranslations("dashboard.billing.picker");
+  const plan = useQuery(planQuery);
+  if (!plan.data) return null;
+  return (
+    <div className="mt-1.5" data-testid="account-plan">
+      <Badge tone={plan.data.isPro ? "default" : "outline"}>{billing(`names.${plan.data.planId}`)}</Badge>
+    </div>
+  );
+}
+
+/** Free accounts get Upgrade, which opens the plan picker. */
+function UpgradeItem() {
+  const t = useTranslations("dashboard.accountMenu");
+  const plan = useQuery(planQuery);
+  if (!plan.data || plan.data.isPro) return null;
+  return (
+    <Menu.Item render={<Link to="/dashboard/billing" />} className={menuItemClass}>
+      <UpgradeIcon />
+      <span>{t("upgrade")}</span>
+    </Menu.Item>
+  );
+}
+
+function UpgradeIcon() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 13V3" />
+      <path d="M4 7l4-4 4 4" />
+    </svg>
+  );
+}
 
 export function DashboardAccountMenuFallback() {
   return <div aria-hidden="true" className="min-w-0 flex-1" />;
@@ -25,6 +61,7 @@ export function DashboardAccountMenuFallback() {
  */
 export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | null }) {
   const t = useTranslations("dashboard.accountMenu");
+  const states = useTranslations("dashboard.states");
   const locale = useLocale();
   const stackApp = useStackApp();
   const teamScope = useDashboardTeamScope(user?.id ?? null);
@@ -32,6 +69,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
   const [signOutPending, setSignOutPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
   const signInHref = vaultSignInHref(localizedVaultPath(locale, "/dashboard"));
+  const switchAccountHref = vaultSwitchAccountHref(localizedVaultPath(locale, "/dashboard"));
 
   if (!user) {
     return (
@@ -76,6 +114,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 {user.displayName ? (
                   <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
                 ) : null}
+                <AccountPlanLine />
               </div>
               <Menu.Item render={<Link to="/dashboard/settings" />} className={menuItemClass}>
                 <SettingsIcon />
@@ -96,14 +135,35 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                 <BillingIcon />
                 <span>{t("billing")}</span>
               </Menu.Item>
+              <UpgradeItem />
               {teamScope.status === "ready" ? (
-                <TeamSubmenu
-                  teams={teamScope.teams}
-                  selected={teamScope.selected}
-                  onSelect={teamScope.switchTeam}
-                />
+                <>
+                  <TeamSubmenu
+                    teams={teamScope.teams}
+                    selected={teamScope.selected}
+                    onSelect={teamScope.switchTeam}
+                  />
+                  {teamScope.refreshError ? (
+                    <div role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                      <p>{states("reason.unavailable")}</p>
+                      <button
+                        type="button"
+                        className="mt-1 underline underline-offset-2"
+                        onClick={teamScope.retryRefresh}
+                      >
+                        {states("retry")}
+                      </button>
+                    </div>
+                  ) : null}
+                </>
               ) : null}
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+              {/* A document load into the sign-in page's chooser: picking a
+                  saved account switches straight back here, signed in as it. */}
+              <Menu.Item render={<a href={switchAccountHref} />} className={menuItemClass}>
+                <SwitchAccountIcon />
+                <span>{t("switchAccount")}</span>
+              </Menu.Item>
               <Menu.Item
                 className={`${menuItemClass} text-red-600 dark:text-red-400`}
                 disabled={signOutPending}
@@ -113,10 +173,7 @@ export function DashboardAccountMenu({ user }: { user: DashboardSessionUser | nu
                   setSignOutPending(true);
                   setSignOutError(false);
                   try {
-                    await stackApp.signOut();
-                    clearCoderouterOrganizationScope();
-                    // Leaving the SPA: a document load drops every cached query.
-                    window.location.assign(localeHomeHref(locale));
+                    await signOutOfDashboard(stackApp, locale);
                   } catch {
                     setSignOutPending(false);
                     setSignOutError(true);
@@ -284,6 +341,14 @@ function BillingIcon() {
     <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
       <rect x="1.75" y="3.25" width="12.5" height="9.5" />
       <path d="M1.75 6h12.5M4 10h2.5" />
+    </svg>
+  );
+}
+
+function SwitchAccountIcon() {
+  return (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.25">
+      <path d="M2.75 5.25h9.5M9.75 2.75l2.5 2.5-2.5 2.5M13.25 10.75h-9.5M6.25 8.25l-2.5 2.5 2.5 2.5" />
     </svg>
   );
 }

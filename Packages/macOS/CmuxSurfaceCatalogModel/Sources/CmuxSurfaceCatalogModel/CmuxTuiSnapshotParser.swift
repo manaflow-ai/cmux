@@ -661,19 +661,19 @@ public struct CmuxTuiSnapshotParser: Sendable {
             let value = change["value"] as? [String: Any]
             let explicitID = nonEmptyString(change["id"])
             let valueTerminalID = value.flatMap { nonEmptyString($0["terminal_id"]) }
-            if resource == "agent",
+            if ["agent", "agents"].contains(resource),
                let explicitID,
                let valueID = value.flatMap({ nonEmptyString($0["id"]) }),
                valueID != explicitID {
                 return rejectDelta("W-ml#1")
             }
-            if resource == "agent",
+            if ["agent", "agents"].contains(resource),
                let changeTerminalID = nonEmptyString(change["terminal_id"]),
                let valueTerminalID,
                changeTerminalID != valueTerminalID {
                 return rejectDelta("W-ml#2")
             }
-            let compatibilityID: String? = if resource == "agent" {
+            let compatibilityID: String? = if ["agent", "agents"].contains(resource) {
                 explicitID
                     ?? nonEmptyString(change["terminal_id"])
                     ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
@@ -685,13 +685,13 @@ public struct CmuxTuiSnapshotParser: Sendable {
             switch kind {
             case "upsert":
                 guard let value,
-                      resource == "agent" || nonEmptyString(value["id"]) == id
+                      ["agent", "agents"].contains(resource) || nonEmptyString(value["id"]) == id
                 else { return rejectDelta("applyingWithImpact#4") }
                 switch storage {
                 case .single(let key):
                     guard document.replaceSingleton(key: key, value: value) else { return rejectDelta("applyingWithImpact#5") }
                 case .collection(let key):
-                    let alternate = resource == "agent"
+                    let alternate = ["agent", "agents"].contains(resource)
                         ? valueTerminalID.map { (name: "terminal_id", value: $0) }
                         : nil
                     guard document.containsCollection(key),
@@ -712,7 +712,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                     guard key != "machine", key != "session" else { return rejectDelta("applyingWithImpact#7") }
                     guard document.removeSingleton(key: key, id: id) else { return rejectDelta("applyingWithImpact#8") }
                 case .collection(let key):
-                    let terminalID = resource == "agent"
+                    let terminalID = ["agent", "agents"].contains(resource)
                         ? (nonEmptyString(change["terminal_id"]) ?? valueTerminalID)
                         : nil
                     let alternate = terminalID.map { (name: "terminal_id", value: $0) }
@@ -859,10 +859,10 @@ public struct CmuxTuiSnapshotParser: Sendable {
                     next.browsers.append(decoded)
                 }
                 next.lookupIndex.upsertBrowser(decoded)
-            case ("agent", "upsert"):
+            case ("agent", "upsert"), ("agents", "upsert"):
                 guard let value else { return rejectTyped("applyingTypedDelta#8") }
-                guard applyAgentUpsert(value: value, change: change, to: &next) else { return rejectTyped("applyingTypedDelta#9") }
-            case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+                guard applyAgentUpsert(value: value, change: change, resolvedID: id, to: &next) else { return rejectTyped("applyingTypedDelta#9") }
+            case (_, "upsert") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent", "agents"].contains(resource):
                 // The canonical document was already updated above. Opaque
                 // entities are a read projection of that document, so no
                 // second mutable cache is maintained here.
@@ -895,9 +895,9 @@ public struct CmuxTuiSnapshotParser: Sendable {
             case ("browser", "delete"):
                 next.browsers.removeAll { $0.id == id }
                 next.lookupIndex.removeBrowser(id: id)
-            case ("agent", "delete"):
-                guard applyAgentDelete(change: change, to: &next) else { return rejectTyped("applyingTypedDelta#10") }
-            case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent"].contains(resource):
+            case ("agent", "delete"), ("agents", "delete"):
+                guard applyAgentDelete(change: change, resolvedID: id, to: &next) else { return rejectTyped("applyingTypedDelta#10") }
+            case (_, "delete") where !["workspace", "screen", "pane", "tab", "terminal", "browser", "agent", "agents"].contains(resource):
                 break
             default:
                 return rejectTyped("applyingTypedDelta.default")
@@ -933,7 +933,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
 
     private static func deltaIdentity(_ change: [String: Any], resource: String) -> String? {
         let value = change["value"] as? [String: Any]
-        if resource == "agent" {
+        if ["agent", "agents"].contains(resource) {
             return nonEmptyString(change["id"])
                 ?? nonEmptyString(change["terminal_id"])
                 ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
@@ -1073,24 +1073,23 @@ public struct CmuxTuiSnapshotParser: Sendable {
     private static func applyAgentUpsert(
         value: [String: Any],
         change: [String: Any],
+        resolvedID: String,
         to state: inout CloudVMState
     ) -> Bool {
         guard var decoded = agentState(from: value),
               let terminalID = nonEmptyString(value["terminal_id"])
         else { return false }
-        let explicitID = nonEmptyString(change["id"])
-        let targetIndex = explicitID.flatMap { id in state.agents.firstIndex { $0.id == id } }
+        let incomingID = nonEmptyString(change["id"]) ?? nonEmptyString(value["id"])
+        let targetIndex = incomingID.flatMap { id in state.agents.firstIndex { $0.id == id } }
             ?? state.agents.firstIndex { $0.terminalID == terminalID }
-        if targetIndex == nil, explicitID != nil,
+        if targetIndex == nil, incomingID != nil,
            state.agents.contains(where: { $0.id == nil }) {
             // An explicit id cannot safely claim an unrelated legacy id-less row.
             return false
         }
         if let targetIndex {
             let old = state.agents[targetIndex]
-            if explicitID == nil, decoded.id == nil, let existingID = state.agents[targetIndex].id {
-                decoded.id = existingID
-            }
+            if decoded.id == nil { decoded.id = incomingID ?? old.id }
             state.agents[targetIndex] = decoded
             state.lookupIndex.removeAgent(old)
         } else {
@@ -1100,12 +1099,11 @@ public struct CmuxTuiSnapshotParser: Sendable {
         return true
     }
 
-    private static func applyAgentDelete(change: [String: Any], to state: inout CloudVMState) -> Bool {
-        let explicitID = nonEmptyString(change["id"])
+    private static func applyAgentDelete(change: [String: Any], resolvedID: String, to state: inout CloudVMState) -> Bool {
+        let explicitID = nonEmptyString(change["id"]) ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["id"]) } ?? resolvedID
         let terminalID = nonEmptyString(change["terminal_id"])
             ?? (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
-        if let explicitID,
-           let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
+        if let index = state.agents.firstIndex(where: { $0.id == explicitID }) {
             if let terminalID, state.agents[index].terminalID != terminalID { return false }
             let old = state.agents[index]
             state.agents.remove(at: index)
@@ -1195,7 +1193,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                 affectedTerminalIDs.insert(id)
             case "browser":
                 affectedBrowserIDs.insert(id)
-            case "agent":
+            case "agent", "agents":
                 let terminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
                     ?? nonEmptyString(change["terminal_id"])
                 guard terminalID != nil else { return false }
@@ -1218,7 +1216,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
         }
         // Agent terminal relationships are unique in the public schema. Check
         // the materialized relationship map once only when a batch touches an agent row.
-        if changes.contains(where: { nonEmptyString($0["resource"]) == "agent" }) {
+        if changes.contains(where: { ["agent", "agents"].contains(nonEmptyString($0["resource"])) }) {
             let explicitAgentCount = next.agents.lazy.filter { $0.id != nil }.count
             guard next.lookupIndex.agentsByTerminalID.count == next.agents.count,
                   next.lookupIndex.agentsByID.count == explicitAgentCount
@@ -1240,7 +1238,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
             }
             let value = change["value"] as? [String: Any]
             guard let id = nonEmptyString(change["id"])
-                ?? (resource == "agent"
+                ?? (["agent", "agents"].contains(resource)
                     ? nonEmptyString(change["terminal_id"])
                         ?? value.flatMap { nonEmptyString($0["id"]) ?? nonEmptyString($0["terminal_id"]) }
                     : nil)
@@ -1265,7 +1263,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
                     impact.requiresFullResourceRebuild = true
                 }
                 impact.resourceIDs.insert(SurfaceResourceID(machine: next.machine, kind: .browser, key: id))
-            case "agent":
+            case "agent", "agents":
                 let explicitID = nonEmptyString(change["id"])
                 let valueTerminalID = (change["value"] as? [String: Any]).flatMap { nonEmptyString($0["terminal_id"]) }
                 let oldAgent = explicitID.flatMap { previous.lookupIndex.agent(id: $0) }
@@ -1839,6 +1837,15 @@ public struct CmuxTuiSnapshotParser: Sendable {
         VMMachineKind.inferred(fromImage: image).hasDesktop
     }
 
+    /// "Display N" for a guest display key, the same title guest discovery
+    /// gives it, so a pane opened before discovery is not first titled
+    /// "Desktop" and renamed seconds later. Other keys keep "Desktop".
+    public static func displayTitle(key: String) -> String {
+        guard key.hasPrefix("display:"), let number = Int(key.dropFirst("display:".count)) else { return "Desktop" }
+        let format = String(localized: "cloud.display.numberedTitle", defaultValue: "Display %d")
+        return format.replacingOccurrences(of: "%d", with: String(number))
+    }
+
     /// The VNC display of a desktop machine (`display:1`; the key is the daemon's content id
     /// once a workspace points at it).
     public static func display(
@@ -1848,7 +1855,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
     ) -> SurfaceResource {
         SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .display, key: key),
-            title: "Desktop",
+            title: displayTitle(key: key),
             detail: "noVNC",
             lifecycle: .running,
             agent: nil,
@@ -1937,7 +1944,7 @@ public struct CmuxTuiSnapshotParser: Sendable {
         case "browser": return .collection("browsers")
         case "client": return .collection("clients")
         case "notification": return .collection("notifications")
-        case "agent": return .collection("agents")
+        case "agent", "agents": return .collection("agents")
         case "pairing_request": return .collection("pairing_requests")
         case "frontend_projection": return .collection("frontend_projections")
         case "sidebar_view": return .collection("sidebar_views")

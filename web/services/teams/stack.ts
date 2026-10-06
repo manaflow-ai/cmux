@@ -97,6 +97,14 @@ export async function withStackDeadline<T>(operation: () => Promise<T>): Promise
   if (result._tag === "Left") {
     // A deleted team is an answer, not an outage: retrying cannot succeed.
     if (isTeamNotFound(unwrapEffectCause(result.left))) throw new TeamGoneError("Stack team not found");
+    const failure = result.left;
+    const cause = failure && typeof failure === "object" && "error" in failure ? (failure as { error: unknown }).error : failure;
+    // Only the error class and a bounded message: enough to tell a Stack
+    // refusal (untrusted callback domain, disabled emails) from a timeout.
+    console.error("stack team request failed", {
+      errorType: cause instanceof Error ? cause.name : typeof cause,
+      message: cause instanceof Error ? cause.message.slice(0, 300) : String(cause).slice(0, 300),
+    });
     throw new TeamServiceUnavailableError("Stack team request failed");
   }
   return result.right;

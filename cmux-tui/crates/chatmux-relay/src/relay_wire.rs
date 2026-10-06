@@ -778,6 +778,8 @@ pub struct PreviewOpenResult {
     pub op: TagPreviewOpen,
     #[serde(rename = "proxyPort")]
     pub proxy_port: i64,
+    #[serde(rename = "capability")]
+    pub capability: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

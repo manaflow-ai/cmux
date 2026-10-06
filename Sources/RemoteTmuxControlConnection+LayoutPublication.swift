@@ -314,8 +314,8 @@ extension RemoteTmuxControlConnection {
         prunePaneState(keeping: paneIDsForStatePruning())
         observers.notifyTopologyChanged()
         // Publish first so every mirror surface adopts the verified grid before
-        // capture-pane repaints the cells that grid growth newly exposed.
-        repaintPanesThatGrew(from: previous, to: published)
+        // capture-pane repaints what that grid newly exposed or rewrapped.
+        repaintPanesTmuxRedrew(from: previous, to: published)
         // First-connect coverage for the attach redraw kick: if the grid was
         // computed before `.enter`, no post-connect `setClientSize` may ever
         // fire (layout settled + same-size dedupe upstream), so the

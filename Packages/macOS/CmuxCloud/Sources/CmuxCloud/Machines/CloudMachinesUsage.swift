@@ -9,10 +9,12 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     ///   - activeCount: Number of machines currently counted against the plan.
     ///   - maxActiveVms: Maximum active machines, or nil for an uncapped plan.
     ///   - isPaidPlan: Whether limit help should omit the free-plan upgrade prompt.
-    public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool) {
+    ///   - resourcePool: The shared vCPU and memory pool, or nil when the plan has none.
+    public init(activeCount: Int, maxActiveVms: Int? = nil, isPaidPlan: Bool, resourcePool: CloudVMResourcePool? = nil) {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.isPaidPlan = isPaidPlan
+        self.resourcePool = resourcePool
     }
 
     /// Number of machines currently counted against the plan.
@@ -21,6 +23,8 @@ public struct CloudMachinesUsage: Equatable, Sendable {
     public let maxActiveVms: Int?
     /// Whether this usage belongs to a paid plan.
     public let isPaidPlan: Bool
+    /// The vCPU and memory pool the active machines share; nil without a pool.
+    public let resourcePool: CloudVMResourcePool?
 
     /// An uncapped plan is never at the limit.
     public var isAtLimit: Bool {
@@ -28,20 +32,38 @@ public struct CloudMachinesUsage: Equatable, Sendable {
         return activeCount >= maxActiveVms
     }
 
+    /// The header tints its count when the plan cannot start another machine:
+    /// the machine ceiling is reached, or the pool cannot fit the smallest size.
+    public var isWarning: Bool {
+        isAtLimit || (resourcePool?.isExhausted ?? false)
+    }
+
+    /// The ceiling the header renders as a fraction. A cap of zero or less is
+    /// not a quota the count can sit inside: the server closes provisioning
+    /// for the plan entirely, so "3/0" reads as arithmetic nonsense while the
+    /// fleet it describes is real. Only the fraction drops; `isAtLimit`,
+    /// `help` and the upgrade surfaces keep reading the cap itself, so the
+    /// paywall is unchanged.
+    private var displayedCeiling: Int? {
+        guard let maxActiveVms, maxActiveVms > 0 else { return nil }
+        return maxActiveVms
+    }
+
     /// Single-machine plans (free) read "1 of 1 machine", never "machines".
     public var isSingleMachinePlan: Bool { maxActiveVms == 1 }
 
-    /// The header's count beside "Cloud Machines": "1/50", or "3" with no ceiling.
+    /// The header's count beside "Cloud Machines": "1/50", or "3" when there is
+    /// no ceiling to count against.
     public var compactCount: String {
-        guard let maxActiveVms else { return String(activeCount) }
+        guard let maxActiveVms = displayedCeiling else { return String(activeCount) }
         let format = String(localized: "cloudTree.group.cloudMachines.usage", defaultValue: "%1$d/%2$d")
         return String(format: format, activeCount, maxActiveVms)
     }
 
     /// The spelled-out count, singular/plural chosen by the plan's ceiling.
-    /// Uncapped plans read "3 machines": there is no "of N" to show.
+    /// Plans with no countable ceiling read "3 machines": there is no "of N" to show.
     public var countLabel: String {
-        guard let maxActiveVms else {
+        guard let maxActiveVms = displayedCeiling else {
             if activeCount == 1 {
                 return String(localized: "machines.meter.count.unlimited.single", defaultValue: "1 machine")
             }
@@ -56,8 +78,14 @@ public struct CloudMachinesUsage: Equatable, Sendable {
         return String(format: format, activeCount, maxActiveVms)
     }
 
-    /// Explains the count; at a free plan's ceiling it names the way out.
+    /// Explains the count; at a free plan's ceiling it names the way out. A
+    /// plan with a shared pool adds its usage on a second line.
     public var help: String {
+        guard let resourcePool else { return countHelp }
+        return countHelp + "\n" + resourcePool.usageText
+    }
+
+    private var countHelp: String {
         if isAtLimit && !isPaidPlan, let maxActiveVms {
             if isSingleMachinePlan {
                 return String(

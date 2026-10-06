@@ -144,12 +144,43 @@ extension CMUXCLI {
         let workingDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-autoname-cwd-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: workingDirectory, withIntermediateDirectories: true)
+        let configToml = codexConfigToml(from: summarizerEnv)
+        let temporaryConfigHome: URL? = {
+            guard let configToml else { return nil }
+            let home = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-codex-autoname-home-\(UUID().uuidString)", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(
+                    at: home,
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+                )
+                let configURL = home.appendingPathComponent("config.toml", isDirectory: false)
+                try Data(configToml.utf8).write(to: configURL, options: .atomic)
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: NSNumber(value: Int16(0o600))],
+                    ofItemAtPath: configURL.path
+                )
+                return home
+            } catch {
+                try? FileManager.default.removeItem(at: home)
+                return nil
+            }
+        }()
         defer {
             try? FileManager.default.removeItem(at: outputFile)
             try? FileManager.default.removeItem(at: workingDirectory)
+            if let temporaryConfigHome {
+                try? FileManager.default.removeItem(at: temporaryConfigHome)
+            }
+        }
+        if configToml != nil, temporaryConfigHome == nil { return nil }
+        if let temporaryConfigHome {
+            summarizerEnv["CODEX_HOME"] = temporaryConfigHome.path
         }
         var arguments = CodexAutoNamingArguments.build(
-            configToml: codexConfigToml(from: summarizerEnv)
+            configToml: configToml,
+            usesTemporaryConfig: temporaryConfigHome != nil
         )
         arguments += [
             "--cd", workingDirectory.path,

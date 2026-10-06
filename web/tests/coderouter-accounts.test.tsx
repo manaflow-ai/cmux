@@ -79,7 +79,7 @@ const nativeCodexAccount = {
   id: "native-1",
   provider: "codex" as const,
   providerAccountId: "acct_9f3",
-  label: "lawrence@example.com",
+  label: "user@example.com",
   state: "active" as const,
   credentialExpiresAt: "2026-09-08T00:00:00.000Z",
   lastFailureCode: null,
@@ -150,7 +150,7 @@ describe("coderouter account transfer", () => {
 
   test("hides Transfer when the viewer cannot manage accounts", () => {
     const html = renderTransferCase({ canManage: false, transferTeams: otherTeams });
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).not.toContain(">Transfer<");
   });
 
@@ -219,15 +219,15 @@ describe("coderouter accounts section", () => {
     );
 
     expect(html).toContain("3 accounts");
-    expect(html).toContain("lawrence@example.com");
+    expect(html).toContain("user@example.com");
     expect(html).toContain("3 active sessions");
     expect(html.match(/<ul[^>]*>/g)).toHaveLength(1);
     expect(html).toContain("Claude Code OAuth");
     expect(html).toContain("sk-ant-oat01-…a1b2");
     expect(html).toContain("Codex");
     expect(html).toContain("shared codex");
-    expect(html).toContain("last used 2 hours ago");
-    expect(html).toContain("added 2026-08-20");
+    expect(html).toContain("Last used 2 hours ago");
+    expect(html).toContain("Added 2026-08-20");
     // Provider rows are text only.
     expect(html).not.toContain("<svg");
   });
@@ -323,6 +323,22 @@ describe("coderouter accounts section", () => {
     );
     expect(render(true)).toContain("not listed here");
     expect(render(false)).not.toContain("not listed here");
+  });
+
+  test("an unreachable shared-account service explains itself and never claims the team has no accounts", () => {
+    const html = renderToStaticMarkup(
+      <CoderouterAccountsSection
+        teamId="team-1"
+        canManage
+        canManageApiKeys
+        claude={{ kind: "ok", accounts: [] }}
+        native={{ kind: "ok", accounts: [] }}
+        shared={{ kind: "unavailable" }}
+      />,
+    );
+    expect(html).toContain("Shared accounts are unavailable");
+    expect(html).not.toContain("No accounts yet");
+    expect(html).not.toContain("Some accounts could not load");
   });
 
   test("keeps the loaded provider visible when the other one fails", () => {

@@ -65,9 +65,15 @@ extension DockSplitStore {
                 return
             }
             TerminalController.shared.noteLocalTerminalSizingActivity(surfaceID: terminal.id)
+            TerminalController.shared.noteAcceptedAgentInput(surfaceID: terminal.id)
+            AgentAutoResumeCoordinator.shared.userDidInput(surfaceId: terminal.id)
             // The user (or a socket client) took over the pane: never replay a
             // lost restore selector into a line they are typing.
             self.restoredAgentLifecycle.clearStartupInput(panelId: terminal.id)
+            _ = AppDelegate.shared?.notificationStore?.clearAgentAttentionNotification(
+                forTabId: self.workspaceId,
+                surfaceId: terminal.id
+            )
             ownerTabManager?.dismissNotificationOnTerminalInteraction(
                 tabId: self.workspaceId,
                 surfaceId: terminal.id
