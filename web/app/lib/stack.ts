@@ -72,6 +72,27 @@ export function getStackServerApp(): StackServerApp<true> {
   return stackServerAppCache;
 }
 
+/**
+ * A new app with nothing cached, for checking a saved session. The shared
+ * apps keep each session's access token, so a session revoked elsewhere
+ * still looks signed in until that token expires; a fresh app has to refresh
+ * first, and a revoked session fails right there. Session mutations never
+ * redirect.
+ */
+export function createUncachedStackServerApp(): StackServerApp<true> {
+  if (!projectId || !publishableClientKey || !secretServerKey) {
+    throw new Error("Stack Auth is not configured");
+  }
+  return new StackServerApp({
+    projectId,
+    publishableClientKey,
+    secretServerKey,
+    // Never used: every call passes the session it checks.
+    tokenStore: "memory",
+    redirectMethod: "none",
+  });
+}
+
 // Native clients need a JSON response after revoking their exact token pair.
 // Stack's normal Next.js redirect mode throws a redirect after sign-out, so
 // keep a separate app instance whose session mutations never redirect.

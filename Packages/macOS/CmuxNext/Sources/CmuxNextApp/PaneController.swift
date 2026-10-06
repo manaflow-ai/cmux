@@ -266,6 +266,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
         services.surfaceInvariant.noteChange()
     }
 
+    /// The selected tab is a terminal that will draw a frame (not a dead one).
+    var showsLiveTerminal: Bool {
+        guard let key = stripModel.selectedID?.rawValue, let tab = pane.tabs.first(where: { $0.id == key }) else { return false }
+        return tab.kind == .pty && !tab.dead
+    }
+
     /// This pane is its workspace's focused pane.
     var isFocusedInWorkspace: Bool {
         workspace?.focus.state.pane == paneKey

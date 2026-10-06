@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e";
+inline constexpr std::string_view kProtocolIrSha256 = "574ef12717291a1170f2fdd5a2fe27916a8af26ab9e64b532916dbb0fbee870e";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -2806,6 +2806,7 @@ struct MintTerminalRendererResult {
     std::string incarnation{};
     std::uint16_t protocol_version{};
     std::uint32_t rights{};
+    std::optional<bool> supports_viewer_size_priority{};
     std::string terminal_id{};
     std::string token{};
     std::uint64_t ttl_ms{};
