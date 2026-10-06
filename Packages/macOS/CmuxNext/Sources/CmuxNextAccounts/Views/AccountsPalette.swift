@@ -80,6 +80,7 @@ struct AccountsButtonStyle: ButtonStyle {
             .padding(.vertical, Metrics.space1 + 1)
             .background(configuration.isPressed ? palette.selection : (prominent ? palette.selection : palette.hover),
                         in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
+            .opacity(configuration.isPressed && prominent ? 0.7 : 1)
             .contentShape(Rectangle())
     }
 }
