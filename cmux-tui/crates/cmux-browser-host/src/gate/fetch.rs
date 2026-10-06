@@ -4,6 +4,7 @@
 //! fetch runs) and the address the response came from (DNS rebinding,
 //! after the fact), and masks secrets in the body.
 
+use super::redirects::{self, Hop, MAX_REDIRECTS};
 use super::{Gate, now_ms, push_log};
 use crate::policy::egress::ip_range;
 use crate::protocol::{DriverError, ErrorCode};
@@ -237,36 +238,18 @@ impl Gate {
                 "fetch: open a page first; on a signed-in profile fetch runs in the page's tab",
             ));
         }
-        let start = self
-            .filtered
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .back()
-            .map_or(0, |entry| entry.0);
         // The VM names the cell (agent code cannot); the engine never sees it.
         let cell = params.get("cell").and_then(Value::as_u64).unwrap_or(0);
-        let mut call = params.clone();
-        if let Some(object) = call.as_object_mut() {
-            object.remove("cell");
-        }
-        call["maxBytes"] = json!(MAX_BODY_BYTES);
-        call["idleTimeoutMs"] = json!(IDLE_TIMEOUT_MS);
         // Classic has no total limit: only a given `timeoutMs` (0: none) is
-        // one, a single deadline from the call that the wait for a slot
-        // spends too; the engine gets what is left.
+        // one, a single deadline from the call that the wait for a slot and
+        // every hop spend; the engine gets what is left.
         let limit = params.get("timeoutMs").map(|_| crate::protocol::timeout_of(params));
         let deadline = Instant::now() + limit.unwrap_or(crate::protocol::NO_TIMEOUT);
         let (result, cancel) = {
             let fetching = Fetching::start(self, deadline, cell)?;
-            call["fetchId"] = json!(fetching.id);
-            match limit {
-                Some(_) => {
-                    let left = deadline.saturating_duration_since(Instant::now()).as_millis();
-                    call["timeoutMs"] = json!(left.max(1) as u64);
-                }
-                None => call["timeoutMs"] = json!(0),
-            }
-            let result = self.driver.call("net.fetch", &call);
+            let result = self.follow(params, &url, &fetching.id, limit.map(|_| deadline));
+            // Shells the engine kept for this fetch's hops close now.
+            let _ = self.driver.call("net.fetch.done", &json!({"fetchId": fetching.id}));
             // A cancel wins over the engine's own error (classic's text);
             // read while the fetch still holds its cell.
             let cancel = result
@@ -278,49 +261,7 @@ impl Gate {
         if let Some(refusal) = cancel {
             return Err(refusal);
         }
-        let mut value = match result {
-            Ok(value) => value,
-            Err(error) => {
-                // A hop the filter refused: name it (main's text).
-                let hop = self
-                    .filtered
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .iter()
-                    .find(|entry| entry.0 > start)
-                    .map(|entry| (entry.1.clone(), entry.2.clone()));
-                return Err(match hop {
-                    Some((hop, reason)) if hop == url => {
-                        self.refuse_fetch(&hop, format!("fetch: {hop} is blocked: {reason}"))
-                    }
-                    Some((hop, reason)) => self.refuse_fetch(
-                        &hop,
-                        format!("fetch: redirect to {hop} is blocked: {reason}"),
-                    ),
-                    None => error,
-                });
-            }
-        };
-        // DNS rebinding (v1, after the fact): a name that resolved into a
-        // refused range fails the fetch.
-        let remote_ip = value.as_object_mut().and_then(|object| object.remove("remoteIPAddress"));
-        if let Some(ip) = remote_ip.as_ref().and_then(Value::as_str) {
-            let final_url = value["url"].as_str().unwrap_or(&url).to_owned();
-            if let Some(reason) = self.rebinding_refusal(&final_url, ip) {
-                return Err(self.refuse_fetch(&final_url, format!("fetch: {reason}")));
-            }
-        }
-        // HOST-FETCH-CORS relaxations the engine made for this fetch.
-        if let Some(Value::Array(relaxed)) =
-            value.as_object_mut().and_then(|object| object.remove("corsRelaxed"))
-        {
-            for entry in relaxed {
-                push_log(
-                    &self.cors_log,
-                    json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
-                );
-            }
-        }
+        let mut value = result?;
         // Secrets in the body are masked by their bytes (text or binary).
         if let Some(body) = value.get("bodyBase64").and_then(Value::as_str)
             && let Some(bytes) = crate::fs_sandbox::base64_decode(body)
@@ -328,6 +269,133 @@ impl Gate {
             value["bodyBase64"] = json!(crate::fs_sandbox::base64_encode(&self.mask_bytes(&bytes)));
         }
         Ok(value)
+    }
+
+    /// Runs a fetch hop by hop (SHELL-REDIRECT-LNA option 1): the engine
+    /// fetches one request with `redirect: "manual"`; the gate checks each
+    /// next hop (policy, ranges with the caller's locality, the previous
+    /// hop's address) before it starts. The first hop runs in the page's
+    /// tab when there is one; later hops run in a shell at their own origin
+    /// (in the page's tab on a signed-in profile, which has no shells).
+    fn follow(
+        &self,
+        params: &Value,
+        url: &str,
+        fetch_id: &str,
+        deadline: Option<Instant>,
+    ) -> Result<Value, DriverError> {
+        let mut hop = Hop {
+            url: url.to_owned(),
+            method: params.get("method").and_then(Value::as_str).unwrap_or("GET").to_uppercase(),
+            headers: params
+                .get("headers")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|pair| {
+                    Some((pair.get(0)?.as_str()?.to_owned(), pair.get(1)?.as_str()?.to_owned()))
+                })
+                .collect(),
+            body: params.get("bodyBase64").and_then(Value::as_str).map(str::to_owned),
+        };
+        let credentials = params.get("credentials").and_then(Value::as_str).unwrap_or("include");
+        let page_origin = params.get("origin").and_then(Value::as_str);
+        let mut redirects = 0;
+        loop {
+            let start = self
+                .filtered
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .back()
+                .map_or(0, |entry| entry.0);
+            let mut call = params.clone();
+            if let Some(object) = call.as_object_mut() {
+                object.remove("cell");
+                if redirects > 0 && !self.grants.signed_in_profile {
+                    object.remove("targetId");
+                }
+            }
+            call["url"] = json!(hop.url);
+            call["method"] = json!(hop.method);
+            call["headers"] = json!(hop.headers.iter().map(|(n, v)| [n, v]).collect::<Vec<_>>());
+            call["bodyBase64"] = json!(hop.body);
+            call["credentials"] = json!(hop_credentials(credentials, page_origin, &hop.url));
+            call["redirect"] = json!("manual");
+            call["maxBytes"] = json!(MAX_BODY_BYTES);
+            call["idleTimeoutMs"] = json!(IDLE_TIMEOUT_MS);
+            call["fetchId"] = json!(fetch_id);
+            call["timeoutMs"] = json!(deadline.map_or(0, |deadline| {
+                deadline.saturating_duration_since(Instant::now()).as_millis().max(1) as u64
+            }));
+            let mut value = match self.driver.call("net.fetch", &call) {
+                Ok(value) => value,
+                Err(error) => return Err(self.hop_error(error, start, url)),
+            };
+            // DNS rebinding (v1, after the fact): a name that resolved into
+            // a refused range fails the fetch before any next hop.
+            let remote_ip =
+                value.as_object_mut().and_then(|object| object.remove("remoteIPAddress"));
+            if let Some(ip) = remote_ip.as_ref().and_then(Value::as_str)
+                && let Some(reason) = self.rebinding_refusal(&hop.url, ip)
+            {
+                return Err(self.refuse_fetch(&hop.url, format!("fetch: {reason}")));
+            }
+            // HOST-FETCH-CORS relaxations the engine made for this hop.
+            if let Some(Value::Array(relaxed)) =
+                value.as_object_mut().and_then(|object| object.remove("corsRelaxed"))
+            {
+                for entry in relaxed {
+                    push_log(
+                        &self.cors_log,
+                        json!({"url": entry["url"], "what": entry["what"], "at": now_ms()}),
+                    );
+                }
+            }
+            let Some(redirect) = value.as_object_mut().and_then(|object| object.remove("redirect"))
+            else {
+                // The final URL and `redirected` come from the host's chain.
+                value["url"] = json!(hop.url);
+                value["redirected"] = json!(redirects > 0);
+                return Ok(value);
+            };
+            redirects += 1;
+            if redirects > MAX_REDIRECTS {
+                return Err(DriverError::invalid(format!(
+                    "fetch: {url} redirected more than {MAX_REDIRECTS} times"
+                )));
+            }
+            let status = redirect["status"].as_u64().unwrap_or(302) as u16;
+            let location = redirect["location"].as_str().unwrap_or("");
+            hop = redirects::next(&hop, status, location).map_err(DriverError::invalid)?;
+            if let Some(reason) = self.url_refusal(&hop.url) {
+                let next = hop.url;
+                return Err(self.refuse_fetch(
+                    &next,
+                    format!("fetch: redirect to {next} is blocked: {reason}"),
+                ));
+            }
+        }
+    }
+
+    /// An engine error for one hop: a request the filter refused is named
+    /// (main's text).
+    fn hop_error(&self, error: DriverError, start: u64, first: &str) -> DriverError {
+        let refused = self
+            .filtered
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find(|entry| entry.0 > start)
+            .map(|entry| (entry.1.clone(), entry.2.clone()));
+        match refused {
+            Some((url, reason)) if url == first => {
+                self.refuse_fetch(&url, format!("fetch: {url} is blocked: {reason}"))
+            }
+            Some((url, reason)) => {
+                self.refuse_fetch(&url, format!("fetch: redirect to {url} is blocked: {reason}"))
+            }
+            None => error,
+        }
     }
 
     /// Navigations and page requests: a response that came from a refused
@@ -354,5 +422,18 @@ impl Gate {
                 let _ = driver.call("tab.stop", &stop);
             },
         );
+    }
+}
+
+/// `credentials` for one hop: "same-origin" sends cookies only to the
+/// requesting page's origin (classic's rule), whatever origin the shell has.
+fn hop_credentials(credentials: &str, page_origin: Option<&str>, url: &str) -> &'static str {
+    match credentials {
+        "omit" => "omit",
+        "same-origin" => {
+            let origin = url::Url::parse(url).ok().map(|u| u.origin().ascii_serialization());
+            if origin.is_some() && origin.as_deref() == page_origin { "include" } else { "omit" }
+        }
+        _ => "include",
     }
 }

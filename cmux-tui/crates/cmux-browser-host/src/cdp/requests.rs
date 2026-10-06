@@ -66,11 +66,12 @@ fn decide(
 ) -> (&'static str, Value) {
     let id = &paused.request_id;
     if let Some(headers) = &paused.response_headers {
-        let relaxed = cors.lock().unwrap_or_else(PoisonError::into_inner).on_response(
-            &paused.network_id,
-            &paused.url,
-            headers,
-        );
+        let relaxed = {
+            let mut cors = cors.lock().unwrap_or_else(PoisonError::into_inner);
+            let status = paused.response_status.as_u64().unwrap_or(0) as u16;
+            cors.note_redirect(&paused.network_id, status, headers);
+            cors.on_response(&paused.network_id, &paused.url, headers)
+        };
         return match relaxed {
             // CDP refuses headers without the status ("both should be provided").
             Some(headers) => (
