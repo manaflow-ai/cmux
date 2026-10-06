@@ -60,4 +60,44 @@ struct BrowserReplSyncHostDeadlineTests {
         #expect(waited < .seconds(3), "the next cell waited \(waited) for the timed-out cell's host call")
         #expect(!FileManager.default.fileExists(atPath: work.appendingPathComponent("copy.txt").path))
     }
+
+    /// A timer callback that outlives its cell is held to the callback time
+    /// limit; a sync fs call inside it stops at that limit too, so the next
+    /// cell (whose own timer fires after it) is not held up by the scan.
+    @Test("A sync fs call in a callback after its cell ends stops at the callback time limit")
+    func syncHostCallInCallbackEndsAtLimit() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-deadline-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data(repeating: UInt8(ascii: "a"), count: Self.fileBytes).write(to: work.appendingPathComponent("big.txt"))
+        let session = BrowserReplSession(
+            id: "deadline-\(UUID().uuidString)",
+            cwd: work.path,
+            bundle: try browserReplRepositoryBundle(),
+            driver: ScriptedPageDriver(),
+            callbackTimeLimit: .milliseconds(200)
+        )
+        defer { session.close() }
+
+        let started = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            const fs = await import("node:fs");
+            secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+            setTimeout(() => fs.copyFileSync("big.txt", "copy.txt"), 0);
+            """, timeout: .seconds(30))
+        }
+        #expect(started?.error == nil, "\(started?.error ?? "no answer")")
+
+        let clock = ContinuousClock()
+        let begin = clock.now
+        // Its own timer fires after the earlier one, so it runs after the copy.
+        let next = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: "await new Promise((resolve) => setTimeout(resolve, 1)); console.log('alive');", timeout: .seconds(60))
+        }
+        let waited = clock.now - begin
+
+        #expect(next?.lines.map(\.text).contains("alive") == true, "\(next?.error ?? "no answer")")
+        #expect(waited < .seconds(3), "the next cell waited \(waited) for the callback's host call")
+        #expect(!FileManager.default.fileExists(atPath: work.appendingPathComponent("copy.txt").path))
+    }
 }
