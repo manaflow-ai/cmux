@@ -59,16 +59,13 @@ enum AgentSessionWorkspace {
         services.registry.track(task)
     }
 
-    /// The pane holding `surface` once the store mirrors it (10 s at most).
-    @MainActor
-    private static func mirroredPane(containing surface: SurfaceID, in store: DaemonStore) async -> PaneModel? {
+    /// The pane holding `surface` once the store mirrors it (10 s at most),
+    /// as `CloudHandlers.mirroredAnchor` waits for its anchor.
+    @MainActor private static func mirroredPane(containing surface: SurfaceID, in store: DaemonStore) async -> PaneModel? {
         if let pane = store.pane(containing: surface) { return pane }
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { @MainActor in
-                for await ready in Observations({ store.pane(containing: surface) != nil }) where ready { return true }
-                return false
-            }
+            group.addTask { await waitForPane(containing: surface, in: store) }
             group.addTask {
                 // wakeup-allow: one-shot ten-second daemon mirror deadline
                 try? await Task.sleep(for: .seconds(10))
@@ -78,5 +75,10 @@ enum AgentSessionWorkspace {
             return await group.next() ?? false
         }
         return mirrored ? store.pane(containing: surface) : nil
+    }
+
+    @MainActor private static func waitForPane(containing surface: SurfaceID, in store: DaemonStore) async -> Bool {
+        for await ready in Observations({ store.pane(containing: surface) != nil }) where ready { return true }
+        return false
     }
 }
