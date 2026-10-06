@@ -181,6 +181,24 @@ impl OptChat {
     /// Logs one message (fsynced) and returns its id. Tool results (`Echo`)
     /// are capped at `CAP` characters first (section 7).
     pub fn append(&self, kind: Kind, text: &str) -> Result<u64, Error> {
+        self.append_at(kind, text, None)
+    }
+
+    /// Logs an imported message with the ISO (RFC 3339) time it was first
+    /// written (section 10: old chats imported as messages), so `date(id)`
+    /// tells when it was said, not when it was imported. Any other date is
+    /// refused and nothing is logged.
+    pub fn append_dated(&self, kind: Kind, text: &str, date: &str) -> Result<u64, Error> {
+        if !lines::is_iso(date) {
+            return Err(Error::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("not an RFC 3339 date: {date:?}"),
+            )));
+        }
+        self.append_at(kind, text, Some(date))
+    }
+
+    fn append_at(&self, kind: Kind, text: &str, date: Option<&str>) -> Result<u64, Error> {
         let text = if kind == Kind::Echo {
             cap_tool_result(text)
         } else {
@@ -193,7 +211,7 @@ impl OptChat {
         if let Some(e) = &st.fatal {
             return Err(Error::Fatal(e.clone()));
         }
-        let id = match st.store.append_message(kind, &text) {
+        let id = match st.store.append_message(kind, &text, date) {
             Ok(id) => id,
             Err(e) => {
                 st.set_fatal(format!("writing message: {e}"));

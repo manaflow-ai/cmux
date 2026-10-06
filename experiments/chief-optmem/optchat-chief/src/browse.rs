@@ -3,8 +3,9 @@
 //! Browse writes the whole memory as one HTML page: the current view, ROOT
 //! (every message) and each level of the tree, each entry with its range,
 //! time span and size. Import appends old history (JSON lines) as messages,
-//! kind `note` unless a line says otherwise; the compactor then builds the
-//! tree over them like any other messages.
+//! kind `note` unless a line says otherwise, each with its own date when the
+//! line has one; the compactor then builds the tree over them like any other
+//! messages.
 //!
 //! Both read the memory where it lives: through the running host (the only
 //! process that may open the chat), or, with no host running, by opening
@@ -105,10 +106,12 @@ pre{white-space:pre-wrap;word-break:break-word}details{margin:2px 0}summary{curs
 pub struct Imported {
     pub kind: Kind,
     pub text: String,
+    /// When it was first written (RFC 3339); None: the import's own time.
+    pub date: Option<String>,
 }
 
-/// Parses JSON lines `{"text": "...", "kind": "note"}` (kind optional,
-/// default note; blank lines skipped).
+/// Parses JSON lines `{"text": "...", "kind": "note", "date": "..."}` (kind
+/// optional, default note; date optional, RFC 3339; blank lines skipped).
 pub fn parse_import(input: &str) -> Result<Vec<Imported>, String> {
     let mut out = Vec::new();
     for (n, line) in input.lines().enumerate() {
@@ -125,9 +128,22 @@ pub fn parse_import(input: &str) -> Result<Vec<Imported>, String> {
             None => Kind::Note,
             Some(k) => Kind::parse(k).ok_or_else(|| format!("line {}: unknown kind {k}", n + 1))?,
         };
+        let date = match value.get("date") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(d)) if chrono::DateTime::parse_from_rfc3339(d).is_ok() => {
+                Some(d.clone())
+            }
+            Some(other) => {
+                return Err(format!(
+                    "line {}: \"date\" must be an RFC 3339 time, not {other}",
+                    n + 1
+                ));
+            }
+        };
         out.push(Imported {
             kind,
             text: text.to_owned(),
+            date,
         });
     }
     Ok(out)
@@ -168,8 +184,11 @@ pub fn import(dir: &Path, items: &[Imported]) -> Result<usize, String> {
         ));
     }
     for item in items {
-        chat.append(item.kind, &item.text)
-            .map_err(|e| format!("appending: {e}"))?;
+        match &item.date {
+            Some(date) => chat.append_dated(item.kind, &item.text, date),
+            None => chat.append(item.kind, &item.text),
+        }
+        .map_err(|e| format!("appending: {e}"))?;
     }
     chat.shutdown();
     Ok(items.len())

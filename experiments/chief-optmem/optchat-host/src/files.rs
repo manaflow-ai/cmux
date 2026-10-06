@@ -303,12 +303,19 @@ impl FileStore {
         self.node_count
     }
 
-    /// Logs one message (fsynced) and returns its id.
-    pub fn append_message(&mut self, kind: Kind, text: &str) -> io::Result<u64> {
+    /// Logs one message (fsynced) and returns its id. `date` is its ISO
+    /// time (an imported message keeps its own); None: now.
+    pub fn append_message(&mut self, kind: Kind, text: &str, date: Option<&str>) -> io::Result<u64> {
         let i = self.len();
-        let loc = self
-            .main
-            .append(&lines::main_line(i, kind, text, &lines::now_iso()))?;
+        let now;
+        let date = match date {
+            Some(date) => date,
+            None => {
+                now = lines::now_iso();
+                &now
+            }
+        };
+        let loc = self.main.append(&lines::main_line(i, kind, text, date))?;
         self.messages.push(loc);
         Ok(i)
     }

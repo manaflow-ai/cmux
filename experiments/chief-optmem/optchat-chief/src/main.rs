@@ -13,7 +13,7 @@ optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory t
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
-optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?} (host stopped)
+optchat-chief import [--mux-home DIR] FILE                  append JSON lines {\"text\", \"kind\"?, \"date\"?} (host stopped)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,

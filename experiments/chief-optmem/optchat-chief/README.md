@@ -84,7 +84,7 @@ optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server: z
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] "task"
 optchat-chief agents list | prompt NAME "text" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
-optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?}, default note (host stopped)
+optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
 ```
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in

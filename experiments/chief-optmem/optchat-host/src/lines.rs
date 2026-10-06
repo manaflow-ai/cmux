@@ -90,6 +90,11 @@ pub fn now_iso() -> String {
     Local::now().to_rfc3339_opts(SecondsFormat::Millis, false)
 }
 
+/// Whether `date` is an ISO (RFC 3339) time, as every written `date` is.
+pub fn is_iso(date: &str) -> bool {
+    DateTime::parse_from_rfc3339(date).is_ok()
+}
+
 /// A stored `date` as local date and time, for the agent's `date(id)` tool.
 pub fn local_date(iso: &str) -> String {
     match DateTime::parse_from_rfc3339(iso) {
