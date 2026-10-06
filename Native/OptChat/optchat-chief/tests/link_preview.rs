@@ -219,7 +219,7 @@ impl Transport for Table {
             .iter()
             .find(|(u, _)| *u == url.as_str())
             .map(|(_, hop)| hop.clone())
-            .ok_or_else(|| Refusal::Status(404))
+            .ok_or(Refusal::Status(404))
     }
 }
 
