@@ -67,8 +67,8 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
 
     public let refresh: String
     public let refreshing: Bool
-    /// The sign-in banner when cmux is signed out: its text and button.
-    public let signIn: Confirm?
+    /// The Sign In to cmux button's title when cmux is signed out.
+    public let signIn: String?
     public let removeTitle: String
     public let groups: [Group]
 }
@@ -115,7 +115,7 @@ extension AccountsModel {
     public var pageState: AccountsPageState {
         AccountsPageState(
             refresh: AccountsStrings.refresh, refreshing: isRefreshing,
-            signIn: isSignedInToCmux ? nil : .init(text: AccountsStrings.cmuxSignedOut, confirm: AccountsStrings.signInToCmux, cancel: ""),
+            signIn: isSignedInToCmux ? nil : AccountsStrings.signInToCmux,
             removeTitle: AccountsStrings.remove,
             groups: AIProvider.Group.allCases.compactMap { group in
                 let rows = rows(in: group)
@@ -164,7 +164,7 @@ extension AccountsModel {
         }
         if row.isLinkable, row.codeRouterProblem == nil {
             buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy || !row.canConnect,
-                                 help: isSignedInToCmux ? nil : AccountsStrings.cmuxSignedOut, destructive: false))
+                                 help: nil, destructive: false))
         }
         let outcome: AccountsPageState.Notice? = switch row.outcome {
         case .connected: .init(kind: "success", text: AccountsStrings.connected)

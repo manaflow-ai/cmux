@@ -16,9 +16,6 @@ enum AccountsStrings {
         }
     }
 
-    static var cmuxSignedOut: String {
-        text("accounts.cmuxSignedOut", "Sign in to cmux to connect accounts to CodeRouter, so cmux agents and Cloud machines can use them.")
-    }
     static var signInToCmux: String { text("accounts.action.signInCmux", "Sign In to cmux") }
     static var refresh: String { text("accounts.action.refresh", "Refresh") }
 

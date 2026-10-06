@@ -32,6 +32,15 @@ function AccountsBody() {
     <>
       <section className="group">
         <div className="accounts-header">
+          {accounts.signIn && (
+            <button
+              type="button"
+              className="button accounts-sign-in"
+              onClick={() => void store.runAccounts({ action: "signIn" })}
+            >
+              {accounts.signIn}
+            </button>
+          )}
           <button
             type="button"
             className="button"
@@ -41,14 +50,6 @@ function AccountsBody() {
             {accounts.refresh}
           </button>
         </div>
-        {accounts.signIn && (
-          <div className="accounts-banner">
-            <span>{accounts.signIn.text}</span>
-            <button type="button" className="button" onClick={() => void store.runAccounts({ action: "signIn" })}>
-              {accounts.signIn.confirm}
-            </button>
-          </div>
-        )}
       </section>
       {accounts.groups.map((group) => (
         <section className="group" key={group.id} data-accounts-group={group.id}>

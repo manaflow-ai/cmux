@@ -87,7 +87,6 @@ struct AccountRowView: View {
                 if row.codeRouterProblem == nil {
                     Button(AccountsStrings.connect) { model.connect(row.provider) }
                         .disabled(row.isBusy || !row.canConnect)
-                        .help(model.isSignedInToCmux ? "" : AccountsStrings.cmuxSignedOut)
                         .accessibilityIdentifier("cmux.accounts.connect.\(row.provider.rawValue)")
                 }
             } else if !row.provider.isLocalServer {

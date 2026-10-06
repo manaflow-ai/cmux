@@ -107,7 +107,8 @@ export type AccountsRow = {
 export type AccountsState = {
   refresh: string;
   refreshing: boolean;
-  signIn: { text: string; confirm: string } | null;
+  /** The Sign In to cmux button's title when cmux is signed out. */
+  signIn: string | null;
   removeTitle: string;
   groups: Array<{ id: string; title: string; rows: AccountsRow[] }>;
 };

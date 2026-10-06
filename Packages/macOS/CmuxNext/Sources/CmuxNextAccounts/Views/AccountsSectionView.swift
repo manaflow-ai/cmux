@@ -37,7 +37,7 @@ public struct AccountsSectionView: View {
     }
 }
 
-/// Refresh, and the cmux sign-in banner when signed out.
+/// Sign In to cmux when signed out, and Refresh.
 private struct AccountsHeader: View {
     let model: AccountsModel
     let palette: AccountsPalette
@@ -45,24 +45,17 @@ private struct AccountsHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Metrics.space3) {
             HStack(alignment: .firstTextBaseline) {
+                if !model.isSignedInToCmux {
+                    Button(AccountsStrings.signInToCmux) { model.services.signInToCmux() }
+                        .buttonStyle(AccountsButtonStyle(palette: palette))
+                        .accessibilityIdentifier("cmux.accounts.signInCmux")
+                }
                 Spacer(minLength: Metrics.space4)
                 if model.isRefreshing { ProgressView().controlSize(.mini) }
                 Button(AccountsStrings.refresh) { model.refresh() }
                     .buttonStyle(AccountsButtonStyle(palette: palette))
                     .disabled(model.isRefreshing)
                     .accessibilityIdentifier("cmux.accounts.refresh")
-            }
-            if !model.isSignedInToCmux {
-                HStack(spacing: Metrics.space4) {
-                    Text(AccountsStrings.cmuxSignedOut).font(palette.caption).foregroundStyle(palette.text)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: Metrics.space4)
-                    Button(AccountsStrings.signInToCmux) { model.services.signInToCmux() }
-                        .buttonStyle(AccountsButtonStyle(palette: palette))
-                        .accessibilityIdentifier("cmux.accounts.signInCmux")
-                }
-                .padding(Metrics.space4)
-                .background(palette.hover, in: RoundedRectangle(cornerRadius: Metrics.itemCornerRadius, style: .continuous))
             }
         }
     }
