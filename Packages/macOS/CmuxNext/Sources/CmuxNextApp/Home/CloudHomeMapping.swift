@@ -19,8 +19,12 @@ nonisolated struct CloudIdentity: Hashable, Sendable {
     let displayName: String
 
     /// The Worker's participant id for a Stack user id (`user_` prefix once).
-    init(stackUserID: String, displayName: String, localID: ParticipantID) {
+    /// Red stub: the participant id is still the account id.
+    let participantID: String
+
+    init(stackUserID: String, displayName: String, localID: ParticipantID, stackProjectID: String? = nil) {
         cloudID = Self.cloudID(stackUserID: stackUserID)
+        participantID = cloudID
         self.localID = localID
         self.displayName = displayName
     }
