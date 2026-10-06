@@ -147,7 +147,8 @@ impl Inner {
             _ => 0,
         };
         for (i, (key, code, location)) in keys.iter().enumerate().rev() {
-            let modifiers: i64 = keys[..i].iter().map(|held| modifier(&held.0)).fold(0, |a, b| a | b);
+            let modifiers: i64 =
+                keys[..i].iter().map(|held| modifier(&held.0)).fold(0, |a, b| a | b);
             let vk = virtual_key_code(code, key);
             let event = json!({
                 "type": "keyUp", "key": key, "code": code, "modifiers": modifiers,

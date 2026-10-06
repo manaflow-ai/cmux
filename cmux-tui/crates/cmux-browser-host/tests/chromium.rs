@@ -1132,15 +1132,11 @@ fn held_input_is_released_when_the_last_session_leaves() {
         .to_owned();
     a.call("tab.keep", &json!({"targetId": target})).unwrap();
     for (key, code) in [("Shift", "ShiftLeft"), ("A", "KeyA")] {
-        a.call(
-            "input.key",
-            &json!({"targetId": target, "type": "down", "key": key, "code": code}),
-        )
-        .unwrap();
+        a.call("input.key", &json!({"targetId": target, "type": "down", "key": key, "code": code}))
+            .unwrap();
     }
     a.call("input.mouse", &json!({"targetId": target, "type": "move", "x": 5, "y": 5})).unwrap();
-    a.call("input.mouse", &json!({"targetId": target, "type": "down", "button": "left"}))
-        .unwrap();
+    a.call("input.mouse", &json!({"targetId": target, "type": "down", "button": "left"})).unwrap();
     // b drives the tab too (a read): a's end releases nothing yet.
     let b = open("b");
     b.call("tab.info", &json!({"targetId": target})).unwrap();
