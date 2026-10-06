@@ -479,11 +479,32 @@ pub fn base_y(display_y: f64, gap_y: Option<f64>, gap_height: f64) -> Option<f64
     }
 }
 
+/// The middle band of a loose workspace row in a machine section, when the
+/// request turns the band on: the dragged workspaces drop onto that row.
+fn onto_target(row: &Row, fraction: f64, ids: &[String], request: &Request) -> Option<Target> {
+    let RowKey::Workspace { id } = &row.key else { return None };
+    let band = request.workspace_onto_start..request.workspace_onto_end;
+    if band.is_empty() || !band.contains(&fraction) || row.group.is_some() || ids.contains(id) {
+        return None;
+    }
+    if !matches!(row.section, SectionId::Machine { .. }) {
+        return None;
+    }
+    // Only workspaces of the row's machine can share a group with it.
+    let machine = workspace(id, &request.sections)?.machine.as_str();
+    ids.iter()
+        .all(|dragged| workspace(dragged, &request.sections).is_some_and(|w| w.machine == machine))
+        .then(|| Target::OntoWorkspace { workspace: id.clone() })
+}
+
 /// Resolves a workspace or group drag.
 pub fn resolve(request: &Request) -> Option<Target> {
     let (row, fraction) = hit(request.y, &request.rows)?;
     let target = match &request.payload {
         Payload::Workspaces { ids } => {
+            if let Some(target) = onto_target(row, fraction, ids, request) {
+                return is_valid(&target, ids, &request.sections).then_some(target);
+            }
             let target = workspace_target(
                 row,
                 fraction,
