@@ -488,6 +488,8 @@ The daemon side landed as d4c9d5e58082 on feat-cmux-next (window f2801b6b9ddf); 
 
 Evidence gates for this pin (coordinator conditions): the bake runs `vm-agent.ts --probe-activity` after recording daemon.json and fails unless the daemon advertises vm-activity-v1 and the agent's own ActivityWatcher connects and receives a snapshot; the smoke repeats it as `vm-activity-stream` on a clone.
 
+Who counts as a person for activity (b1cc37e52362): `is_person` in server/activity.rs accepts the verified app's main connection (origin `user`) or an attached connection whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`. The second half relies on the kind the client declares, so a local script that declares `tui` and attaches can keep a machine awake. Accepted for the idle pause: the risk is cost only, and the scripts are the user's own agents. When remote clients get a verified origin, prefer it over the declared kind.
+
 safe-push WINDOW-LITE: a Cargo.toml needs a window only for a cmux-tui workspace member or the workspace root (`.cmux-scratch/nx-worker/safe-push-members.py` reads `[workspace] members/exclude` at HEAD, per-component globs; fail closed). Tests: `safe-push-test.sh` cases windowlite-manifest-{nonmember,excluded,member,glob-member}. The equality with `cargo metadata --no-deps` is checked on a Testbox (`safe-push-members.py --check-cargo-metadata cmux-tui`).
 
 ## 29. auto6 on development, activity proof and idle pause (2026-10-06)
