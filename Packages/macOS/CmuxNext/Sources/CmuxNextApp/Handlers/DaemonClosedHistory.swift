@@ -51,11 +51,19 @@ enum DaemonClosedHistory {
         let pane = item.paneID.flatMap { id in
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
+        let clock = ContinuousClock(), start = clock.now
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             let reopened: StateResourceClient.ReopenedItem
             do {
                 reopened = try await connection.state.reopenClosed(item.id)
+                // Where a slow restore spends its time (nxdog52: the first Cmd-Z took over 2 s).
+                let reply = start.duration(to: clock.now)
+                services.closedTabs?.undoToasts.noteReopen(id: item.id, reply: reply, applied: nil)
+                Task { @MainActor in
+                    await daemon.store.applied(through: await connection.eventSequence())
+                    services.closedTabs?.undoToasts.noteReopen(id: item.id, reply: reply, applied: start.duration(to: clock.now))
+                }
             } catch {
                 daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
                 return "closed.reopen: \(error)"
