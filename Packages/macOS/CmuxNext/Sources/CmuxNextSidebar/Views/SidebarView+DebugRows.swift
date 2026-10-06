@@ -54,7 +54,7 @@ extension SidebarView {
                     frame = CGRect(x: inWindow.minX, y: height - inWindow.maxY, width: inWindow.width, height: inWindow.height)
                 }
                 return SidebarDebugItem(id: item.id.rawValue, refKind: item.ref.kind, ref: item.ref.value, region: section.region.rawValue,
-                                        isActive: model.itemInfo[item.id]?.isActive == true, windowFrame: frame)
+                                        isActive: model.selectedItem == .topItem(item.id), windowFrame: frame)
             }
         }
     }
