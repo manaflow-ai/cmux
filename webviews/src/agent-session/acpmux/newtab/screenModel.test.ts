@@ -5,7 +5,7 @@ import {
   orderedAgents,
   recentChatCards,
   screenRows,
-  terminalConversion,
+  shellEntry,
   type ScreenRow,
 } from "./screenModel";
 
@@ -71,13 +71,13 @@ test("agent rows are capped and keep the catalog order", () => {
   expect(orderedAgents(many, "missing")[0]!.id).toBe("a0");
 });
 
-test("! typed into an empty or wholly selected field converts at once, keeping the rest", () => {
-  expect(terminalConversion("", "!", false)).toEqual({ command: "" });
-  expect(terminalConversion("", "!git status", false)).toEqual({ command: "git status" });
-  expect(terminalConversion("github.com", "!", true)).toEqual({ command: "" });
-  expect(terminalConversion("why", "why!", false)).toBeUndefined();
-  expect(terminalConversion("", "a", false)).toBeUndefined();
-  expect(terminalConversion("x", "!x", false)).toBeUndefined();
+test("! typed into an empty or wholly selected field enters shell mode, keeping the rest", () => {
+  expect(shellEntry("", "!", false)).toEqual({ command: "" });
+  expect(shellEntry("", "!git status", false)).toEqual({ command: "git status" });
+  expect(shellEntry("github.com", "!", true)).toEqual({ command: "" });
+  expect(shellEntry("why", "why!", false)).toBeUndefined();
+  expect(shellEntry("", "a", false)).toBeUndefined();
+  expect(shellEntry("x", "!x", false)).toBeUndefined();
 });
 
 test("chat cards: the three newest, waiting chats first, a dropped chat as an error card", () => {

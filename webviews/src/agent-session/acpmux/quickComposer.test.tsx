@@ -248,15 +248,94 @@ test("without a surface the pane is unchanged: home lists, no session list, no k
   expect(prompt().value).toBe("draft");
 });
 
-test("a direct blank pane chat converts with ! without a chooser page", async () => {
-  await mount(undefined, snapshot("s1"));
+/// A host that runs shell commands: `shell.run` answers an id, `shell.read` the output and exit.
+const shellHost = (output: string, exit: { code?: number; signal?: string } = { code: 0 }) => {
+  host.cmuxAcpmuxActions!["shell.run"] = async (params) => {
+    calls.push(["shell.run", params]);
+    return { id: "h1" };
+  };
+  host.cmuxAcpmuxActions!["shell.read"] = async (params) => ({
+    output: params.after === 0 ? output : "",
+    next: output.length,
+    exit,
+  });
   host.cmuxAcpmuxActions!["tab.open"] = async (params) => {
     calls.push(["tab.open", params]);
   };
-  expect(container().querySelector(".acpmux-newtab")).toBeNull();
-  await act(async () => prompt().handle.insertTyped("!git status"));
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
+};
+const shellField = () => container().querySelector<HTMLTextAreaElement>(".acpmux-shell-field");
+const typeShell = (value: string) =>
+  act(async () => {
+    const field = shellField()!;
+    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(field, value);
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+const shellKey = (name: string, init: KeyboardEventInit = {}) =>
+  act(async () => {
+    shellField()!.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init }),
+    );
+  });
+const settled = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+
+test("! puts the prompt in shell mode in place: no terminal opens, nothing moves", async () => {
+  await mount(undefined, snapshot("s1"));
+  shellHost("");
+  await act(async () => prompt().handle.insertTyped("!"));
+  expect(container().querySelector(".acpmux-composer")!.hasAttribute("data-shell")).toBe(true);
+  expect(shellField()).not.toBeNull();
+  expect(dom.window.document.activeElement).toBe(shellField());
+  expect(container().querySelector(".acpmux-shell-glyph")?.textContent).toBe("!");
+  expect(methods()).not.toContain("tab.open");
+  // A pasted `!cmd` keeps its command.
+  await shellKey("Escape");
+  await act(async () => prompt().handle.pasteText("!git status"));
+  expect(shellField()!.value).toBe("git status");
+});
+
+test("Backspace on an empty command and Escape leave shell mode, keeping what was typed", async () => {
+  await mount(undefined, snapshot("s1"));
+  shellHost("");
+  await act(async () => prompt().handle.insertTyped("!"));
+  await shellKey("Backspace");
+  expect(shellField()).toBeNull();
+  expect(container().querySelector(".acpmux-composer")!.hasAttribute("data-shell")).toBe(false);
+  await act(async () => prompt().handle.insertTyped("!"));
+  await typeShell("ls -la");
+  await shellKey("Escape");
+  expect(shellField()).toBeNull();
+  expect(prompt().handle.plainText()).toBe("ls -la");
+});
+
+test("Enter runs the command here: its block shows in the transcript and the next prompt carries it", async () => {
+  await mount(undefined, snapshot("s1"));
+  shellHost("On branch main\n", { code: 0 });
+  await act(async () => prompt().handle.insertTyped("!"));
+  await typeShell("git status");
+  await shellKey("Enter");
+  await settled();
+  expect(calls).toContainEqual(["shell.run", { command: "git status" }]);
+  expect(methods()).not.toContain("tab.open");
   expect(methods()).not.toContain("chat.send");
+  // Back to the prompt, with the command as a removable chip.
+  expect(shellField()).toBeNull();
+  expect(container().querySelector(".acpmux-attachment-file")?.textContent).toContain("$ git status");
+  const block = container().querySelector(".acpmux-shell-block");
+  expect(block).not.toBeNull();
+  expect(block!.querySelector(".acpmux-shell-block-command")!.textContent).toBe("git status");
+  expect(block!.textContent).toContain("On branch main");
+  // "Open in terminal" is the block's action, never automatic.
+  await act(async () =>
+    block!.querySelector<HTMLButtonElement>(".acpmux-shell-block-open")!.click(),
+  );
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
+  await type("why?");
+  await key("Enter");
+  await settled();
+  const send = calls.find(([method]) => method === "chat.send")!;
+  const attachments = send[1].attachments as { name: string; text?: string }[];
+  expect(attachments[0]!.name).toBe("$ git status (exit 0)");
+  expect(attachments[0]!.text).toContain("On branch main");
 });
 
 test("a direct blank chat chooses a recent project inline without treating it as already selected", async () => {
@@ -275,7 +354,7 @@ test("a direct blank chat chooses a recent project inline without treating it as
   expect(calls).toContainEqual(["chat.new", { cwd: "/src/app" }]);
 });
 
-test("an unstarted chat keeps its chosen project for terminal conversion without launching an agent", async () => {
+test("an unstarted chat runs a command in its chosen project without launching an agent", async () => {
   const fresh = snapshot(undefined);
   fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
   await mount(undefined, fresh, true);
@@ -283,9 +362,7 @@ test("an unstarted chat keeps its chosen project for terminal conversion without
     calls.push(["chat.new", params]);
     throw new Error("no agent installed");
   };
-  host.cmuxAcpmuxActions!["tab.open"] = async (params) => {
-    calls.push(["tab.open", params]);
-  };
+  shellHost("/src/app\n");
   await act(async () => (container().querySelector(".acpmux-project-button") as HTMLButtonElement).click());
   const project = container().querySelector(".acpmux-project-menu [role=option]") as HTMLButtonElement;
   await act(async () =>
@@ -296,7 +373,14 @@ test("an unstarted chat keeps its chosen project for terminal conversion without
   expect(methods()).not.toContain("chat.send");
   expect(methods()).not.toContain("chat.new");
   await act(async () => prompt().handle.insertTyped("!"));
-  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "", run: false, cwd: "/src/app" }]);
+  await typeShell("pwd");
+  await shellKey("Enter");
+  await settled();
+  expect(calls).toContainEqual(["shell.run", { command: "pwd", cwd: "/src/app" }]);
+  expect(methods()).not.toContain("chat.new");
+  expect(methods()).not.toContain("tab.open");
+  // The chat shows the block in place of its empty state.
+  expect(container().querySelector(".acpmux-shell-block")?.textContent).toContain("/src/app");
 });
 
 test("the first prompt starts the chat in the inline project's folder", async () => {
