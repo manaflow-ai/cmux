@@ -8,7 +8,13 @@
   const { URL } = root.CmuxBrowserRepl.core;
   const KINDS = ["image", "font", "stylesheet", "video", "script", "other"];
 
-  function inventory(arg) {
+  // Runs in the page world through a handle of the document's root element
+  // (roots[0]): handles resolve only in the document that issued them, so a
+  // new document fails the call as stale before this runs. It returns the
+  // origin of the document it read, from the same script turn as the asset
+  // URLs, so list() can tell which document they came from.
+  function inventory(roots, arg) {
+    if (!roots[0] || roots[0].ownerDocument !== document || !roots[0].isConnected) return { moved: true };
     const found = new Map();
     const kindOf = (url, hint) => {
       if (hint) return hint;
@@ -82,7 +88,12 @@
       const markup = s.outerHTML;
       return { name: String(label).trim().slice(0, 60), markup: markup.length > arg.maxSvgChars ? markup.slice(0, arg.maxSvgChars) + "<!-- truncated -->" : markup };
     });
-    return { pageUrl: location.href, assets: [...found.values()], inlineSvgs };
+    return { pageUrl: location.href, origin: location.origin, assets: [...found.values()], inlineSvgs };
+  }
+
+  // Whether the document the root `roots[0]` was taken from still shows.
+  function sameDocument(roots) {
+    return !!roots[0] && roots[0].ownerDocument === document && roots[0].isConnected;
   }
 
   const EXT = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/avif": ".avif", "image/svg+xml": ".svg", "image/x-icon": ".ico", "image/vnd.microsoft.icon": ".ico", "font/woff2": ".woff2", "font/woff": ".woff", "font/ttf": ".ttf", "font/otf": ".otf", "text/css": ".css", "video/mp4": ".mp4", "video/webm": ".webm", "text/javascript": ".js", "application/javascript": ".js" };
@@ -112,8 +123,31 @@
         // Load the state that matters first (scroll, open menus); list() sees what is loaded now.
         async list(page, options = {}) {
           const p = page || t.currentPage();
-          const raw = await p.evaluate(inventory, { maxElements: options.maxElements || 5000, maxSvgs: options.maxSvgs || 200, maxSvgChars: options.maxSvgChars || 20000 });
+          // The inventory, the browser's URL for the tab and a second check
+          // that the same document still shows, in that order, through one
+          // handle of the document's root: a navigation that lands between
+          // them fails the list as stale, so an asset an earlier document
+          // named never looks like one of the next document's origin.
+          const moved = () => new S.SiteError("stale", "pageAssets.list: the tab loaded a new document while its assets were listed; call pageAssets.list() again once it has loaded");
+          const root = await p.$("html");
+          if (!root) throw moved();
+          const inDocument = (fn, arg) =>
+            root.evaluateAll(fn, arg).catch((e) => {
+              if (e && e.code === "stale") throw moved();
+              throw e;
+            });
+          const raw = await inDocument(inventory, { maxElements: options.maxElements || 5000, maxSvgs: options.maxSvgs || 200, maxSvgChars: options.maxSvgChars || 20000 });
+          if (!raw || raw.moved) throw moved();
           const nativeUrl = p.url();
+          if (!(await inDocument(sameDocument))) throw moved();
+          // The document's own origin (read with its assets) and the
+          // browser's must agree before any asset gets cookies: two web
+          // origins that differ mean the URL read is from another document,
+          // and anything else (an opaque or inherited origin) binds no
+          // origin, so bundle() sends no cookies.
+          const nativeOrigin = originOf(nativeUrl);
+          const documentOrigin = originOf(raw.origin);
+          if (nativeOrigin && documentOrigin && nativeOrigin !== documentOrigin) throw moved();
           const id = `inv-${++n}`;
           const assets = raw.assets.map((a, i) => ({ id: `a${i + 1}`, ...a }));
           const inlineSvgs = raw.inlineSvgs.map((s, i) => ({ id: `svg${i + 1}`, ...s }));
@@ -122,7 +156,7 @@
           const inv = { id, pageUrl: nativeUrl, assets, inlineSvgs, summary: { byKind, inlineSvgCount: inlineSvgs.length, totalCount: assets.length } };
           inventories.set(id, inv);
           listedIn.set(id, p);
-          listedOrigin.set(id, originOf(nativeUrl));
+          listedOrigin.set(id, nativeOrigin && nativeOrigin === documentOrigin ? nativeOrigin : null);
           return inv;
         },
         // Downloads assets of a list() inventory into a directory through
