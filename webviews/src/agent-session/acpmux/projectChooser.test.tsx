@@ -54,14 +54,16 @@ type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 const doc = dom.window.document;
 let root: ReturnType<typeof createRoot>;
 let picked: Array<[string, string | undefined]>;
+let browsed = 0;
 
 beforeEach(() => {
   root = createRoot(doc.getElementById("root")!);
   picked = [];
+  browsed = 0;
 });
 afterEach(async () => act(async () => root.unmount()));
 
-const render = (summary: Partial<Summary> = {}, started = false) =>
+const render = (summary: Partial<Summary> = {}, started = false, projectChoices?: { cwd: string; label: string }[]) =>
   act(async () =>
     root.render(
       createElement(ComposerContext, {
@@ -74,6 +76,8 @@ const render = (summary: Partial<Summary> = {}, started = false) =>
         },
         sessions,
         started,
+        projectChoices,
+        onBrowseProject: () => browsed++,
         onProject: (cwd: string, peer?: string) => picked.push([cwd, peer]),
       }),
     ),
@@ -83,9 +87,10 @@ test("renders plain right-aligned computer and folder pickers without context ch
   await render();
   expect(doc.querySelectorAll(".acpmux-context-chip")).toHaveLength(0);
   expect([...doc.querySelectorAll(".acpmux-location-button")].map((button) => button.textContent)).toEqual([
-    "This Mac⌄",
-    "cmux⌄",
+    "This Mac",
+    "cmux",
   ]);
+  expect(doc.querySelectorAll(".acpmux-location-button .acpmux-icon")).toHaveLength(2);
 });
 
 test("offers Cloud computers and sends the selected computer with its folder", async () => {
@@ -147,4 +152,39 @@ test("folder rows show the project name over its path, and typing filters on bot
   expect(rows()).toEqual([["cmux", "/Users/me/code/cmux"]]);
   await type("nothing-matches");
   expect(rows()).toEqual([]);
+});
+
+test("the fresh-chat folder menu shows recent project names with paths and Browse", async () => {
+  await render({}, false, [
+    { cwd: "/Users/me/code/cmux", label: "cmux" },
+    { cwd: "/Users/me/Projects/relay", label: "relay" },
+  ]);
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Project"]')!.click());
+  const rows = () =>
+    [...doc.querySelectorAll('.acpmux-project-menu [role="option"]')].map((row) => [
+      row.querySelector(".acpmux-menu-label")?.textContent,
+      row.querySelector(".acpmux-menu-description")?.getAttribute("data-path"),
+    ]);
+  expect(rows()).toEqual([
+    ["cmux", "/Users/me/code/cmux"],
+    ["relay", "/Users/me/Projects/relay"],
+  ]);
+  expect(doc.querySelector(".acpmux-project-browse")?.textContent).toBe("Browse…");
+  await act(async () =>
+    doc
+      .querySelector<HTMLButtonElement>(".acpmux-project-browse")!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(browsed).toBe(1);
+});
+
+test("keeps the root project selectable", async () => {
+  await render({}, false, [{ cwd: "/", label: "Root" }]);
+  await act(async () => doc.querySelector<HTMLButtonElement>('[aria-label="Project"]')!.click());
+  await act(async () =>
+    doc
+      .querySelector<HTMLElement>('.acpmux-project-menu [role="option"]')!
+      .dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
+  expect(picked).toEqual([["/", undefined]]);
 });
