@@ -33,6 +33,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // reload would defeat the point.
         var kind: SidebarSection.Kind
         var titlesProjects: Bool
+        var titlesAll: Bool
         var collapsed: Bool
         var fontSize: CGFloat
         var iconSize: CGFloat
@@ -40,7 +41,7 @@ final class SectionHeaderRowView: SidebarRowView {
 
     func configure(_ section: SidebarSection, row: SidebarRow) {
         let content = Content(
-            kind: section.kind, titlesProjects: row.titlesProjects, collapsed: row.isCollapsed,
+            kind: section.kind, titlesProjects: row.titlesProjects, titlesAll: row.titlesAll, collapsed: row.isCollapsed,
             fontSize: SidebarStyle.headerFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
@@ -96,7 +97,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // The only machine needs no name or status: the header heads the
         // workspace list, apart from the destinations above it.
         if row.titlesProjects {
-            title = Strings.projects
+            title = row.titlesAll ? Strings.all : Strings.projects
             statusTone = nil
             badgeText = nil
             toolTip = nil

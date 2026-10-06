@@ -107,37 +107,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             if nodes.isEmpty && filtering { continue }
             if isPinned && nodes.isEmpty && !o.showEmptyPinned && !gapHere { continue }
 
-            if !firstSection { y += m.sectionSpacing }
-            firstSection = false
-            let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
-            // Without a header there is nothing to expand it from.
-            let collapsed = showsHeader && section.isCollapsed && !filtering
-            if showsHeader {
-                rows.append(SidebarRow(
-                    key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
-                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
-                    titlesProjects: section.machine != nil && machineCount == 1
-                ))
-                y += m.sectionHeaderHeight + m.rowSpacing
-            }
-            if collapsed { continue }
-
-            if nodes.isEmpty {
-                if gapHere {
-                    openGapIfNeeded(section: section.id, group: nil, index: 0)
-                } else {
-                    rows.append(SidebarRow(
-                        key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
-                        group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                        isCollapsed: false, childCount: 0, groupColor: nil
-                    ))
-                    y += m.emptySectionHeight + m.rowSpacing
-                }
-                continue
-            }
-
-            for (index, entry) in nodes.enumerated() {
+            // One node at its model index (drops resolve by it, whatever the drawn order).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace])) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
@@ -168,7 +139,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
                     ))
                     y += m.groupHeaderHeight + m.rowSpacing
-                    guard !groupCollapsed else { continue }
+                    guard !groupCollapsed else { return }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
                         let h = m.height(for: ws)
@@ -196,6 +167,48 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     y += m.groupBottomPadding
                 }
             }
+            // Your groups as categories: above the only machine's header, which then reads "All".
+            let categories = o.groupsAsCategories && section.machine != nil && machineCount == 1 && !filtering
+                && nodes.contains { if case .group = $0.node { true } else { false } }
+            func isGroup(_ entry: (node: SidebarNode, children: [SidebarWorkspace])) -> Bool {
+                if case .group = entry.node { true } else { false }
+            }
+
+            if !firstSection { y += m.sectionSpacing }
+            firstSection = false
+            if categories {
+                for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
+                y += m.sectionSpacing
+            }
+            let showsHeader = section.machine == nil || machineCount > 1 || o.showsSoleMachineHeader
+            // Without a header there is nothing to expand it from.
+            let collapsed = showsHeader && section.isCollapsed && !filtering
+            if showsHeader {
+                rows.append(SidebarRow(
+                    key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
+                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                    isCollapsed: collapsed, childCount: categories ? nodes.filter { !isGroup($0) }.count : nodes.count, groupColor: nil,
+                    titlesProjects: section.machine != nil && machineCount == 1, titlesAll: categories
+                ))
+                y += m.sectionHeaderHeight + m.rowSpacing
+            }
+            if collapsed { continue }
+
+            if nodes.isEmpty {
+                if gapHere {
+                    openGapIfNeeded(section: section.id, group: nil, index: 0)
+                } else {
+                    rows.append(SidebarRow(
+                        key: .emptySection(section.id), y: y, height: m.emptySectionHeight, section: section.id,
+                        group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                        isCollapsed: false, childCount: 0, groupColor: nil
+                    ))
+                    y += m.emptySectionHeight + m.rowSpacing
+                }
+                continue
+            }
+
+            for (index, entry) in nodes.enumerated() where !(categories && isGroup(entry)) { emit(index, entry) }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         y += m.bottomPadding

@@ -65,6 +65,9 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showCounts = false
     /// The workspace list is hidden (`sidebar.showProjects` off): no rows.
     public var hidesWorkspaces = false
+    /// Groups draw above their only machine's header as categories, and the
+    /// header, over the loose rows, reads "All" (Leo 2026-10-06).
+    public var groupsAsCategories = false
 
     public init() {}
 }

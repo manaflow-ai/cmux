@@ -11,6 +11,8 @@ extension SidebarModel {
         }
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
+        // Keyboard order follows the drawn order: groups above the loose rows.
+        options.groupsAsCategories = true
         let selectable = Set(selectableWorkspaces.map(\.id))
         var rows: [SidebarItem] = []
         var stops: [WorkspaceID: SidebarItem] = [:]

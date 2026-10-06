@@ -273,6 +273,7 @@ public final class SidebarModel {
         o.collapsedWorkspaces = collapsedWorkspaces
         o.showCounts = showCounts
         o.hidesWorkspaces = hidesWorkspaces
+        o.groupsAsCategories = true
         return o
     }
 
