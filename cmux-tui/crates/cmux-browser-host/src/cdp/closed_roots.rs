@@ -63,9 +63,24 @@ pub struct SessionRoots {
 }
 
 impl SessionRoots {
-    /// A `DOM.*` event: the next sync walks again.
-    pub fn dom_changed(&mut self) {
+    /// A `DOM.*` event: the next sync walks again. True when the domain
+    /// must turn off now (DOM-EVENTS (c): the churn budget is spent, or the
+    /// event came long after the last read); the check runs only here, on
+    /// an event, never on a timer.
+    pub fn dom_changed(&mut self, now: Instant) -> bool {
         self.fresh = false;
+        if !self.dom_on {
+            return false;
+        }
+        self.events_since_read += 1;
+        let idle = self
+            .last_read
+            .is_none_or(|read| now.saturating_duration_since(read) > DOM_IDLE_AFTER_READ);
+        if self.events_since_read >= DOM_EVENT_BUDGET || idle {
+            self.dom_on = false;
+            return true;
+        }
+        false
     }
 }
 
@@ -173,8 +188,14 @@ impl Inner {
                 return Ok(());
             };
             let entry = tab.closed_roots.entry(cdp.to_owned()).or_default();
-            // Fresh from now on: a DOM event during the walk marks it stale again.
-            *entry = SessionRoots { fresh: true, ..SessionRoots::default() };
+            // Fresh from now on: a DOM event during the walk marks it stale
+            // again. The walk's getDocument turns the DOM domain on.
+            *entry = SessionRoots {
+                fresh: true,
+                dom_on: true,
+                last_read: Some(Instant::now()),
+                ..SessionRoots::default()
+            };
             if cdp == tab.session_id {
                 tab.main_frame.clone()
             } else {
