@@ -305,7 +305,12 @@ impl FileStore {
 
     /// Logs one message (fsynced) and returns its id. `date` is its ISO
     /// time (an imported message keeps its own); None: now.
-    pub fn append_message(&mut self, kind: Kind, text: &str, date: Option<&str>) -> io::Result<u64> {
+    pub fn append_message(
+        &mut self,
+        kind: Kind,
+        text: &str,
+        date: Option<&str>,
+    ) -> io::Result<u64> {
         let i = self.len();
         let now;
         let date = match date {

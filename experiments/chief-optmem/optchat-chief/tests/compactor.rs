@@ -127,7 +127,10 @@ fn a_node_is_built_in_one_deny_all_session_that_is_then_purged() {
         Some("optchat-compact-test-preset-slot-0"),
         "the compactor names its slot's own preset, which acpmux must have"
     );
-    assert_eq!(s.effort, None, "the spec's effort (here none) reaches the session");
+    assert_eq!(
+        s.effort, None,
+        "the spec's effort (here none) reaches the session"
+    );
     assert!(s.name.starts_with("optchat-compact-test-"));
     // System text, then the context pieces, then the step (section 8's order).
     let blocks = texts(&inner.prompts[0]);
