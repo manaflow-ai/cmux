@@ -51,6 +51,13 @@ public struct BrowserSourceProfile: Sendable, Identifiable, Hashable, Codable {
         availability[kind] ?? .absent
     }
 
+    /// Whether macOS is blocking this profile until cmux has Full Disk
+    /// Access. The onboarding row uses this to keep Safari in the list while
+    /// it explains why the data cannot be imported yet.
+    public var needsFullDiskAccess: Bool {
+        availability.values.contains(.needsFullDiskAccess)
+    }
+
     /// Kinds this profile can import now.
     public var importableKinds: [ImportDataKind] {
         ImportDataKind.allCases.filter { availability(of: $0).isImportable }

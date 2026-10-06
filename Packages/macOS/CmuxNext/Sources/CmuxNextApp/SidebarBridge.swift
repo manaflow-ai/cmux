@@ -108,7 +108,7 @@ final class SidebarBridge {
             guard let windowState else { return [] }
             return spaceCache.sections(for: key) {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
-                              hidesHome: Self.hidesHome(layout.document))
+                              hidesHome: Self.hidesHome(layout.document), selection: windowState.selection)
             }
         }
         let state = windowState
@@ -206,7 +206,8 @@ final class SidebarBridge {
     /// daemon's launch snapshot are `.stale` until the live tree replaces them.
     static func liveSections(_ machines: MachineRegistry, registry: WindowRegistryStore,
                              window: WindowState, hidesHome: Bool = true) -> ([SidebarRowSection], Bool, Set<MachineID>) {
-        var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome)
+        var sections = Self.sections(machines, members: registry.members(of: window.id), profile: window.profileID, hidesHome: hidesHome,
+                                     selection: window.selection)
         if machines.local.store.isProvisional { sections = SidebarSeed.stale(sections) }
         let failed = Set(machines.cloud.filter { $0.daemon.startup.isUnavailable }.map { MachineID($0.daemon.machineID) })
         return (sections, isLaunching(machines.local, registry: registry), failed)
@@ -221,11 +222,13 @@ final class SidebarBridge {
     /// This window's sidebar: every machine section, listing only the
     /// workspaces the window owns (`WindowRegistry`) in the profile it shows
     /// (`WindowProfiles`).
+    /// `selection` is the window's tab selection: each row's type glyph shows its selected tab.
     static func sections(_ machines: MachineRegistry, members: [String],
-                         profile: ProfileID, hidesHome: Bool = true) -> [SidebarRowSection] {
+                         profile: ProfileID, hidesHome: Bool = true, selection: TabSelectionMemory = .init()) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
         let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
-        let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome), members: Set(visible))
+        let filtered = SidebarMembership.filter(sections(machines, profile: profile, hidesHome: hidesHome, selection: selection),
+                                                members: Set(visible))
         return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
     }
 
@@ -247,20 +250,22 @@ final class SidebarBridge {
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
-    static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true) -> [SidebarRowSection] {
+    static func sections(_ machines: MachineRegistry, profile: ProfileID, hidesHome: Bool = true,
+                         selection: TabSelectionMemory = .init()) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
+        let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
-                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread)
+                                               hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, selectedTab: selectedTab)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: header, showsUnread: showsUnread)
+                                                machine: header, showsUnread: showsUnread, selectedTab: selectedTab)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
-                                                machine: sshMachine(session, machines: machines))
+                                                machine: sshMachine(session, machines: machines), selectedTab: selectedTab)
         }
         return sections
     }
