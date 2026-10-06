@@ -421,6 +421,8 @@ public final class BrowserReplSession: @unchecked Sendable {
         let isFetch: Bool
         /// The request bytes it holds (``BrowserReplResource/requestBytes``).
         let heldBytes: Int
+        /// The native input events it holds (``BrowserReplResource/inputEvents``).
+        var inputEvents = 0
         /// The bytes its result holds until the runtime takes it
         /// (``BrowserReplResource/driverResultBytes``).
         var resultBytes = 0
@@ -443,6 +445,18 @@ public final class BrowserReplSession: @unchecked Sendable {
         let evalID: Int?
         /// What it holds of ``BrowserReplResource/requestBytes``.
         var heldBytes: Int { method.utf8.count + paramsJSON.utf8.count }
+        /// What it holds of ``BrowserReplResource/inputEvents``.
+        var inputEvents = 0
+    }
+
+    /// The native input events a driver call sends: an `input.drag` sends
+    /// a move to its first point, the press, five steps along each segment
+    /// of its path and the release (the driver's drag); other calls a
+    /// bounded few, not counted.
+    static func nativeInputEvents(method: String, paramsJSON: String) -> Int {
+        guard method == BrowserReplDriverMethod.inputDrag.rawValue else { return 0 }
+        let points = (JSONSerialization.browserReplObject(paramsJSON)["path"] as? [Any])?.count ?? 0
+        return points < 2 ? 0 : 5 * (points - 1) + 3
     }
 
     /// Creates a session. The context is created lazily on the first evaluation.
@@ -860,7 +874,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         queuedDriverCalls.removeAll()
         // What those held: their tasks no longer release it.
         ledger.releaseAll([.queuedFetches, .openFetches, .requestPhaseFetches, .queuedDriverCalls,
-                           .runningDriverCalls, .requestBytes, .driverResultBytes, .scriptHeapBytes])
+                           .runningDriverCalls, .requestBytes, .inputEvents, .driverResultBytes, .scriptHeapBytes])
         // Every script from now on, also one a block queued before this
         // runs, is terminated; a timeout's cleanup cannot clear that.
         watchdog.close()
@@ -937,6 +951,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             ledger.release(fetches.reduce(0) { $0 + $1.heldBytes } + calls.reduce(0) { $0 + $1.heldBytes }, of: .requestBytes)
             ledger.release(fetches.count, of: .queuedFetches)
             ledger.release(calls.count, of: .queuedDriverCalls)
+            ledger.release(calls.reduce(0) { $0 + $1.inputEvents }, of: .inputEvents)
             return (tasks, fetches.map(\.callID), calls.map(\.callID))
         }
         for task in tasks { task.cancel() }
@@ -964,12 +979,20 @@ public final class BrowserReplSession: @unchecked Sendable {
     private func startOrQueueDriverCall(callID: Int, method: String, paramsJSON: String) -> BrowserReplDriverError? {
         stateLock.withLock {
             guard !closed else { return Self.closedError }
-            let call = PendingDriverCall(callID: callID, method: method, paramsJSON: paramsJSON, evalID: currentEval?.id)
+            var call = PendingDriverCall(callID: callID, method: method, paramsJSON: paramsJSON, evalID: currentEval?.id)
+            call.inputEvents = Self.nativeInputEvents(method: method, paramsJSON: paramsJSON)
             if let refusal = admitRequestLocked(bytes: call.heldBytes) { return refusal.driverError(method) }
+            // One call's events within its own limit and the session's,
+            // before the driver sends any.
+            if let refusal = ledger.reserve(call.inputEvents, of: .inputEvents) {
+                ledger.release(call.heldBytes, of: .requestBytes)
+                return refusal.driverError(method)
+            }
             if queuedDriverCalls.isEmpty, ledger.reserve(1, of: .runningDriverCalls) == nil {
                 startDriverCallLocked(call)
             } else if let refusal = ledger.reserve(1, of: .queuedDriverCalls) {
                 ledger.release(call.heldBytes, of: .requestBytes)
+                ledger.release(call.inputEvents, of: .inputEvents)
                 return refusal.driverError(method)
             } else {
                 queuedDriverCalls.append(call)
@@ -1001,7 +1024,7 @@ public final class BrowserReplSession: @unchecked Sendable {
                 if !delivered { self.driverCallFinished(taskID) }
             }
         }
-        inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false, heldBytes: call.heldBytes)
+        inFlight[taskID] = InFlightWork(task: task, evalID: call.evalID, isFetch: false, heldBytes: call.heldBytes, inputEvents: call.inputEvents)
     }
 
     /// Frees the finished driver call's slot and starts queued ones.
@@ -1010,6 +1033,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             // close() already dropped every entry and the queue.
             guard let work = inFlight.removeValue(forKey: taskID) else { return }
             ledger.release(work.heldBytes, of: .requestBytes)
+            ledger.release(work.inputEvents, of: .inputEvents)
             ledger.release(work.resultBytes, of: .driverResultBytes)
             ledger.release(1, of: .runningDriverCalls)
             while !closed, !queuedDriverCalls.isEmpty, ledger.reserve(1, of: .runningDriverCalls) == nil {

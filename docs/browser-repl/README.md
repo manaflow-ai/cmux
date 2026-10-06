@@ -615,6 +615,7 @@ checks nothing stays reserved after the session ends.
 | Browser calls waiting | 10,000 | the call fails at once |
 | One browser call's parameters | 64 MiB (`filechooser.respond`: its 256 MiB of files in Base64, plus 1 MiB) | the call fails before it is parsed |
 | Parameters of calls and fetch requests waiting or running (M) | 512 MiB | the call fails at once |
+| Native input events of one `input.drag` (a move, the press, five steps a path segment, the release) / of the calls waiting or running | 10,000 (a path of 2,000 points) / 100,000; points must be finite | the call fails before the driver sends any event |
 | One browser call's result | 64 MiB, also with secrets masked | the call fails before its result is masked |
 | Results the session's JavaScript has not taken yet (M) | 512 MiB | the call fails instead of waiting |
 | One `fs`, `secrets` or `policy` call's arguments (M), reserved before they are parsed or decoded | 64 MiB (an fs call: one write in Base64, plus 1 MiB) | the call fails before it is parsed (`E2BIG` / `ENOMEM` for fs) |

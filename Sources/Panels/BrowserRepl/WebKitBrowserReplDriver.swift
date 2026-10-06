@@ -2485,6 +2485,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard let first = points.first, let last = points.last, points.count >= 2 else {
             throw Self.error("invalid", "input.drag needs at least two points")
         }
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            throw Self.error("invalid", "input.drag: every point's x and y must be finite numbers")
+        }
+        // The session reserved the drag's events against its ledger
+        // (BrowserReplResource.inputEvents); this is the same per-call
+        // limit for a caller that is not a session.
+        let events = 5 * (points.count - 1) + 3
+        if let limit = BrowserReplResourceLimits.standard.each(.inputEvents), events > limit {
+            throw Self.error("invalid", "input.drag: the path makes \(events) native input events, at most \(limit) a call; use a shorter path")
+        }
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
         // A locator drag names the source its press must reach (`expect`)
         // and the target its release must reach (`dropExpect`), checked as
@@ -2512,6 +2522,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 _ = attachment.mouseState.eventType(forType: "down", button: .left)
                 try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 for point in trail {
+                    // A cancelled call (its cell timed out, its session
+                    // closed) stops between steps.
+                    try Task.checkCancellation()
                     try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 }
                 _ = attachment.mouseState.eventType(forType: "up", button: .left)
