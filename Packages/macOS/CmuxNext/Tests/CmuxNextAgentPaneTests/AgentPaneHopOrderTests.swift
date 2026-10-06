@@ -66,16 +66,34 @@ import Testing
 
     @Test func aQueuedTurnKeepsItsPacerAliveUntilTheFlushCompletes() async {
         weak var released: AgentPaneNextTurnPacer?
+        var flushed = false
 
         func scheduleAndRelease() {
             let pacer = AgentPaneNextTurnPacer()
             released = pacer
-            pacer.schedule { AgentPaneFlush(delivered: false, more: false) }
+            pacer.schedule {
+                flushed = true
+                return AgentPaneFlush(delivered: false, more: false)
+            }
         }
 
         scheduleAndRelease()
         #expect(released != nil)
-        await Task.yield()
+        let deadline = ContinuousClock.now + .seconds(1)
+        while !flushed && ContinuousClock.now < deadline { await Task.yield() }
+        #expect(flushed)
+        while released != nil && ContinuousClock.now < deadline { await Task.yield() }
+        #expect(released == nil)
+    }
+
+    @Test func replacingAnUnusedPacerDefersItsReleaseToTheMainActor() async {
+        let transport = AgentPaneTransport()
+        weak var released = transport.pacer as? AgentPaneNextTurnPacer
+
+        transport.pacer = AgentPaneNextTurnPacer()
+        #expect(released != nil)
+        let deadline = ContinuousClock.now + .seconds(1)
+        while released != nil && ContinuousClock.now < deadline { await Task.yield() }
         #expect(released == nil)
     }
 
