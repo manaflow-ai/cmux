@@ -58,6 +58,10 @@ final class HomeConversationCellView: NSTableCellView {
 
     static func previewText(_ row: InboxRow) -> String {
         let text = row.preview.replacingOccurrences(of: "\n", with: " ")
+        // The Chief compactor reports route failures as a message-shaped error. Keep transport
+        // details out of the inbox preview; a later real message will replace it, otherwise leave
+        // the preview empty.
+        if row.kind == .chief, text.hasPrefix("The memory compactor cannot build summaries") { return "" }
         guard row.kind == .group, let author = row.previewAuthor, !author.isEmpty, !text.isEmpty else { return text }
         return "\(author): \(text)"
     }
