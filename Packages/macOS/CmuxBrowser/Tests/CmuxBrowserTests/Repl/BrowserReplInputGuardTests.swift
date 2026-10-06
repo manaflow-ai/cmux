@@ -103,4 +103,34 @@ struct BrowserReplInputGuardTests {
         #expect(during?.first == true, "the blocked frame in a shadow tree was not guarded")
         #expect(during?.last == false, "the blocked frame in a shadow tree was hit")
     }
+
+    @Test("A page that reorders its frames while the guard is set up does not leave the blocked frame unguarded")
+    func reorderedFramesKeepTheBlockedFrameGuarded() async throws {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let webView = page.webView
+        // a is window.frames[0] and the blocked b [1]; moving a after b
+        // makes b [0] once b reported its position.
+        gate.inputPositionsRead = {
+            _ = try? await webView.callAsyncJavaScript(
+                #"document.body.appendChild(document.getElementById("a")); return true"#,
+                arguments: [:], in: nil, contentWorld: .page
+            )
+        }
+        var blockedInert: Bool?
+        let error = await BrowserReplFrameGateTests.error {
+            try await guarded(page, gate) {
+                blockedInert = try await page.run(#"return document.getElementById("b").hasAttribute("inert")"#, in: page.main) as? Bool
+                return true
+            }
+        }
+        #expect(error != nil || blockedInert == true, "the input ran with the blocked frame unguarded after the page reordered its frames")
+        if let error { #expect(error.code == "stale", "\(error)") }
+        // Once the page holds still, the next input guards the blocked frame.
+        gate.inputPositionsRead = nil
+        let inert = try await guarded(page, gate) {
+            try await page.run(#"return document.getElementById("b").hasAttribute("inert")"#, in: page.main) as? Bool
+        }
+        #expect(inert == true, "the blocked frame was not guarded after the reorder")
+    }
 }

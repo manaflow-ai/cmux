@@ -380,6 +380,10 @@ public final class BrowserReplFrameGate {
     /// Holds back child-frame loads while guarded input or a capture is in
     /// flight; the navigation delegate honors it.
     public let loadHold: BrowserReplSubframeLoadHold
+    /// Test seam: runs after the blocked frames reported their positions
+    /// and before their parents guard them, where page script can run in
+    /// production.
+    var inputPositionsRead: (@MainActor () async -> Void)?
 
     private struct Key: Hashable {
         let webView: ObjectIdentifier
@@ -722,6 +726,7 @@ public final class BrowserReplFrameGate {
             if byParent[parentID] == nil { parentOrder.append(parentID) }
             byParent[parentID, default: []].append((entry.frame, entry.reason, position, length))
         }
+        await inputPositionsRead?()
         var installed: [InputGuard] = []
         do {
             for parentID in parentOrder {
