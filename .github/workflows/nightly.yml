@@ -121,7 +121,11 @@ env:
 jobs:
   decide:
     if: github.event_name != 'workflow_dispatch' || inputs.tag_permission_probe != true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This gate only resolves the fixed revision and publication decision.
+    # Keep its default on the hosted runner so a busy paid Linux pool cannot
+    # delay every nightly before the macOS work is admitted; retain the normal
+    # Linux runner fallback for repositories that do not set the override.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_DECIDE_RUNNER || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -1003,6 +1007,18 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # Signing only embeds the license trees. Keep that handoff separate from
+      # the optional source offer so each signing leg does not download the
+      # complete source archive just to copy a few notices into the app.
+      - name: Upload cmux-next license trees
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-license-trees
+          path: ${{ runner.temp }}/source-archive/*-licenses
+          if-no-files-found: error
+          retention-days: 3
+
   build-nightly-app:
     needs: decide
     outputs:
@@ -1566,14 +1582,15 @@ jobs:
           path: nightly-inputs/ghostty
 
       # Blocking, like the step that builds it: a nightly-next app always
-      # ships the Ghostty license tree.
-      - name: Download the Ghostty dependency licenses (cmux-next)
+      # ships the Ghostty license tree. This is a small artifact containing
+      # only the trees, rather than the complete source offer archive.
+      - name: Download the Ghostty dependency license trees (cmux-next)
         id: ghostty_licenses
         if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: cmux-next-source-archive
-          path: nightly-inputs/source-archive
+          name: cmux-next-license-trees
+          path: nightly-inputs/license-trees
 
       - name: Restore unsigned nightly products
         run: |
@@ -1655,7 +1672,7 @@ jobs:
         run: |
           set -euo pipefail
           APP_DIR="build-universal/Build/Products/Release/cmux.app"
-          tree="nightly-inputs/source-archive/ghostty-licenses"
+          tree="nightly-inputs/license-trees/ghostty-licenses"
           python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
             --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
           rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
@@ -1667,7 +1684,7 @@ jobs:
           vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
           vt_name="${vt%% *}" vt_revision="${vt##* }"
           if [[ "$vt_name" != ghostty ]]; then
-            next_tree="nightly-inputs/source-archive/$vt_name-licenses"
+            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
             python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
               --root "$next_tree" --revision "$vt_revision"
             rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
