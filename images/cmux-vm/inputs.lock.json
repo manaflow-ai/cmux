@@ -326,27 +326,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
-      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "53a8847fbe080a56d56f60c1463a0bd3b23316130e35aef998f3688250cf31f8",
-      "size": 66801184,
+      "version": "4b534636000bf6075ecaef6995e29cb93a05e7ae",
+      "url": "https://files.cmux.com/cmux-tui/4b534636000bf6075ecaef6995e29cb93a05e7ae/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "a618ea81ee4787725fa91a5b445caaac4234ff1a8dccc4f02b62b3a799cf5d63",
+      "size": 67193648,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/4b534636000bf6075ecaef6995e29cb93a05e7ae/manifest.json (cmux-tui-artifacts run 37424457494; first published feat-cmux-next build with subscribe-activity/vm-activity-v1: its landing commit d4c9d5e58082 is an ancestor, but that commit's artifacts run 37424051769 was cancelled and published nothing)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "4fd459691fe0b69d69e73d48035983e7ffe7f3fa",
-      "url": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "60c5e7de26ff01e3ed55e6d37c01f1476ab9e7bb05362e0ac142fb12732d8771",
-      "size": 3456568,
+      "version": "4b534636000bf6075ecaef6995e29cb93a05e7ae",
+      "url": "https://files.cmux.com/cmux-tui/4b534636000bf6075ecaef6995e29cb93a05e7ae/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "b0d39608cf7b839a39a10e8a66ffddcf400ab0162c126078ac7cc93c1d388869",
+      "size": 3569112,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/4fd459691fe0b69d69e73d48035983e7ffe7f3fa/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/4b534636000bf6075ecaef6995e29cb93a05e7ae/manifest.json (cmux-tui-artifacts run 37424457494; first published feat-cmux-next build with subscribe-activity/vm-activity-v1: its landing commit d4c9d5e58082 is an ancestor, but that commit's artifacts run 37424051769 was cancelled and published nothing)"
     },
     {
       "name": "coderouter",
