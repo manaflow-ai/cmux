@@ -82,7 +82,7 @@ test("signed out: LinkedIn and X login redirects are reported", async () => {
 // else, publishes nothing: the click presses only the element the commit
 // pinned before its read-back, and the read-back runs again right before
 // the press.
-test("x.post: a change between the read-back and the click posts nothing", async () => {
+test("posts on X: a change between the read-back and the click posts nothing", async () => {
   const atFirstMove = (source) => {
     let done = false;
     return async (method, params, call) => {
