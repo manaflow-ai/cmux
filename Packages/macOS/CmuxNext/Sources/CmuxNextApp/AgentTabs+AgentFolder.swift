@@ -18,7 +18,7 @@ extension AgentTabStore {
             return agentHome(of: resolve(provisional))
         }
         model.onChooseFolder = { [weak self] in
-            guard let self else { return nil }
+            guard let self else { return .cancelled }
             return await chooseAgentFolder(for: resolve(provisional))
         }
     }
@@ -57,15 +57,33 @@ extension AgentTabStore {
 
     /// "Choose Folder…": the native folder sheet on the tab's pane, then the pick saved as the
     /// workspace's agent folder (`workspace.agent_folder.set`, which only this verified app may
-    /// send). Returns the canonical folder; nil when the user cancelled or it could not be saved.
-    func chooseAgentFolder(for key: String) async -> String? {
-        guard let view = views[key], let url = await view.pickFolder() else { return nil }
+    /// send). An older background service is told before the sheet opens.
+    func chooseAgentFolder(for key: String) async -> AgentPaneFolderChoice {
+        guard servesAgentFolder(key) else { return .unavailable(AgentPaneFolderChoice.restartServiceMessage) }
+        guard let view = views[key], let url = await view.pickFolder() else { return .cancelled }
         let picked = url.path
         let folder = await Task.detached { AgentHome.canonicalFolder(picked) }.value
         // The home folder (or above it) would open the whole home folder to the page: refused.
         guard let folder, !AgentHome.isHomeOrAbove(folder), let workspace = workspace(holding: key),
-              let resource = workspace.resourceID else { return nil }
-        guard await saveAgentFolder(key, resource, folder) else { return nil }
-        return folder
+              let resource = workspace.resourceID else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
+        return await persistAgentFolder(key, resource, folder)
+    }
+
+    /// Saves `path` as `workspace`'s agent folder on `daemon`. A daemon without
+    /// `workspace-agent-folder-v1`, or one that answers that it has no such operation (an older
+    /// cmux-tui kept running across an app update), gets no retry: the user restarts it.
+    static func saveAgentFolder(_ path: String, workspace: ResourceID, on daemon: DaemonService) async -> AgentPaneFolderChoice {
+        guard daemon.supports(DaemonCapabilities.shared.workspaceAgentFolder) else {
+            return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
+        }
+        guard let connection = daemon.connection else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
+        do {
+            try await connection.state.setAgentFolder(workspace, path: path)
+            return .chosen(path)
+        } catch {
+            daemon.logger.error("workspace.agent_folder.set: \(String(describing: error), privacy: .public)")
+            if (error as? DaemonError)?.isUnknownOperation == true { return .unavailable(AgentPaneFolderChoice.restartServiceMessage) }
+            return .unavailable(AgentPaneFolderChoice.notSavedMessage)
+        }
     }
 }

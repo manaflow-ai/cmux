@@ -65,17 +65,13 @@ extension AgentTabStore {
             // Every event the daemon sent before the reply: the provisional tab settles there.
             return (created, await connection.eventSequence())
         }
-        tabs.saveAgentFolder = { [weak services] key, workspace, path in
-            guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
-                return false
-            }
-            do {
-                try await connection.state.setAgentFolder(workspace, path: path)
-                return true
-            } catch {
-                services.daemon.logger.error("workspace.agent_folder.set: \(String(describing: error), privacy: .public)")
-                return false
-            }
+        tabs.persistAgentFolder = { [weak services] key, workspace, path in
+            guard let services, let (tab, _) = services.locateTab(key) else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
+            return await AgentTabStore.saveAgentFolder(path, workspace: workspace, on: services.machines.daemon(forTab: tab))
+        }
+        tabs.servesAgentFolder = { [weak services] key in
+            guard let services, let (tab, _) = services.locateTab(key) else { return false }
+            return services.machines.daemon(forTab: tab).supports(DaemonCapabilities.shared.workspaceAgentFolder)
         }
         tabs.moveSelection = { [weak services] provisional, surface in
             for controller in services?.windows.controllers ?? [] {

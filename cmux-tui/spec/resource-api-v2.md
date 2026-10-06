@@ -164,8 +164,8 @@ workspace reopened with a key that already has a row keeps that row. Older
 workspaces that have no row still follow every placement. Clients without the
 capability ignore `top_index` and show every group after the loose
 workspaces.
-`workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE)
-sets the folder new agent chats of the workspace start in, for every client.
+`workspace.agent_folder.set {workspace, path}` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE,
+capability `workspace-agent-folder-v1`) sets the folder new agent chats of the workspace start in, for every client.
 `path` is an absolute path of an existing directory in canonical form (the
 filesystem's own resolution of it is the same string: no symlink, no `.` or
 `..` step, no trailing slash), at most 4096 bytes; `null` clears it, and an

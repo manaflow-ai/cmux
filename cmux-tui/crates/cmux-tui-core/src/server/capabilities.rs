@@ -96,6 +96,7 @@ pub(super) fn advertised_capabilities(
         FRONTEND_BROWSER_OWNER_CAPABILITY,
         crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::agent_folder::CAPABILITY,
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,

@@ -49,8 +49,12 @@ final class AgentTabStore {
         -> (outcome: AgentSessionBindOutcome, sequence: UInt64?) = { _, _, _, _ in (.taken, nil) }
     /// Whether `daemon` is connected now: a disconnected owner refuses changes, nothing queues.
     var reachable: @MainActor (DaemonService) -> Bool = { $0.connection != nil }
-    /// Saves `path` as the agent folder of `workspace` (tab `key`'s); false when it failed.
-    var saveAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> Bool = { _, _, _ in false }
+    /// Saves `path` as the agent folder of `workspace` (tab `key`'s), on the tab's daemon.
+    var persistAgentFolder: @MainActor (_ key: String, _ workspace: ResourceID, _ path: String) async -> AgentPaneFolderChoice = { _, _, _ in
+        .unavailable(AgentPaneFolderChoice.notSavedMessage)
+    }
+    /// Whether tab `key`'s daemon serves `workspace-agent-folder-v1`.
+    var servesAgentFolder: @MainActor (_ key: String) -> Bool = { _ in false }
     /// Tabs closed while the store was still creating them: closed when it answers.
     var pendingCloses: [String: @MainActor (String) -> Void] = [:]
     /// This Mac's name for other Macs that show its tabs ("This chat runs on <name>"): at most

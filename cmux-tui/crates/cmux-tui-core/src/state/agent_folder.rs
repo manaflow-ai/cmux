@@ -22,6 +22,10 @@ use crate::state::store::StateCommit;
 use crate::state::values::{fresh_upserts, upserted_value};
 
 pub(crate) const OPERATION: &str = "workspace.agent_folder.set";
+/// Advertised by `identify` once `workspace.agent_folder.set` and
+/// `extra.agent_folder` exist, so an app can tell an older daemon (one that
+/// kept running across an app update) before it sends the operation.
+pub(crate) const CAPABILITY: &str = "workspace-agent-folder-v1";
 /// The longest path accepted (PATH_MAX on macOS and Linux).
 const MAX_PATH_BYTES: usize = 4096;
 

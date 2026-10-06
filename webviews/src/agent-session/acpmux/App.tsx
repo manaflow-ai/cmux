@@ -904,6 +904,8 @@ function AcpmuxPane() {
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
   /// The host offers Choose Folder… (a new chat in a workspace without a folder).
   const [chooseFolder, setChooseFolder] = useState(false);
+  /// The host's localized refusal of the last Choose Folder… click.
+  const [folderError, setFolderError] = useState<string | undefined>();
   /// What the direct client (or the host) last reported; `snapshot` draws a pending harness or
   /// model switch over it (harnessSwitch.ts).
   const [clientSnapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
@@ -1828,15 +1830,17 @@ function AcpmuxPane() {
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
       {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
         <FolderChoice
-          onChoose={() =>
+          error={folderError}
+          onChoose={() => {
+            setFolderError(undefined);
             void callNative<{ cwd?: string }>("workspace.chooseFolder")
               .then((result) => {
                 if (!result?.cwd) return;
                 setChooseFolder(false);
                 chooseProject(result.cwd);
               })
-              .catch(() => undefined)
-          }
+              .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+          }}
         />
       )}
       <Composer

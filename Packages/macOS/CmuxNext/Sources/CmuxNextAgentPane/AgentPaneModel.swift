@@ -91,8 +91,9 @@ public final class AgentPaneModel {
     /// exists, and where a new chat starts when the workspace has no folder (no other root).
     @ObservationIgnored public var workspaceAgentHome: (@MainActor () -> AgentHomeFill?)?
     /// Shows the native folder sheet for "Choose Folder…" and saves the pick as the workspace's
-    /// agent folder; returns the canonical folder, nil when the user cancelled or it failed.
-    @ObservationIgnored public var onChooseFolder: (@MainActor () async -> String?)?
+    /// agent folder; a refusal carries its localized text (an older background service, a save
+    /// that failed).
+    @ObservationIgnored public var onChooseFolder: (@MainActor () async -> AgentPaneFolderChoice)?
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public private(set) var chosenFolder: String?
@@ -256,9 +257,15 @@ public final class AgentPaneModel {
             guard let onChooseFolder else { return Self.unsupported("workspace.chooseFolder") }
             // The sheet only after a real gesture: it spends the gesture's grant credit.
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
-            guard let folder = await onChooseFolder() else { return AgentPaneReply.success() }
-            chosenFolder = folder
-            return AgentPaneReply.success(["cwd": folder])
+            switch await onChooseFolder() {
+            case .chosen(let folder):
+                chosenFolder = folder
+                return AgentPaneReply.success(["cwd": folder])
+            case .cancelled:
+                return AgentPaneReply.success()
+            case .unavailable(let message):
+                return AgentPaneReply.failure(code: AgentPaneFolderChoice.unavailableCode, message: message)
+            }
         case .browseProject:
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
