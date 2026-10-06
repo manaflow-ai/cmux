@@ -240,6 +240,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let key = stripModel.selectedID?.rawValue
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
+            // Another tab's last page from the launch must not stay under this one.
+            view.clearLaunchImage()
         }
         if let currentTabKey, currentTabKey != key { services.cache.withdraw(currentTabKey, by: self) }
         // May replace a stale surface, displacing the view shown here.
