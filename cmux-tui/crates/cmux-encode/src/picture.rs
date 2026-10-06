@@ -1,5 +1,7 @@
 //! BGRX -> I420 (BT.601, video range), one pass per 2-row band, optionally split across threads.
 
+/// A planar 4:2:0 picture (BT.601, video range), even width and height.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct I420 {
     pub width: usize,
     pub y: Vec<u8>,
