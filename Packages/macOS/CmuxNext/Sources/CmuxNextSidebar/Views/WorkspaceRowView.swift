@@ -105,7 +105,7 @@ final class WorkspaceRowView: SidebarRowView {
         isShowingPlaceholder = ws.rowState == .placeholder
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         let rowIcon = ws.icon ?? .symbol(ws.kind.symbol, tint: nil)
-        icon.configure(icon: ws.icon, fallback: ws.kind.iconName)
+        icon.configure(icon: ws.icon, fallback: ws.kind.iconName, brand: ws.kindBrand)
         iconKind = rowIcon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
