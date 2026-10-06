@@ -766,8 +766,12 @@ public struct BrowserReplFileSystem: Sendable {
             var info = stat()
             if let opened, descriptor >= 0, fstat(descriptor, &info) == 0,
                info.st_mode & S_IFMT == S_IFREG, Int(info.st_size) <= Self.maxReadFileBytes {
+                // The volume id from the same descriptor, so reclaiming the
+                // protection asks the volume that holds this file.
+                var volumeInfo = statfs()
+                let volume = fstatfs(descriptor, &volumeInfo) == 0 ? volumeInfo.f_fsid : nil
                 do {
-                    try opened(BrowserReplFileIdentity(info))
+                    try opened(BrowserReplFileIdentity(info, volume: volume))
                 } catch {
                     close(descriptor)
                     throw error

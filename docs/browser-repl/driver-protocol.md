@@ -598,7 +598,9 @@ native (`BrowserReplBoundary` in the session, and the driver):
   nor a reset frees its files, so a new session after a reset has a new
   quota but the app-wide set keeps them: cmux protects at most 4,096 such
   files at once for all sessions, and past that, once files that are gone
-  are dropped, `secrets.load` fails closed with `invalid` and reads
+  are dropped (a file is gone when its volume, asked by the `statfs`
+  volume id taken when it was protected, names no object with its inode;
+  one whose volume id could not be taken is never dropped), `secrets.load` fails closed with `invalid` and reads
   nothing until protected files are removed. A file
   chooser answer reads its files through `fs`, masked. It must be
   UTF-8 and may not spell a digit with a JSON escape (`\u0030` to

@@ -402,8 +402,10 @@ public struct BrowserReplFileRoot: Sendable, Equatable {
 /// gone under every name (no tab can load it then); not when the session
 /// that loaded it ends, since a value it typed stays masked in text after
 /// that but a capture masks it only on the secret's domains, never in a
-/// `file:` page. Past the bound, once the files that are gone are dropped,
-/// a new protection is refused and `secrets.load` fails with nothing read.
+/// `file:` page. Past the bound, once the files that are gone are dropped
+/// (asked of the volume by the id `fstatfs` gave when the file was
+/// protected; a file whose volume id is unknown is never dropped), a new
+/// protection is refused and `secrets.load` fails with nothing read.
 final class BrowserReplSecretSources: @unchecked Sendable {
     static let shared = BrowserReplSecretSources()
 
@@ -460,32 +462,54 @@ final class BrowserReplSecretSources: @unchecked Sendable {
 }
 
 /// A file by its device and inode, which a rename or another hard link
-/// keeps.
+/// keeps, and the id of the volume that holds it.
 struct BrowserReplFileIdentity: Hashable, Sendable {
     let device: UInt64
     let inode: UInt64
+    /// The volume's `statfs` `f_fsid`, the id `fsgetpath` takes (on some
+    /// volumes not `st_dev`), or nil when it could not be taken. Not part
+    /// of the identity: two identities with the same device and inode are
+    /// the same file.
+    let volume: fsid_t?
 
-    init(_ info: stat) {
+    init(_ info: stat, volume: fsid_t? = nil) {
         device = UInt64(bitPattern: Int64(info.st_dev))
         inode = UInt64(info.st_ino)
+        self.volume = volume
     }
 
-    /// The identity of the file at `path`, links followed, or nil.
+    /// The identity of the file at `path`, links followed, or nil. Its
+    /// volume id is kept only when the file is the same one before and
+    /// after `statfs` read it (no swap of the path in between).
     init?(path: String) {
         var info = stat()
         guard stat(path, &info) == 0 else { return nil }
-        self.init(info)
+        var volumeInfo = statfs()
+        var again = stat()
+        let sameFile = statfs(path, &volumeInfo) == 0 && stat(path, &again) == 0
+            && again.st_dev == info.st_dev && again.st_ino == info.st_ino
+        self.init(info, volume: sameFile ? volumeInfo.f_fsid : nil)
     }
 
-    /// Whether the file may still exist: false only when its volume says
-    /// no object has this identity (`fsgetpath` fails with `ENOENT`, as for
-    /// a file removed under every name). A volume that cannot tell counts
-    /// as yes.
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.device == rhs.device && lhs.inode == rhs.inode
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(device)
+        hasher.combine(inode)
+    }
+
+    /// Whether the file may still exist: false only when its volume, asked
+    /// by the id it reported (``volume``), says no object has this inode
+    /// (`fsgetpath` fails with `ENOENT`, as for a file removed under every
+    /// name). A volume that cannot tell, and a file whose volume id is not
+    /// known, count as yes: a protection is never dropped on a guess.
     var exists: Bool { exists(lookup: Self.volumePath) }
 
     /// ``exists`` with `lookup` asking the volume.
     func exists(lookup: BrowserReplVolumeLookup) -> Bool {
-        let volume = fsid_t(val: (Int32(truncatingIfNeeded: Int64(bitPattern: device)), 0))
+        guard let volume else { return true }
         return lookup(volume, inode) != ENOENT
     }
 
