@@ -516,7 +516,6 @@ impl Inner {
             // A popup's opener's session.configure options, before its first request.
             .chain(self.inherited_override_steps(target_id))
             .chain(self.hidden_viewport_step().filter(|_| !shell))
-            .chain(super::choosers::intercept_step(self.owns_browser && !shell))
             // Out-of-process iframes attach as child sessions of this page.
             .chain([("Target.setAutoAttach", auto_attach)])
             .chain(self.fetch_enable_step())
@@ -524,6 +523,7 @@ impl Inner {
             .collect(),
             SETUP_TIMEOUT,
         );
+        self.intercept_choosers_on(session_id, self.owns_browser && !shell);
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
             let mut state = self.lock();
@@ -565,12 +565,12 @@ impl Inner {
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
-            .chain(super::choosers::intercept_step(self.owns_browser))
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
             SETUP_TIMEOUT,
         );
+        self.intercept_choosers_on(session_id, self.owns_browser);
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
