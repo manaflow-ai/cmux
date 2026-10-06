@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBackdrop.swift
-@@ -92,6 +92,18 @@
+@@ -95,6 +95,18 @@
          CATransaction.commit()
      }
  

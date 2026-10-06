@@ -19,18 +19,21 @@ import AppKit
 final class HeaderBackdropView: NSView {
     struct Params {
         var height: CGFloat = 80
-        /// Fitted on macOS 27 (2026-10-06): least squares of the real header (hover-outgoing
-        /// take 1, frame 30, controls masked) on ours' blur-only stills (tint off, one blur at
-        /// a time, radius 2 to 34 pt) of the same scene: blur 2 pt and 34 pt, gain 0.357
-        /// (w 0.51), base 32.1 levels. Glass-area difference 11.19 -> 6.55 levels; the rest
-        /// is the scene, which lacks the real rows above the visible ones. (macOS 26 fit:
-        /// r1 4, r2 26, w 0.531, gain 0.338, base 23.65.)
-        var r1: CGFloat = 2
+        /// Fitted on macOS 27 (2026-10-06): joint least squares over 4 real frames from 3 scenes
+        /// (hover-outgoing and still-active take 1 frame 30 in the 18:00 scene with Instinct's
+        /// photo row, scene/round2-1800; resize-right-narrow-slow take 8 last frame; resize-bottom
+        /// take 3 first frame; controls masked, nothing else) on ours' blur-only stills of the
+        /// same scenes (tint off, one blur at a time, radius 2 to 34 pt): blur 4 pt and 34 pt,
+        /// gain 0.396 (w 0.543), base 27.3 levels. Glass-area difference per frame 5.7, 6.5, 4.7,
+        /// 4.5 levels (real take to take 0-3.5); the rest is the left 400 pt of the 18:00 scene
+        /// (7.2-7.8), where the rows above the visible ones are not exactly placed.
+        /// (macOS 26 fit: r1 4, r2 26, w 0.531, gain 0.338, base 23.65.)
+        var r1: CGFloat = 4
         var r2: CGFloat = 34
-        var w: CGFloat = 0.51
+        var w: CGFloat = 0.543
         /// Tint: gain = 1 - a, base = a * c.
-        var a: CGFloat = 1 - 0.357
-        var c: CGFloat = 32.08 / 255 / (1 - 0.357)
+        var a: CGFloat = 1 - 0.396
+        var c: CGFloat = 27.34 / 255 / (1 - 0.396)
         var fade: CGFloat = 0
 
         static func fromArguments() -> Params {

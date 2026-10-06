@@ -442,3 +442,73 @@ fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
         .unwrap();
     assert_eq!(cookie, "brepl_store=private", "the kept popup kept its store");
 }
+
+/// A dialog routed to a session is dismissed when that session ends
+/// (driver-protocol.md: its open dialogs are dismissed), so the page is
+/// not left blocked by a dialog no one can answer.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn a_sessions_end_dismisses_its_open_dialog() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let a = headless_session(&source, &browsers, "a");
+    let b_events: Arc<Mutex<Vec<DriverEvent>>> = Arc::default();
+    let b = {
+        let events = Arc::clone(&b_events);
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: "b".into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        cmux_browser_host::headless_source::HeadlessSession::new(
+            source,
+            &browsers,
+            Arc::from(AGENT),
+            Arc::new(move |event| events.lock().unwrap().push(event)),
+            lease,
+        )
+        .unwrap()
+    };
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/confirm")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    a.call("tab.keep", &json!({"targetId": target})).unwrap();
+    b.call("tab.handleEvents", &json!({"targetId": target, "events": ["dialog"]})).unwrap();
+    a.call(
+        "frame.evaluate",
+        &json!({"targetId": target, "world": "agent",
+            "source": "() => { setTimeout(() => { document.getElementById('r').textContent = String(confirm('stay?')); }, 50); return 1; }"}),
+    )
+    .unwrap();
+    wait_event(&b_events, "dialog.opened");
+    b.end_session();
+    drop(b);
+    let read = || {
+        a.call(
+            "frame.evaluate",
+            &json!({"targetId": target, "world": "agent",
+                "source": "() => document.getElementById('r').textContent"}),
+        )
+        .map(|value| value.as_str().unwrap_or("").to_owned())
+        .unwrap_or_default()
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while read() != "false" {
+        assert!(Instant::now() < deadline, "b's end left its dialog open: {:?}", read());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}

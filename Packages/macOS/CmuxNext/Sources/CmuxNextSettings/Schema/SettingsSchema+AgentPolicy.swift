@@ -68,6 +68,7 @@ extension SettingsSchema {
         "appearance.backgroundBlur",
         "appearance.background",
         "appearance.experimentalControls",
+        "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
         "appearance.saturation",

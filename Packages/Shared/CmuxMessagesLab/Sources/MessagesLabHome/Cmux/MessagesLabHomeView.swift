@@ -84,6 +84,8 @@ public final class MessagesLabHomeView: NSView {
             controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
             controller.host.paneHeader.light = theme.active.isLight
         }
+        // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
+        if let demo = controller.demo { demo.setLightAppearance(theme.active.isLight) } else { Fixture.lightAppearance = theme.active.isLight }
         guard Fixture.theme != theme else { return }
         Fixture.theme = theme
         RowBitmaps.shared.removeAll()

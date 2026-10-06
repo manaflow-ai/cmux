@@ -637,7 +637,6 @@ final class DefaultResponder: Responder {
         // Two or more questions in one turn: one answer each (the earlier ones
         // end up threaded, because a newer question follows them).
         if questions.count >= 2 {
-            // cmux: `self.` (Swift 6.2, Xcode 26.6, resolves `text` to the local below).
             return questions.prefix(3).map { q in answer(q, beats: questionBeats(self.text(of: q))) }
         }
         let all = meaningful.flatMap(\.parts)

@@ -99,7 +99,7 @@ nonisolated extension ActionSurfaceCatalog {
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
             "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "column.cycleWidth",
+            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",
