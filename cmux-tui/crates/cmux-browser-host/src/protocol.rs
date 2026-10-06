@@ -31,6 +31,10 @@ pub enum ErrorCode {
     /// The host stopped the call (a fetch whose cell timed out, or whose
     /// session ended): classic main's `cancelled`.
     Cancelled,
+    /// A code this build does not know (a newer peer's): decoding never
+    /// fails on one, so adding a code breaks no older reader of this enum.
+    #[serde(other)]
+    Unknown,
 }
 
 impl ErrorCode {
@@ -46,6 +50,7 @@ impl ErrorCode {
             ErrorCode::Forbidden => "forbidden",
             ErrorCode::Ambiguous => "ambiguous",
             ErrorCode::Cancelled => "cancelled",
+            ErrorCode::Unknown => "unknown",
         }
     }
 }
@@ -81,6 +86,10 @@ impl DriverError {
 
     pub fn closed(message: impl Into<String>) -> Self {
         DriverError::new(ErrorCode::Closed, message)
+    }
+
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        DriverError::new(ErrorCode::Cancelled, message)
     }
 
     pub fn timeout(message: impl Into<String>) -> Self {
