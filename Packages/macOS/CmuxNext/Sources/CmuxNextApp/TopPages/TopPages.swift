@@ -24,6 +24,23 @@ enum TopPages {
         return controller.topPages.key(for: route)
     }
 
+    /// Actions on an existing tab (Close Tab, Cmd-W) refuse while the active
+    /// window shows a top page and the run names no tab: pages have no tabs
+    /// and do not close (TOP-SECTION-ITEMS-ARE-PAGES Q1). The refusal makes
+    /// `perform` report the run as not ran, so debug.key and menus agree.
+    static func installTabTargetReasons(_ services: AppServices) {
+        let registry = services.registry
+        for descriptor in registry.descriptors where descriptor.targets == [.tab] {
+            let previous = registry.action(for: descriptor.id)?.targetUnavailableReason
+            ActionTargetReasons.set(descriptor.id, in: registry) { [weak services] invocation in
+                if let reason = previous?(invocation) { return reason }
+                guard invocation.target == nil, invocation["tab"] == nil,
+                      services?.windows.active?.shownTopPage != nil else { return nil }
+                return RefusalStrings.topPageHasNoTabs
+            }
+        }
+    }
+
     /// The provider of internal page `id`: a registered one, else an app's
     /// page registered on first use (CodeRouter, `app:<id>` pages).
     static func provider(_ id: InternalPageID, services: AppServices) -> (any InternalPageProvider)? {
