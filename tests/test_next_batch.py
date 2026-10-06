@@ -271,6 +271,7 @@ class LandingRetry(unittest.TestCase):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r")
         controller.run_url = "https://example.test/run/1"
+        controller.writer = nb.GitHub("o/r")
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
         calls = []
 
@@ -289,6 +290,7 @@ class LandingRetry(unittest.TestCase):
         controller = nb.Controller.__new__(nb.Controller)
         controller.args = Namespace(repo="o/r")
         controller.run_url = "u"
+        controller.writer = nb.GitHub("o/r")
         validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="c" * 40))
         refusal = subprocess.CompletedProcess([], 1, "", "not green: GitHub refused to merge o/r#7\n")
         with mock.patch.object(nb.subprocess, "run", return_value=refusal):

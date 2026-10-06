@@ -619,7 +619,10 @@ class Controller:
         self.args = args
         self.gh = GitHub(args.repo)
         self.server = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
-        self.run_url = f"{self.server}/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '0')}"
+        self.run_url = os.environ.get("NEXT_BATCH_RUN_URL") or \
+            f"{self.server}/{args.repo}/actions/runs/{os.environ.get('GITHUB_RUN_ID', '0')}"
+        # Pushes and merges use the App token when the workflow minted one.
+        self.writer = GitHub(args.repo, token_env="PUSH_TOKEN") if os.environ.get("PUSH_TOKEN") else self.gh
         self.batch_id = f"{os.environ.get('GITHUB_RUN_ID', 'local')}-{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}"
         self.worktree = Path(args.worktree)
         self.validations: list[Validation] = []
@@ -632,7 +635,7 @@ class Controller:
     # process only, never into .git/config, which the generators could read.
     def git(self, *args: str, cwd: Path | None = None) -> str:
         auth = []
-        if token := os.environ.get("GH_TOKEN"):
+        if token := os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN"):
             basic = __import__("base64").b64encode(f"x-access-token:{token}".encode()).decode()
             auth = ["-c", f"http.{self.server}/.extraheader=AUTHORIZATION: basic {basic}"]
         completed = subprocess.run(["git", *auth, *args], cwd=cwd or TOOLS_ROOT, capture_output=True, text=True)
@@ -656,12 +659,12 @@ class Controller:
         only the stacked PRs' changes.
         """
         if self.base_sha:
-            exists = self.gh.gh("api", f"repos/{self.args.repo}/git/ref/heads/{ref}", check=False).returncode == 0
+            exists = self.writer.gh("api", f"repos/{self.args.repo}/git/ref/heads/{ref}", check=False).returncode == 0
             if exists:
-                self.gh.api(f"repos/{self.args.repo}/git/refs/heads/{ref}", method="PATCH",
+                self.writer.api(f"repos/{self.args.repo}/git/refs/heads/{ref}", method="PATCH",
                             body={"sha": self.base_sha, "force": True})
             else:
-                self.gh.api(f"repos/{self.args.repo}/git/refs", method="POST",
+                self.writer.api(f"repos/{self.args.repo}/git/refs", method="POST",
                             body={"ref": f"refs/heads/{ref}", "sha": self.base_sha})
         self.git("push", "--quiet", "--force", "origin", f"{sha}:refs/heads/{ref}")
 
@@ -818,20 +821,16 @@ class Controller:
         lines = "\n".join(f"- `{item['path']}`: {item['reason']}" if item["path"] else f"- {item['reason']}"
                           for item in blocking)
         self.comment_once(pr, "conflict", (
-            f"The cmux-next batch queue left this PR out of [this batch]({self.run_url}): "
-            f"it conflicts with feat-cmux-next or with a PR ahead of it in the batch.\n\n{lines}\n\n"
-            "Merge feat-cmux-next into this branch and resolve the source conflict; "
-            "the next batch picks up the new head."))
+            f"Batch queue: dropped from [this batch]({self.run_url}), conflict.\n\n{lines}\n\n"
+            "Next: merge feat-cmux-next, resolve, push."))
 
     def report_culprit(self, pr: PullRequest, red: Validation, prefix: Validation | None) -> None:
         evidence = prefix or red
         failing = "\n".join(f"- {item}" for item in evidence.failures())
         runs = f"[heavy tier]({evidence.heavy_url})" if evidence.heavy_url else "the stack"
         self.comment_once(pr, "culprit", (
-            f"The cmux-next batch queue dropped this PR from [this batch]({self.run_url}). "
-            f"Stacked on feat-cmux-next with the PRs ahead of it, it turns {runs} red, "
-            "and the stack without it is green:\n\n"
-            f"{failing}\n\nFix it and push; the next batch picks up the new head."))
+            f"Batch queue: dropped from [this batch]({self.run_url}), turns {runs} red.\n\n"
+            f"{failing}\n\nNext: fix, push."))
 
     # -- landing
     def merge_green(self) -> Path:
@@ -861,23 +860,22 @@ class Controller:
                 landed.append((pr, "validated; landing disabled for this run"))
                 continue
             self.comment_once(pr, "landing", (
-                f"Landing through the cmux-next batch queue: [batch run]({self.run_url}), "
-                f"stack `{validation.stack.head[:12]}` on `{validation.stack.base[:12]}`, "
-                f"[heavy tier]({validation.heavy_url}), fleet build: {validation.build.get('link', 'n/a')}."))
+                f"Batch queue: landing. [Batch]({self.run_url}), stack `{validation.stack.head[:12]}` "
+                f"on `{validation.stack.base[:12]}`, [heavy tier]({validation.heavy_url}), "
+                f"build: {validation.build.get('link', 'n/a')}."))
             outcome = self.merge_one(helper, pr, validation)
             landed.append((pr, outcome))
             if "GitHub refused to merge" in outcome:
                 self.comment_once(pr, "refused", (
-                    "This PR passed [the batch]({run}), but GitHub could not merge it after the PRs ahead of it "
-                    "landed, usually because both changed a generated file. Merge feat-cmux-next into the "
-                    "branch, run `scripts/cmux-next/regenerate-web-bundles.sh` if the agent pane or pages "
-                    "conflict, and push; the next batch lands it.").format(run=self.run_url))
+                    "Batch queue: [batch]({run}) green, GitHub merge refused.\n\n"
+                    "Next: merge feat-cmux-next, run `scripts/cmux-next/regenerate-web-bundles.sh`, push."
+                ).format(run=self.run_url))
             log(f"#{pr.number}: {outcome}")
         return landed
 
     def merge_one(self, helper: Path, pr: PullRequest, validation: Validation) -> str:
         ref = f"{self.args.repo}#{pr.number}"
-        env = {**os.environ, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        env = {**self.writer.env, "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
         reason = (f"cmux-next batch {self.run_url} validated this exact head in stack "
                   f"{validation.stack.head[:12]}: every cmux-next tier and the fleet production build passed")
         deadline = time.monotonic() + 30 * 60

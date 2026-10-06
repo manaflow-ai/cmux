@@ -150,9 +150,25 @@ jobs:
           repositories: cmuxterm-hq
           permission-issues: write
 
+      # Pushing a stack branch and merging need contents and workflows write:
+      # GitHub refuses the job token any branch based on feat-cmux-next,
+      # whose workflows differ from main's. The App's merges also start the
+      # base's push workflows, which the job token's would not.
+      - name: Mint the push and merge token
+        id: push-token
+        if: ${{ vars.CMUX_NEXT_BATCH_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_NEXT_BATCH_APP_ID }}
+          private-key: ${{ secrets.CMUX_NEXT_BATCH_APP_KEY }}
+          permission-contents: write
+          permission-workflows: write
+          permission-pull-requests: write
+
       - name: Run the batch
         env:
           GH_TOKEN: ${{ github.token }}
+          PUSH_TOKEN: ${{ steps.push-token.outputs.token }}
           STICKY_TOKEN: ${{ steps.sticky-token.outputs.token }}
           CMUX_NEXT_BATCH_STICKY: ${{ vars.CMUX_NEXT_BATCH_STICKY }}
           CMUX_NEXT_BATCH_AUTHORS: ${{ vars.CMUX_NEXT_BATCH_AUTHORS }}
