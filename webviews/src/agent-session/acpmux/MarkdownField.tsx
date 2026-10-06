@@ -119,14 +119,26 @@ const bareLinkText = (node: MdNode) => {
   return [value, `http://${value}`, `mailto:${value}`].includes(node.url) ? value : undefined;
 };
 
-/** Text, and links GFM made from bare URLs, as raw nodes: the serializer writes them unescaped. */
+/** Text, and links GFM made from bare URLs, as raw nodes: the serializer writes them unescaped.
+ * A line break (a pasted or Shift-Return newline inside a paragraph) is the newline it was, not
+ * markdown's `\\` hard break. */
 function asWritten(node: MdNode): MdNode {
   if (node.type === "text") return { type: "html", value: node.value ?? "" };
+  if (node.type === "break") return { type: "html", value: "\n" };
   if (node.type === "link") {
     const bare = bareLinkText(node);
     if (bare !== undefined) return { type: "html", value: bare };
   }
-  return node.children ? { ...node, children: node.children.map(asWritten) } : node;
+  if (!node.children) return node;
+  // One raw node per run: the serializer turns a newline before a raw node into a space.
+  const children: MdNode[] = [];
+  for (const child of node.children.map(asWritten)) {
+    const last = children.at(-1);
+    if (child.type === "html" && last?.type === "html")
+      children[children.length - 1] = { ...last, value: `${last.value}${child.value}` };
+    else children.push(child);
+  }
+  return { ...node, children };
 }
 
 /** The field's markdown with its text as the user typed it. The field's value escapes text
