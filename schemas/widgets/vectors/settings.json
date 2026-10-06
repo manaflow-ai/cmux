@@ -1,0 +1,54 @@
+{
+  "description": "agentPane.widgets.* keys (settings.schema.json). cmux.json diagnostics accept the valid sets and report the invalid ones.",
+  "cases": [
+    {
+      "name": "no key set (the schema default applies)",
+      "schema": "settings.schema.json",
+      "valid": true,
+      "value": {}
+    },
+    {
+      "name": "code widgets on",
+      "schema": "settings.schema.json",
+      "valid": true,
+      "value": {
+        "agentPane.widgets.code": "on"
+      }
+    },
+    {
+      "name": "code widgets off",
+      "schema": "settings.schema.json",
+      "valid": true,
+      "value": {
+        "agentPane.widgets.code": "off"
+      }
+    },
+    {
+      "name": "a boolean is not a value",
+      "schema": "settings.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "agentPane.widgets.code": true
+      }
+    },
+    {
+      "name": "an unknown mode",
+      "schema": "settings.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "agentPane.widgets.code": "auto"
+      }
+    },
+    {
+      "name": "an unknown widget key",
+      "schema": "settings.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "agentPane.widgets.network": "on"
+      }
+    }
+  ]
+}

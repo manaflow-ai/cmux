@@ -1,0 +1,2867 @@
+{
+  "description": "dataPatch semantics (record.schema.json#/$defs/dataPatch). Apply `patch` to `before`: the result equals `after`, or the patch fails with `error` (the index of the failing operation and the reason) and the data does not change. With dataSchema, the result is also checked against that schema. Same $fill rule as record.json.",
+  "cases": [
+    {
+      "name": "set creates an object key",
+      "before": {
+        "a": {}
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/a/b",
+          "value": 1
+        }
+      ],
+      "after": {
+        "a": {
+          "b": 1
+        }
+      }
+    },
+    {
+      "name": "set replaces an object key",
+      "before": {
+        "a": 1
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/a",
+          "value": [
+            1,
+            2
+          ]
+        }
+      ],
+      "after": {
+        "a": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "name": "set replaces an array item",
+      "before": {
+        "rows": [
+          1,
+          2,
+          3
+        ]
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/rows/1",
+          "value": 9
+        }
+      ],
+      "after": {
+        "rows": [
+          1,
+          9,
+          3
+        ]
+      }
+    },
+    {
+      "name": "set with escaped tokens",
+      "before": {
+        "a/b": {
+          "c~d": 0
+        }
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/a~1b/c~0d",
+          "value": 1
+        }
+      ],
+      "after": {
+        "a/b": {
+          "c~d": 1
+        }
+      }
+    },
+    {
+      "name": "set an empty-string key",
+      "before": {},
+      "patch": [
+        {
+          "op": "set",
+          "path": "/",
+          "value": 1
+        }
+      ],
+      "after": {
+        "": 1
+      }
+    },
+    {
+      "name": "set __proto__ is an ordinary key",
+      "before": {},
+      "patch": [
+        {
+          "op": "set",
+          "path": "/__proto__",
+          "value": {
+            "polluted": true
+          }
+        }
+      ],
+      "after": {
+        "__proto__": {
+          "polluted": true
+        }
+      }
+    },
+    {
+      "name": "set a numeric key in an object",
+      "before": {
+        "m": {}
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/m/0",
+          "value": "x"
+        }
+      ],
+      "after": {
+        "m": {
+          "0": "x"
+        }
+      }
+    },
+    {
+      "name": "set never grows an array",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/rows/1",
+          "value": 2
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "index_out_of_range"
+      }
+    },
+    {
+      "name": "set with a leading-zero index",
+      "before": {
+        "rows": [
+          1,
+          2
+        ]
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/rows/01",
+          "value": 2
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "bad_index"
+      }
+    },
+    {
+      "name": "set with - as an index",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/rows/-",
+          "value": 2
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "bad_index"
+      }
+    },
+    {
+      "name": "set under a missing parent",
+      "before": {
+        "a": {}
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/a/b/c",
+          "value": 1
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "parent_missing"
+      }
+    },
+    {
+      "name": "set under a scalar",
+      "before": {
+        "a": 1
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/a/b",
+          "value": 1
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "not_container"
+      }
+    },
+    {
+      "name": "append adds in order",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            2,
+            3
+          ]
+        }
+      ],
+      "after": {
+        "rows": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "append with keepLast drops from the front",
+      "before": {
+        "rows": [
+          1,
+          2,
+          3
+        ]
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            4,
+            5
+          ],
+          "keepLast": 3
+        }
+      ],
+      "after": {
+        "rows": [
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "name": "keepLast larger than the length keeps all",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            2
+          ],
+          "keepLast": 10
+        }
+      ],
+      "after": {
+        "rows": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "name": "keepLast smaller than the values",
+      "before": {
+        "rows": []
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            1,
+            2,
+            3
+          ],
+          "keepLast": 2
+        }
+      ],
+      "after": {
+        "rows": [
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "append to a missing array",
+      "before": {},
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            1
+          ]
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "target_missing"
+      }
+    },
+    {
+      "name": "append to an object",
+      "before": {
+        "rows": {}
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            1
+          ]
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "not_array"
+      }
+    },
+    {
+      "name": "remove an object key",
+      "before": {
+        "a": 1,
+        "b": 2
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/a"
+        }
+      ],
+      "after": {
+        "b": 2
+      }
+    },
+    {
+      "name": "remove an array item moves later items down",
+      "before": {
+        "rows": [
+          1,
+          2,
+          3
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows/0"
+        }
+      ],
+      "after": {
+        "rows": [
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "remove a missing key",
+      "before": {
+        "a": 1
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/b"
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "target_missing"
+      }
+    },
+    {
+      "name": "remove past the end",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows/1"
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "target_missing"
+      }
+    },
+    {
+      "name": "remove with a bad index",
+      "before": {
+        "rows": [
+          1
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows/x"
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "bad_index"
+      }
+    },
+    {
+      "name": "remove where removes every match",
+      "before": {
+        "rows": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "b"
+          },
+          {
+            "id": "a",
+            "v": 1
+          },
+          7,
+          {
+            "other": "a"
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "id",
+            "equals": "a"
+          }
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "id": "b"
+          },
+          7,
+          {
+            "other": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove where with no match is not an error",
+      "before": {
+        "rows": [
+          {
+            "id": "a"
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "id",
+            "equals": "z"
+          }
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "id": "a"
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove where uses JSON number equality",
+      "before": {
+        "rows": [
+          {
+            "n": 1
+          },
+          {
+            "n": 1.5
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "n",
+            "equals": 1
+          }
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "n": 1.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove where does not match a string to a number",
+      "before": {
+        "rows": [
+          {
+            "n": 1
+          },
+          {
+            "n": "1"
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "n",
+            "equals": "1"
+          }
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "n": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove where matches null",
+      "before": {
+        "rows": [
+          {
+            "n": null
+          },
+          {
+            "m": 1
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "n",
+            "equals": null
+          }
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "m": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove where on an object",
+      "before": {
+        "rows": {}
+      },
+      "patch": [
+        {
+          "op": "remove",
+          "path": "/rows",
+          "where": {
+            "field": "id",
+            "equals": 1
+          }
+        }
+      ],
+      "error": {
+        "op": 0,
+        "reason": "not_array"
+      }
+    },
+    {
+      "name": "operations apply in order",
+      "before": {
+        "rows": []
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "id": 1
+            }
+          ]
+        },
+        {
+          "op": "set",
+          "path": "/rows/0/id",
+          "value": 2
+        },
+        {
+          "op": "set",
+          "path": "/total",
+          "value": 1
+        }
+      ],
+      "after": {
+        "rows": [
+          {
+            "id": 2
+          }
+        ],
+        "total": 1
+      }
+    },
+    {
+      "name": "all or nothing: a later failure keeps the old data",
+      "before": {
+        "rows": [
+          1
+        ],
+        "total": 1
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/total",
+          "value": 2
+        },
+        {
+          "op": "append",
+          "path": "/missing",
+          "values": [
+            1
+          ]
+        }
+      ],
+      "error": {
+        "op": 1,
+        "reason": "target_missing"
+      }
+    },
+    {
+      "name": "the result must still match the kind",
+      "before": {
+        "rows": [
+          {
+            "t": 1
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "set",
+          "path": "/rows/0/t",
+          "value": {
+            "nested": true
+          }
+        }
+      ],
+      "dataSchema": "kinds.schema.json#/$defs/rowsData",
+      "error": {
+        "op": 0,
+        "reason": "invalid_result"
+      }
+    },
+    {
+      "name": "a valid result for the kind",
+      "before": {
+        "rows": [
+          {
+            "t": 1
+          }
+        ]
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "t": 2
+            }
+          ]
+        }
+      ],
+      "dataSchema": "kinds.schema.json#/$defs/rowsData",
+      "after": {
+        "rows": [
+          {
+            "t": 1
+          },
+          {
+            "t": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "the result must stay under the size cap",
+      "before": {
+        "rows": []
+      },
+      "patch": [
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 0,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 1,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 2,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 3,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 4,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 5,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 6,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 7,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 8,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 9,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 10,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 11,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 12,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 13,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 14,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 15,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 16,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 17,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 18,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 19,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 20,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 21,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 22,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 23,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 24,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 25,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 26,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 27,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 28,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 29,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 30,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 31,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 32,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 33,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 34,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 35,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 36,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 37,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 38,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 39,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 40,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 41,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 42,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 43,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 44,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 45,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 46,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 47,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 48,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 49,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 50,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 51,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 52,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 53,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 54,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 55,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 56,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 57,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 58,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 59,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 60,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 61,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 62,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 63,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 64,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 65,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 66,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 67,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 68,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 69,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 70,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 71,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 72,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 73,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 74,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 75,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 76,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 77,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 78,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 79,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 80,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 81,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 82,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 83,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 84,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 85,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 86,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 87,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 88,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 89,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 90,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 91,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 92,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 93,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 94,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 95,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 96,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 97,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 98,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 99,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 100,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 101,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 102,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 103,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 104,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 105,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 106,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 107,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 108,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 109,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 110,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 111,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 112,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 113,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 114,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 115,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 116,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 117,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 118,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 119,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 120,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 121,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 122,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 123,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 124,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 125,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 126,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 127,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 128,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 129,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 130,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 131,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 132,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 133,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 134,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 135,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 136,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 137,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 138,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        {
+          "op": "append",
+          "path": "/rows",
+          "values": [
+            {
+              "n": 139,
+              "s": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "error": {
+        "op": 139,
+        "reason": "too_large"
+      }
+    }
+  ]
+}

@@ -1,0 +1,581 @@
+{
+  "description": "Render policy. render: native = the pane's own renderer (built-in cards and data widgets, with code widgets on or off); sandbox = the code widget runs in its sandbox frame; source = title, Show source and Open as file only (code widgets off, or quarantined). capabilities: the widget may request capabilities; only a running code widget in the local app pane. `code` is the resolved agentPane.widgets.code value; its default is the `default` in settings.schema.json.",
+  "cases": [
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "on",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.edited-files",
+        "code": "off",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "on",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.chart",
+        "code": "off",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "native",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "sandbox",
+        "capabilities": true
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "sandbox",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "sandbox",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "sandbox",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "on",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "local",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "local",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "paired",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "cloud",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "web",
+        "quarantined": false
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    },
+    {
+      "input": {
+        "kind": "cmux.html",
+        "code": "off",
+        "pane": "web",
+        "quarantined": true
+      },
+      "expect": {
+        "render": "source",
+        "capabilities": false
+      }
+    }
+  ]
+}

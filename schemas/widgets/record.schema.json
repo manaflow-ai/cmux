@@ -1,0 +1,286 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/record.schema.json",
+  "title": "cmux.widget/1",
+  "description": "One thread widget record: the `msg` of an acpmux event-log record of kind `widget` (dir mux). The pane folds records by id to the latest rev. Fold rules: the first record of an id is op show with rev 1; each later record has rev = previous rev + 1 and the same kind; nothing follows op remove; an id is never reused in a session. A record that breaks a fold rule is dropped by readers. Writers: `agent` (an agent tool call or a reply fence), `host` (built-in cards), `pane` (annotations through _acpmux/widget_annotate). A record carries data and presentation only. It never carries a capability grant: capabilities are separate gesture-gated requests (bridge.schema.json, cmux/cap/request).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "rev", "op", "by", "kind"],
+  "properties": {
+    "schema": { "const": "cmux.widget/1" },
+    "id": { "$ref": "#/$defs/widgetId" },
+    "rev": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+    "op": { "enum": ["show", "update", "remove"] },
+    "by": { "enum": ["agent", "host", "pane"] },
+    "source": {
+      "description": "How an agent record arrived: an MCP tool call or a fenced block in the reply. Host records use host.",
+      "enum": ["mcp", "fence", "host"]
+    },
+    "kind": { "$ref": "kinds.schema.json#/$defs/kind" },
+    "turnId": {
+      "description": "The turn that was running at op show. The widget anchors there in the transcript.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$"
+    },
+    "title": { "$ref": "#/$defs/title" },
+    "spec": { "type": "object" },
+    "data": { "type": "object" },
+    "dataPatch": { "$ref": "#/$defs/dataPatch" },
+    "height": { "$ref": "#/$defs/height" },
+    "state": {
+      "description": "Widget-owned JSON, at most limits.record.stateMaxBytes as compact JSON. Written by the pane only (from cmux/state/set or the T1 renderer's selection and zoom)."
+    },
+    "flags": { "$ref": "#/$defs/flags" }
+  },
+  "allOf": [
+    { "$ref": "#/$defs/tierRules" },
+    { "$ref": "#/$defs/opRules" },
+    { "$ref": "#/$defs/kindRules" }
+  ],
+  "$defs": {
+    "widgetId": {
+      "description": "Unique per session. The agent chooses it, or acpmux mints one.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "title": {
+      "description": "Plain text, the widget's accessible name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "heightHint": { "type": "integer", "minimum": 40, "maximum": 1600 },
+    "height": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "hint": { "$ref": "#/$defs/heightHint" },
+        "measured": {
+          "description": "Pane-measured heights: [width bucket in px (a multiple of limits.record.heightBucketPx), height in px]. Written by the pane only.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              { "type": "integer", "minimum": 64, "maximum": 8192, "multipleOf": 64 },
+              { "type": "integer", "minimum": 1, "maximum": 20000 }
+            ],
+            "items": false,
+            "minItems": 2
+          }
+        }
+      }
+    },
+    "flags": {
+      "description": "Pane-owned flags. null clears a flag (for example quarantined after the user clicks Run again).",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "quarantined": {
+          "anyOf": [{ "enum": ["hang", "crash", "first_paint", "rate", "digest"] }, { "type": "null" }]
+        },
+        "collapsed": { "anyOf": [{ "type": "boolean" }, { "type": "null" }] }
+      }
+    },
+    "jsonPointer": {
+      "description": "An RFC 6901 JSON Pointer into the widget's data, with at least one reference token.",
+      "type": "string",
+      "maxLength": 512,
+      "pattern": "^(/([^~/]|~[01])*)+$"
+    },
+    "dataPatch": {
+      "description": "An ordered list of patch operations on the widget's current data. Exact rules: (1) The operations apply in order to a copy of the current data. If one fails, the whole patch fails, the data and rev do not change, and the writer returns patch_failed with the operation index and a reason. (2) A pointer resolves by RFC 6901 (~1 is /, ~0 is ~). An array index token is 0 or a positive decimal integer with no leading zero; `-` is not an index. (3) set: the parent of the path must resolve to an object or an array (reason parent_missing, not_container). In an object the key is created or replaced. In an array the index must be below the length (reason index_out_of_range, bad_index); set never grows an array. (4) append: the path must resolve to an array (reason target_missing, not_array). The values are appended in order. With keepLast, items are then removed from the front until the length is at most keepLast. (5) remove without where: the path must resolve (reason target_missing). An object key is deleted; an array item is removed and later items move down. (6) remove with where: the path must resolve to an array (reason target_missing, not_array). Every item that is an object and has an own field `field` whose value equals `equals` (JSON equality) is removed. No match is not an error. (7) After the last operation the data must still match the kind's data schema and the size cap (reason invalid_result, too_large). (8) A key such as __proto__ is an ordinary key.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "path", "value"],
+            "properties": { "op": { "const": "set" }, "path": { "$ref": "#/$defs/jsonPointer" }, "value": true }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "path", "values"],
+            "properties": {
+              "op": { "const": "append" },
+              "path": { "$ref": "#/$defs/jsonPointer" },
+              "values": { "type": "array", "minItems": 1, "maxItems": 1000 },
+              "keepLast": { "type": "integer", "minimum": 1, "maximum": 100000 }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["op", "path"],
+            "properties": {
+              "op": { "const": "remove" },
+              "path": { "$ref": "#/$defs/jsonPointer" },
+              "where": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "equals"],
+                "properties": {
+                  "field": { "$ref": "kinds.schema.json#/$defs/fieldName" },
+                  "equals": { "$ref": "kinds.schema.json#/$defs/scalar" }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "tierRules": {
+      "description": "T0 records come from the host (or the pane's annotations). T1 and T2 records come from an agent (or the pane's annotations), never from the host.",
+      "if": { "properties": { "kind": { "$ref": "kinds.schema.json#/$defs/builtinKind" } } },
+      "then": {
+        "properties": { "by": { "enum": ["host", "pane"] }, "source": { "const": "host" } }
+      },
+      "else": {
+        "properties": { "by": { "enum": ["agent", "pane"] }, "source": { "enum": ["mcp", "fence"] } }
+      }
+    },
+    "opRules": {
+      "allOf": [
+        {
+          "if": { "properties": { "op": { "const": "show" } } },
+          "then": {
+            "required": ["source", "turnId", "title", "spec"],
+            "properties": { "rev": { "const": 1 }, "by": { "enum": ["agent", "host"] } },
+            "not": { "anyOf": [{ "required": ["dataPatch"] }, { "required": ["state"] }, { "required": ["flags"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "update" }, "by": { "enum": ["agent", "host"] } } },
+          "then": {
+            "required": ["source"],
+            "anyOf": [
+              { "required": ["title"] },
+              { "required": ["spec"] },
+              { "required": ["data"] },
+              { "required": ["dataPatch"] },
+              { "required": ["height"] }
+            ],
+            "properties": {
+              "rev": { "minimum": 2 },
+              "height": { "properties": { "measured": false } }
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["data", "dataPatch"] },
+                { "required": ["state"] },
+                { "required": ["flags"] },
+                { "required": ["turnId"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "by": { "const": "pane" } } },
+          "then": {
+            "properties": {
+              "op": { "const": "update" },
+              "rev": { "minimum": 2 },
+              "height": { "required": ["measured"], "properties": { "hint": false } }
+            },
+            "anyOf": [{ "required": ["height"] }, { "required": ["state"] }, { "required": ["flags"] }],
+            "not": {
+              "anyOf": [
+                { "required": ["source"] },
+                { "required": ["turnId"] },
+                { "required": ["title"] },
+                { "required": ["spec"] },
+                { "required": ["data"] },
+                { "required": ["dataPatch"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": { "properties": { "op": { "const": "remove" } } },
+          "then": {
+            "required": ["source"],
+            "properties": { "rev": { "minimum": 2 }, "by": { "enum": ["agent", "host"] } },
+            "not": {
+              "anyOf": [
+                { "required": ["turnId"] },
+                { "required": ["title"] },
+                { "required": ["spec"] },
+                { "required": ["data"] },
+                { "required": ["dataPatch"] },
+                { "required": ["height"] },
+                { "required": ["state"] },
+                { "required": ["flags"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "kindRules": {
+      "description": "The spec and data shape of each kind (kinds.schema.json). A data block exists only for kinds that have one.",
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "cmux.chart" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/chartSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/rowsData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.table" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/tableSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/rowsData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.metric" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/metricSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/metricData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.diagram" } } },
+          "then": {
+            "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/diagramSpec" } },
+            "not": { "anyOf": [{ "required": ["data"] }, { "required": ["dataPatch"] }] }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.tree" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/treeSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/treeData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.timeline" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/timelineSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/timelineData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.html" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/codeSpecRecord" }, "data": { "$ref": "kinds.schema.json#/$defs/codeData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "$ref": "kinds.schema.json#/$defs/builtinKind" } } },
+          "then": { "not": { "anyOf": [{ "required": ["data"] }, { "required": ["dataPatch"] }] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.edited-files" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/editedFilesSpec" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.web-preview" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/webPreviewSpec" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.summary" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/summarySpec" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.link" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/linkSpec" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.path" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/pathSpec" } } }
+        }
+      ]
+    }
+  }
+}

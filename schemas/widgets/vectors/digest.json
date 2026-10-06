@@ -1,0 +1,29 @@
+{
+  "description": "cmux.html digest: spec.sha256 is the lowercase hex SHA-256 of the UTF-8 bytes of spec.html. A reader runs the document only when the digest matches.",
+  "cases": [
+    {
+      "name": "the digest of the example document",
+      "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+      "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed",
+      "matches": true
+    },
+    {
+      "name": "non-ASCII text hashes as UTF-8",
+      "html": "<p>héllo ✓ 漢字</p>",
+      "sha256": "0a5aefa6e71d89e88d1190afd038aee9c3851da66c730a56e231e7f077368aac",
+      "matches": true
+    },
+    {
+      "name": "one changed byte",
+      "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"8\"/></svg></body></html>",
+      "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed",
+      "matches": false
+    },
+    {
+      "name": "the digest of other text",
+      "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+      "sha256": "c504d1359934bde7f8df6a49173d43e8fb82ef8e499a325531b6f54137f5a92f",
+      "matches": false
+    }
+  ]
+}

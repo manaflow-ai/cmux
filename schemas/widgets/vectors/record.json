@@ -1,0 +1,3452 @@
+{
+  "description": "cmux.widget/1 records (record.schema.json plus the byte caps in limits.json). acpmux writes only valid records; every reader (pane, Swift host, iOS) drops invalid ones. error: schema = the JSON Schema rejects it; too_large = it matches the schema but breaks a byte cap. A value {\"$fill\": {\"text\": T, \"count\": N}} anywhere in a vector stands for the string T repeated N times; expand it before validation.",
+  "cases": [
+    {
+      "name": "T1 chart show from an MCP call",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "T1 table show",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "files",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.table",
+        "turnId": "t1",
+        "title": "Large files",
+        "spec": {
+          "columns": [
+            {
+              "field": "path",
+              "type": "path"
+            },
+            {
+              "field": "bytes",
+              "type": "number",
+              "align": "end"
+            }
+          ],
+          "sort": {
+            "field": "bytes",
+            "order": "desc"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "path": "/a",
+              "bytes": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "T1 metric show",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "kpi",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.metric",
+        "turnId": "t1",
+        "title": "Build",
+        "spec": {},
+        "data": {
+          "items": [
+            {
+              "label": "Tests",
+              "value": 412,
+              "delta": 3,
+              "trend": "up",
+              "status": "success"
+            },
+            {
+              "label": "Time",
+              "value": "2m 10s"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "T1 diagram show (no data block)",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "flow",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.diagram",
+        "turnId": "t1",
+        "title": "Flow",
+        "spec": {
+          "syntax": "mermaid",
+          "source": "graph TD; A-->B"
+        }
+      }
+    },
+    {
+      "name": "T1 tree show",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "tree",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.tree",
+        "turnId": "t1",
+        "title": "Crates",
+        "spec": {
+          "expandDepth": 1
+        },
+        "data": {
+          "nodes": [
+            {
+              "id": "root",
+              "label": "cmux-tui"
+            },
+            {
+              "id": "acpmux",
+              "parent": "root",
+              "label": "acpmux",
+              "status": "warning"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "T1 timeline show",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "tl",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.timeline",
+        "turnId": "t1",
+        "title": "Deploy",
+        "spec": {
+          "lanes": true
+        },
+        "data": {
+          "events": [
+            {
+              "start": "2026-10-06T10:00:00Z",
+              "end": 1791280000000,
+              "label": "build",
+              "lane": "ci"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "T2 code show from a fence, with the digest",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed"
+        }
+      }
+    },
+    {
+      "name": "T0 edited-files card from the host",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "edited-turn-7",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.edited-files",
+        "turnId": "turn-7",
+        "title": "Edited files",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "src/main.rs",
+              "status": "modified",
+              "additions": 3,
+              "deletions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "T0 web preview card",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "pv",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.web-preview",
+        "turnId": "t1",
+        "title": "localhost:3000",
+        "spec": {
+          "url": "http://127.0.0.1:3000/",
+          "host": "127.0.0.1:3000"
+        }
+      }
+    },
+    {
+      "name": "T0 path chip",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "p1",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.path",
+        "turnId": "t1",
+        "title": "main.rs",
+        "spec": {
+          "path": "/Users/me/repo/src/main.rs",
+          "entry": "file",
+          "insideRoots": true
+        }
+      }
+    },
+    {
+      "name": "T0 summary card",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "sum",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.summary",
+        "turnId": "t1",
+        "title": "Summary",
+        "spec": {
+          "scheduled": [],
+          "pullRequests": [
+            {
+              "url": "https://github.com/o/r/pull/3",
+              "repo": "o/r",
+              "number": 3,
+              "state": "open"
+            }
+          ],
+          "outputs": [
+            "/tmp/out.txt"
+          ],
+          "subagents": [],
+          "sources": [
+            {
+              "label": "docs"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "agent data update",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "data": {
+          "rows": []
+        }
+      }
+    },
+    {
+      "name": "agent dataPatch update",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 3,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "dataPatch": [
+          {
+            "op": "append",
+            "path": "/rows",
+            "values": [
+              {
+                "t": 1700000002000,
+                "load": 55,
+                "core": "0"
+              }
+            ],
+            "keepLast": 600
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent title and height update",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 4,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "title": "CPU (live)",
+        "height": {
+          "hint": 320
+        }
+      }
+    },
+    {
+      "name": "pane annotation: measured heights",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 5,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.chart",
+        "height": {
+          "measured": [
+            [
+              640,
+              248
+            ],
+            [
+              896,
+              260
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "pane annotation: state and quarantine",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.html",
+        "state": {
+          "tab": 2
+        },
+        "flags": {
+          "quarantined": "hang"
+        }
+      }
+    },
+    {
+      "name": "pane annotation: Run again clears the quarantine",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 3,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.html",
+        "flags": {
+          "quarantined": null
+        }
+      }
+    },
+    {
+      "name": "agent remove",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 6,
+        "op": "remove",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart"
+      }
+    },
+    {
+      "name": "a __proto__ field name is ordinary data",
+      "schema": "record.schema.json",
+      "valid": true,
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "__proto__": 1,
+              "t": 2
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a record never carries a capability grant",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed"
+        },
+        "capabilities": [
+          "link.open"
+        ]
+      }
+    },
+    {
+      "name": "a record never carries permissions",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed"
+        },
+        "permissions": {
+          "camera": {}
+        }
+      }
+    },
+    {
+      "name": "a code spec cannot declare network origins",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed",
+          "csp": {
+            "connectDomains": [
+              "https://example.com"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a T1 spec cannot carry a capability field",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          },
+          "capabilities": [
+            "file.read"
+          ]
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "flags have no grant field",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.html",
+        "flags": {
+          "granted": [
+            "command.run"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an agent cannot write a built-in card",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "edited-turn-7",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.edited-files",
+        "turnId": "turn-7",
+        "title": "Edited files",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "src/main.rs",
+              "status": "modified",
+              "additions": 3,
+              "deletions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "the host does not write agent kinds",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a fence cannot write a built-in card",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "edited-turn-7",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "fence",
+        "kind": "cmux.edited-files",
+        "turnId": "turn-7",
+        "title": "Edited files",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "src/main.rs",
+              "status": "modified",
+              "additions": 3,
+              "deletions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "show must start at rev 1",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "show needs a turnId",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "show needs a source",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "the pane cannot show",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "pane",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "the pane cannot change the spec",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.chart",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        }
+      }
+    },
+    {
+      "name": "the pane writes measured heights, not hints",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.chart",
+        "height": {
+          "hint": 100
+        }
+      }
+    },
+    {
+      "name": "an agent cannot write measured heights",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "height": {
+          "measured": [
+            [
+              640,
+              100
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "an agent cannot set quarantine flags",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.html",
+        "flags": {
+          "quarantined": null
+        }
+      }
+    },
+    {
+      "name": "an agent cannot write state",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.html",
+        "state": {}
+      }
+    },
+    {
+      "name": "an update must change something",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart"
+      }
+    },
+    {
+      "name": "data and dataPatch are exclusive",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "data": {
+          "rows": []
+        },
+        "dataPatch": [
+          {
+            "op": "remove",
+            "path": "/rows/0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "remove carries no payload",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "remove",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "title": "x"
+      }
+    },
+    {
+      "name": "a diagram has no data",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "flow",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.diagram",
+        "turnId": "t1",
+        "title": "Flow",
+        "spec": {
+          "syntax": "mermaid",
+          "source": "graph TD; A-->B"
+        },
+        "data": {
+          "rows": []
+        }
+      }
+    },
+    {
+      "name": "a built-in card has no data",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "edited-turn-7",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.edited-files",
+        "turnId": "turn-7",
+        "title": "Edited files",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "src/main.rs",
+              "status": "modified",
+              "additions": 3,
+              "deletions": 1
+            }
+          ]
+        },
+        "data": {}
+      }
+    },
+    {
+      "name": "an unknown kind",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.map",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "an unknown schema version",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/2",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "an id with a slash",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "a/b",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "an id over 64 characters",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "an empty title",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a title over 120 characters",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a height hint under 40",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 39
+        }
+      }
+    },
+    {
+      "name": "a height hint over 1600",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 1601
+        }
+      }
+    },
+    {
+      "name": "a measured width that is not a 64 px bucket",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.chart",
+        "height": {
+          "measured": [
+            [
+              650,
+              100
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a code record without its digest",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        }
+      }
+    },
+    {
+      "name": "an uppercase digest",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071D32F039F6F4DEFB87887DE01C9C6AB9D60724C74E9BF1143441C65B63ED"
+        }
+      }
+    },
+    {
+      "name": "a chart without y",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "an unknown chart mark",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "pie",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a nested value in a row",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1,
+              "load": {
+                "v": 1
+              }
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a dollar sign in a field name",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "$t": 1
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "a path chip with a relative path",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "p1",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.path",
+        "turnId": "t1",
+        "title": "x",
+        "spec": {
+          "path": "src/x",
+          "entry": "file",
+          "insideRoots": true
+        }
+      }
+    },
+    {
+      "name": "a web preview with user information in the URL",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "pv",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.web-preview",
+        "turnId": "t1",
+        "title": "x",
+        "spec": {
+          "url": "http://user:pw@127.0.0.1/",
+          "host": "127.0.0.1"
+        }
+      }
+    },
+    {
+      "name": "a javascript: URL in a link chip",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "l1",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.link",
+        "turnId": "t1",
+        "title": "x",
+        "spec": {
+          "url": "javascript:alert(1)"
+        }
+      }
+    },
+    {
+      "name": "an edited file with an absolute path",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "edited-turn-7",
+        "rev": 1,
+        "op": "show",
+        "by": "host",
+        "source": "host",
+        "kind": "cmux.edited-files",
+        "turnId": "turn-7",
+        "title": "Edited files",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "/etc/passwd",
+              "status": "modified",
+              "additions": 1,
+              "deletions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a dataPatch with an empty pointer",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "dataPatch": [
+          {
+            "op": "set",
+            "path": "",
+            "value": {}
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dataPatch with a bad escape",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "dataPatch": [
+          {
+            "op": "remove",
+            "path": "/a~2b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a dataPatch op outside the closed list",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "dataPatch": [
+          {
+            "op": "move",
+            "from": "/a",
+            "path": "/b"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty dataPatch",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 2,
+        "op": "update",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "dataPatch": []
+      }
+    },
+    {
+      "name": "a code document over the UTF-8 byte cap (fewer characters than the cap)",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": {
+            "$fill": {
+              "text": "é",
+              "count": 131073
+            }
+          },
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "a code document over the character cap",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "fence",
+        "kind": "cmux.html",
+        "turnId": "turn-7",
+        "title": "Bars",
+        "spec": {
+          "html": {
+            "$fill": {
+              "text": "a",
+              "count": 262145
+            }
+          },
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      }
+    },
+    {
+      "name": "state over 16 KiB",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "w-1",
+        "rev": 2,
+        "op": "update",
+        "by": "pane",
+        "kind": "cmux.html",
+        "state": {
+          "s": {
+            "$fill": {
+              "text": "a",
+              "count": 16380
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "T1 spec and data over 512 KiB",
+      "schema": "record.schema.json",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "schema": "cmux.widget/1",
+        "id": "cpu",
+        "rev": 1,
+        "op": "show",
+        "by": "agent",
+        "source": "mcp",
+        "kind": "cmux.chart",
+        "turnId": "turn-7",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 0,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 1,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 2,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 3,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 4,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 5,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 6,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 7,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 8,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 9,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 10,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 11,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 12,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 13,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 14,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 15,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 16,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 17,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 18,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 19,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 20,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 21,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 22,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 23,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 24,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 25,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 26,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 27,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 28,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 29,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 30,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 31,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 32,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 33,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 34,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 35,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 36,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 37,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 38,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 39,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 40,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 41,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 42,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 43,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 44,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 45,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 46,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 47,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 48,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 49,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 50,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 51,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 52,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 53,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 54,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 55,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 56,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 57,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 58,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 59,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 60,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 61,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 62,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 63,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 64,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 65,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 66,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 67,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 68,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 69,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 70,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 71,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 72,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 73,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 74,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 75,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 76,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 77,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 78,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 79,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 80,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 81,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 82,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 83,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 84,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 85,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 86,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 87,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 88,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 89,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 90,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 91,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 92,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 93,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 94,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 95,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 96,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 97,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 98,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 99,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 100,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 101,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 102,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 103,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 104,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 105,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 106,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 107,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 108,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 109,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 110,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 111,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 112,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 113,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 114,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 115,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 116,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 117,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 118,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 119,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 120,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 121,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 122,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 123,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 124,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 125,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 126,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 127,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 128,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 129,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 130,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 131,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 132,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 133,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 134,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 135,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 136,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 137,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 138,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            },
+            {
+              "t": 139,
+              "note": {
+                "$fill": {
+                  "text": "x",
+                  "count": 3800
+                }
+              }
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    }
+  ]
+}

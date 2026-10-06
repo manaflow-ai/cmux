@@ -1,0 +1,596 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/tokens.schema.json",
+  "title": "cmux.widget.tokens/1",
+  "description": "The theme token set that the host gives every widget: hostContext.styles.variables in ui/initialize and in each ui/notifications/host-context-changed (always the full set). The names are the MCP Apps standard style variables plus cmux additions (prefix --cmux-). The host builds the values from the Ghostty terminal theme for the current scheme; it sends resolved values, never light-dark(). No value may contain a parenthesis, a semicolon, a brace, a backslash or a URL, so a token cannot load anything. Within version 1, names are only added, never removed or renamed. T1 renderers read the same variables in the pane.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "--color-background-primary",
+    "--color-background-secondary",
+    "--color-background-tertiary",
+    "--color-background-inverse",
+    "--color-background-ghost",
+    "--color-background-info",
+    "--color-background-danger",
+    "--color-background-success",
+    "--color-background-warning",
+    "--color-background-disabled",
+    "--color-text-primary",
+    "--color-text-secondary",
+    "--color-text-tertiary",
+    "--color-text-inverse",
+    "--color-text-info",
+    "--color-text-danger",
+    "--color-text-success",
+    "--color-text-warning",
+    "--color-text-disabled",
+    "--color-text-ghost",
+    "--color-border-primary",
+    "--color-border-secondary",
+    "--color-border-tertiary",
+    "--color-border-inverse",
+    "--color-border-ghost",
+    "--color-border-info",
+    "--color-border-danger",
+    "--color-border-success",
+    "--color-border-warning",
+    "--color-border-disabled",
+    "--color-ring-primary",
+    "--color-ring-secondary",
+    "--color-ring-inverse",
+    "--color-ring-info",
+    "--color-ring-danger",
+    "--color-ring-success",
+    "--color-ring-warning",
+    "--font-sans",
+    "--font-mono",
+    "--font-weight-normal",
+    "--font-weight-medium",
+    "--font-weight-semibold",
+    "--font-weight-bold",
+    "--font-text-xs-size",
+    "--font-text-sm-size",
+    "--font-text-md-size",
+    "--font-text-lg-size",
+    "--font-heading-xs-size",
+    "--font-heading-sm-size",
+    "--font-heading-md-size",
+    "--font-heading-lg-size",
+    "--font-heading-xl-size",
+    "--font-heading-2xl-size",
+    "--font-heading-3xl-size",
+    "--font-text-xs-line-height",
+    "--font-text-sm-line-height",
+    "--font-text-md-line-height",
+    "--font-text-lg-line-height",
+    "--font-heading-xs-line-height",
+    "--font-heading-sm-line-height",
+    "--font-heading-md-line-height",
+    "--font-heading-lg-line-height",
+    "--font-heading-xl-line-height",
+    "--font-heading-2xl-line-height",
+    "--font-heading-3xl-line-height",
+    "--border-radius-xs",
+    "--border-radius-sm",
+    "--border-radius-md",
+    "--border-radius-lg",
+    "--border-radius-xl",
+    "--border-radius-full",
+    "--border-width-regular",
+    "--shadow-hairline",
+    "--shadow-sm",
+    "--shadow-md",
+    "--shadow-lg",
+    "--cmux-ansi-0",
+    "--cmux-ansi-1",
+    "--cmux-ansi-2",
+    "--cmux-ansi-3",
+    "--cmux-ansi-4",
+    "--cmux-ansi-5",
+    "--cmux-ansi-6",
+    "--cmux-ansi-7",
+    "--cmux-ansi-8",
+    "--cmux-ansi-9",
+    "--cmux-ansi-10",
+    "--cmux-ansi-11",
+    "--cmux-ansi-12",
+    "--cmux-ansi-13",
+    "--cmux-ansi-14",
+    "--cmux-ansi-15",
+    "--cmux-series-1",
+    "--cmux-series-2",
+    "--cmux-series-3",
+    "--cmux-series-4",
+    "--cmux-series-5",
+    "--cmux-series-6",
+    "--cmux-series-7",
+    "--cmux-series-8",
+    "--cmux-sequential-1",
+    "--cmux-sequential-2",
+    "--cmux-sequential-3",
+    "--cmux-sequential-4",
+    "--cmux-sequential-5",
+    "--cmux-sequential-6",
+    "--cmux-sequential-7",
+    "--cmux-sequential-8",
+    "--cmux-sequential-9",
+    "--cmux-diverging-1",
+    "--cmux-diverging-2",
+    "--cmux-diverging-3",
+    "--cmux-diverging-4",
+    "--cmux-diverging-5",
+    "--cmux-diverging-6",
+    "--cmux-diverging-7",
+    "--cmux-diverging-8",
+    "--cmux-diverging-9",
+    "--cmux-accent",
+    "--cmux-highlight",
+    "--cmux-space-1",
+    "--cmux-space-2",
+    "--cmux-space-3",
+    "--cmux-space-4",
+    "--cmux-space-5",
+    "--cmux-space-6",
+    "--cmux-motion-hover",
+    "--cmux-motion-focus",
+    "--cmux-motion-in",
+    "--cmux-motion-out",
+    "--cmux-density",
+    "--cmux-scheme"
+  ],
+  "properties": {
+    "--color-background-primary": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "The widget page background. Always opaque, also for translucent window themes."
+    },
+    "--color-background-secondary": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--color-background-tertiary": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--color-background-inverse": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-ghost": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-info": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-danger": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-success": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-warning": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-background-disabled": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-primary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-secondary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-tertiary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-inverse": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-info": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-danger": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-success": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-warning": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-disabled": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-text-ghost": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-primary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-secondary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-tertiary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-inverse": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-ghost": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-info": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-danger": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-success": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-warning": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-border-disabled": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-primary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-secondary": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-inverse": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-info": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-danger": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-success": {
+      "$ref": "#/$defs/color"
+    },
+    "--color-ring-warning": {
+      "$ref": "#/$defs/color"
+    },
+    "--font-sans": {
+      "$ref": "#/$defs/fontFamily"
+    },
+    "--font-mono": {
+      "$ref": "#/$defs/fontFamily"
+    },
+    "--font-weight-normal": {
+      "$ref": "#/$defs/fontWeight"
+    },
+    "--font-weight-medium": {
+      "$ref": "#/$defs/fontWeight"
+    },
+    "--font-weight-semibold": {
+      "$ref": "#/$defs/fontWeight"
+    },
+    "--font-weight-bold": {
+      "$ref": "#/$defs/fontWeight"
+    },
+    "--font-text-xs-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-text-sm-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-text-md-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-text-lg-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-xs-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-sm-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-md-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-lg-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-xl-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-2xl-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-heading-3xl-size": {
+      "$ref": "#/$defs/px"
+    },
+    "--font-text-xs-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-text-sm-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-text-md-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-text-lg-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-xs-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-sm-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-md-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-lg-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-xl-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-2xl-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--font-heading-3xl-line-height": {
+      "$ref": "#/$defs/lineHeight"
+    },
+    "--border-radius-xs": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-radius-sm": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-radius-md": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-radius-lg": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-radius-xl": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-radius-full": {
+      "$ref": "#/$defs/px"
+    },
+    "--border-width-regular": {
+      "$ref": "#/$defs/px"
+    },
+    "--shadow-hairline": {
+      "$ref": "#/$defs/shadow"
+    },
+    "--shadow-sm": {
+      "$ref": "#/$defs/shadow"
+    },
+    "--shadow-md": {
+      "$ref": "#/$defs/shadow"
+    },
+    "--shadow-lg": {
+      "$ref": "#/$defs/shadow"
+    },
+    "--cmux-ansi-0": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "--cmux-ansi-0 to --cmux-ansi-15: the terminal theme's 16 ANSI colors, lifted to text contrast on --color-background-primary (as the agent pane does)."
+    },
+    "--cmux-ansi-1": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-2": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-3": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-4": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-5": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-6": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-7": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-8": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-9": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-10": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-11": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-12": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-13": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-14": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-ansi-15": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-1": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "--cmux-series-1 to --cmux-series-8: categorical chart colors chosen from the ANSI palette in a fixed order, each with at least 3:1 contrast on --color-background-primary and a minimum distance from each other."
+    },
+    "--cmux-series-2": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-3": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-4": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-5": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-6": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-7": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-series-8": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-1": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "--cmux-sequential-1 to 9: a one-hue ramp from low (1) to high (9), made from the theme."
+    },
+    "--cmux-sequential-2": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-3": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-4": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-5": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-6": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-7": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-8": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-sequential-9": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-1": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "--cmux-diverging-1 to 9: a two-hue ramp; 5 is the neutral midpoint."
+    },
+    "--cmux-diverging-2": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-3": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-4": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-5": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-6": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-7": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-8": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-diverging-9": {
+      "$ref": "#/$defs/opaqueColor"
+    },
+    "--cmux-accent": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "The accent: the theme's text color. cmux has no blue default accent."
+    },
+    "--cmux-highlight": {
+      "$ref": "#/$defs/opaqueColor",
+      "description": "The theme's own ANSI blue, for at most one primary action."
+    },
+    "--cmux-space-1": {
+      "$ref": "#/$defs/px",
+      "description": "--cmux-space-1 to 6: the spacing scale."
+    },
+    "--cmux-space-2": {
+      "$ref": "#/$defs/px"
+    },
+    "--cmux-space-3": {
+      "$ref": "#/$defs/px"
+    },
+    "--cmux-space-4": {
+      "$ref": "#/$defs/px"
+    },
+    "--cmux-space-5": {
+      "$ref": "#/$defs/px"
+    },
+    "--cmux-space-6": {
+      "$ref": "#/$defs/px"
+    },
+    "--cmux-motion-hover": {
+      "$ref": "#/$defs/duration",
+      "description": "Motion durations. 0ms under Reduce Motion."
+    },
+    "--cmux-motion-focus": {
+      "$ref": "#/$defs/duration"
+    },
+    "--cmux-motion-in": {
+      "$ref": "#/$defs/duration"
+    },
+    "--cmux-motion-out": {
+      "$ref": "#/$defs/duration"
+    },
+    "--cmux-density": {
+      "$ref": "#/$defs/density",
+      "description": "The chat font size divided by the default size."
+    },
+    "--cmux-scheme": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "description": "Equals hostContext.theme. color-scheme on :root follows it."
+    }
+  },
+  "$defs": {
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}([0-9a-f]{2})?$",
+      "description": "Lowercase #rrggbb or #rrggbbaa."
+    },
+    "opaqueColor": {
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$",
+      "description": "Lowercase #rrggbb."
+    },
+    "fontFamily": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 ,\"'_-]{1,200}$",
+      "description": "A CSS font-family list. Only installed system fonts; the host never sends font CSS."
+    },
+    "fontWeight": {
+      "type": "string",
+      "pattern": "^[1-9]00$"
+    },
+    "px": {
+      "type": "string",
+      "pattern": "^[0-9]{1,4}(\\.[0-9]{1,3})?px$"
+    },
+    "lineHeight": {
+      "type": "string",
+      "pattern": "^[0-9]{1,3}(\\.[0-9]{1,3})?(px)?$"
+    },
+    "shadow": {
+      "type": "string",
+      "pattern": "^(none|[0-9a-z#., -]{1,200})$",
+      "description": "none, or a box-shadow list with hex colors."
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^[0-9]{1,4}ms$"
+    },
+    "density": {
+      "type": "string",
+      "pattern": "^[0-9](\\.[0-9]{1,3})?$"
+    }
+  }
+}

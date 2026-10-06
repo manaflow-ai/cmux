@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/settings.schema.json",
+  "title": "agentPane.widgets settings, version 1",
+  "description": "The widget-wide settings keys (cmux.json keys under agentPane.widgets.*). The `default` of each key is the only place that states the default. The Swift settings descriptor for the key must use this value, so a default change is one edit here plus the matching descriptor value.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agentPane.widgets.code": {
+      "description": "Code widgets (cmux.html). off: the pane does not run them; it shows the title, Show source and Open as file. on: the pane runs them in the widget sandbox. Data widgets and built-in cards render in both modes. MDM can pin this key.",
+      "$comment": "Default off until the W4 and W5 isolation tests pass on the fleet (coordinator condition, 2026-10-06). Then the default changes to on here.",
+      "enum": ["on", "off"],
+      "default": "off"
+    }
+  }
+}

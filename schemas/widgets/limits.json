@@ -1,0 +1,33 @@
+{
+  "description": "Thread widget caps (cmux.widget/1). Every writer (acpmux) and every reader (the agent pane, the Swift host, iOS) applies the same numbers. A byte cap counts the UTF-8 bytes of a string, or of compact JSON (no insignificant whitespace) for a value. A count cap counts items. The JSON Schemas carry the caps that JSON Schema can express; the others are checked in code against this file.",
+  "version": 1,
+  "record": {
+    "idMaxChars": 64,
+    "titleMaxChars": 120,
+    "codeHtmlMaxBytes": 262144,
+    "dataSpecAndDataMaxBytes": 524288,
+    "stateMaxBytes": 16384,
+    "imageMaxBytes": 2097152,
+    "liveIdsPerTurn": 32,
+    "sessionRecordsMaxBytes": 16777216,
+    "heightHintMinPx": 40,
+    "heightHintMaxPx": 1600,
+    "heightBucketPx": 64,
+    "dataPatchMaxOps": 256
+  },
+  "bridge": {
+    "messageMaxBytes": 65536,
+    "messagesPerSecond": 200,
+    "firstPaintTimeoutMs": 3000,
+    "heartbeatIntervalMs": 500,
+    "heartbeatMissedLimit": 2,
+    "liveCodeFrames": 3,
+    "agentMessageMaxBytes": 8192,
+    "agentEventMaxBytes": 4096,
+    "fileReadMaxBytes": 1048576,
+    "urlMaxChars": 2048
+  },
+  "settings": {
+    "codeWidgetsSettingKey": "agentPane.widgets.code"
+  }
+}

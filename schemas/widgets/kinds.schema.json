@@ -1,0 +1,397 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/kinds.schema.json",
+  "title": "cmux.widget.kinds/1",
+  "description": "The closed list of thread widget kinds for cmux.widget/1, and the spec and data shape of each kind. Tier T0 (built-in cards) is written by the host only. Tier T1 (data widgets) is a JSON spec that the pane draws with its own renderer; no agent code runs. Tier T2 (code widgets) is one self-contained HTML document that runs in the widget sandbox. A new kind is added in a new minor schema version; a kind is never removed or changed incompatibly within cmux.widget/1.",
+  "$defs": {
+    "builtinKind": {
+      "description": "T0: built-in cards. Only the host writes these (by: host). An agent tool call can never show, update or remove one.",
+      "enum": ["cmux.edited-files", "cmux.web-preview", "cmux.summary", "cmux.link", "cmux.path"]
+    },
+    "dataKind": {
+      "description": "T1: data widgets.",
+      "enum": ["cmux.chart", "cmux.table", "cmux.metric", "cmux.diagram", "cmux.tree", "cmux.timeline"]
+    },
+    "codeKind": {
+      "description": "T2: code widgets. The setting agentPane.widgets.code controls whether the pane runs them.",
+      "const": "cmux.html"
+    },
+    "agentKind": {
+      "description": "The kinds an agent may show: T1 and T2.",
+      "anyOf": [{ "$ref": "#/$defs/dataKind" }, { "$ref": "#/$defs/codeKind" }]
+    },
+    "kind": {
+      "anyOf": [{ "$ref": "#/$defs/builtinKind" }, { "$ref": "#/$defs/agentKind" }]
+    },
+    "fieldName": {
+      "description": "A data field name. A dollar sign is not allowed, so a field cannot look like a vector macro or a schema keyword.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]{1,64}$"
+    },
+    "scalar": {
+      "anyOf": [
+        { "type": "string", "maxLength": 4096 },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
+    "row": {
+      "description": "One data row: flat fields with scalar values.",
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": { "$ref": "#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
+    "status": {
+      "description": "A semantic status. The renderer maps it to the theme's status tokens.",
+      "enum": ["neutral", "info", "success", "warning", "danger"]
+    },
+    "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "detail": { "type": "string", "maxLength": 500 },
+    "nodeId": { "type": "string", "pattern": "^[A-Za-z0-9_.:/-]{1,128}$" },
+    "timeValue": {
+      "description": "Milliseconds since the Unix epoch, or an RFC 3339 date-time with an offset.",
+      "anyOf": [
+        { "type": "number", "minimum": 0 },
+        {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        }
+      ]
+    },
+    "httpUrl": {
+      "description": "An absolute http or https URL with no user information.",
+      "type": "string",
+      "maxLength": 2048,
+      "pattern": "^https?://[^/?#@\\s]+([/?#][^\\s]*)?$"
+    },
+    "absolutePath": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^/" },
+    "relativePath": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^[^/]" },
+    "axis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "type"],
+      "properties": {
+        "field": { "$ref": "#/$defs/fieldName" },
+        "type": { "enum": ["quantitative", "temporal", "ordinal", "nominal"] },
+        "title": { "type": "string", "maxLength": 80 },
+        "unit": { "type": "string", "maxLength": 16 },
+        "domain": {
+          "description": "A fixed [min, max] for a quantitative axis.",
+          "type": "array",
+          "prefixItems": [{ "type": "number" }, { "type": "number" }],
+          "items": false,
+          "minItems": 2
+        }
+      }
+    },
+    "chartSpec": {
+      "description": "cmux.chart: one mark over rows of data. series splits the rows into one colored series per distinct value of a field.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mark", "x", "y"],
+      "properties": {
+        "mark": { "enum": ["line", "bar", "area", "scatter"] },
+        "x": { "$ref": "#/$defs/axis" },
+        "y": { "$ref": "#/$defs/axis" },
+        "series": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field"],
+          "properties": { "field": { "$ref": "#/$defs/fieldName" } }
+        },
+        "stacked": { "type": "boolean" },
+        "legend": { "type": "boolean" }
+      }
+    },
+    "rowsData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rows"],
+      "properties": { "rows": { "type": "array", "maxItems": 10000, "items": { "$ref": "#/$defs/row" } } }
+    },
+    "tableSpec": {
+      "description": "cmux.table: columns in display order.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field"],
+            "properties": {
+              "field": { "$ref": "#/$defs/fieldName" },
+              "title": { "type": "string", "maxLength": 80 },
+              "type": { "enum": ["text", "number", "date", "path", "url"] },
+              "align": { "enum": ["start", "center", "end"] }
+            }
+          }
+        },
+        "sort": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["field", "order"],
+          "properties": { "field": { "$ref": "#/$defs/fieldName" }, "order": { "enum": ["asc", "desc"] } }
+        }
+      }
+    },
+    "metricSpec": {
+      "description": "cmux.metric: a row of key figures. The figures are data, so they can change with widget_update.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "columns": { "type": "integer", "minimum": 1, "maximum": 6 } }
+    },
+    "metricData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "value"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "maxLength": 60 },
+              "value": { "anyOf": [{ "type": "number" }, { "type": "string", "maxLength": 32 }] },
+              "unit": { "type": "string", "maxLength": 16 },
+              "delta": { "type": "number" },
+              "trend": { "enum": ["up", "down", "flat"] },
+              "status": { "$ref": "#/$defs/status" }
+            }
+          }
+        }
+      }
+    },
+    "diagramSpec": {
+      "description": "cmux.diagram: diagram source that the pane renders in its diagram worker (no network, source cap 200,000 characters). A diagram has no data block.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["syntax", "source"],
+      "properties": {
+        "syntax": { "const": "mermaid" },
+        "source": { "type": "string", "minLength": 1, "maxLength": 200000 }
+      }
+    },
+    "treeSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "expandDepth": { "type": "integer", "minimum": 0, "maximum": 8 } }
+    },
+    "treeData": {
+      "description": "cmux.tree: nodes with a parent id. A node with no parent (or parent null) is a root.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "$ref": "#/$defs/nodeId" },
+              "parent": { "anyOf": [{ "$ref": "#/$defs/nodeId" }, { "type": "null" }] },
+              "label": { "$ref": "#/$defs/label" },
+              "detail": { "$ref": "#/$defs/detail" },
+              "status": { "$ref": "#/$defs/status" }
+            }
+          }
+        }
+      }
+    },
+    "timelineSpec": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "lanes": { "type": "boolean" } }
+    },
+    "timelineData": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["events"],
+      "properties": {
+        "events": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "label"],
+            "properties": {
+              "id": { "$ref": "#/$defs/nodeId" },
+              "start": { "$ref": "#/$defs/timeValue" },
+              "end": { "$ref": "#/$defs/timeValue" },
+              "label": { "$ref": "#/$defs/label" },
+              "detail": { "$ref": "#/$defs/detail" },
+              "status": { "$ref": "#/$defs/status" },
+              "lane": { "type": "string", "minLength": 1, "maxLength": 60 }
+            }
+          }
+        }
+      }
+    },
+    "codeSpecInput": {
+      "description": "cmux.html as an agent sends it: one self-contained HTML document. The UTF-8 byte cap is limits.record.codeHtmlMaxBytes; maxLength here is the same number in characters, a weaker bound that JSON Schema can check.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["html"],
+      "properties": { "html": { "type": "string", "minLength": 1, "maxLength": 262144 } }
+    },
+    "codeSpecRecord": {
+      "description": "cmux.html as acpmux stores it: the document and the lowercase hex SHA-256 of its UTF-8 bytes. Readers check the digest before they run the document.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["html", "sha256"],
+      "properties": {
+        "html": { "type": "string", "minLength": 1, "maxLength": 262144 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "codeData": {
+      "description": "Optional data for a code widget. The runtime gives it to the document in ui/notifications/tool-input (arguments.data).",
+      "type": "object",
+      "maxProperties": 256,
+      "propertyNames": { "$ref": "#/$defs/fieldName" }
+    },
+    "editedFilesSpec": {
+      "description": "cmux.edited-files: the files a turn (or the session) changed, from the turn checkpoint pair or the tool-call diffs.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scope", "files"],
+      "properties": {
+        "scope": { "enum": ["turn", "session"] },
+        "root": { "$ref": "#/$defs/absolutePath" },
+        "checkpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from"],
+          "properties": {
+            "from": { "anyOf": [{ "type": "string", "maxLength": 128 }, { "type": "null" }] },
+            "to": { "type": "string", "maxLength": 128 }
+          }
+        },
+        "files": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "status", "additions", "deletions"],
+            "properties": {
+              "path": { "$ref": "#/$defs/relativePath" },
+              "previousPath": { "$ref": "#/$defs/relativePath" },
+              "status": { "enum": ["added", "modified", "deleted", "renamed", "untracked"] },
+              "additions": { "type": "integer", "minimum": 0 },
+              "deletions": { "type": "integer", "minimum": 0 },
+              "afterHash": { "type": "string", "pattern": "^[0-9a-f]{40,64}$" }
+            }
+          }
+        }
+      }
+    },
+    "webPreviewSpec": {
+      "description": "cmux.web-preview: a page that a shell call in this turn printed, or that the user clicked. The frame loads only after a click.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "host"],
+      "properties": {
+        "url": { "$ref": "#/$defs/httpUrl" },
+        "host": { "type": "string", "minLength": 1, "maxLength": 253 },
+        "title": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "summarySpec": {
+      "description": "cmux.summary: the pinned session summary.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheduled", "pullRequests", "outputs", "subagents", "sources"],
+      "properties": {
+        "scheduled": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "text"],
+            "properties": {
+              "id": { "$ref": "#/$defs/nodeId" },
+              "text": { "$ref": "#/$defs/label" },
+              "cron": { "type": "string", "maxLength": 120 }
+            }
+          }
+        },
+        "pullRequests": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["url", "repo", "number", "state"],
+            "properties": {
+              "url": { "$ref": "#/$defs/httpUrl" },
+              "repo": { "type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$" },
+              "number": { "type": "integer", "minimum": 1 },
+              "title": { "type": "string", "maxLength": 300 },
+              "state": { "enum": ["open", "merged", "closed"] }
+            }
+          }
+        },
+        "outputs": { "type": "array", "maxItems": 500, "items": { "$ref": "#/$defs/absolutePath" } },
+        "subagents": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "state"],
+            "properties": {
+              "id": { "$ref": "#/$defs/nodeId" },
+              "title": { "$ref": "#/$defs/label" },
+              "state": { "enum": ["running", "done", "failed"] }
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label"],
+            "properties": { "url": { "$ref": "#/$defs/httpUrl" }, "label": { "$ref": "#/$defs/label" } }
+          }
+        }
+      }
+    },
+    "linkSpec": {
+      "description": "cmux.link: a URL chip in a reply.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": { "url": { "$ref": "#/$defs/httpUrl" }, "label": { "type": "string", "maxLength": 200 } }
+    },
+    "pathSpec": {
+      "description": "cmux.path: a file or folder chip in a reply. insideRoots is the host's root check, never the agent's claim.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "entry", "insideRoots"],
+      "properties": {
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "entry": { "enum": ["file", "folder"] },
+        "insideRoots": { "type": "boolean" }
+      }
+    }
+  }
+}

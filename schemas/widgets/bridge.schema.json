@@ -1,0 +1,710 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/bridge.schema.json",
+  "title": "cmux.widget.bridge/1",
+  "description": "The message protocol between the agent pane (host) and one code widget frame (view). Handshake: the pane creates a MessageChannel and posts one window message, initEnvelope, with the second port to the frame's contentWindow. After that, every message goes over that port only, and the pane ignores window messages from the frame. Messages are JSON-RPC 2.0 and use the MCP Apps (SEP-1865, 2026-01-26) method names where the spec has one; cmux additions use the cmux/ prefix. The bridge version is fixed per port by the ui/initialize negotiation, so a message does not repeat it. The pane validates every view message against viewMessage and drops one that does not match (a request with an id gets an error response). Caps in limits.json (bridge): compact JSON size per message, messages per second (over the rate the pane closes the port and marks the widget quarantined: rate), heartbeat. No message grants a capability by itself: a capability is a cmux/cap/request (or ui/open-link, ui/message) that the Swift host checks against a user gesture credit and the session roots.",
+  "$defs": {
+    "initEnvelope": {
+      "description": "Window message, pane to frame, sent once with the port in the transfer list. It holds nothing secret (the target origin of an opaque-origin frame must be *).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t", "versions"],
+      "properties": {
+        "t": { "const": "cmux.widget.init" },
+        "versions": { "$ref": "#/$defs/versions" }
+      }
+    },
+    "versions": {
+      "description": "Bridge major versions, in any order. The host picks the highest version that both sides list.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "integer", "minimum": 1, "maximum": 1000 }
+    },
+    "requestId": {
+      "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 9007199254740991 }, { "type": "string", "minLength": 1, "maxLength": 128 }]
+    },
+    "emptyObject": { "type": "object", "additionalProperties": false },
+    "httpUrl": { "$ref": "kinds.schema.json#/$defs/httpUrl" },
+    "absolutePath": { "$ref": "kinds.schema.json#/$defs/absolutePath" },
+    "dataSource": {
+      "description": "Read-only views of THIS session. A widget may subscribe without a gesture (decision D12 item 6).",
+      "enum": ["turns", "usage", "changes.summary", "tasks"]
+    },
+    "capability": {
+      "description": "The capabilities a widget can request. link.open is ui/open-link, agent.send is ui/message, data.subscribe is cmux/data/subscribe; the others are cmux/cap/request.",
+      "enum": ["link.open", "path.open", "file.read", "agent.send", "agent.event", "command.run", "data.subscribe"]
+    },
+
+    "uiInitializeRequest": {
+      "description": "View to host, the first message on the port. The host answers with initializeResponse, or an error with reason version_unsupported. A view that sends no cmux _meta is treated as listing versions [1]. Unknown top-level params fields are ignored (other MCP Apps hosts may define more).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ui/initialize" },
+        "params": {
+          "type": "object",
+          "required": ["protocolVersion", "appCapabilities"],
+          "properties": {
+            "protocolVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "appCapabilities": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "experimental": { "type": "object" },
+                "tools": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": { "listChanged": { "type": "boolean" } }
+                },
+                "availableDisplayModes": {
+                  "type": "array",
+                  "maxItems": 3,
+                  "uniqueItems": true,
+                  "items": { "enum": ["inline", "fullscreen", "pip"] }
+                }
+              }
+            },
+            "clientInfo": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version"],
+              "properties": {
+                "name": { "type": "string", "maxLength": 120 },
+                "version": { "type": "string", "maxLength": 64 }
+              }
+            },
+            "_meta": {
+              "type": "object",
+              "properties": {
+                "cmux.widget/bridge": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["versions"],
+                  "properties": { "versions": { "$ref": "#/$defs/versions" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initializedNotification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "ui/notifications/initialized" },
+        "params": { "$ref": "#/$defs/emptyObject" }
+      }
+    },
+    "sizeChangedNotification": {
+      "description": "The view's content size in CSS px. The pane clamps the frame height to limits and stores the measured height (record height.measured).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "ui/notifications/size-changed" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["width", "height"],
+          "properties": {
+            "width": { "type": "number", "minimum": 0, "maximum": 100000 },
+            "height": { "type": "number", "minimum": 0, "maximum": 100000 }
+          }
+        }
+      }
+    },
+    "openLinkRequest": {
+      "description": "Capability link.open. Needs a GRANT credit; a non-loopback URL also needs the click on the host-owned bar that shows the domain.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ui/open-link" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url"],
+          "properties": { "url": { "$ref": "#/$defs/httpUrl" } }
+        }
+      }
+    },
+    "messageRequest": {
+      "description": "Capability agent.send. Needs a GRANT credit. The text goes to the composer as a draft; only the user sends it. The UTF-8 cap is limits.bridge.agentMessageMaxBytes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ui/message" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["role", "content"],
+          "properties": {
+            "role": { "const": "user" },
+            "content": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "text"],
+              "properties": { "type": { "const": "text" }, "text": { "type": "string", "minLength": 1, "maxLength": 8192 } }
+            }
+          }
+        }
+      }
+    },
+    "displayModeRequest": {
+      "description": "v1 hosts support inline only and answer with mode inline.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ui/request-display-mode" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "enum": ["inline", "fullscreen", "pip"] } }
+        }
+      }
+    },
+    "logNotification": {
+      "description": "MCP logging. The pane keeps a short console tail for the widget's error state; nothing goes to the agent.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "notifications/message" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["level", "data"],
+          "properties": {
+            "level": { "enum": ["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"] },
+            "logger": { "type": "string", "maxLength": 120 },
+            "data": true
+          }
+        }
+      }
+    },
+    "pingRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ping" },
+        "params": { "$ref": "#/$defs/emptyObject" }
+      }
+    },
+    "stateSetRequest": {
+      "description": "Save widget state (at most limits.record.stateMaxBytes as compact JSON). The pane gives it back in the next initializeResponse for this widget.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "cmux/state/set" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": { "state": true }
+        }
+      }
+    },
+    "capRequest": {
+      "description": "Request one capability. The params are closed per capability: a widget cannot claim a gesture, a credit, a grant or a root. The host answers capResponse, or an error with a reason.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "cmux/cap/request" },
+        "params": {
+          "oneOf": [
+            {
+              "description": "path.open: GRANT credit; the path must be inside the session roots.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cap", "params"],
+              "properties": {
+                "cap": { "const": "path.open" },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path"],
+                  "properties": { "path": { "$ref": "#/$defs/absolutePath" }, "where": { "enum": ["tab", "split"] } }
+                }
+              }
+            },
+            {
+              "description": "file.read: SCOPE credit; inside the roots, a regular text or image file, at most limits.bridge.fileReadMaxBytes. A host-owned bar names the file.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cap", "params"],
+              "properties": {
+                "cap": { "const": "file.read" },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path"],
+                  "properties": { "path": { "$ref": "#/$defs/absolutePath" } }
+                }
+              }
+            },
+            {
+              "description": "agent.event: GRANT credit; at most limits.bridge.agentEventMaxBytes of data. Queued on the composer as a visible message part; it reaches the agent only when the user sends.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cap", "params"],
+              "properties": {
+                "cap": { "const": "agent.event" },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["name"],
+                  "properties": { "name": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }, "data": true }
+                }
+              }
+            },
+            {
+              "description": "command.run: GRANT credit plus the click on Run in a host-owned sheet that shows the exact argv and cwd. Never a shell string. The output is not given to the widget.",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cap", "params"],
+              "properties": {
+                "cap": { "const": "command.run" },
+                "params": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["argv"],
+                  "properties": {
+                    "argv": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": 64,
+                      "prefixItems": [{ "type": "string", "minLength": 1, "maxLength": 4096 }],
+                      "items": { "type": "string", "maxLength": 4096 }
+                    },
+                    "cwd": { "$ref": "#/$defs/absolutePath" }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "dataSubscribeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "enum": ["cmux/data/subscribe", "cmux/data/unsubscribe"] },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source"],
+          "properties": { "source": { "$ref": "#/$defs/dataSource" } }
+        }
+      }
+    },
+    "viewResponse": {
+      "description": "The view's answer to a host request: cmux/heartbeat (result {seq}, the same seq), ui/resource-teardown (result {}), or an error.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["jsonrpc", "id", "result"],
+          "properties": {
+            "jsonrpc": { "const": "2.0" },
+            "id": { "$ref": "#/$defs/requestId" },
+            "result": {
+              "anyOf": [
+                { "$ref": "#/$defs/emptyObject" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["seq"],
+                  "properties": { "seq": { "type": "integer", "minimum": 0 } }
+                }
+              ]
+            }
+          }
+        },
+        { "$ref": "#/$defs/errorResponse" }
+      ]
+    },
+    "viewMessage": {
+      "description": "Every message a view may send on its port. ui/update-model-context, tools/call and resources/read are not in v1: the pane answers -32601.",
+      "oneOf": [
+        { "$ref": "#/$defs/uiInitializeRequest" },
+        { "$ref": "#/$defs/initializedNotification" },
+        { "$ref": "#/$defs/sizeChangedNotification" },
+        { "$ref": "#/$defs/openLinkRequest" },
+        { "$ref": "#/$defs/messageRequest" },
+        { "$ref": "#/$defs/displayModeRequest" },
+        { "$ref": "#/$defs/logNotification" },
+        { "$ref": "#/$defs/pingRequest" },
+        { "$ref": "#/$defs/stateSetRequest" },
+        { "$ref": "#/$defs/capRequest" },
+        { "$ref": "#/$defs/dataSubscribeRequest" },
+        { "$ref": "#/$defs/viewResponse" }
+      ]
+    },
+
+    "hostContext": {
+      "description": "MCP Apps HostContext as cmux fills it. styles.variables is always the full cmux.widget.tokens/1 set; styles.css (font loading) is never sent, because a widget loads nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "theme": { "enum": ["light", "dark"] },
+        "styles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["variables"],
+          "properties": { "variables": { "$ref": "tokens.schema.json" } }
+        },
+        "displayMode": { "const": "inline" },
+        "availableDisplayModes": { "type": "array", "minItems": 1, "maxItems": 1, "items": { "const": "inline" } },
+        "containerDimensions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "width": { "type": "number", "minimum": 0 },
+            "maxWidth": { "type": "number", "minimum": 0 },
+            "height": { "type": "number", "minimum": 0 },
+            "maxHeight": { "type": "number", "minimum": 0 }
+          },
+          "not": { "anyOf": [{ "required": ["width", "maxWidth"] }, { "required": ["height", "maxHeight"] }] }
+        },
+        "locale": { "type": "string", "maxLength": 35 },
+        "timeZone": { "type": "string", "maxLength": 64 },
+        "userAgent": { "type": "string", "maxLength": 120 },
+        "platform": { "enum": ["desktop", "mobile", "web"] },
+        "deviceCapabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "touch": { "type": "boolean" }, "hover": { "type": "boolean" } }
+        }
+      }
+    },
+    "hostCapabilities": {
+      "description": "What the host offers. A cmux host never grants sandbox permissions or CSP origins, never proxies server tools or resources: those fields must be absent or empty.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "openLinks": { "$ref": "#/$defs/emptyObject" },
+        "logging": { "$ref": "#/$defs/emptyObject" },
+        "sandbox": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "permissions": { "$ref": "#/$defs/emptyObject" },
+            "csp": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "connectDomains": { "type": "array", "maxItems": 0 },
+                "resourceDomains": { "type": "array", "maxItems": 0 },
+                "frameDomains": { "type": "array", "maxItems": 0 },
+                "baseUriDomains": { "type": "array", "maxItems": 0 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "initializeResponse": {
+      "description": "Host to view, the answer to ui/initialize. _meta[cmux.widget/bridge] gives the chosen version, the token set version, the heartbeat interval, the capabilities this pane may grant (empty in a paired-device or cloud pane, for a quarantined widget, and in v1 for any pane that is not the local app), and the widget's saved state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["protocolVersion", "hostInfo", "hostCapabilities", "hostContext", "_meta"],
+          "properties": {
+            "protocolVersion": { "type": "string", "minLength": 1, "maxLength": 32 },
+            "hostInfo": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["name", "version"],
+              "properties": { "name": { "type": "string", "maxLength": 120 }, "version": { "type": "string", "maxLength": 64 } }
+            },
+            "hostCapabilities": { "$ref": "#/$defs/hostCapabilities" },
+            "hostContext": { "$ref": "#/$defs/hostContext", "required": ["theme", "styles", "displayMode"] },
+            "_meta": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["cmux.widget/bridge"],
+              "properties": {
+                "cmux.widget/bridge": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["version", "tokens", "widgetId", "heartbeatMs", "capabilities"],
+                  "properties": {
+                    "version": { "const": 1 },
+                    "tokens": { "const": "1" },
+                    "widgetId": { "$ref": "record.schema.json#/$defs/widgetId" },
+                    "heartbeatMs": { "type": "integer", "minimum": 50, "maximum": 5000 },
+                    "capabilities": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/capability" } },
+                    "state": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "emptyResponse": {
+      "description": "Success for ui/open-link, ui/message, ping, cmux/state/set, cmux/data/subscribe and cmux/data/unsubscribe.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "result": { "$ref": "#/$defs/emptyObject" }
+      }
+    },
+    "displayModeResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": { "mode": { "const": "inline" } }
+        }
+      }
+    },
+    "capResponse": {
+      "description": "A granted capability. file.read returns the bytes; the others return no value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "result"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "result": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["granted"],
+          "properties": {
+            "granted": { "const": true },
+            "file": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mime", "encoding", "content"],
+              "properties": {
+                "mime": { "type": "string", "pattern": "^(text/[a-z0-9.+-]+|image/(png|jpeg|gif|webp|svg\\+xml)|application/json)$" },
+                "encoding": { "enum": ["utf8", "base64"] },
+                "content": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "errorResponse": {
+      "description": "JSON-RPC error. Standard codes -32700, -32600, -32601, -32602, -32603. A cmux refusal uses -32000 (the MCP Apps implementation-defined code) with data.reason.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "error"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "anyOf": [{ "$ref": "#/$defs/requestId" }, { "type": "null" }] },
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "enum": [-32700, -32600, -32601, -32602, -32603, -32000] },
+            "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["reason"],
+              "properties": {
+                "reason": { "$ref": "#/$defs/errorReason" },
+                "supported": { "$ref": "#/$defs/versions" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "errorReason": {
+      "description": "version_unsupported: no common bridge version (data.supported lists the host's). gesture_required: no fresh user gesture credit. outside_roots: the path is not inside the session roots. denied: the user declined in the host-owned bar or sheet. not_available: this pane grants no capabilities (paired device, cloud, Web origin, code widgets off). quarantined: the widget is quarantined. rate_limited: too many requests. too_large: over a size cap. invalid_url: not an allowed URL.",
+      "enum": [
+        "version_unsupported",
+        "gesture_required",
+        "outside_roots",
+        "denied",
+        "not_available",
+        "quarantined",
+        "rate_limited",
+        "too_large",
+        "invalid_url"
+      ]
+    },
+    "toolInputNotification": {
+      "description": "Sent once after ui/notifications/initialized. arguments holds the widget's kind, title and data (never the document again).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "ui/notifications/tool-input" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["arguments"],
+          "properties": {
+            "arguments": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "title"],
+              "properties": {
+                "kind": { "$ref": "kinds.schema.json#/$defs/codeKind" },
+                "title": { "$ref": "record.schema.json#/$defs/title" },
+                "data": { "$ref": "kinds.schema.json#/$defs/codeData" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "toolResultNotification": {
+      "description": "Sent after tool-input, and again after each data change of the widget (structuredContent.data is the new data), so views written for other MCP Apps hosts render.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "ui/notifications/tool-result" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["content"],
+          "properties": {
+            "content": { "type": "array", "maxItems": 0 },
+            "structuredContent": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "data": { "$ref": "kinds.schema.json#/$defs/codeData" } }
+            },
+            "isError": { "const": false }
+          }
+        }
+      }
+    },
+    "hostContextChangedNotification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "ui/notifications/host-context-changed" },
+        "params": { "$ref": "#/$defs/hostContext" }
+      }
+    },
+    "teardownRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "ui/resource-teardown" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "reason": { "enum": ["scrolled_out", "removed", "reload", "hang", "settings_off"] } }
+        }
+      }
+    },
+    "heartbeatRequest": {
+      "description": "Host to view every heartbeatMs. Our runtime (not the agent document) answers with the same seq. After limits.bridge.heartbeatMissedLimit missed answers the pane removes the frame and marks the widget quarantined: hang.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "id", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "id": { "$ref": "#/$defs/requestId" },
+        "method": { "const": "cmux/heartbeat" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seq"],
+          "properties": { "seq": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    },
+    "dataNotification": {
+      "description": "A change in a subscribed session data source. seq counts per source from 0, with no gaps.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["jsonrpc", "method", "params"],
+      "properties": {
+        "jsonrpc": { "const": "2.0" },
+        "method": { "const": "cmux/notifications/data" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "seq", "data"],
+          "properties": {
+            "source": { "$ref": "#/$defs/dataSource" },
+            "seq": { "type": "integer", "minimum": 0 },
+            "data": true
+          }
+        }
+      }
+    },
+    "hostMessage": {
+      "description": "Every message the host may send on a port.",
+      "oneOf": [
+        { "$ref": "#/$defs/initializeResponse" },
+        { "$ref": "#/$defs/emptyResponse" },
+        { "$ref": "#/$defs/displayModeResponse" },
+        { "$ref": "#/$defs/capResponse" },
+        { "$ref": "#/$defs/errorResponse" },
+        { "$ref": "#/$defs/toolInputNotification" },
+        { "$ref": "#/$defs/toolResultNotification" },
+        { "$ref": "#/$defs/hostContextChangedNotification" },
+        { "$ref": "#/$defs/teardownRequest" },
+        { "$ref": "#/$defs/heartbeatRequest" },
+        { "$ref": "#/$defs/dataNotification" }
+      ]
+    }
+  }
+}

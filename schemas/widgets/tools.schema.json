@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/widgets/tools.schema.json",
+  "title": "cmux.widget.tools/1",
+  "description": "Input and output of the widget tools on the `cmux` MCP server that acpmux adds to each harness session. That server exposes exactly the four widget tools and nothing else. A widget tool only writes a bounded widget record to the calling session. No tool input can name, request or grant a capability, a permission, a network origin or a gesture; every capability is a separate request from the rendered widget that spends a user gesture credit (bridge.schema.json, cmux/cap/request). Inputs are closed objects: an unknown field fails the call.",
+  "$defs": {
+    "toolName": { "enum": ["widget_show", "widget_update", "widget_remove", "widget_check"] },
+    "toolsListResult": {
+      "description": "The MCP tools/list result of the cmux server: exactly the four widget tools, each once.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tools"],
+      "properties": {
+        "tools": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": ["name", "description", "inputSchema"],
+            "properties": {
+              "name": { "$ref": "#/$defs/toolName" },
+              "description": { "type": "string", "minLength": 1, "maxLength": 8000 },
+              "inputSchema": { "type": "object" }
+            }
+          },
+          "allOf": [
+            { "contains": { "properties": { "name": { "const": "widget_show" } } } },
+            { "contains": { "properties": { "name": { "const": "widget_update" } } } },
+            { "contains": { "properties": { "name": { "const": "widget_remove" } } } },
+            { "contains": { "properties": { "name": { "const": "widget_check" } } } }
+          ]
+        }
+      }
+    },
+    "agentSpecRules": {
+      "description": "The spec and data of each agent kind, as the agent sends them. cmux.html takes only the document; acpmux adds the digest.",
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "cmux.chart" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/chartSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/rowsData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.table" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/tableSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/rowsData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.metric" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/metricSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/metricData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.diagram" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/diagramSpec" } }, "not": { "required": ["data"] } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.tree" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/treeSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/treeData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.timeline" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/timelineSpec" }, "data": { "$ref": "kinds.schema.json#/$defs/timelineData" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cmux.html" } } },
+          "then": { "properties": { "spec": { "$ref": "kinds.schema.json#/$defs/codeSpecInput" }, "data": { "$ref": "kinds.schema.json#/$defs/codeData" } } }
+        }
+      ]
+    },
+    "widgetShowInput": {
+      "description": "widget_show: add a widget to the current turn. Without id, acpmux mints one. An id that this session already used fails with id_exists (use widget_update). Built-in kinds are refused: the schema accepts agent kinds only.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title", "spec"],
+      "properties": {
+        "id": { "$ref": "record.schema.json#/$defs/widgetId" },
+        "kind": { "$ref": "kinds.schema.json#/$defs/agentKind" },
+        "title": { "$ref": "record.schema.json#/$defs/title" },
+        "spec": { "type": "object" },
+        "data": { "type": "object" },
+        "height": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hint"],
+          "properties": { "hint": { "$ref": "record.schema.json#/$defs/heightHint" } }
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/agentSpecRules" }]
+    },
+    "widgetShowOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rev"],
+      "properties": { "id": { "$ref": "record.schema.json#/$defs/widgetId" }, "rev": { "const": 1 } }
+    },
+    "widgetUpdateInput": {
+      "description": "widget_update: change a widget in place. spec replaces the whole spec; data replaces the whole data; dataPatch edits the data (record.schema.json#/$defs/dataPatch gives the exact rules). data and dataPatch are exclusive. acpmux checks spec and data against the stored kind, so a spec that does not match the kind fails with invalid_input.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "record.schema.json#/$defs/widgetId" },
+        "title": { "$ref": "record.schema.json#/$defs/title" },
+        "spec": { "type": "object" },
+        "data": { "type": "object" },
+        "dataPatch": { "$ref": "record.schema.json#/$defs/dataPatch" },
+        "height": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hint"],
+          "properties": { "hint": { "$ref": "record.schema.json#/$defs/heightHint" } }
+        }
+      },
+      "anyOf": [
+        { "required": ["title"] },
+        { "required": ["spec"] },
+        { "required": ["data"] },
+        { "required": ["dataPatch"] },
+        { "required": ["height"] }
+      ],
+      "not": { "required": ["data", "dataPatch"] }
+    },
+    "widgetUpdateOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "rev"],
+      "properties": { "id": { "$ref": "record.schema.json#/$defs/widgetId" }, "rev": { "type": "integer", "minimum": 2, "maximum": 4294967295 } }
+    },
+    "widgetRemoveInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": { "id": { "$ref": "record.schema.json#/$defs/widgetId" } }
+    },
+    "widgetRemoveOutput": { "$ref": "#/$defs/widgetUpdateOutput" },
+    "widgetCheckInput": {
+      "description": "widget_check: lint a widget before widget_show. It writes nothing. v1 is a static lint (schema, caps, forbidden constructs in HTML); a later version may add the pane's render report.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "spec"],
+      "properties": {
+        "kind": { "$ref": "kinds.schema.json#/$defs/agentKind" },
+        "title": { "$ref": "record.schema.json#/$defs/title" },
+        "spec": { "type": "object" },
+        "data": { "type": "object" }
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": { "enum": ["error", "warning"] },
+        "code": { "$ref": "#/$defs/lintCode" },
+        "path": { "type": "string", "maxLength": 512 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 500 }
+      }
+    },
+    "lintCode": {
+      "description": "schema: the spec or data does not match the kind. too_large: a cap in limits.json. network: the HTML names a network load (fetch, XMLHttpRequest, WebSocket, EventSource, sendBeacon, an http(s) or protocol-relative src, href or CSS url). navigation: base, meta refresh, form, window.open, top or parent navigation. eval: eval, Function or string timers (no unsafe-eval in the sandbox). image_path: an image path outside the session roots or over the image cap. a11y: a missing accessible name or text alternative (warning).",
+      "enum": ["schema", "too_large", "network", "navigation", "eval", "image_path", "a11y"]
+    },
+    "widgetCheckOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "issues"],
+      "properties": {
+        "ok": { "type": "boolean", "description": "True when no issue has severity error." },
+        "issues": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/issue" } }
+      }
+    },
+    "toolError": {
+      "description": "The structuredContent of a failed widget tool call (isError true). message and hint say, in plain words, what the model can do next.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_input",
+                "unknown_id",
+                "id_exists",
+                "removed",
+                "too_large",
+                "live_limit",
+                "session_full",
+                "patch_failed"
+              ]
+            },
+            "message": { "type": "string", "minLength": 1, "maxLength": 500 },
+            "hint": { "type": "string", "maxLength": 500 },
+            "path": { "type": "string", "maxLength": 512 },
+            "op": { "type": "integer", "minimum": 0, "description": "patch_failed: the index of the operation that failed." },
+            "reason": {
+              "description": "patch_failed: why the operation failed (record.schema.json#/$defs/dataPatch).",
+              "enum": [
+                "parent_missing",
+                "not_container",
+                "index_out_of_range",
+                "bad_index",
+                "target_missing",
+                "not_array",
+                "invalid_result",
+                "too_large"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

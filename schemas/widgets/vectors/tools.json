@@ -1,0 +1,2302 @@
+{
+  "description": "cmux MCP server widget tools (tools.schema.json). acpmux accepts exactly the valid inputs; the server lists exactly the four widget tools. No input can request or grant a capability: a capability is a separate gesture-gated request from the rendered widget (bridge.schema.json, cmux/cap/request).",
+  "cases": [
+    {
+      "name": "tools/list: exactly the four widget tools",
+      "schema": "tools.schema.json#/$defs/toolsListResult",
+      "valid": true,
+      "value": {
+        "tools": [
+          {
+            "name": "widget_show",
+            "description": "widget_show tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_update",
+            "description": "widget_update tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_remove",
+            "description": "widget_remove tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_check",
+            "description": "widget_check tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "tools/list: an extra capability tool",
+      "schema": "tools.schema.json#/$defs/toolsListResult",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "tools": [
+          {
+            "name": "widget_show",
+            "description": "widget_show tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_update",
+            "description": "widget_update tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_remove",
+            "description": "widget_remove tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_check",
+            "description": "widget_check tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "capability_request",
+            "description": "capability_request tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "tools/list: a non-widget tool in place of one",
+      "schema": "tools.schema.json#/$defs/toolsListResult",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "tools": [
+          {
+            "name": "widget_show",
+            "description": "widget_show tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_update",
+            "description": "widget_update tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_remove",
+            "description": "widget_remove tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "open_url",
+            "description": "open_url tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "tools/list: a widget tool twice",
+      "schema": "tools.schema.json#/$defs/toolsListResult",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "tools": [
+          {
+            "name": "widget_show",
+            "description": "widget_show tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_show",
+            "description": "widget_show tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_remove",
+            "description": "widget_remove tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          },
+          {
+            "name": "widget_check",
+            "description": "widget_check tool",
+            "inputSchema": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_show: a chart, acpmux mints the id",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": true,
+      "value": {
+        "kind": "cmux.chart",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "widget_show: a code widget with an id",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": true,
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        }
+      }
+    },
+    {
+      "name": "widget_show: a code widget with data",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": true,
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "data": {
+          "points": [
+            1,
+            2,
+            3
+          ]
+        }
+      }
+    },
+    {
+      "name": "widget_show: a metric row",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": true,
+      "value": {
+        "kind": "cmux.metric",
+        "title": "Build",
+        "spec": {
+          "columns": 3
+        },
+        "data": {
+          "items": [
+            {
+              "label": "Pass",
+              "value": 10
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "widget_show: a capability list in the call",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "capabilities": [
+          "link.open"
+        ]
+      }
+    },
+    {
+      "name": "widget_show: a grant in the call",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "grant": {
+          "cap": "file.read",
+          "path": "/etc/hosts"
+        }
+      }
+    },
+    {
+      "name": "widget_show: sandbox permissions in the call",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "permissions": {
+          "clipboardWrite": {}
+        }
+      }
+    },
+    {
+      "name": "widget_show: network origins in the call",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "csp": {
+          "connectDomains": [
+            "https://api.example.com"
+          ]
+        }
+      }
+    },
+    {
+      "name": "widget_show: MCP Apps resource metadata in the call",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "_meta": {
+          "ui": {
+            "csp": {
+              "resourceDomains": [
+                "https://cdn.example.com"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "widget_show: a claimed user gesture",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "gesture": true
+      }
+    },
+    {
+      "name": "widget_show: an allow attribute in the spec",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "allow": "camera"
+        }
+      }
+    },
+    {
+      "name": "widget_show: a sandbox override in the spec",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sandbox": "allow-scripts allow-same-origin"
+        }
+      }
+    },
+    {
+      "name": "widget_show: the agent sends no digest",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>",
+          "sha256": "52071d32f039f6f4defb87887de01c9c6ab9d60724c74e9bf1143441c65b63ed"
+        }
+      }
+    },
+    {
+      "name": "widget_show: an agent cannot show a built-in card",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.edited-files",
+        "title": "x",
+        "spec": {
+          "scope": "turn",
+          "root": "/Users/me/repo",
+          "checkpoint": {
+            "from": "a1b2",
+            "to": "c3d4"
+          },
+          "files": [
+            {
+              "path": "src/main.rs",
+              "status": "modified",
+              "additions": 3,
+              "deletions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "widget_show: a missing title",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.chart",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "widget_show: a spec that does not match the kind",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.chart",
+        "title": "CPU load",
+        "spec": {
+          "columns": [
+            {
+              "field": "a"
+            }
+          ]
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        }
+      }
+    },
+    {
+      "name": "widget_show: an agent cannot set the source or writer",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.chart",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        },
+        "source": "host",
+        "by": "host"
+      }
+    },
+    {
+      "name": "widget_show: an agent cannot set flags or state",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.chart",
+        "title": "CPU load",
+        "spec": {
+          "mark": "line",
+          "x": {
+            "field": "t",
+            "type": "temporal"
+          },
+          "y": {
+            "field": "load",
+            "type": "quantitative",
+            "unit": "%",
+            "domain": [
+              0,
+              100
+            ]
+          },
+          "series": {
+            "field": "core"
+          }
+        },
+        "data": {
+          "rows": [
+            {
+              "t": 1700000000000,
+              "load": 12.5,
+              "core": "0"
+            },
+            {
+              "t": 1700000001000,
+              "load": 40,
+              "core": "0"
+            }
+          ]
+        },
+        "height": {
+          "hint": 240
+        },
+        "flags": {
+          "collapsed": true
+        }
+      }
+    },
+    {
+      "name": "widget_show: an empty document",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": ""
+        }
+      }
+    },
+    {
+      "name": "widget_show: a document over the byte cap",
+      "schema": "tools.schema.json#/$defs/widgetShowInput",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "id": "w-1",
+        "kind": "cmux.html",
+        "title": "Bars",
+        "spec": {
+          "html": {
+            "$fill": {
+              "text": "é",
+              "count": 131073
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "widget_update: data replace",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": true,
+      "value": {
+        "id": "cpu",
+        "data": {
+          "rows": []
+        }
+      }
+    },
+    {
+      "name": "widget_update: dataPatch set, append and remove",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": true,
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "set",
+            "path": "/rows/0/load",
+            "value": 13
+          },
+          {
+            "op": "append",
+            "path": "/rows",
+            "values": [
+              {
+                "t": 3,
+                "load": 1
+              }
+            ]
+          },
+          {
+            "op": "remove",
+            "path": "/rows",
+            "where": {
+              "field": "core",
+              "equals": "1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: title only",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": true,
+      "value": {
+        "id": "cpu",
+        "title": "CPU (done)"
+      }
+    },
+    {
+      "name": "widget_update: no change",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu"
+      }
+    },
+    {
+      "name": "widget_update: data and dataPatch together",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "data": {
+          "rows": []
+        },
+        "dataPatch": [
+          {
+            "op": "remove",
+            "path": "/rows/0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: a capability grant in the call",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "title": "x",
+        "capabilities": [
+          "command.run"
+        ]
+      }
+    },
+    {
+      "name": "widget_update: an agent cannot lift a quarantine",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "flags": {
+          "quarantined": null
+        }
+      }
+    },
+    {
+      "name": "widget_update: an agent cannot write measured heights",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "height": {
+          "measured": [
+            [
+              640,
+              100
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "widget_update: an agent cannot write widget state",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "w-1",
+        "state": {
+          "granted": true
+        }
+      }
+    },
+    {
+      "name": "widget_update: an unknown patch field",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "set",
+            "path": "/a",
+            "value": 1,
+            "grant": "file.read"
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: append with no values",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "append",
+            "path": "/rows",
+            "values": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: keepLast of 0",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "append",
+            "path": "/rows",
+            "values": [
+              1
+            ],
+            "keepLast": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: remove where with an object value",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "remove",
+            "path": "/rows",
+            "where": {
+              "field": "a",
+              "equals": {
+                "b": 1
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_update: 257 patch operations",
+      "schema": "tools.schema.json#/$defs/widgetUpdateInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "dataPatch": [
+          {
+            "op": "set",
+            "path": "/k0",
+            "value": 0
+          },
+          {
+            "op": "set",
+            "path": "/k1",
+            "value": 1
+          },
+          {
+            "op": "set",
+            "path": "/k2",
+            "value": 2
+          },
+          {
+            "op": "set",
+            "path": "/k3",
+            "value": 3
+          },
+          {
+            "op": "set",
+            "path": "/k4",
+            "value": 4
+          },
+          {
+            "op": "set",
+            "path": "/k5",
+            "value": 5
+          },
+          {
+            "op": "set",
+            "path": "/k6",
+            "value": 6
+          },
+          {
+            "op": "set",
+            "path": "/k7",
+            "value": 7
+          },
+          {
+            "op": "set",
+            "path": "/k8",
+            "value": 8
+          },
+          {
+            "op": "set",
+            "path": "/k9",
+            "value": 9
+          },
+          {
+            "op": "set",
+            "path": "/k10",
+            "value": 10
+          },
+          {
+            "op": "set",
+            "path": "/k11",
+            "value": 11
+          },
+          {
+            "op": "set",
+            "path": "/k12",
+            "value": 12
+          },
+          {
+            "op": "set",
+            "path": "/k13",
+            "value": 13
+          },
+          {
+            "op": "set",
+            "path": "/k14",
+            "value": 14
+          },
+          {
+            "op": "set",
+            "path": "/k15",
+            "value": 15
+          },
+          {
+            "op": "set",
+            "path": "/k16",
+            "value": 16
+          },
+          {
+            "op": "set",
+            "path": "/k17",
+            "value": 17
+          },
+          {
+            "op": "set",
+            "path": "/k18",
+            "value": 18
+          },
+          {
+            "op": "set",
+            "path": "/k19",
+            "value": 19
+          },
+          {
+            "op": "set",
+            "path": "/k20",
+            "value": 20
+          },
+          {
+            "op": "set",
+            "path": "/k21",
+            "value": 21
+          },
+          {
+            "op": "set",
+            "path": "/k22",
+            "value": 22
+          },
+          {
+            "op": "set",
+            "path": "/k23",
+            "value": 23
+          },
+          {
+            "op": "set",
+            "path": "/k24",
+            "value": 24
+          },
+          {
+            "op": "set",
+            "path": "/k25",
+            "value": 25
+          },
+          {
+            "op": "set",
+            "path": "/k26",
+            "value": 26
+          },
+          {
+            "op": "set",
+            "path": "/k27",
+            "value": 27
+          },
+          {
+            "op": "set",
+            "path": "/k28",
+            "value": 28
+          },
+          {
+            "op": "set",
+            "path": "/k29",
+            "value": 29
+          },
+          {
+            "op": "set",
+            "path": "/k30",
+            "value": 30
+          },
+          {
+            "op": "set",
+            "path": "/k31",
+            "value": 31
+          },
+          {
+            "op": "set",
+            "path": "/k32",
+            "value": 32
+          },
+          {
+            "op": "set",
+            "path": "/k33",
+            "value": 33
+          },
+          {
+            "op": "set",
+            "path": "/k34",
+            "value": 34
+          },
+          {
+            "op": "set",
+            "path": "/k35",
+            "value": 35
+          },
+          {
+            "op": "set",
+            "path": "/k36",
+            "value": 36
+          },
+          {
+            "op": "set",
+            "path": "/k37",
+            "value": 37
+          },
+          {
+            "op": "set",
+            "path": "/k38",
+            "value": 38
+          },
+          {
+            "op": "set",
+            "path": "/k39",
+            "value": 39
+          },
+          {
+            "op": "set",
+            "path": "/k40",
+            "value": 40
+          },
+          {
+            "op": "set",
+            "path": "/k41",
+            "value": 41
+          },
+          {
+            "op": "set",
+            "path": "/k42",
+            "value": 42
+          },
+          {
+            "op": "set",
+            "path": "/k43",
+            "value": 43
+          },
+          {
+            "op": "set",
+            "path": "/k44",
+            "value": 44
+          },
+          {
+            "op": "set",
+            "path": "/k45",
+            "value": 45
+          },
+          {
+            "op": "set",
+            "path": "/k46",
+            "value": 46
+          },
+          {
+            "op": "set",
+            "path": "/k47",
+            "value": 47
+          },
+          {
+            "op": "set",
+            "path": "/k48",
+            "value": 48
+          },
+          {
+            "op": "set",
+            "path": "/k49",
+            "value": 49
+          },
+          {
+            "op": "set",
+            "path": "/k50",
+            "value": 50
+          },
+          {
+            "op": "set",
+            "path": "/k51",
+            "value": 51
+          },
+          {
+            "op": "set",
+            "path": "/k52",
+            "value": 52
+          },
+          {
+            "op": "set",
+            "path": "/k53",
+            "value": 53
+          },
+          {
+            "op": "set",
+            "path": "/k54",
+            "value": 54
+          },
+          {
+            "op": "set",
+            "path": "/k55",
+            "value": 55
+          },
+          {
+            "op": "set",
+            "path": "/k56",
+            "value": 56
+          },
+          {
+            "op": "set",
+            "path": "/k57",
+            "value": 57
+          },
+          {
+            "op": "set",
+            "path": "/k58",
+            "value": 58
+          },
+          {
+            "op": "set",
+            "path": "/k59",
+            "value": 59
+          },
+          {
+            "op": "set",
+            "path": "/k60",
+            "value": 60
+          },
+          {
+            "op": "set",
+            "path": "/k61",
+            "value": 61
+          },
+          {
+            "op": "set",
+            "path": "/k62",
+            "value": 62
+          },
+          {
+            "op": "set",
+            "path": "/k63",
+            "value": 63
+          },
+          {
+            "op": "set",
+            "path": "/k64",
+            "value": 64
+          },
+          {
+            "op": "set",
+            "path": "/k65",
+            "value": 65
+          },
+          {
+            "op": "set",
+            "path": "/k66",
+            "value": 66
+          },
+          {
+            "op": "set",
+            "path": "/k67",
+            "value": 67
+          },
+          {
+            "op": "set",
+            "path": "/k68",
+            "value": 68
+          },
+          {
+            "op": "set",
+            "path": "/k69",
+            "value": 69
+          },
+          {
+            "op": "set",
+            "path": "/k70",
+            "value": 70
+          },
+          {
+            "op": "set",
+            "path": "/k71",
+            "value": 71
+          },
+          {
+            "op": "set",
+            "path": "/k72",
+            "value": 72
+          },
+          {
+            "op": "set",
+            "path": "/k73",
+            "value": 73
+          },
+          {
+            "op": "set",
+            "path": "/k74",
+            "value": 74
+          },
+          {
+            "op": "set",
+            "path": "/k75",
+            "value": 75
+          },
+          {
+            "op": "set",
+            "path": "/k76",
+            "value": 76
+          },
+          {
+            "op": "set",
+            "path": "/k77",
+            "value": 77
+          },
+          {
+            "op": "set",
+            "path": "/k78",
+            "value": 78
+          },
+          {
+            "op": "set",
+            "path": "/k79",
+            "value": 79
+          },
+          {
+            "op": "set",
+            "path": "/k80",
+            "value": 80
+          },
+          {
+            "op": "set",
+            "path": "/k81",
+            "value": 81
+          },
+          {
+            "op": "set",
+            "path": "/k82",
+            "value": 82
+          },
+          {
+            "op": "set",
+            "path": "/k83",
+            "value": 83
+          },
+          {
+            "op": "set",
+            "path": "/k84",
+            "value": 84
+          },
+          {
+            "op": "set",
+            "path": "/k85",
+            "value": 85
+          },
+          {
+            "op": "set",
+            "path": "/k86",
+            "value": 86
+          },
+          {
+            "op": "set",
+            "path": "/k87",
+            "value": 87
+          },
+          {
+            "op": "set",
+            "path": "/k88",
+            "value": 88
+          },
+          {
+            "op": "set",
+            "path": "/k89",
+            "value": 89
+          },
+          {
+            "op": "set",
+            "path": "/k90",
+            "value": 90
+          },
+          {
+            "op": "set",
+            "path": "/k91",
+            "value": 91
+          },
+          {
+            "op": "set",
+            "path": "/k92",
+            "value": 92
+          },
+          {
+            "op": "set",
+            "path": "/k93",
+            "value": 93
+          },
+          {
+            "op": "set",
+            "path": "/k94",
+            "value": 94
+          },
+          {
+            "op": "set",
+            "path": "/k95",
+            "value": 95
+          },
+          {
+            "op": "set",
+            "path": "/k96",
+            "value": 96
+          },
+          {
+            "op": "set",
+            "path": "/k97",
+            "value": 97
+          },
+          {
+            "op": "set",
+            "path": "/k98",
+            "value": 98
+          },
+          {
+            "op": "set",
+            "path": "/k99",
+            "value": 99
+          },
+          {
+            "op": "set",
+            "path": "/k100",
+            "value": 100
+          },
+          {
+            "op": "set",
+            "path": "/k101",
+            "value": 101
+          },
+          {
+            "op": "set",
+            "path": "/k102",
+            "value": 102
+          },
+          {
+            "op": "set",
+            "path": "/k103",
+            "value": 103
+          },
+          {
+            "op": "set",
+            "path": "/k104",
+            "value": 104
+          },
+          {
+            "op": "set",
+            "path": "/k105",
+            "value": 105
+          },
+          {
+            "op": "set",
+            "path": "/k106",
+            "value": 106
+          },
+          {
+            "op": "set",
+            "path": "/k107",
+            "value": 107
+          },
+          {
+            "op": "set",
+            "path": "/k108",
+            "value": 108
+          },
+          {
+            "op": "set",
+            "path": "/k109",
+            "value": 109
+          },
+          {
+            "op": "set",
+            "path": "/k110",
+            "value": 110
+          },
+          {
+            "op": "set",
+            "path": "/k111",
+            "value": 111
+          },
+          {
+            "op": "set",
+            "path": "/k112",
+            "value": 112
+          },
+          {
+            "op": "set",
+            "path": "/k113",
+            "value": 113
+          },
+          {
+            "op": "set",
+            "path": "/k114",
+            "value": 114
+          },
+          {
+            "op": "set",
+            "path": "/k115",
+            "value": 115
+          },
+          {
+            "op": "set",
+            "path": "/k116",
+            "value": 116
+          },
+          {
+            "op": "set",
+            "path": "/k117",
+            "value": 117
+          },
+          {
+            "op": "set",
+            "path": "/k118",
+            "value": 118
+          },
+          {
+            "op": "set",
+            "path": "/k119",
+            "value": 119
+          },
+          {
+            "op": "set",
+            "path": "/k120",
+            "value": 120
+          },
+          {
+            "op": "set",
+            "path": "/k121",
+            "value": 121
+          },
+          {
+            "op": "set",
+            "path": "/k122",
+            "value": 122
+          },
+          {
+            "op": "set",
+            "path": "/k123",
+            "value": 123
+          },
+          {
+            "op": "set",
+            "path": "/k124",
+            "value": 124
+          },
+          {
+            "op": "set",
+            "path": "/k125",
+            "value": 125
+          },
+          {
+            "op": "set",
+            "path": "/k126",
+            "value": 126
+          },
+          {
+            "op": "set",
+            "path": "/k127",
+            "value": 127
+          },
+          {
+            "op": "set",
+            "path": "/k128",
+            "value": 128
+          },
+          {
+            "op": "set",
+            "path": "/k129",
+            "value": 129
+          },
+          {
+            "op": "set",
+            "path": "/k130",
+            "value": 130
+          },
+          {
+            "op": "set",
+            "path": "/k131",
+            "value": 131
+          },
+          {
+            "op": "set",
+            "path": "/k132",
+            "value": 132
+          },
+          {
+            "op": "set",
+            "path": "/k133",
+            "value": 133
+          },
+          {
+            "op": "set",
+            "path": "/k134",
+            "value": 134
+          },
+          {
+            "op": "set",
+            "path": "/k135",
+            "value": 135
+          },
+          {
+            "op": "set",
+            "path": "/k136",
+            "value": 136
+          },
+          {
+            "op": "set",
+            "path": "/k137",
+            "value": 137
+          },
+          {
+            "op": "set",
+            "path": "/k138",
+            "value": 138
+          },
+          {
+            "op": "set",
+            "path": "/k139",
+            "value": 139
+          },
+          {
+            "op": "set",
+            "path": "/k140",
+            "value": 140
+          },
+          {
+            "op": "set",
+            "path": "/k141",
+            "value": 141
+          },
+          {
+            "op": "set",
+            "path": "/k142",
+            "value": 142
+          },
+          {
+            "op": "set",
+            "path": "/k143",
+            "value": 143
+          },
+          {
+            "op": "set",
+            "path": "/k144",
+            "value": 144
+          },
+          {
+            "op": "set",
+            "path": "/k145",
+            "value": 145
+          },
+          {
+            "op": "set",
+            "path": "/k146",
+            "value": 146
+          },
+          {
+            "op": "set",
+            "path": "/k147",
+            "value": 147
+          },
+          {
+            "op": "set",
+            "path": "/k148",
+            "value": 148
+          },
+          {
+            "op": "set",
+            "path": "/k149",
+            "value": 149
+          },
+          {
+            "op": "set",
+            "path": "/k150",
+            "value": 150
+          },
+          {
+            "op": "set",
+            "path": "/k151",
+            "value": 151
+          },
+          {
+            "op": "set",
+            "path": "/k152",
+            "value": 152
+          },
+          {
+            "op": "set",
+            "path": "/k153",
+            "value": 153
+          },
+          {
+            "op": "set",
+            "path": "/k154",
+            "value": 154
+          },
+          {
+            "op": "set",
+            "path": "/k155",
+            "value": 155
+          },
+          {
+            "op": "set",
+            "path": "/k156",
+            "value": 156
+          },
+          {
+            "op": "set",
+            "path": "/k157",
+            "value": 157
+          },
+          {
+            "op": "set",
+            "path": "/k158",
+            "value": 158
+          },
+          {
+            "op": "set",
+            "path": "/k159",
+            "value": 159
+          },
+          {
+            "op": "set",
+            "path": "/k160",
+            "value": 160
+          },
+          {
+            "op": "set",
+            "path": "/k161",
+            "value": 161
+          },
+          {
+            "op": "set",
+            "path": "/k162",
+            "value": 162
+          },
+          {
+            "op": "set",
+            "path": "/k163",
+            "value": 163
+          },
+          {
+            "op": "set",
+            "path": "/k164",
+            "value": 164
+          },
+          {
+            "op": "set",
+            "path": "/k165",
+            "value": 165
+          },
+          {
+            "op": "set",
+            "path": "/k166",
+            "value": 166
+          },
+          {
+            "op": "set",
+            "path": "/k167",
+            "value": 167
+          },
+          {
+            "op": "set",
+            "path": "/k168",
+            "value": 168
+          },
+          {
+            "op": "set",
+            "path": "/k169",
+            "value": 169
+          },
+          {
+            "op": "set",
+            "path": "/k170",
+            "value": 170
+          },
+          {
+            "op": "set",
+            "path": "/k171",
+            "value": 171
+          },
+          {
+            "op": "set",
+            "path": "/k172",
+            "value": 172
+          },
+          {
+            "op": "set",
+            "path": "/k173",
+            "value": 173
+          },
+          {
+            "op": "set",
+            "path": "/k174",
+            "value": 174
+          },
+          {
+            "op": "set",
+            "path": "/k175",
+            "value": 175
+          },
+          {
+            "op": "set",
+            "path": "/k176",
+            "value": 176
+          },
+          {
+            "op": "set",
+            "path": "/k177",
+            "value": 177
+          },
+          {
+            "op": "set",
+            "path": "/k178",
+            "value": 178
+          },
+          {
+            "op": "set",
+            "path": "/k179",
+            "value": 179
+          },
+          {
+            "op": "set",
+            "path": "/k180",
+            "value": 180
+          },
+          {
+            "op": "set",
+            "path": "/k181",
+            "value": 181
+          },
+          {
+            "op": "set",
+            "path": "/k182",
+            "value": 182
+          },
+          {
+            "op": "set",
+            "path": "/k183",
+            "value": 183
+          },
+          {
+            "op": "set",
+            "path": "/k184",
+            "value": 184
+          },
+          {
+            "op": "set",
+            "path": "/k185",
+            "value": 185
+          },
+          {
+            "op": "set",
+            "path": "/k186",
+            "value": 186
+          },
+          {
+            "op": "set",
+            "path": "/k187",
+            "value": 187
+          },
+          {
+            "op": "set",
+            "path": "/k188",
+            "value": 188
+          },
+          {
+            "op": "set",
+            "path": "/k189",
+            "value": 189
+          },
+          {
+            "op": "set",
+            "path": "/k190",
+            "value": 190
+          },
+          {
+            "op": "set",
+            "path": "/k191",
+            "value": 191
+          },
+          {
+            "op": "set",
+            "path": "/k192",
+            "value": 192
+          },
+          {
+            "op": "set",
+            "path": "/k193",
+            "value": 193
+          },
+          {
+            "op": "set",
+            "path": "/k194",
+            "value": 194
+          },
+          {
+            "op": "set",
+            "path": "/k195",
+            "value": 195
+          },
+          {
+            "op": "set",
+            "path": "/k196",
+            "value": 196
+          },
+          {
+            "op": "set",
+            "path": "/k197",
+            "value": 197
+          },
+          {
+            "op": "set",
+            "path": "/k198",
+            "value": 198
+          },
+          {
+            "op": "set",
+            "path": "/k199",
+            "value": 199
+          },
+          {
+            "op": "set",
+            "path": "/k200",
+            "value": 200
+          },
+          {
+            "op": "set",
+            "path": "/k201",
+            "value": 201
+          },
+          {
+            "op": "set",
+            "path": "/k202",
+            "value": 202
+          },
+          {
+            "op": "set",
+            "path": "/k203",
+            "value": 203
+          },
+          {
+            "op": "set",
+            "path": "/k204",
+            "value": 204
+          },
+          {
+            "op": "set",
+            "path": "/k205",
+            "value": 205
+          },
+          {
+            "op": "set",
+            "path": "/k206",
+            "value": 206
+          },
+          {
+            "op": "set",
+            "path": "/k207",
+            "value": 207
+          },
+          {
+            "op": "set",
+            "path": "/k208",
+            "value": 208
+          },
+          {
+            "op": "set",
+            "path": "/k209",
+            "value": 209
+          },
+          {
+            "op": "set",
+            "path": "/k210",
+            "value": 210
+          },
+          {
+            "op": "set",
+            "path": "/k211",
+            "value": 211
+          },
+          {
+            "op": "set",
+            "path": "/k212",
+            "value": 212
+          },
+          {
+            "op": "set",
+            "path": "/k213",
+            "value": 213
+          },
+          {
+            "op": "set",
+            "path": "/k214",
+            "value": 214
+          },
+          {
+            "op": "set",
+            "path": "/k215",
+            "value": 215
+          },
+          {
+            "op": "set",
+            "path": "/k216",
+            "value": 216
+          },
+          {
+            "op": "set",
+            "path": "/k217",
+            "value": 217
+          },
+          {
+            "op": "set",
+            "path": "/k218",
+            "value": 218
+          },
+          {
+            "op": "set",
+            "path": "/k219",
+            "value": 219
+          },
+          {
+            "op": "set",
+            "path": "/k220",
+            "value": 220
+          },
+          {
+            "op": "set",
+            "path": "/k221",
+            "value": 221
+          },
+          {
+            "op": "set",
+            "path": "/k222",
+            "value": 222
+          },
+          {
+            "op": "set",
+            "path": "/k223",
+            "value": 223
+          },
+          {
+            "op": "set",
+            "path": "/k224",
+            "value": 224
+          },
+          {
+            "op": "set",
+            "path": "/k225",
+            "value": 225
+          },
+          {
+            "op": "set",
+            "path": "/k226",
+            "value": 226
+          },
+          {
+            "op": "set",
+            "path": "/k227",
+            "value": 227
+          },
+          {
+            "op": "set",
+            "path": "/k228",
+            "value": 228
+          },
+          {
+            "op": "set",
+            "path": "/k229",
+            "value": 229
+          },
+          {
+            "op": "set",
+            "path": "/k230",
+            "value": 230
+          },
+          {
+            "op": "set",
+            "path": "/k231",
+            "value": 231
+          },
+          {
+            "op": "set",
+            "path": "/k232",
+            "value": 232
+          },
+          {
+            "op": "set",
+            "path": "/k233",
+            "value": 233
+          },
+          {
+            "op": "set",
+            "path": "/k234",
+            "value": 234
+          },
+          {
+            "op": "set",
+            "path": "/k235",
+            "value": 235
+          },
+          {
+            "op": "set",
+            "path": "/k236",
+            "value": 236
+          },
+          {
+            "op": "set",
+            "path": "/k237",
+            "value": 237
+          },
+          {
+            "op": "set",
+            "path": "/k238",
+            "value": 238
+          },
+          {
+            "op": "set",
+            "path": "/k239",
+            "value": 239
+          },
+          {
+            "op": "set",
+            "path": "/k240",
+            "value": 240
+          },
+          {
+            "op": "set",
+            "path": "/k241",
+            "value": 241
+          },
+          {
+            "op": "set",
+            "path": "/k242",
+            "value": 242
+          },
+          {
+            "op": "set",
+            "path": "/k243",
+            "value": 243
+          },
+          {
+            "op": "set",
+            "path": "/k244",
+            "value": 244
+          },
+          {
+            "op": "set",
+            "path": "/k245",
+            "value": 245
+          },
+          {
+            "op": "set",
+            "path": "/k246",
+            "value": 246
+          },
+          {
+            "op": "set",
+            "path": "/k247",
+            "value": 247
+          },
+          {
+            "op": "set",
+            "path": "/k248",
+            "value": 248
+          },
+          {
+            "op": "set",
+            "path": "/k249",
+            "value": 249
+          },
+          {
+            "op": "set",
+            "path": "/k250",
+            "value": 250
+          },
+          {
+            "op": "set",
+            "path": "/k251",
+            "value": 251
+          },
+          {
+            "op": "set",
+            "path": "/k252",
+            "value": 252
+          },
+          {
+            "op": "set",
+            "path": "/k253",
+            "value": 253
+          },
+          {
+            "op": "set",
+            "path": "/k254",
+            "value": 254
+          },
+          {
+            "op": "set",
+            "path": "/k255",
+            "value": 255
+          },
+          {
+            "op": "set",
+            "path": "/k256",
+            "value": 256
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_remove",
+      "schema": "tools.schema.json#/$defs/widgetRemoveInput",
+      "valid": true,
+      "value": {
+        "id": "cpu"
+      }
+    },
+    {
+      "name": "widget_remove: extra fields",
+      "schema": "tools.schema.json#/$defs/widgetRemoveInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "revoke": [
+          "link.open"
+        ]
+      }
+    },
+    {
+      "name": "widget_check: a code widget",
+      "schema": "tools.schema.json#/$defs/widgetCheckInput",
+      "valid": true,
+      "value": {
+        "kind": "cmux.html",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        }
+      }
+    },
+    {
+      "name": "widget_check: a built-in kind",
+      "schema": "tools.schema.json#/$defs/widgetCheckInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.summary",
+        "spec": {}
+      }
+    },
+    {
+      "name": "widget_check: a capability request",
+      "schema": "tools.schema.json#/$defs/widgetCheckInput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "kind": "cmux.html",
+        "spec": {
+          "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+        },
+        "capabilities": [
+          "file.read"
+        ]
+      }
+    },
+    {
+      "name": "widget_show output",
+      "schema": "tools.schema.json#/$defs/widgetShowOutput",
+      "valid": true,
+      "value": {
+        "id": "cpu",
+        "rev": 1
+      }
+    },
+    {
+      "name": "widget_update output",
+      "schema": "tools.schema.json#/$defs/widgetUpdateOutput",
+      "valid": true,
+      "value": {
+        "id": "cpu",
+        "rev": 7
+      }
+    },
+    {
+      "name": "widget_show output never carries a grant",
+      "schema": "tools.schema.json#/$defs/widgetShowOutput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": "cpu",
+        "rev": 1,
+        "granted": [
+          "link.open"
+        ]
+      }
+    },
+    {
+      "name": "widget_check output with issues",
+      "schema": "tools.schema.json#/$defs/widgetCheckOutput",
+      "valid": true,
+      "value": {
+        "ok": false,
+        "issues": [
+          {
+            "severity": "error",
+            "code": "network",
+            "path": "/spec/html",
+            "message": "fetch() needs a network; widgets have none. Put the data in data."
+          },
+          {
+            "severity": "warning",
+            "code": "a11y",
+            "message": "The svg has no accessible name."
+          }
+        ]
+      }
+    },
+    {
+      "name": "widget_check output with an unknown lint code",
+      "schema": "tools.schema.json#/$defs/widgetCheckOutput",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "ok": true,
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "style",
+            "message": "x"
+          }
+        ]
+      }
+    },
+    {
+      "name": "patch_failed error",
+      "schema": "tools.schema.json#/$defs/toolError",
+      "valid": true,
+      "value": {
+        "error": {
+          "code": "patch_failed",
+          "message": "Operation 1 failed: /rows is not an array.",
+          "op": 1,
+          "reason": "not_array"
+        }
+      }
+    },
+    {
+      "name": "an unknown error code",
+      "schema": "tools.schema.json#/$defs/toolError",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "error": {
+          "code": "forbidden",
+          "message": "x"
+        }
+      }
+    }
+  ]
+}

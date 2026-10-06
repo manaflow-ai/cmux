@@ -1,0 +1,3309 @@
+{
+  "description": "cmux.widget.bridge/1 MessagePort messages (bridge.schema.json plus the byte caps in limits.json). viewMessage: what a widget frame may send; the pane drops anything else. hostMessage: what the pane may send. Same error and $fill rules as record.json.",
+  "cases": [
+    {
+      "name": "the init envelope",
+      "schema": "bridge.schema.json#/$defs/initEnvelope",
+      "valid": true,
+      "value": {
+        "t": "cmux.widget.init",
+        "versions": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "the init envelope carries nothing else",
+      "schema": "bridge.schema.json#/$defs/initEnvelope",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "t": "cmux.widget.init",
+        "versions": [
+          1
+        ],
+        "token": "abc"
+      }
+    },
+    {
+      "name": "the init envelope needs versions",
+      "schema": "bridge.schema.json#/$defs/initEnvelope",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "t": "cmux.widget.init"
+      }
+    },
+    {
+      "name": "ui/initialize with the cmux version list",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26",
+          "appCapabilities": {
+            "availableDisplayModes": [
+              "inline"
+            ]
+          },
+          "clientInfo": {
+            "name": "bars",
+            "version": "1"
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "versions": [
+                1
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/initialize from a view written for another MCP Apps host (no cmux _meta, extra params)",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": "a",
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26",
+          "appCapabilities": {},
+          "appInfo": {
+            "name": "x"
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/initialize without appCapabilities",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26"
+        }
+      }
+    },
+    {
+      "name": "ui/initialize with an empty version list",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26",
+          "appCapabilities": {
+            "availableDisplayModes": [
+              "inline"
+            ]
+          },
+          "clientInfo": {
+            "name": "bars",
+            "version": "1"
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "versions": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/initialize with a duplicate version",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26",
+          "appCapabilities": {
+            "availableDisplayModes": [
+              "inline"
+            ]
+          },
+          "clientInfo": {
+            "name": "bars",
+            "version": "1"
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "versions": [
+                1,
+                1
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/initialize that asks for capabilities",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "ui/initialize",
+        "params": {
+          "protocolVersion": "2026-01-26",
+          "appCapabilities": {
+            "availableDisplayModes": [
+              "inline"
+            ]
+          },
+          "clientInfo": {
+            "name": "bars",
+            "version": "1"
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "versions": [
+                1
+              ],
+              "capabilities": [
+                "file.read"
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialized",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/initialized"
+      }
+    },
+    {
+      "name": "size-changed",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/size-changed",
+        "params": {
+          "width": 640,
+          "height": 248.5
+        }
+      }
+    },
+    {
+      "name": "size-changed without width",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/size-changed",
+        "params": {
+          "height": 10
+        }
+      }
+    },
+    {
+      "name": "ui/open-link",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ui/open-link",
+        "params": {
+          "url": "https://example.com/docs?a=1#b"
+        }
+      }
+    },
+    {
+      "name": "ui/open-link with a file URL",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ui/open-link",
+        "params": {
+          "url": "file:///etc/passwd"
+        }
+      }
+    },
+    {
+      "name": "ui/open-link with user information",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ui/open-link",
+        "params": {
+          "url": "https://a:b@example.com/"
+        }
+      }
+    },
+    {
+      "name": "ui/open-link with a claimed gesture",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "ui/open-link",
+        "params": {
+          "url": "https://example.com/",
+          "userActivation": true
+        }
+      }
+    },
+    {
+      "name": "ui/message (goes to the composer as a draft)",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "ui/message",
+        "params": {
+          "role": "user",
+          "content": {
+            "type": "text",
+            "text": "Show the slow tests"
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/message as the assistant",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "ui/message",
+        "params": {
+          "role": "assistant",
+          "content": {
+            "type": "text",
+            "text": "x"
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/message that asks to send at once",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "ui/message",
+        "params": {
+          "role": "user",
+          "content": {
+            "type": "text",
+            "text": "x"
+          },
+          "send": true
+        }
+      }
+    },
+    {
+      "name": "ui/message over the byte cap",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "ui/message",
+        "params": {
+          "role": "user",
+          "content": {
+            "type": "text",
+            "text": {
+              "$fill": {
+                "text": "é",
+                "count": 4097
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ui/request-display-mode",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "ui/request-display-mode",
+        "params": {
+          "mode": "fullscreen"
+        }
+      }
+    },
+    {
+      "name": "a log message",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+          "level": "error",
+          "data": {
+            "msg": "boom"
+          }
+        }
+      }
+    },
+    {
+      "name": "ping",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "ping"
+      }
+    },
+    {
+      "name": "cmux/state/set",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "cmux/state/set",
+        "params": {
+          "state": {
+            "tab": 2,
+            "zoom": 1.5
+          }
+        }
+      }
+    },
+    {
+      "name": "cmux/state/set over 16 KiB",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "cmux/state/set",
+        "params": {
+          "state": {
+            "$fill": {
+              "text": "a",
+              "count": 16384
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "cap path.open",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "path.open",
+          "params": {
+            "path": "/Users/me/repo/src/main.rs",
+            "where": "split"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap file.read",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "file.read",
+          "params": {
+            "path": "/Users/me/repo/README.md"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap agent.event",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "agent.event",
+          "params": {
+            "name": "row.selected",
+            "data": {
+              "id": 3
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "cap command.run",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "command.run",
+          "params": {
+            "argv": [
+              "git",
+              "status"
+            ],
+            "cwd": "/Users/me/repo"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap with a claimed gesture credit",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "file.read",
+          "params": {
+            "path": "/a"
+          },
+          "gesture": true
+        }
+      }
+    },
+    {
+      "name": "cap with a claimed grant inside params",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "file.read",
+          "params": {
+            "path": "/a",
+            "granted": true
+          }
+        }
+      }
+    },
+    {
+      "name": "cap with a widget-chosen root",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "path.open",
+          "params": {
+            "path": "/a",
+            "roots": [
+              "/"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "cap link.open goes through ui/open-link only",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "link.open",
+          "params": {
+            "url": "https://example.com/"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap agent.send goes through ui/message only",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "agent.send",
+          "params": {
+            "text": "x"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap with an unknown capability",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "network.fetch",
+          "params": {
+            "url": "https://example.com/"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap command.run with a shell string",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "command.run",
+          "params": {
+            "argv": "rm -rf ~"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap command.run with an empty program",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "command.run",
+          "params": {
+            "argv": [
+              ""
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "cap command.run with a relative cwd",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "command.run",
+          "params": {
+            "argv": [
+              "ls"
+            ],
+            "cwd": "repo"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap file.read with a relative path",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "file.read",
+          "params": {
+            "path": "../.ssh/id_ed25519"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap agent.event with a bad name",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "agent.event",
+          "params": {
+            "name": "Row Selected"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap agent.event over 4 KiB",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "method": "cmux/cap/request",
+        "params": {
+          "cap": "agent.event",
+          "params": {
+            "name": "big",
+            "data": {
+              "$fill": {
+                "text": "a",
+                "count": 4096
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "cmux/data/subscribe",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "cmux/data/subscribe",
+        "params": {
+          "source": "usage"
+        }
+      }
+    },
+    {
+      "name": "cmux/data/subscribe to another session",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "cmux/data/subscribe",
+        "params": {
+          "source": "usage",
+          "sessionId": "other"
+        }
+      }
+    },
+    {
+      "name": "cmux/data/subscribe to an unknown source",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "method": "cmux/data/subscribe",
+        "params": {
+          "source": "files"
+        }
+      }
+    },
+    {
+      "name": "heartbeat answer",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 100,
+        "result": {
+          "seq": 41
+        }
+      }
+    },
+    {
+      "name": "teardown answer",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "result": {}
+      }
+    },
+    {
+      "name": "an error answer",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "error": {
+          "code": -32603,
+          "message": "teardown failed"
+        }
+      }
+    },
+    {
+      "name": "ui/update-model-context is not in v1",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "method": "ui/update-model-context",
+        "params": {
+          "structuredContent": {
+            "a": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "tools/call is not in v1",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+          "name": "widget_show",
+          "arguments": {}
+        }
+      }
+    },
+    {
+      "name": "a sandbox proxy message is reserved",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/sandbox-proxy-ready",
+        "params": {}
+      }
+    },
+    {
+      "name": "a message without jsonrpc",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "id": 5,
+        "method": "ping"
+      }
+    },
+    {
+      "name": "JSON-RPC 1.0",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "1.0",
+        "id": 5,
+        "method": "ping"
+      }
+    },
+    {
+      "name": "a message with a version field outside the negotiation",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "ping",
+        "v": 2
+      }
+    },
+    {
+      "name": "a message over 64 KiB",
+      "schema": "bridge.schema.json#/$defs/viewMessage",
+      "valid": false,
+      "error": "too_large",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+          "level": "info",
+          "data": {
+            "$fill": {
+              "text": "a",
+              "count": 65536
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer with the full token set",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer in a paired-device pane: no capabilities",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "mobile",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer that grants a sandbox permission",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "sandbox": {
+              "permissions": {
+                "camera": {}
+              }
+            }
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer that opens a network origin",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "sandbox": {
+              "csp": {
+                "connectDomains": [
+                  "https://example.com"
+                ]
+              }
+            }
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer that proxies server tools",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "serverTools": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer with font CSS (a network load)",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              },
+              "css": {
+                "fonts": "@import url(https://fonts.example.com/a.css);"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer with a partial token set",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer with an unknown bridge version",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 2,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer without the heartbeat interval",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "inline",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "initialize answer with fullscreen",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": {
+          "protocolVersion": "2026-01-26",
+          "hostInfo": {
+            "name": "cmux",
+            "version": "1"
+          },
+          "hostCapabilities": {
+            "openLinks": {},
+            "logging": {}
+          },
+          "hostContext": {
+            "theme": "dark",
+            "styles": {
+              "variables": {
+                "--color-background-primary": "#1d1f21",
+                "--color-background-secondary": "#1d1f21",
+                "--color-background-tertiary": "#1d1f21",
+                "--color-background-inverse": "#1d1f21",
+                "--color-background-ghost": "#00000000",
+                "--color-background-info": "#1d1f21",
+                "--color-background-danger": "#1d1f21",
+                "--color-background-success": "#1d1f21",
+                "--color-background-warning": "#1d1f21",
+                "--color-background-disabled": "#1d1f21",
+                "--color-text-primary": "#c5c8c6",
+                "--color-text-secondary": "#1d1f21",
+                "--color-text-tertiary": "#1d1f21",
+                "--color-text-inverse": "#1d1f21",
+                "--color-text-info": "#1d1f21",
+                "--color-text-danger": "#1d1f21",
+                "--color-text-success": "#1d1f21",
+                "--color-text-warning": "#1d1f21",
+                "--color-text-disabled": "#1d1f21",
+                "--color-text-ghost": "#1d1f21",
+                "--color-border-primary": "#1d1f21",
+                "--color-border-secondary": "#1d1f21",
+                "--color-border-tertiary": "#1d1f21",
+                "--color-border-inverse": "#1d1f21",
+                "--color-border-ghost": "#1d1f21",
+                "--color-border-info": "#1d1f21",
+                "--color-border-danger": "#1d1f21",
+                "--color-border-success": "#1d1f21",
+                "--color-border-warning": "#1d1f21",
+                "--color-border-disabled": "#1d1f21",
+                "--color-ring-primary": "#1d1f21",
+                "--color-ring-secondary": "#1d1f21",
+                "--color-ring-inverse": "#1d1f21",
+                "--color-ring-info": "#1d1f21",
+                "--color-ring-danger": "#1d1f21",
+                "--color-ring-success": "#1d1f21",
+                "--color-ring-warning": "#1d1f21",
+                "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+                "--font-mono": "\"SF Mono\", Menlo, monospace",
+                "--font-weight-normal": "500",
+                "--font-weight-medium": "500",
+                "--font-weight-semibold": "500",
+                "--font-weight-bold": "500",
+                "--font-text-xs-size": "12px",
+                "--font-text-sm-size": "12px",
+                "--font-text-md-size": "12px",
+                "--font-text-lg-size": "12px",
+                "--font-heading-xs-size": "12px",
+                "--font-heading-sm-size": "12px",
+                "--font-heading-md-size": "12px",
+                "--font-heading-lg-size": "12px",
+                "--font-heading-xl-size": "12px",
+                "--font-heading-2xl-size": "12px",
+                "--font-heading-3xl-size": "12px",
+                "--font-text-xs-line-height": "1.4",
+                "--font-text-sm-line-height": "1.4",
+                "--font-text-md-line-height": "1.4",
+                "--font-text-lg-line-height": "1.4",
+                "--font-heading-xs-line-height": "1.4",
+                "--font-heading-sm-line-height": "1.4",
+                "--font-heading-md-line-height": "1.4",
+                "--font-heading-lg-line-height": "1.4",
+                "--font-heading-xl-line-height": "1.4",
+                "--font-heading-2xl-line-height": "1.4",
+                "--font-heading-3xl-line-height": "1.4",
+                "--border-radius-xs": "12px",
+                "--border-radius-sm": "12px",
+                "--border-radius-md": "12px",
+                "--border-radius-lg": "12px",
+                "--border-radius-xl": "12px",
+                "--border-radius-full": "9999px",
+                "--border-width-regular": "12px",
+                "--shadow-hairline": "0 0 0 1px #00000033",
+                "--shadow-sm": "none",
+                "--shadow-md": "none",
+                "--shadow-lg": "none",
+                "--cmux-ansi-0": "#1d1f21",
+                "--cmux-ansi-1": "#1d1f21",
+                "--cmux-ansi-2": "#1d1f21",
+                "--cmux-ansi-3": "#1d1f21",
+                "--cmux-ansi-4": "#1d1f21",
+                "--cmux-ansi-5": "#1d1f21",
+                "--cmux-ansi-6": "#1d1f21",
+                "--cmux-ansi-7": "#1d1f21",
+                "--cmux-ansi-8": "#1d1f21",
+                "--cmux-ansi-9": "#1d1f21",
+                "--cmux-ansi-10": "#1d1f21",
+                "--cmux-ansi-11": "#1d1f21",
+                "--cmux-ansi-12": "#1d1f21",
+                "--cmux-ansi-13": "#1d1f21",
+                "--cmux-ansi-14": "#1d1f21",
+                "--cmux-ansi-15": "#1d1f21",
+                "--cmux-series-1": "#1d1f21",
+                "--cmux-series-2": "#1d1f21",
+                "--cmux-series-3": "#1d1f21",
+                "--cmux-series-4": "#1d1f21",
+                "--cmux-series-5": "#1d1f21",
+                "--cmux-series-6": "#1d1f21",
+                "--cmux-series-7": "#1d1f21",
+                "--cmux-series-8": "#1d1f21",
+                "--cmux-sequential-1": "#1d1f21",
+                "--cmux-sequential-2": "#1d1f21",
+                "--cmux-sequential-3": "#1d1f21",
+                "--cmux-sequential-4": "#1d1f21",
+                "--cmux-sequential-5": "#1d1f21",
+                "--cmux-sequential-6": "#1d1f21",
+                "--cmux-sequential-7": "#1d1f21",
+                "--cmux-sequential-8": "#1d1f21",
+                "--cmux-sequential-9": "#1d1f21",
+                "--cmux-diverging-1": "#1d1f21",
+                "--cmux-diverging-2": "#1d1f21",
+                "--cmux-diverging-3": "#1d1f21",
+                "--cmux-diverging-4": "#1d1f21",
+                "--cmux-diverging-5": "#1d1f21",
+                "--cmux-diverging-6": "#1d1f21",
+                "--cmux-diverging-7": "#1d1f21",
+                "--cmux-diverging-8": "#1d1f21",
+                "--cmux-diverging-9": "#1d1f21",
+                "--cmux-accent": "#1d1f21",
+                "--cmux-highlight": "#81a2be",
+                "--cmux-space-1": "12px",
+                "--cmux-space-2": "12px",
+                "--cmux-space-3": "12px",
+                "--cmux-space-4": "12px",
+                "--cmux-space-5": "12px",
+                "--cmux-space-6": "12px",
+                "--cmux-motion-hover": "120ms",
+                "--cmux-motion-focus": "120ms",
+                "--cmux-motion-in": "120ms",
+                "--cmux-motion-out": "120ms",
+                "--cmux-density": "1",
+                "--cmux-scheme": "dark"
+              }
+            },
+            "displayMode": "fullscreen",
+            "availableDisplayModes": [
+              "inline"
+            ],
+            "containerDimensions": {
+              "width": 640,
+              "maxHeight": 1600
+            },
+            "locale": "en-US",
+            "platform": "desktop",
+            "deviceCapabilities": {
+              "touch": false,
+              "hover": true
+            }
+          },
+          "_meta": {
+            "cmux.widget/bridge": {
+              "version": 1,
+              "tokens": "1",
+              "widgetId": "w-1",
+              "heartbeatMs": 500,
+              "capabilities": [
+                "link.open",
+                "path.open",
+                "file.read",
+                "agent.send",
+                "agent.event",
+                "command.run",
+                "data.subscribe"
+              ],
+              "state": {
+                "tab": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "version_unsupported error",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32000,
+          "message": "No common bridge version.",
+          "data": {
+            "reason": "version_unsupported",
+            "supported": [
+              1
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "gesture_required error",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {
+          "code": -32000,
+          "message": "Click the widget first.",
+          "data": {
+            "reason": "gesture_required"
+          }
+        }
+      }
+    },
+    {
+      "name": "outside_roots error",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {
+          "code": -32000,
+          "message": "That file is outside this project.",
+          "data": {
+            "reason": "outside_roots"
+          }
+        }
+      }
+    },
+    {
+      "name": "method not found for a dropped request",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {
+          "code": -32601,
+          "message": "Not supported."
+        }
+      }
+    },
+    {
+      "name": "parse error with a null id",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": null,
+        "error": {
+          "code": -32700,
+          "message": "Parse error."
+        }
+      }
+    },
+    {
+      "name": "an error code outside the list",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {
+          "code": 403,
+          "message": "x"
+        }
+      }
+    },
+    {
+      "name": "an unknown refusal reason",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {
+          "code": -32000,
+          "message": "x",
+          "data": {
+            "reason": "nope"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap granted with file bytes",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "granted": true,
+          "file": {
+            "mime": "text/markdown",
+            "encoding": "utf8",
+            "content": "# hi"
+          }
+        }
+      }
+    },
+    {
+      "name": "cap granted",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "granted": true
+        }
+      }
+    },
+    {
+      "name": "cap answer with a lasting grant",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "granted": true,
+          "until": 1790000000000
+        }
+      }
+    },
+    {
+      "name": "cap answer that is not granted (a refusal is an error)",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "result": {
+          "granted": false
+        }
+      }
+    },
+    {
+      "name": "display mode answer",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "result": {
+          "mode": "inline"
+        }
+      }
+    },
+    {
+      "name": "empty success",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {}
+      }
+    },
+    {
+      "name": "tool-input",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/tool-input",
+        "params": {
+          "arguments": {
+            "kind": "cmux.html",
+            "title": "Bars",
+            "data": {
+              "points": [
+                1,
+                2
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "tool-input never repeats the document",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/tool-input",
+        "params": {
+          "arguments": {
+            "kind": "cmux.html",
+            "title": "Bars",
+            "html": "<!doctype html><html><body><svg role=\"img\" aria-label=\"bars\" viewBox=\"0 0 10 10\"><rect width=\"4\" height=\"9\"/></svg></body></html>"
+          }
+        }
+      }
+    },
+    {
+      "name": "tool-result with new data",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/tool-result",
+        "params": {
+          "content": [],
+          "structuredContent": {
+            "data": {
+              "points": [
+                1,
+                2,
+                3
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "host-context-changed with a new token set",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/host-context-changed",
+        "params": {
+          "theme": "light",
+          "styles": {
+            "variables": {
+              "--color-background-primary": "#fafafa",
+              "--color-background-secondary": "#fafafa",
+              "--color-background-tertiary": "#fafafa",
+              "--color-background-inverse": "#fafafa",
+              "--color-background-ghost": "#00000000",
+              "--color-background-info": "#fafafa",
+              "--color-background-danger": "#fafafa",
+              "--color-background-success": "#fafafa",
+              "--color-background-warning": "#fafafa",
+              "--color-background-disabled": "#fafafa",
+              "--color-text-primary": "#1d1f21",
+              "--color-text-secondary": "#fafafa",
+              "--color-text-tertiary": "#fafafa",
+              "--color-text-inverse": "#fafafa",
+              "--color-text-info": "#fafafa",
+              "--color-text-danger": "#fafafa",
+              "--color-text-success": "#fafafa",
+              "--color-text-warning": "#fafafa",
+              "--color-text-disabled": "#fafafa",
+              "--color-text-ghost": "#fafafa",
+              "--color-border-primary": "#fafafa",
+              "--color-border-secondary": "#fafafa",
+              "--color-border-tertiary": "#fafafa",
+              "--color-border-inverse": "#fafafa",
+              "--color-border-ghost": "#fafafa",
+              "--color-border-info": "#fafafa",
+              "--color-border-danger": "#fafafa",
+              "--color-border-success": "#fafafa",
+              "--color-border-warning": "#fafafa",
+              "--color-border-disabled": "#fafafa",
+              "--color-ring-primary": "#fafafa",
+              "--color-ring-secondary": "#fafafa",
+              "--color-ring-inverse": "#fafafa",
+              "--color-ring-info": "#fafafa",
+              "--color-ring-danger": "#fafafa",
+              "--color-ring-success": "#fafafa",
+              "--color-ring-warning": "#fafafa",
+              "--font-sans": "-apple-system, \"Helvetica Neue\", sans-serif",
+              "--font-mono": "\"SF Mono\", Menlo, monospace",
+              "--font-weight-normal": "500",
+              "--font-weight-medium": "500",
+              "--font-weight-semibold": "500",
+              "--font-weight-bold": "500",
+              "--font-text-xs-size": "12px",
+              "--font-text-sm-size": "12px",
+              "--font-text-md-size": "12px",
+              "--font-text-lg-size": "12px",
+              "--font-heading-xs-size": "12px",
+              "--font-heading-sm-size": "12px",
+              "--font-heading-md-size": "12px",
+              "--font-heading-lg-size": "12px",
+              "--font-heading-xl-size": "12px",
+              "--font-heading-2xl-size": "12px",
+              "--font-heading-3xl-size": "12px",
+              "--font-text-xs-line-height": "1.4",
+              "--font-text-sm-line-height": "1.4",
+              "--font-text-md-line-height": "1.4",
+              "--font-text-lg-line-height": "1.4",
+              "--font-heading-xs-line-height": "1.4",
+              "--font-heading-sm-line-height": "1.4",
+              "--font-heading-md-line-height": "1.4",
+              "--font-heading-lg-line-height": "1.4",
+              "--font-heading-xl-line-height": "1.4",
+              "--font-heading-2xl-line-height": "1.4",
+              "--font-heading-3xl-line-height": "1.4",
+              "--border-radius-xs": "12px",
+              "--border-radius-sm": "12px",
+              "--border-radius-md": "12px",
+              "--border-radius-lg": "12px",
+              "--border-radius-xl": "12px",
+              "--border-radius-full": "9999px",
+              "--border-width-regular": "12px",
+              "--shadow-hairline": "0 0 0 1px #00000033",
+              "--shadow-sm": "none",
+              "--shadow-md": "none",
+              "--shadow-lg": "none",
+              "--cmux-ansi-0": "#fafafa",
+              "--cmux-ansi-1": "#fafafa",
+              "--cmux-ansi-2": "#fafafa",
+              "--cmux-ansi-3": "#fafafa",
+              "--cmux-ansi-4": "#fafafa",
+              "--cmux-ansi-5": "#fafafa",
+              "--cmux-ansi-6": "#fafafa",
+              "--cmux-ansi-7": "#fafafa",
+              "--cmux-ansi-8": "#fafafa",
+              "--cmux-ansi-9": "#fafafa",
+              "--cmux-ansi-10": "#fafafa",
+              "--cmux-ansi-11": "#fafafa",
+              "--cmux-ansi-12": "#fafafa",
+              "--cmux-ansi-13": "#fafafa",
+              "--cmux-ansi-14": "#fafafa",
+              "--cmux-ansi-15": "#fafafa",
+              "--cmux-series-1": "#fafafa",
+              "--cmux-series-2": "#fafafa",
+              "--cmux-series-3": "#fafafa",
+              "--cmux-series-4": "#fafafa",
+              "--cmux-series-5": "#fafafa",
+              "--cmux-series-6": "#fafafa",
+              "--cmux-series-7": "#fafafa",
+              "--cmux-series-8": "#fafafa",
+              "--cmux-sequential-1": "#fafafa",
+              "--cmux-sequential-2": "#fafafa",
+              "--cmux-sequential-3": "#fafafa",
+              "--cmux-sequential-4": "#fafafa",
+              "--cmux-sequential-5": "#fafafa",
+              "--cmux-sequential-6": "#fafafa",
+              "--cmux-sequential-7": "#fafafa",
+              "--cmux-sequential-8": "#fafafa",
+              "--cmux-sequential-9": "#fafafa",
+              "--cmux-diverging-1": "#fafafa",
+              "--cmux-diverging-2": "#fafafa",
+              "--cmux-diverging-3": "#fafafa",
+              "--cmux-diverging-4": "#fafafa",
+              "--cmux-diverging-5": "#fafafa",
+              "--cmux-diverging-6": "#fafafa",
+              "--cmux-diverging-7": "#fafafa",
+              "--cmux-diverging-8": "#fafafa",
+              "--cmux-diverging-9": "#fafafa",
+              "--cmux-accent": "#fafafa",
+              "--cmux-highlight": "#4271ae",
+              "--cmux-space-1": "12px",
+              "--cmux-space-2": "12px",
+              "--cmux-space-3": "12px",
+              "--cmux-space-4": "12px",
+              "--cmux-space-5": "12px",
+              "--cmux-space-6": "12px",
+              "--cmux-motion-hover": "120ms",
+              "--cmux-motion-focus": "120ms",
+              "--cmux-motion-in": "120ms",
+              "--cmux-motion-out": "120ms",
+              "--cmux-density": "1",
+              "--cmux-scheme": "light"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "host-context-changed with a width only",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/host-context-changed",
+        "params": {
+          "containerDimensions": {
+            "width": 512
+          }
+        }
+      }
+    },
+    {
+      "name": "host-context-changed with width and maxWidth",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "ui/notifications/host-context-changed",
+        "params": {
+          "containerDimensions": {
+            "width": 512,
+            "maxWidth": 600
+          }
+        }
+      }
+    },
+    {
+      "name": "teardown",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 101,
+        "method": "ui/resource-teardown",
+        "params": {
+          "reason": "scrolled_out"
+        }
+      }
+    },
+    {
+      "name": "heartbeat",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 100,
+        "method": "cmux/heartbeat",
+        "params": {
+          "seq": 41
+        }
+      }
+    },
+    {
+      "name": "heartbeat without seq",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": false,
+      "error": "schema",
+      "value": {
+        "jsonrpc": "2.0",
+        "id": 100,
+        "method": "cmux/heartbeat",
+        "params": {}
+      }
+    },
+    {
+      "name": "a data event",
+      "schema": "bridge.schema.json#/$defs/hostMessage",
+      "valid": true,
+      "value": {
+        "jsonrpc": "2.0",
+        "method": "cmux/notifications/data",
+        "params": {
+          "source": "usage",
+          "seq": 0,
+          "data": {
+            "inputTokens": 120
+          }
+        }
+      }
+    }
+  ]
+}
