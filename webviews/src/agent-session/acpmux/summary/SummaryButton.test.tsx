@@ -54,7 +54,9 @@ async function render(opened: string[], shown: readonly AcpmuxRow[] = rows) {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
   const draw = (next: readonly AcpmuxRow[]) =>
-    act(async () => root.render(createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) })));
+    act(async () =>
+      root.render(createElement(SummaryButton, { rows: next, onOpenOutput: (path) => opened.push(path) })),
+    );
   await draw(shown);
   const button = container.querySelector<HTMLButtonElement>(".acpmux-summary-button")!;
   const popover = () => container.querySelector<HTMLDialogElement>(".acpmux-summary-popover");
@@ -140,7 +142,8 @@ test("sections keep their place while the turn adds to them", async () => {
   const { button, popover, draw, unmount } = await render([], rows.slice(0, 1));
   await act(async () => button.click());
   const before = titles(popover()!);
-  await draw([rows[0]!, { ...rows[1]!, items: (rows[1] as Extract<AcpmuxRow, { kind: "activity" }>).items.slice(1) }]);
+  const activity = rows[1] as AcpmuxRow & { items: AcpmuxActivity[] };
+  await draw([rows[0]!, { ...activity, items: activity.items.slice(1) }]);
   expect(titles(popover()!)).toEqual(before);
   expect(popover()!.querySelectorAll(".acpmux-summary-none")).toHaveLength(1);
   await unmount();
