@@ -11,37 +11,30 @@
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;
   if (!S) return;
 
-  // Runs in the page world. arg: { op: "list", mark } or { op: "call",
-  // name, input, descriptor, mark, url }. Each listed tool carries
-  // `descriptor`, its name, title, description, input schema and
-  // annotations as JSON with sorted keys; a call with a descriptor runs only
-  // a tool whose descriptor is that one, checked right before it runs.
-  // A list marks its document (`mark`, kept on the window, which a new
-  // document does not have) and returns the mark and URL it found before
-  // listing; a call runs only in the document with that mark at that URL,
-  // checked first and again right before the tool runs.
-  async function webmcp(arg) {
-    const KEY = "__cmuxWebMCPDocument";
+  // Runs in the page world through an element handle of the document's
+  // root (handles live in cmux's agent world and resolve only in the
+  // document that issued them; a new document fails them as stale before
+  // this runs). arg: { op: "list" } or { op: "call", name, input,
+  // descriptor, url }. Each listed tool carries `descriptor`, its name,
+  // title, description, input schema and annotations as JSON with sorted
+  // keys; a call with a descriptor runs only a tool whose descriptor is
+  // that one, checked right before it runs. A list returns the URL it found
+  // before listing; a call runs only while the tab's URL is that one and
+  // the root is still in this document, checked first and again right
+  // before the tool runs.
+  async function webmcp(els, arg) {
+    const root = els[0];
     const here = () => {
       try {
-        return { mark: window[KEY], url: location.href };
+        return location.href;
       } catch (e) {
-        return { mark: undefined, url: null };
+        return null;
       }
     };
-    const moved = () => {
-      const now = here();
-      return now.mark !== arg.mark || now.url !== arg.url;
-    };
+    const moved = () => !root || root.ownerDocument !== document || !root.isConnected || here() !== arg.url;
     let listedAt = null;
-    if (arg.op === "list") {
-      if (typeof window[KEY] !== "string") {
-        try {
-          Object.defineProperty(window, KEY, { value: arg.mark, enumerable: false, writable: false, configurable: false });
-        } catch (e) {}
-      }
-      listedAt = here();
-    } else if (moved()) return { supported: true, moved: here().url };
+    if (arg.op === "list") listedAt = here();
+    else if (moved()) return { supported: true, moved: here() };
     const mc = (navigator && navigator.modelContext) || document.modelContext || null;
     if (!mc) return { supported: false };
     const canon = (v) => (v === null || typeof v !== "object" ? JSON.stringify(v === undefined ? null : v) : Array.isArray(v) ? "[" + v.map(canon).join(",") + "]" : "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}");
@@ -55,11 +48,11 @@
     else if (mc.tools) tools = mc.tools instanceof Map ? [...mc.tools.values()] : Array.isArray(mc.tools) ? mc.tools : Object.values(mc.tools);
     if (!tools) return { supported: true, listable: false };
     tools = (Array.isArray(tools) ? tools : tools.tools || []).map(norm);
-    if (arg.op === "list") return { supported: true, listable: true, tools, mark: listedAt.mark, url: listedAt.url };
+    if (arg.op === "list") return { supported: true, listable: true, tools, url: listedAt };
     const tool = tools.find((t) => t.name === arg.name);
     if (!tool) return { supported: true, listable: true, missing: true, tools: tools.map((t) => t.name) };
     if (typeof arg.descriptor === "string" && tool.descriptor !== arg.descriptor) return { supported: true, listable: true, changed: true };
-    if (moved()) return { supported: true, moved: here().url };
+    if (moved()) return { supported: true, moved: here() };
     let result;
     if (typeof mc.executeTool === "function") result = await mc.executeTool(arg.name, arg.input);
     else if (typeof mc.callTool === "function") result = await mc.callTool({ name: arg.name, arguments: arg.input });
@@ -79,22 +72,35 @@
       // 64-bit FNV-1a of a descriptor, shown in a draft's preview. The
       // confirmation compares the whole descriptor, not this hash.
       const hash = t.hash;
-      // A fresh mark for a document listed for the first time.
-      const newMark = () => `${t.now().toString(36)}.${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
-      // Tools with their descriptors (internal), and the document (mark)
-      // and URL they were listed in (`at`).
+      // The tab's document root as an element handle: evaluations through
+      // it run only in the document it was taken from.
+      async function rootOf(page) {
+        const root = await page.$("html");
+        if (!root) throw new S.SiteError("page_changed", "webmcp: the tab's document has no root element");
+        return root;
+      }
+      const evalIn = (root, arg) =>
+        root.evaluateAll(webmcp, arg).catch((e) => {
+          // The driver's own refusal to resolve the root in another document.
+          if (e && e.code === "stale" && /^(Error: )?(Element handle is from a previous document|Element is not attached)/.test(String(e.message))) return { supported: true, moved: null };
+          throw e;
+        });
+      // Tools with their descriptors (internal), and the document (root
+      // handle) and URL they were listed in (`at`).
       async function listRaw(page) {
-        const r = await (page || t.currentPage()).evaluate(webmcp, { op: "list", mark: newMark() });
+        const root = await rootOf(page || t.currentPage());
+        const r = await evalIn(root, { op: "list" });
+        if (r.moved !== undefined) throw new S.SiteError("page_changed", "webmcp: the tab loaded a new document while its tools were listed; list them again");
         if (!r.supported) return { supported: false, tools: [], note: UNSUPPORTED };
         if (!r.listable) return { supported: true, tools: [], note: "webmcp: the page has navigator.modelContext but its implementation offers no way to list tools" };
-        return { supported: true, tools: r.tools, at: { mark: r.mark, url: r.url } };
+        return { supported: true, tools: r.tools, at: { root, url: r.url } };
       }
       async function list(page) {
         const { at, ...r } = await listRaw(page);
         return r.tools.length ? { ...r, tools: r.tools.map(({ descriptor, ...tool }) => tool) } : r;
       }
       async function run(page, name, input, descriptor, at) {
-        const r = await page.evaluate(webmcp, { op: "call", name, input: input === undefined ? {} : input, descriptor, mark: at.mark, url: at.url });
+        const r = await evalIn(at.root, { op: "call", name, input: input === undefined ? {} : input, descriptor, url: at.url });
         if (r.moved !== undefined) throw new S.SiteError("page_changed", `webmcp.call: the tab shows a new document or another URL (${r.moved || "unknown"}) since tool ${JSON.stringify(name)} was listed at ${at.url}; nothing was called`);
         if (!r.supported) throw new S.SiteError("unsupported", UNSUPPORTED);
         if (r.missing) throw new S.SiteError("not_found", `webmcp.call: the page has no tool ${JSON.stringify(name)}; tools: ${r.tools.join(", ")}`);

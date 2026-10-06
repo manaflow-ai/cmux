@@ -51,7 +51,11 @@
     for (const part of f.formatToParts(d)) o[part.type] = part.value;
     return { y: Number(o.year), m: Number(o.month), d: Number(o.day), h: Number(o.hour) % 24, min: Number(o.minute) };
   }
-  // "Oct 1, 2026", "Thursday, October 1", "10/1/2026" or "2026-10-01".
+  // "Oct 1, 2026", "Thursday, October 1", "2026-10-01", or a numeric date
+  // that reads only one way ("10/13/2026", "13/10/2026", "5/5/2026"). Calendar's
+  // date format is a user setting the form does not name, so a numeric date
+  // whose month and day could be either way round ("10/1/2026": October 1
+  // or January 10) is not accepted as any date.
   function dateShows(text, p) {
     const s = String(text || "").toLowerCase();
     const nums = (s.match(/\d+/g) || []).map(Number);
@@ -60,7 +64,14 @@
     const small = nums.filter((n) => n < 1000);
     const named = MONTHS.findIndex((m) => new RegExp(`\\b${m}`).test(s));
     if (named >= 0) return named + 1 === p.m && small.length === 1 && small[0] === p.d;
-    return small.length === 2 && small.includes(p.m) && small.includes(p.d) && (p.m === p.d || small[0] !== small[1]);
+    if (small.length !== 2) return false;
+    const [a, b] = small;
+    // Year first is always year, month, day.
+    if (/^\D*\d{4}\D/.test(s)) return a === p.m && b === p.d;
+    if (a === b) return a === p.m && b === p.d;
+    // Two readings when both could be a month.
+    if (a <= 12 && b <= 12) return false;
+    return (a === p.m && b === p.d) || (a === p.d && b === p.m);
   }
   // "5:00pm", "5pm", "17:00".
   function timeShows(text, p) {
@@ -79,27 +90,99 @@
     const tag = String(await one._read("tagName", undefined, { timeout: 2000 }, "tag name")).toLowerCase();
     return tag === "input" || tag === "textarea" ? one.inputValue({ timeout: 2000 }) : one.innerText({ timeout: 2000 });
   }
-  // Whether Calendar's recurrence menu text ("Does not repeat", "Weekly on
-  // Thursday", "Every 2 weeks, 5 times", "Monthly until Dec 31, 2026")
-  // repeats as the drafted RRULE: no rule shows "Does not repeat", a rule
-  // its frequency and interval, its count and whether it ends on a date.
-  function repeatsAs(text, recurrence) {
-    if (!recurrence) return /^does not repeat$/i.test(text);
-    if (/^does not repeat$/i.test(text)) return false;
+  // A drafted RRULE as the fields Calendar's recurrence menu can show:
+  // FREQ, INTERVAL, COUNT or UNTIL, and BYDAY (weekdays; for MONTHLY one
+  // ordinal weekday such as 3TH or -1FR) or BYMONTHDAY (MONTHLY, one day).
+  // Anything else (BYMONTH, BYSETPOS, WKST, several rules, a repeated key)
+  // returns null: the form's words could not show it, so it is refused.
+  const RRULE_DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+  function parseRule(recurrence) {
+    const text = String(recurrence).trim().replace(/^RRULE:/i, "");
+    if (!text || /[\r\n]/.test(text)) return null;
     const rule = {};
-    for (const part of String(recurrence).replace(/^RRULE:/i, "").split(";")) {
-      const [k, v] = part.split("=");
-      if (k) rule[k.toUpperCase()] = String(v || "").toUpperCase();
+    for (const part of text.split(";")) {
+      const m = /^([A-Za-z]+)=([^=;]+)$/.exec(part.trim());
+      if (!m) return null;
+      const k = m[1].toUpperCase();
+      if (k in rule || !["FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY", "BYMONTHDAY"].includes(k)) return null;
+      rule[k] = m[2].toUpperCase();
     }
-    const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.FREQ];
-    if (!unit) return false;
-    const every = Number(rule.INTERVAL || 1);
-    const word = { DAILY: /^(daily|every day|every weekday)\b/i, WEEKLY: /^weekly\b/i, MONTHLY: /^monthly\b/i, YEARLY: /^(annually|yearly)\b/i }[rule.FREQ];
-    const freq = every > 1 ? new RegExp(`^every ${every} ${unit}s\\b`, "i").test(text) : word.test(text);
-    if (!freq) return false;
-    const count = /\b(\d+) times\b/i.exec(text);
-    if ((rule.COUNT || null) !== (count ? count[1] : null)) return false;
-    return !!rule.UNTIL === /\buntil\b/i.test(text);
+    if (!["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(rule.FREQ)) return null;
+    if (rule.INTERVAL !== undefined && !/^[1-9]\d*$/.test(rule.INTERVAL)) return null;
+    if (rule.COUNT !== undefined && !/^[1-9]\d*$/.test(rule.COUNT)) return null;
+    if (rule.UNTIL !== undefined && !/^\d{8}(T\d{6}Z?)?$/.test(rule.UNTIL)) return null;
+    if (rule.COUNT !== undefined && rule.UNTIL !== undefined) return null;
+    const out = { freq: rule.FREQ, every: Number(rule.INTERVAL || 1), count: rule.COUNT || null, until: rule.UNTIL || null, days: null, ordinal: null, monthDay: null };
+    if (rule.BYDAY !== undefined) {
+      if (rule.FREQ === "WEEKLY") {
+        const days = rule.BYDAY.split(",");
+        if (!days.every((d) => RRULE_DAYS.includes(d)) || new Set(days).size !== days.length) return null;
+        out.days = days.map((d) => RRULE_DAYS.indexOf(d)).sort();
+      } else if (rule.FREQ === "MONTHLY") {
+        const m = /^([+-]?[1-5])(SU|MO|TU|WE|TH|FR|SA)$/.exec(rule.BYDAY);
+        if (!m || m[1] === "-2" || m[1] === "-3" || m[1] === "-4" || m[1] === "-5" || rule.BYMONTHDAY !== undefined) return null;
+        out.ordinal = { n: Number(m[1]), day: RRULE_DAYS.indexOf(m[2]) };
+      } else return null;
+    }
+    if (rule.BYMONTHDAY !== undefined) {
+      if (rule.FREQ !== "MONTHLY" || !/^([1-9]|[12]\d|3[01])$/.test(rule.BYMONTHDAY)) return null;
+      out.monthDay = Number(rule.BYMONTHDAY);
+    }
+    return out;
+  }
+  // Whether Calendar's recurrence menu text ("Does not repeat", "Weekly on
+  // Thursday", "Every 2 weeks on Monday, Thursday, 5 times", "Monthly on
+  // day 15", "Monthly on the third Thursday", "Annually on October 1",
+  // "Monthly on day 1, until Dec 31, 2026") repeats exactly as the drafted
+  // RRULE: frequency and interval, the weekdays or day of the month (the
+  // start's when the rule names none, as Calendar fills them in), the exact
+  // COUNT and UNTIL date. `start` is the start's parts in the event's zone.
+  const WEEKDAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const ORDINALS = { 1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth", "-1": "last" };
+  function repeatsAs(raw, recurrence, start, zone) {
+    const text = String(raw || "").trim().toLowerCase();
+    if (!recurrence) return text === "does not repeat";
+    if (text === "does not repeat") return false;
+    const rule = parseRule(recurrence);
+    if (!rule) return false;
+    let rest = text;
+    // The end: ", N times" or ", until <date>" (or neither).
+    const count = /,\s*(\d+) times$/.exec(rest);
+    const until = count ? null : /,?\s*until (.+)$/.exec(rest);
+    if (count) rest = rest.slice(0, count.index);
+    if (until) rest = rest.slice(0, until.index);
+    if ((rule.count || null) !== (count ? count[1] : null)) return false;
+    if (!!rule.until !== !!until) return false;
+    if (rule.until) {
+      const u = rule.until;
+      const p = /Z$/.test(u) ? zonedParts(new Date(Date.UTC(+u.slice(0, 4), +u.slice(4, 6) - 1, +u.slice(6, 8), +u.slice(9, 11), +u.slice(11, 13), +u.slice(13, 15))), zone) : { y: +u.slice(0, 4), m: +u.slice(4, 6), d: +u.slice(6, 8) };
+      if (!dateShows(until[1], p)) return false;
+    }
+    rest = rest.trim();
+    const weekdayOf = (p) => new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay();
+    // "Every weekday (Monday to Friday)" is weekly on Monday to Friday.
+    if (/^every weekday\b/.test(rest)) return rule.freq === "WEEKLY" && rule.every === 1 && rule.days !== null && rule.days.join() === "1,2,3,4,5";
+    const unit = { DAILY: "day", WEEKLY: "week", MONTHLY: "month", YEARLY: "year" }[rule.freq];
+    const head = rule.every > 1 ? new RegExp(`^every ${rule.every} ${unit}s\\b`) : { DAILY: /^(daily|every day)\b/, WEEKLY: /^weekly\b/, MONTHLY: /^monthly\b/, YEARLY: /^(annually|yearly)\b/ }[rule.freq];
+    const h = head.exec(rest);
+    if (!h) return false;
+    const on = rest.slice(h[0].length).trim();
+    if (rule.freq === "DAILY") return on === "";
+    const sel = /^on (.+)$/.exec(on);
+    if (!sel) return false;
+    if (rule.freq === "WEEKLY") {
+      const names = sel[1].split(/\s*(?:,|\band\b)\s*/).filter(Boolean);
+      const shown = names.map((n) => WEEKDAY_NAMES.indexOf(n));
+      if (shown.some((i) => i < 0) || new Set(shown).size !== shown.length) return false;
+      const want = rule.days || [weekdayOf(start)];
+      return shown.sort().join() === want.join();
+    }
+    if (rule.freq === "MONTHLY") {
+      if (rule.ordinal) return sel[1] === `the ${ORDINALS[rule.ordinal.n]} ${WEEKDAY_NAMES[rule.ordinal.day]}`;
+      return sel[1] === `day ${rule.monthDay || start.d}`;
+    }
+    // YEARLY: on the start's month and day.
+    return dateShows(sel[1], { y: start.y, m: start.m, d: start.d });
   }
   // What the event form in `page` would save, for a commit's observe(): per
   // drafted field, the drafted value when the form shows it (dates and
@@ -137,7 +220,7 @@
     const description = await fieldText(page.locator('[role="main"] [aria-label="Description"]'));
     if (description !== null) out.description = norm(description);
     const recurrence = await fieldText(page.locator('[role="main"] [aria-label="Recurrence"]'));
-    if (recurrence !== null) out.recurrence = repeatsAs(norm(recurrence), draft.recurrence) ? draft.recurrence : norm(recurrence);
+    if (recurrence !== null) out.recurrence = repeatsAs(norm(recurrence), draft.recurrence, start, zone) ? draft.recurrence : norm(recurrence);
     const listed = page.locator('[role="main"] [data-email]');
     const n = await listed.count();
     if (n < 200) {
@@ -198,7 +281,10 @@
               }
               q.set("ctz", String(e.timeZone));
             }
-            if (e.recurrence) q.set("recur", String(e.recurrence));
+            if (e.recurrence) {
+              if (!parseRule(e.recurrence)) throw new S.SiteError("invalid", `googleCalendar.create: recurrence: expected one RRULE with FREQ (DAILY, WEEKLY, MONTHLY, YEARLY), INTERVAL, COUNT or UNTIL, and BYDAY or BYMONTHDAY as Calendar's repeat menu shows them; got ${JSON.stringify(e.recurrence)}`);
+              q.set("recur", String(e.recurrence));
+            }
             const uid = e.uid === undefined ? 0 : e.uid;
             base(uid);
             q.set("authuser", String(uid));
