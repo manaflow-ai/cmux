@@ -596,7 +596,8 @@ describe("acpmux composer pickers", () => {
   // The Mode and Model menus keep the focus on their chip while open and close when it leaves, so
   // their own Escape handlers always get the key; the Effort popover moves it to its slider.
   test("Escape closes the Effort popover wherever the focus is in the page", async () => {
-    await render(snapshot({ configOptions: [effort] }));
+    // Without a model list the effort keeps a chip and popover of its own.
+    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
     await act(async () => button("Effort")!.click());
     expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
     // Focus left the slider (a click on the popover's title, or on the page around it).
@@ -609,7 +610,7 @@ describe("acpmux composer pickers", () => {
   });
 
   test("a click outside closes the Effort popover without picking", async () => {
-    await render(snapshot({ configOptions: [effort] }));
+    await render({ ...snapshot({ configOptions: [effort] }), catalog: [] });
     await act(async () => button("Effort")!.click());
     expect(doc.querySelector(".acpmux-effort-pop")).not.toBeNull();
     await act(async () => {
