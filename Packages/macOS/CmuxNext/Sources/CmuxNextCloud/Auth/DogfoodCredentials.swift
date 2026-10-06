@@ -15,6 +15,19 @@ struct DogfoodCredentials: Equatable {
     let email: String
     let password: String
 
+    /// Why a tagged build starts signed out (logged, never the secret).
+    enum Refusal: Equatable {
+        case noDeclaredAccount
+        case accountMismatch(found: String, declared: String)
+    }
+
+    /// Red stub.
+    static func decide(environment: [String: String], home: String,
+                       read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) })
+        -> (credentials: DogfoodCredentials?, refusal: Refusal?) {
+        (resolve(environment: environment, home: home, read: read), nil)
+    }
+
     static func resolve(environment: [String: String], home: String,
                         read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }) -> DogfoodCredentials? {
         guard let found = candidate(environment: environment, home: home, read: read) else { return nil }
