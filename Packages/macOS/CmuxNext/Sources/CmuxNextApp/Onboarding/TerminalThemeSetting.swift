@@ -35,21 +35,27 @@ final class TerminalThemeSetting {
     private var applied: State?
     private var observation: Task<Void, Never>?
 
+    /// Applies the loaded settings at once (launch loads them before the
+    /// first window, which must not draw a frame in the defaults), then
+    /// follows their changes.
     func follow(_ settings: SettingsController) {
+        take(settings.snapshot)
         observation = Task { [weak self] in
-            for await snapshot in Observations({ settings.snapshot }) {
-                // Parsed and validated in `CmuxConfigSnapshot` (a bad value is
-                // a diagnostic and keeps the Ghostty config's).
-                let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
-                ThemeLaunchLog.mark("settings theme=\(snapshot.appTheme ?? "nil") bg=\(snapshot.backdropSelection.map { "\($0)" } ?? "nil")")
-                self?.backdropScope.setBackdropSelection(snapshot.backdropSelection)
-                self?.backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
-                // Per-surface backgrounds (R55): every owner repaints from them.
-                self?.backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
-                self?.apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground,
-                                  terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal))
-            }
+            for await snapshot in Observations({ settings.snapshot }) { self?.take(snapshot) }
         }
+    }
+
+    private func take(_ snapshot: CmuxConfigSnapshot) {
+        // Parsed and validated in `CmuxConfigSnapshot` (a bad value is
+        // a diagnostic and keeps the Ghostty config's).
+        let font = GhosttyRuntime.FontOverride(family: snapshot.terminalFontFamily, size: snapshot.terminalFontSize)
+        ThemeLaunchLog.mark("settings theme=\(snapshot.appTheme ?? "nil") bg=\(snapshot.backdropSelection.map { "\($0)" } ?? "nil")")
+        backdropScope.setBackdropSelection(snapshot.backdropSelection)
+        backdropScope.setAppearanceTuning(snapshot.experimentalAppearance ? snapshot.appearanceTuning : .identity)
+        // Per-surface backgrounds (R55): every owner repaints from them.
+        backdropScope.setSurfaceBackgrounds(snapshot.surfaceBackgrounds)
+        apply(State(theme: snapshot.appTheme, font: font, background: snapshot.windowBackground,
+                    terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal))
     }
 
     /// The review tool's light/dark preview: Ghostty's Apple System Colors
