@@ -1,5 +1,5 @@
 // Request-body parsing for POST /api/vm/firewall endpoints (source and destination).
-import { canonicalCidr } from "./cidr";
+import { canonicalCidr } from "./networkPolicy";
 import { vmErrorResponse } from "./routeHelpers";
 
 export type FirewallEndpoint = { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: true; port?: number; protocol?: "tcp" | "udp" | "icmp" };

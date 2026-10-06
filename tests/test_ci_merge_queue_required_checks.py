@@ -45,7 +45,8 @@ REQUIRED_NAMES = _required_status_checks.REQUIRED_CHECKS
 # Checks that judge a pull request's author and head in workflows a pull request
 # may not edit. BRIDGE reports them for a merge group without running anything, so it
 # must stay exactly this document: any other job, step, trigger or permission
-# would run with those names' authority.
+# would run with those names' authority. The no-op bridge uses the standard
+# Blacksmith expression because it has no token, checkout, or candidate code.
 BRIDGE = WORKFLOWS / "merge-group-policy-checks.yml"
 BRIDGED_CHECKS = {
     "cla-assistant": "CLA Assistant",
@@ -62,7 +63,7 @@ def expected_bridge() -> dict:
         "jobs": {
             job_id: {
                 "name": name,
-                "runs-on": "ubuntu-24.04",
+                "runs-on": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}",
                 "timeout-minutes": 5,
                 "steps": [{"run": 'echo "Passed on every pull request in this merge group."'}],
             }
@@ -151,16 +152,20 @@ class MergeGroupCheckNamesTests(unittest.TestCase):
             (workflows / "web-complexity-trusted.yml").write_text(
                 yaml.safe_dump(workflow), encoding="utf-8"
             )
+            # "Web complexity" is no longer required on main, but its dynamic
+            # name is still the hardest routing case, so these fixtures keep
+            # requiring it.
+            required = (*REQUIRED_NAMES, REQUIRED_CHECK)
             jobs = {
-                name: {} for name in REQUIRED_NAMES
-                if name not in {*BRIDGED_CHECKS.values(), "Web complexity"}
+                name: {} for name in required
+                if name not in {*BRIDGED_CHECKS.values(), REQUIRED_CHECK}
             }
             if duplicate:
                 jobs["duplicate"] = {"name": "Web complexity"}
             (workflows / "other.yml").write_text(
                 yaml.safe_dump({"on": "merge_group", "jobs": jobs}), encoding="utf-8"
             )
-            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge):
+            with patch.dict(main.__globals__, WORKFLOWS=workflows, BRIDGE=bridge, REQUIRED_NAMES=required):
                 with contextlib.redirect_stdout(io.StringIO()):
                     return main()
 

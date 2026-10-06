@@ -5,6 +5,7 @@ import {
   englishFallbackContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "../i18n/locale-availability";
 import { locales } from "../i18n/routing";
@@ -19,9 +20,28 @@ import {
   changelogVersionPath,
 } from "./lib/changelog";
 import { changelogStore } from "./lib/changelog-store";
+import { isDocsZoneDeployment } from "./lib/docs-channel";
+import { keepServedDocsEntries, releaseDocsUrls } from "./lib/release-docs-sitemap";
+
+/**
+ * The served sitemap. A docs zone lists the docs it was built with. The main
+ * site rewrites /docs to the release docs zone, which is built from the latest
+ * release tag, so it lists only the docs that zone's own sitemap lists. If that
+ * sitemap cannot be read, the main site falls back to every authored entry.
+ */
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const entries = sitemapEntries();
+  if (isDocsZoneDeployment()) return entries;
+  try {
+    return keepServedDocsEntries(entries, new Set(await releaseDocsUrls()));
+  } catch (error) {
+    console.error("sitemap.release_docs_unavailable", error);
+    return entries;
+  }
+}
 
 /** Builds localized sitemap entries, excluding unreleased download pages. */
-export default function sitemap(): MetadataRoute.Sitemap {
+export function sitemapEntries(): MetadataRoute.Sitemap {
   const base = "https://cmux.com";
   const changelog = changelogStore.versions();
   const latestChangelogDate = changelog[0]?.date ?? "2026-03-18";
@@ -98,6 +118,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
     { path: "/docs/managed-policies", lastModified: "2026-08-18", changeFrequency: "monthly" as const, priority: 0.8, locales: managedPoliciesDocsLocales },
+    { path: "/docs/cloud-security", lastModified: "2026-09-24", changeFrequency: "monthly" as const, priority: 0.8, locales: cloudSecurityDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/agent-integrations/oh-my-opencode", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
