@@ -315,8 +315,10 @@ final class TerminalNotificationStore: ObservableObject {
     let userNotificationCenter: UserNotificationCenterService
     private let authorizationNotificationCenter: NotificationCenter
     private let authorizationStatusProvider: @MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>
-    /// Defer the first authorization publication past launch constraint setup (#2757).
-    private static let initialAuthCheckDelay: TimeInterval = 0.2
+    /// Authorization refreshes wait until the app reports completed window setup, so a
+    /// publication cannot re-enter the launch constraint pass (#2757).
+    private var isWindowSetupComplete = false
+    private var hasPendingAuthorizationRefresh = false
     private var hasRequestedAutomaticAuthorization = false
     private var hasDeferredAuthorizationRequest = false
     private var hasUpgradedBadgeAuthorization = false
@@ -379,9 +381,6 @@ final class TerminalNotificationStore: ObservableObject {
     private let inFlightPolicyRequests = TerminalNotificationPolicyInFlightStore()
     init(
         userNotificationCenter: UserNotificationCenterService,
-        initialAuthorizationScheduler: @MainActor (_ delay: TimeInterval, _ block: @escaping @MainActor @Sendable () -> Void) -> Void = { delay, block in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block)
-        },
         authorizationStatusProvider: (@MainActor () async -> Result<UserNotificationAuthorizationStatus, UserNotificationCenterFailure>)? = nil,
         authorizationNotificationCenter: NotificationCenter = .default
     ) {
@@ -419,10 +418,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         refreshDockBadge()
-        // Avoid publishing authorization changes during the launch constraint pass (#2757).
-        initialAuthorizationScheduler(Self.initialAuthCheckDelay) { [weak self] in
-            self?.refreshAuthorizationStatus()
-        }
+        refreshAuthorizationStatus()
     }
 
     deinit {
@@ -715,9 +711,26 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    /// Opens the authorization readiness gate and runs a refresh deferred before it.
+    @discardableResult
+    func markWindowSetupComplete() -> Task<Void, Never>? {
+        guard !isWindowSetupComplete else { return nil }
+        isWindowSetupComplete = true
+        logAuthorization("window setup complete pendingRefresh=\(hasPendingAuthorizationRefresh)")
+        guard hasPendingAuthorizationRefresh else { return nil }
+        hasPendingAuthorizationRefresh = false
+        return refreshAuthorizationStatus()
+    }
+
+    /// Reads and publishes the authorization status. Before window setup completes, the
+    /// refresh is recorded and runs once from `markWindowSetupComplete()` (#2757).
     @discardableResult
     func refreshAuthorizationStatus() -> Task<Void, Never> {
-        Task { @MainActor [weak self, userNotificationCenter, authorizationStatusProvider] in
+        guard isWindowSetupComplete else {
+            hasPendingAuthorizationRefresh = true
+            return Task {}
+        }
+        return Task { @MainActor [weak self, userNotificationCenter, authorizationStatusProvider] in
             let result = await authorizationStatusProvider()
             guard let self else { return }
             switch result {

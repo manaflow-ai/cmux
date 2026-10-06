@@ -1354,6 +1354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
     private var didBootstrapInitialMainWindow = false
+    private var didScheduleNotificationWindowSetupSignal = false
     var isTerminatingApp = false
     private var closedWindowHistorySuppressedWindowIds: Set<UUID> = []
 #if DEBUG
@@ -5719,6 +5720,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         attemptStartupSessionRestoreAndSaveIfNeeded(primaryWindow: window)
+        markNotificationWindowSetupCompleteAfterLayout()
+    }
+
+    /// Opens the notification store's authorization gate after the run-loop pass that
+    /// lays out and displays the first registered main window. AppKit runs its display
+    /// cycle in a before-waiting observer; this one-shot observer is ordered after it,
+    /// so authorization publication cannot land inside launch constraint setup (#2757).
+    private func markNotificationWindowSetupCompleteAfterLayout() {
+        guard !didScheduleNotificationWindowSetupSignal else { return }
+        didScheduleNotificationWindowSetupSignal = true
+        let observer = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault,
+            CFRunLoopActivity.beforeWaiting.rawValue,
+            false,
+            CFIndex.max
+        ) { _, _ in
+            MainActor.assumeIsolated {
+                _ = TerminalNotificationStore.shared.markWindowSetupComplete()
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
 #if DEBUG
