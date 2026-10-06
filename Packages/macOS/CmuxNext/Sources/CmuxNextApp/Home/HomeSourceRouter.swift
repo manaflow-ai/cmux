@@ -122,6 +122,9 @@ nonisolated final class HomeSourceRouter: HomeSource {
         if state.withLock({ $0.owners[conversation] }) == .cloud { cloud.close(conversation) } else { local.close(conversation) }
     }
 
+    /// The merged connection of the two owners (red-test stub).
+    static func merged(local: HomeConnection, cloud: HomeConnection?) -> HomeConnection { local }
+
     // MARK: Routing
 
     /// The owner that reported `conversation`.

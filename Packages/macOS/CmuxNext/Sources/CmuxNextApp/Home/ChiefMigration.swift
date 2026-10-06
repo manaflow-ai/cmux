@@ -36,6 +36,15 @@ nonisolated enum ChiefMigration {
 
     static let recordName = "migration.json"
 
+    /// Whether the Chief owner is published after `outcome` (red-test stub).
+    static func publishesOwner(after outcome: Outcome) -> Bool {
+        if case .blocked = outcome { return false }
+        return true
+    }
+
+    /// Home's notice for `outcome`, if any (red-test stub).
+    static func notice(for outcome: Outcome) -> String? { nil }
+
     /// Every old per-tag Chief on this Mac: `~/.cmux/mux/tags/<tag>` and the
     /// tag daemon's conversation store.
     static func oldChiefs(userHome: URL, applicationSupport: URL) -> [Old] {
