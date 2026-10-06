@@ -16,38 +16,42 @@ extension CmuxSettingsFileStore {
             logInvalid("integrations", sourcePath: sourcePath)
         }
 
+        // Build only the section each parser reads. In -Onone builds every
+        // `SettingCatalog()` temporary takes a whole-catalog stack slot, and a
+        // dozen of them overflowed a 512 KB cooperative thread in app-host tests.
+        let beta = BetaFeaturesCatalogSection()
         parseBetaToggle(
             root["rightSidebar"] as? [String: Any],
             nestedPath: ["beta", "feed", "enabled"],
-            setting: SettingCatalog().betaFeatures.rightSidebarFeed,
+            setting: beta.rightSidebarFeed,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["extensions"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.extensions,
+            setting: beta.extensions,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["customSidebars"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.customSidebars,
+            setting: beta.customSidebars,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["cloud"] as? [String: Any],
             nestedPath: ["beta", "machines", "enabled"],
-            setting: SettingCatalog().betaFeatures.cloudMachines,
+            setting: beta.cloudMachines,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseBetaToggle(
             root["remoteTmux"] as? [String: Any],
             nestedPath: ["beta", "enabled"],
-            setting: SettingCatalog().betaFeatures.remoteTmux,
+            setting: beta.remoteTmux,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
@@ -58,54 +62,55 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let integrations = IntegrationsCatalogSection()
         parseIntegrationProvider(
             section["claudeCode"],
             providerPath: "integrations.claudeCode",
-            hooksKey: SettingCatalog().integrations.claudeCodeHooksEnabled,
-            customPathKey: SettingCatalog().integrations.claudeCodeCustomClaudePath,
+            hooksKey: integrations.claudeCodeHooksEnabled,
+            customPathKey: integrations.claudeCodeCustomClaudePath,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["codex"],
             providerPath: "integrations.codex",
-            hooksKey: SettingCatalog().integrations.codexHooksEnabled,
+            hooksKey: integrations.codexHooksEnabled,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["pi"],
             providerPath: "integrations.pi",
-            hooksKey: SettingCatalog().integrations.piHooksEnabled,
+            hooksKey: integrations.piHooksEnabled,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["amp"],
             providerPath: "integrations.amp",
-            hooksKey: SettingCatalog().integrations.ampHooksEnabled,
+            hooksKey: integrations.ampHooksEnabled,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["cursor"],
             providerPath: "integrations.cursor",
-            hooksKey: SettingCatalog().integrations.cursorHooksEnabled,
+            hooksKey: integrations.cursorHooksEnabled,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["gemini"],
             providerPath: "integrations.gemini",
-            hooksKey: SettingCatalog().integrations.geminiHooksEnabled,
+            hooksKey: integrations.geminiHooksEnabled,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
         parseIntegrationProvider(
             section["kiro"],
             providerPath: "integrations.kiro",
-            hooksKey: SettingCatalog().integrations.kiroHooksEnabled,
-            notificationLevelKey: SettingCatalog().integrations.kiroNotificationLevel,
+            hooksKey: integrations.kiroHooksEnabled,
+            notificationLevelKey: integrations.kiroNotificationLevel,
             sourcePath: sourcePath,
             snapshot: &snapshot
         )
@@ -113,7 +118,7 @@ extension CmuxSettingsFileStore {
         if let ripgrep = section["ripgrep"] as? [String: Any] {
             if let raw = jsonString(ripgrep["customBinaryPath"]) {
                 snapshot.managedUserDefaults[
-                    SettingCatalog().integrations.ripgrepCustomBinaryPath.userDefaultsKey
+                    integrations.ripgrepCustomBinaryPath.userDefaultsKey
                 ] = .string(raw)
             } else if ripgrep.keys.contains("customBinaryPath") {
                 logInvalid("integrations.ripgrep.customBinaryPath", sourcePath: sourcePath)
@@ -124,7 +129,7 @@ extension CmuxSettingsFileStore {
 
         if let value = jsonBool(section["suppressSubagentNotifications"]) {
             snapshot.managedUserDefaults[
-                SettingCatalog().integrations.suppressSubagentNotifications.userDefaultsKey
+                integrations.suppressSubagentNotifications.userDefaultsKey
             ] = .bool(value)
         } else if section.keys.contains("suppressSubagentNotifications") {
             logInvalid("integrations.suppressSubagentNotifications", sourcePath: sourcePath)
@@ -194,11 +199,12 @@ extension CmuxSettingsFileStore {
         sourcePath: String,
         snapshot: inout ResolvedSettingsSnapshot
     ) {
+        let terminal = TerminalCatalogSection()
         if let rawTitleUpdates = section["titleUpdates"],
            let titleUpdates = rawTitleUpdates as? [String: Any] {
             if let rawCoalescing = titleUpdates["coalescing"],
                let coalescing = rawCoalescing as? [String: Any] {
-                let titleSettings = SettingCatalog().terminal
+                let titleSettings = terminal
                 if let value = jsonBool(coalescing["enabled"]) {
                     snapshot.managedUserDefaults[titleSettings.titleUpdateCoalescingEnabled.userDefaultsKey] = .bool(value)
                 } else if coalescing.keys.contains("enabled") {
@@ -214,9 +220,9 @@ extension CmuxSettingsFileStore {
                 logInvalid("terminal.titleUpdates.coalescing", sourcePath: sourcePath)
             }
             if let value = jsonBool(titleUpdates["diagnostics"]) {
-                snapshot.managedUserDefaults[SettingCatalog().terminal.titleUpdateDiagnostics.userDefaultsKey] = .bool(value)
+                snapshot.managedUserDefaults[terminal.titleUpdateDiagnostics.userDefaultsKey] = .bool(value)
             } else if titleUpdates.keys.contains("diagnostics") {
-                logInvalid(SettingCatalog().terminal.titleUpdateDiagnostics.id, sourcePath: sourcePath)
+                logInvalid(terminal.titleUpdateDiagnostics.id, sourcePath: sourcePath)
             }
         } else if section.keys.contains("titleUpdates") {
             logInvalid("terminal.titleUpdates", sourcePath: sourcePath)
@@ -224,7 +230,7 @@ extension CmuxSettingsFileStore {
 
         if let rawGuardrail = section["runawayMemoryGuardrail"],
            let guardrail = rawGuardrail as? [String: Any] {
-            let guardrailSettings = SettingCatalog().terminal
+            let guardrailSettings = terminal
             if let value = jsonBool(guardrail["enabled"]) {
                 snapshot.managedUserDefaults[guardrailSettings.runawayMemoryGuardrailEnabled.userDefaultsKey] = .bool(value)
             } else if guardrail.keys.contains("enabled") {
