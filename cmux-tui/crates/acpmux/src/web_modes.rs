@@ -182,6 +182,23 @@ mod tests {
         assert!(table.summary().contains("codex=[read-only]"), "{}", table.summary());
     }
 
+    // D10: no config entry opens Codex or opencode to the Web.
+    #[test]
+    fn a_config_entry_for_codex_or_opencode_is_ignored_with_a_warning() {
+        let extra = BTreeMap::from([
+            ("codex".to_owned(), vec!["read-only".to_owned(), "agent".to_owned()]),
+            ("opencode".to_owned(), vec!["plan".to_owned(), "build".to_owned()]),
+            ("mine".to_owned(), vec!["careful".to_owned()]),
+        ]);
+        let (table, warnings) = WebModeTable::build(&extra);
+        assert!(table.modes("codex").is_empty(), "{:?}", table.modes("codex"));
+        assert!(table.modes("opencode").is_empty(), "{:?}", table.modes("opencode"));
+        assert_eq!(table.modes("mine"), ["careful"]);
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        assert!(!table.summary().contains("codex="), "{}", table.summary());
+        assert!(!table.summary().contains("opencode="), "{}", table.summary());
+    }
+
     #[test]
     fn every_reviewed_row_is_disjoint_from_the_non_asking_list() {
         for (family, modes) in ASKING_MODES {

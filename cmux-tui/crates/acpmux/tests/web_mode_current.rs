@@ -23,14 +23,15 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-/// The fake agent under the claude family (asking: default, plan) and the
-/// opencode family (asking: plan), a handoff target; its starting mode
-/// `normal` is in neither row.
+/// The fake agent under the claude family (asking: default, plan), a second
+/// claude profile and the opencode family (no row: the Web never drives it)
+/// as handoff targets; its starting mode `normal` is in no row.
 fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "fopencode": {"argv": ["python3", FAKE], "family": "opencode"},
+            "fclaude2": {"argv": ["python3", FAKE], "family": "claude"},
             "fnomode": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}},
         },
         "defaultHarness": "fclaude",
@@ -223,10 +224,10 @@ async fn a_queued_web_prompt_is_dropped_when_the_mode_left_the_table_before_disp
 }
 
 /// A Web handoff from a Web session to a new target on another harness.
-async fn web_handoff(web: &mut Client, d: &Path, key: &str) -> (String, String) {
+async fn web_handoff(web: &mut Client, d: &Path, key: &str, target: &str) -> (String, String) {
     let src = web.new_session(d).await;
     assert!(web.prompt(&src, "some work").await.get("error").is_none());
-    let p = json!({"sessionId": src, "harness": "fopencode", "handoffKey": key});
+    let p = json!({"sessionId": src, "harness": target, "handoffKey": key});
     let h = web.call("_acpmux/handoff_prepare", p).await;
     let id = h["result"]["handoffId"].as_str().unwrap_or_else(|| panic!("{h}")).to_owned();
     let target = h["result"]["target"]["sessionId"].as_str().unwrap().to_owned();
@@ -243,14 +244,37 @@ async fn a_web_handoff_start_moves_a_new_target_to_an_asking_mode_first() {
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::new(&hub, Origin::Local);
-    let (id, target) = web_handoff(&mut web, &d, "k-new").await;
+    let (id, target) = web_handoff(&mut web, &d, "k-new", "fclaude2").await;
     // The target starts in the harness's own mode, which does not ask.
     let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
     assert_eq!(info["result"]["modes"]["currentModeId"], json!("normal"), "{info}");
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
     assert_eq!(r["result"]["outcome"], json!("started"), "{r}");
     let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
-    assert_eq!(info["result"]["modes"]["currentModeId"], json!("plan"), "{info}");
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("default"), "{info}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+// D10: opencode has no mode that asks before each change, so a Web handoff
+// never starts an opencode target; the new target is ended.
+#[tokio::test]
+async fn a_web_handoff_start_to_an_opencode_target_is_refused_and_the_target_ended() {
+    let d = dir("handoff-opencode");
+    let hub = hub(&d, None);
+    let mut web = Client::new(&hub, Origin::Web);
+    let mut local = Client::new(&hub, Origin::Local);
+    let (id, target) = web_handoff(&mut web, &d, "k-oc", "fopencode").await;
+    let r = web.call("_acpmux/handoff_start", start(&id)).await;
+    assert!(r.get("error").is_some(), "{r}");
+    let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
+    assert_ne!(info["result"]["modes"]["currentModeId"], json!("plan"), "{info}");
+    let sessions = local.call("_acpmux/sessions", json!({})).await;
+    let live = sessions["result"]["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|x| x["sessionId"] == json!(target) && x["status"] != json!("ended"));
+    assert!(!live, "the refused target was ended: {sessions}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -260,7 +284,7 @@ async fn a_web_handoff_start_whose_target_does_not_resolve_is_refused() {
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::new(&hub, Origin::Local);
-    let (id, target) = web_handoff(&mut web, &d, "k-gone").await;
+    let (id, target) = web_handoff(&mut web, &d, "k-gone", "fclaude2").await;
     let r = local.call("_acpmux/kill", json!({"sessionId": target, "purge": true})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
