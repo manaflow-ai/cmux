@@ -134,18 +134,13 @@ final class GroupHeaderRowView: SidebarRowView {
         pill.frame = .zero
         pill.isHidden = true
         let control = SidebarStyle.controlSize
+        // Hover controls keep their slots, so the name never re-truncates on hover.
         addButton.isHidden = !isHovered
         editButton.isHidden = !isHovered
-        if !editButton.isHidden {
-            editButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2,
-                                      width: control, height: control)
-            trailing -= control + Metrics.space1
-        }
-        if !addButton.isHidden {
-            addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2,
-                                     width: control, height: control)
-            trailing -= control + Metrics.space1
-        }
+        editButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+        trailing -= control + Metrics.space1
+        addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
+        trailing -= control + Metrics.space1
         chevronFrame = CGRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         chevron.isHidden = !(isHovered || collapsed)
@@ -167,7 +162,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let cw = ceil(count.attributedStringValue.size().width) + Metrics.space2
         let ch = ceil(count.intrinsicContentSize.height)
         count.isHidden = !isHovered || badge.state.isUnread
-        if !count.isHidden {
+        if !badge.state.isUnread {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }

@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { startFixtureServers } from "./lib/fixture-server.mjs";
 import { normalize, diffValues } from "./lib/normalize.mjs";
 import { makeTestDir, removeTestDir } from "./lib/test-dirs.mjs";
+import { startOwnHost } from "./lib/parity-host.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const MARK = "@@PARITY@@";
@@ -141,24 +142,58 @@ for (const engine of HOST_ENGINES) {
     const viaCli = process.env.PARITY_HOST_CLI;
     const bin = viaCli || process.env.PARITY_HOST_BIN || "cmux-browser-host";
     const env = { ...process.env, CMUX_BROWSER_HOST_ENGINE: engine };
+    // The run's own host (lib/parity-host.mjs), one for all scenarios;
+    // `cmux browser repl` manages the daemon's host itself.
+    if (!viaCli) env.CMUX_BROWSER_HOST_SOCKET = (await ownHost(bin)).socket;
     return runCliCells(cells, scenario, {
       evalArgv: viaCli
         ? (session) => ["browser", "repl", "--engine", engine, ...(session ? ["--session", session] : []), "--eval", "-"]
         : (session) => ["eval", ...(session ? ["--session", session] : []), "--engine", engine, "-"],
       resetArgv: viaCli ? (session) => ["browser", "repl", "close", session] : (session) => ["close", "--session", session],
       exec: (argv, opts) => exec(bin, argv, { ...opts, env }),
+      closeKeptTabs: true,
     });
   };
 }
 
-// One CLI call per cell; output lines without the CLI's status line.
-async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) {
+// The run's own `cmux-browser-host serve`, started on first use and stopped
+// when main ends (stopOwnHost), also when the run fails.
+let ownHostStarted = null;
+function ownHost(bin) {
+  ownHostStarted ??= startOwnHost({ cmd: bin });
+  return ownHostStarted;
+}
+async function stopOwnHost() {
+  if (!ownHostStarted) return;
+  const started = ownHostStarted;
+  ownHostStarted = null;
+  await started.then((host) => host.stop(), () => {});
+}
+
+// The marker of the tab-id list a host run prints before a scenario.
+const TABS_MARK = "__PARITY_TABS__";
+
+// One CLI call per cell; output lines without the CLI's status line. With
+// `closeKeptTabs` (host backends) the tabs open before the scenario are
+// listed first, and every other tab still open after it (the tabs it kept)
+// is closed, also when a cell fails: a host reused across scenarios does
+// not pile them up.
+export async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run, closeKeptTabs = false }) {
   const suffix = Math.random().toString(36).slice(2, 8);
   const sessions = new Set();
   const outputs = [];
   // A new working directory for the scenario: the session's fs root, where
   // scenarios write and remove their files, never the checkout.
   const workDir = makeTestDir("parity-cmux-");
+  let before = null;
+  if (closeKeptTabs) {
+    const listed = await run(evalArgv(null), {
+      input: `console.log(${JSON.stringify(TABS_MARK)} + JSON.stringify((await tabs.list()).map((t) => t.id)));`,
+      cwd: workDir,
+    });
+    const line = listed.out.split("\n").find((l) => l.startsWith(TABS_MARK));
+    before = line ? JSON.parse(line.slice(TABS_MARK.length)) : null;
+  }
   try {
     for (const cell of cells) {
       let name = null;
@@ -173,6 +208,12 @@ async function runCliCells(cells, scenario, { evalArgv, resetArgv, exec: run }) 
     }
   } finally {
     for (const name of sessions) await run(resetArgv(name), {});
+    if (before) {
+      await run(evalArgv(null), {
+        input: `const open = new Set(${JSON.stringify(before)}); for (const t of await tabs.list()) if (!open.has(t.id)) { try { await (await tabs.use(t.id)).close(); } catch {} }`,
+        cwd: workDir,
+      });
+    }
     removeTestDir(workDir);
   }
   return outputs;
@@ -205,7 +246,7 @@ function parseEmits(outputs, cells) {
 // that intentionally differs from classic, the golden's `lease` section
 // overrides a value (`{"$absent": true}`: the key is not emitted) and names
 // the lease rule in `lease.reasons` (README, "Intentional cmux-next
-// differences").
+// differences"). The `backends` section does the same for one backend.
 export function expectedValues(backend, golden) {
   if (backend === "oracle") return { ...golden.oracle };
   const expected = { ...golden.oracle, ...golden.cmux };
@@ -214,6 +255,12 @@ export function expectedValues(backend, golden) {
       if (value && typeof value === "object" && value.$absent === true) delete expected[key];
       else expected[key] = value;
     }
+  }
+  // One engine's deliberate difference (README, same section): only that
+  // backend gets it.
+  for (const [key, value] of Object.entries(golden.backends?.[backend]?.values || {})) {
+    if (value && typeof value === "object" && value.$absent === true) delete expected[key];
+    else expected[key] = value;
   }
   return expected;
 }
@@ -320,6 +367,7 @@ async function main() {
       } else console.log(`PASS ${scenario.name}`);
     }
   } finally {
+    await stopOwnHost();
     await server.close();
   }
   if (args.mode !== "run") {
