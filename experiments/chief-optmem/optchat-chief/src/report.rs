@@ -273,8 +273,10 @@ pub fn timeline(events: &[Value]) -> String {
                     })
                     .collect();
                 format!(
-                    "turn {} START {} message(s) {:?}, view {} B {} lines, prefix unchanged {unchanged}, settle {} ms, pieces [{}], system {}",
+                    "turn {} START on {}/{} {} message(s) {:?}, view {} B {} lines, prefix unchanged {unchanged}, settle {} ms, pieces [{}], system {}",
                     short_turn(e),
+                    e["harness"].as_str().unwrap_or("?"),
+                    e["model"].as_str().unwrap_or("default"),
                     e["messages"].as_array().map_or(0, Vec::len),
                     e["sources"]
                         .as_array()
@@ -381,6 +383,13 @@ pub fn timeline(events: &[Value]) -> String {
                 "subagent {} got a message from the user: {}",
                 e["id"].as_str().unwrap_or("?"),
                 prefix(&e["text"])
+            ),
+            "engine" => format!(
+                "ENGINE now harness {} model {} effort {} (was {})",
+                e["harness"].as_str().unwrap_or("?"),
+                e["model"].as_str().unwrap_or("default"),
+                e["effort"].as_str().unwrap_or("default"),
+                e["was"].as_str().unwrap_or("-")
             ),
             "subagent.resume" => format!("subagent {} runs again", e["id"].as_str().unwrap_or("?")),
             "subagent.done" => format!(
@@ -541,6 +550,8 @@ pub fn stats(events: &[Value]) -> Value {
                 let t = turns.entry(key).or_default();
                 t.insert("ms".into(), e["ms"].clone());
                 t.insert("status".into(), e["status"].clone());
+                t.insert("harness".into(), e["harness"].clone());
+                t.insert("model".into(), e["model"].clone());
                 t.insert("requests".into(), e["requests"].clone());
                 t.insert("usage".into(), e["usage"].clone());
                 t.insert("usage_scope".into(), e["usage_scope"].clone());
@@ -674,9 +685,14 @@ pub fn stats_text(s: &Value, dir: &Path) -> String {
     out.push_str(&format!("  tool calls: {}\n", tools_line(&t["tools"])));
     for r in t["rows"].as_array().into_iter().flatten() {
         out.push_str(&format!(
-            "  turn {:>6} {:<10} {:>7} ms {:>2} req hit {:>4} first-hit {:>4} unchanged {:>4} view {:>6} B{} tools: {}\n",
+            "  turn {:>6} {:<10} {:<20} {:>7} ms {:>2} req hit {:>4} first-hit {:>4} unchanged {:>4} view {:>6} B{} tools: {}\n",
             r["turn"].as_str().unwrap_or("?"),
             r["status"].as_str().unwrap_or("running"),
+            format!(
+                "{}/{}",
+                r["harness"].as_str().unwrap_or("?"),
+                r["model"].as_str().unwrap_or("default")
+            ),
             n(r, "ms"),
             n(r, "requests"),
             pct(r["hit_rate"].as_f64()),
