@@ -200,6 +200,12 @@ pub struct PersonalGroup {
     pub color: Option<String>,
     pub collapsed: bool,
     pub index: usize,
+    /// Its place among the loose workspaces (`personal-mixed-order-v1`):
+    /// the group shows right before the personal workspace with this
+    /// `index` (the first one at or after its slot; a group before a
+    /// workspace on the same slot). None: after every loose workspace, the
+    /// order before mixed order.
+    pub top_index: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -511,7 +517,15 @@ pub(crate) fn read_groups(connection: &Connection) -> anyhow::Result<Vec<Persona
     let mut groups = Vec::new();
     for (index, row) in rows.enumerate() {
         let (id, profile, name, color, collapsed) = row?;
-        groups.push(PersonalGroup { id, profile, name, color, collapsed: collapsed != 0, index });
+        groups.push(PersonalGroup {
+            id,
+            profile,
+            name,
+            color,
+            collapsed: collapsed != 0,
+            index,
+            top_index: None,
+        });
     }
     Ok(groups)
 }
