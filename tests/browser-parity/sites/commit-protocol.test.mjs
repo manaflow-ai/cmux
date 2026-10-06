@@ -130,11 +130,11 @@ test("the commit protocol fails closed: undeclared writes, no read-back, unread 
           target: { id: "T1" },
           content: { body: m.body, note: "n" },
           sent: m.sendAccount ? ["who"] : ["note"],
-          commit: (c) => (m.skip ? (acts.push("skipped"), "done") : c.write(() => ({ who: globalThis.__protocolPage.account, id: globalThis.__protocolPage.target, ...(globalThis.__protocolPage.body === undefined ? {} : { body: globalThis.__protocolPage.body }) }), () => acts.push(m.body))),
+          commit: (c) => (m.skip ? (acts.push("skipped"), "done") : c.write(() => ({ who: globalThis.__protocolPage.account, id: globalThis.__protocolPage.target, ...(globalThis.__protocolPage.body === undefined ? {} : { body: globalThis.__protocolPage.body }) }), (press) => press.input(() => acts.push(m.body)), { account: () => ({ who: globalThis.__protocolPage.account }) })),
         }));
       },
       other(input, options) {
-        return t.write("protocolProbe", "other", input, options, () => ({ category: "x", summary: "x", account: { who: "ada" }, commit: (c) => c.write(() => ({ who: "ada" }), () => acts.push("other")) }));
+        return t.write("protocolProbe", "other", input, options, () => ({ category: "x", summary: "x", account: { who: "ada" }, commit: (c) => c.write(() => ({ who: "ada" }), (press) => press.input(() => acts.push("other")), { account: () => ({ who: "ada" }) }) }));
       },
     }),
     { summary: "test", writes: ["send"] },
@@ -178,7 +178,7 @@ test("the commit protocol refuses read-backs that are not plain data: toString, 
           account: { who: "ada" },
           target: { to: ["bob@example.com"] },
           canon: { who: (v) => String(v).toLowerCase(), to: (v) => [...v].map(String) },
-          commit: (c) => c.write(() => globalThis.__plainProbe(), () => acts.push("sent")),
+          commit: (c) => c.write(() => globalThis.__plainProbe(), (press) => press.input(() => acts.push("sent")), { account: () => ({ who: "ada" }) }),
         }));
       },
     }),
@@ -205,5 +205,53 @@ test("the commit protocol refuses read-backs that are not plain data: toString, 
     assert.deepEqual(acts, ["sent"]);
   } finally {
     delete globalThis.__plainProbe;
+  }
+});
+
+// r21 sites#1: the account is read again right before every write, in the
+// loader's commit path, not only where a site tool remembers to ask for
+// it. A commit without an { account } reader writes nothing; an act that
+// writes without press() or press.input() (each reads the account last)
+// fails as unverified; an account that changed before the input sends
+// nothing.
+test("the commit protocol reads the account again before every write: no reader, no guarded input, or a switched account fails closed", async () => {
+  const S = globalThis.CmuxBrowserRepl.sites;
+  const acts = [];
+  globalThis.__accountNow = "ada";
+  S.register(
+    "accountProbe",
+    (t) => ({
+      send(input, options) {
+        return t.write("accountProbe", "send", input, options, (m) => ({
+          category: "[9] test",
+          summary: "account probe",
+          account: { who: "ada" },
+          content: { mode: m.mode },
+          sent: ["mode"],
+          commit: (c) => {
+            const observe = () => ({ who: "ada" });
+            const account = () => ({ who: globalThis.__accountNow });
+            if (m.mode === "noReader") return c.write(observe, () => acts.push("noReader"));
+            if (m.mode === "unguarded") return c.write(observe, () => acts.push("unguarded"), { account });
+            return c.write(observe, (press) => press.input(() => acts.push(m.mode)), { account });
+          },
+        }));
+      },
+    }),
+    { summary: "test", writes: ["send"] },
+  );
+  const p = env.session("commit-protocol-account");
+  try {
+    await p.run('var aNo = await sites.accountProbe.send({ mode: "noReader" }); var aUn = await sites.accountProbe.send({ mode: "unguarded" }); var aSw = await sites.accountProbe.send({ mode: "switched" }); var aOk = await sites.accountProbe.send({ mode: "ok" });');
+    assert.match(await p.error("sites.accountProbe.send(aNo.id, { confirm: true })"), /\{ account \} reader/);
+    assert.match(await p.error("sites.accountProbe.send(aUn.id, { confirm: true })"), /commit_unverified|without press\(\) or press\.input\(\)/);
+    globalThis.__accountNow = "mallory";
+    assert.match(await p.error("sites.accountProbe.send(aSw.id, { confirm: true })"), /account it acts as differs from the draft \(who is "mallory", not "ada"\)/);
+    globalThis.__accountNow = "ada";
+    await p.value("sites.accountProbe.send(aOk.id, { confirm: true })");
+    assert.deepEqual(acts, ["unguarded", "ok"], "only the reader-less write was stopped before it acted, and the switched account sent nothing");
+    assert.equal((await p.value("sites.drafts.get(aUn.id)")).status, "failed");
+  } finally {
+    delete globalThis.__accountNow;
   }
 });
