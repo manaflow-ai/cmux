@@ -20,44 +20,52 @@ enum ImportCountsText {
 /// an editable row shows the shared hover and pressed fill (`ChromeHover`).
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
-    private let toggle: () -> Void
+    private var toggle: (() -> Void)?
     private let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let spinner = NSProgressIndicator()
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
+    private let icon = NSImageView()
+    private let avatar = NSImageView()
+    private let name = OnboardingLabel.make(font: OnboardingMetrics.bodyFont)
+    private let sub = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
+    private let names = NSStackView()
+    private let accessButton: NSButton
+    private var requiresFullDiskAccess = false
+    private var onAccess: (() -> Void)?
+    private var configured = false
     private var editable = true
     private(set) lazy var hover = ChromeHover(self, tracking: .activeInKeyWindow)
 
-    init(profile: BrowserSourceProfile, appURL: URL?, toggle: @escaping () -> Void) {
+    init(toggle: (() -> Void)?) {
         self.toggle = toggle
+        accessButton = OnboardingControl.plainButton(OnboardingStrings.openSystemSettings, target: nil, action: #selector(accessPressed))
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let icon = NSImageView(image: Self.icon(appURL))
         icon.imageScaling = .scaleProportionallyUpOrDown
-        let avatar = NSImageView()
         avatar.wantsLayer = true
         avatar.layer?.cornerRadius = 8
         avatar.layer?.masksToBounds = true
         avatar.imageScaling = .scaleProportionallyUpOrDown
-        avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
-        avatar.isHidden = avatar.image == nil
-        let name = OnboardingLabel.make(profile.browser.displayName)
-        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit)
-        let sub = OnboardingLabel.make(showsProfile ? profile.displayName : "", font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
-        sub.isHidden = !showsProfile
-        let names = NSStackView(views: [name, sub])
+        names.addArrangedSubview(name)
+        names.addArrangedSubview(sub)
         names.orientation = .vertical
         names.alignment = .leading
         names.spacing = 1
         box.target = self
         box.action = #selector(boxPressed)
-        box.setAccessibilityLabel(OnboardingStrings.profileName(profile))
+        accessButton.target = self
+        accessButton.controlSize = .small
         spinner.style = .spinning
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
         mark.symbolConfiguration = .init(pointSize: 13, weight: .medium)
         detail.alignment = .right
-        let trailing = NSStackView(views: [detail, spinner, mark, box])
+        let spinnerSlot = Self.slot(width: 18, containing: spinner)
+        let markSlot = Self.slot(width: 18, containing: mark)
+        let accessSlot = Self.slot(width: 132, containing: accessButton)
+        let boxSlot = Self.slot(width: 20, containing: box)
+        let trailing = NSStackView(views: [detail, spinnerSlot, markSlot, accessSlot, boxSlot])
         trailing.spacing = 8
         for view in [icon, avatar, names, trailing] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
@@ -74,18 +82,85 @@ final class ImportProfileRow: NSView {
             names.trailingAnchor.constraint(lessThanOrEqualTo: trailing.leadingAnchor, constant: -12),
             trailing.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4), trailing.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+        clearProfile()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// The installed browser's own icon; a globe when the app is gone (its data folder is still there).
-    static func icon(_ appURL: URL?) -> NSImage {
+    private static func slot(width: CGFloat, containing view: NSView) -> NSView {
+        let slot = NSView()
+        slot.translatesAutoresizingMaskIntoConstraints = false
+        view.translatesAutoresizingMaskIntoConstraints = false
+        slot.addSubview(view)
+        NSLayoutConstraint.activate([
+            slot.widthAnchor.constraint(equalToConstant: width),
+            view.centerXAnchor.constraint(equalTo: slot.centerXAnchor),
+            view.centerYAnchor.constraint(equalTo: slot.centerYAnchor),
+            view.leadingAnchor.constraint(greaterThanOrEqualTo: slot.leadingAnchor),
+            view.trailingAnchor.constraint(lessThanOrEqualTo: slot.trailingAnchor),
+        ])
+        return slot
+    }
+
+    func configure(profile: BrowserSourceProfile, appURL: URL?, needsFullDiskAccess: Bool = false,
+                   onAccess: (() -> Void)? = nil, toggle: @escaping () -> Void) {
+        self.toggle = toggle
+        self.onAccess = onAccess
+        requiresFullDiskAccess = needsFullDiskAccess || profile.needsFullDiskAccess
+        configured = true
+        icon.image = Self.icon(appURL, browser: profile.browser)
+        avatar.image = profile.avatar.flatMap { NSImage(contentsOf: $0) }
+        avatar.alphaValue = avatar.image == nil ? 0 : 1
+        name.stringValue = profile.browser.displayName
+        let showsProfile = !(profile.directoryName.isEmpty || profile.browser.family == .safari || profile.browser.family == .webkit)
+        let subtitle = requiresFullDiskAccess ? OnboardingStrings.fullDiskAccessSubtitle : (showsProfile ? profile.displayName : "")
+        sub.stringValue = subtitle
+        sub.alphaValue = subtitle.isEmpty ? 0 : 1
+        box.setAccessibilityLabel(OnboardingStrings.profileName(profile))
+        alphaValue = 1
+        update(checked: false, editable: true, state: .idle)
+    }
+
+    func clearProfile() {
+        configured = false
+        toggle = nil
+        onAccess = nil
+        requiresFullDiskAccess = false
+        editable = false
+        name.stringValue = ""
+        sub.stringValue = ""
+        detail.stringValue = ""
+        icon.image = nil
+        avatar.image = nil
+        avatar.alphaValue = 0
+        alphaValue = 0
+        box.alphaValue = 0
+        accessButton.alphaValue = 0
+        spinner.alphaValue = 0
+        mark.alphaValue = 0
+        spinner.stopAnimation(nil)
+    }
+
+    /// The installed browser's own icon. Resolve the bundle again for rows
+    /// restored from a data folder so Helium does not fall back to a globe
+    /// when detection missed its application URL.
+    static func icon(_ appURL: URL?, browser: ImportBrowser = .chrome) -> NSImage {
         if let appURL { return NSWorkspace.shared.icon(forFile: appURL.path) }
+        for bundleID in browser.bundleIDs {
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                return NSWorkspace.shared.icon(forFile: appURL.path)
+            }
+        }
+        let conventionalURL = URL(fileURLWithPath: "/Applications/\(browser.displayName).app")
+        if FileManager.default.fileExists(atPath: conventionalURL.path) {
+            return NSWorkspace.shared.icon(forFile: conventionalURL.path)
+        }
         return NSImage(systemSymbolName: "globe", accessibilityDescription: nil) ?? NSImage()
     }
 
-    @objc private func boxPressed() { toggle() }
+    @objc private func boxPressed() { toggle?() }
+    @objc private func accessPressed() { onAccess?() }
 
     override func layout() {
         super.layout()
@@ -118,17 +193,21 @@ final class ImportProfileRow: NSView {
     }
 
     func update(checked: Bool, editable: Bool, state: ImportStepModel.RowState) {
-        self.editable = editable
-        if !editable { hover.state = ChromeHover.State() }
+        guard configured else { return }
+        let showsAccess = requiresFullDiskAccess && state == .idle
+        self.editable = editable && !requiresFullDiskAccess
+        if !self.editable { hover.state = ChromeHover.State() }
         box.state = checked ? .on : .off
-        box.isEnabled = editable
+        box.isEnabled = editable && !requiresFullDiskAccess
+        accessButton.isEnabled = showsAccess
+        accessButton.alphaValue = showsAccess ? 1 : 0
         var showsBox = false
         var spins = false
         var symbol: String?
         detail.toolTip = nil
         switch state {
         case .idle:
-            showsBox = true
+            showsBox = !showsAccess
             detail.stringValue = ""
         case .waiting:
             detail.stringValue = OnboardingStrings.importWaiting
@@ -144,11 +223,12 @@ final class ImportProfileRow: NSView {
             detail.stringValue = OnboardingStrings.importRowFailed
             detail.toolTip = reason
         }
-        box.isHidden = !showsBox
+        box.alphaValue = showsBox ? 1 : 0
         if spins { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.alphaValue = spins ? 1 : 0
         mark.image = symbol.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
         mark.contentTintColor = Palette.textSecondary
-        mark.isHidden = symbol == nil
+        mark.alphaValue = symbol == nil ? 0 : 1
         alphaValue = showsBox && !checked ? 0.55 : 1
     }
 }
