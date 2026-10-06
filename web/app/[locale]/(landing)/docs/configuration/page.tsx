@@ -13,7 +13,7 @@ type SchemaProperty = {
   description?: string;
   descriptionKey?: string;
   type?: string | string[];
-  enum?: string[];
+  enum?: Array<string | number | boolean>;
   default?: unknown;
   properties?: Record<string, SchemaProperty>;
   items?: SchemaProperty;
