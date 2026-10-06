@@ -11,7 +11,9 @@ enum ServerHeadlessApproval {
     /// follows the server's capability (a Chief brain takes the Chief).
     static func run(source: any ServerSource, code: String, name: String?, runChief: Bool?) async -> String? {
         let normalized = PairingCode.normalize(code)
-        let events = AsyncStream<ServerSourceEvent>.makeStream(bufferingPolicy: .unbounded)
+        // One approval sees a handful of events (connection, snapshot, candidate, two settles); the cap
+        // keeps the newest so a burst of status snapshots can never push out the settle it waits for.
+        let events = AsyncStream<ServerSourceEvent>.makeStream(bufferingPolicy: .bufferingNewest(Self.eventBuffer))
         source.start { events.continuation.yield($0) }
         defer {
             source.stop()
@@ -41,6 +43,9 @@ enum ServerHeadlessApproval {
         }
         return notFound
     }
+
+    /// Events one headless approval may hold before the oldest are dropped.
+    static let eventBuffer = 64
 
     private static var notFound: String { RefusalStrings.text("refusal.server.pairNotFound", "No server is waiting with that code.") }
 }
