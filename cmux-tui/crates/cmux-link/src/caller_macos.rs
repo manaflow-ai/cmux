@@ -54,6 +54,12 @@ unsafe extern "C" {
     fn CFStringGetTypeID() -> usize;
     fn CFGetTypeID(object: CFTypeRef) -> usize;
     fn CFRelease(object: CFTypeRef);
+    fn CFURLCreateFromFileSystemRepresentation(
+        allocator: CFTypeRef,
+        buffer: *const u8,
+        length: CFIndex,
+        is_directory: u8,
+    ) -> CFTypeRef;
 }
 
 #[link(name = "Security", kind = "framework")]
@@ -61,6 +67,9 @@ unsafe extern "C" {
     static kSecGuestAttributeAudit: CFTypeRef;
     static kSecCodeInfoTeamIdentifier: CFTypeRef;
     static kSecCodeInfoUnique: CFTypeRef;
+    static kSecCodeInfoIdentifier: CFTypeRef;
+    fn SecStaticCodeCreateWithPath(path: CFTypeRef, flags: u32, code: *mut CFTypeRef) -> OSStatus;
+    fn SecStaticCodeCheckValidity(code: CFTypeRef, flags: u32, requirement: CFTypeRef) -> OSStatus;
     fn SecCodeCopySelf(flags: u32, code: *mut CFTypeRef) -> OSStatus;
     fn SecCodeCopyGuestWithAttributes(
         host: CFTypeRef,
@@ -140,7 +149,110 @@ pub(super) fn verify_signature(fd: RawFd) -> Result<(), String> {
     }
 }
 
-fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
+/// Prover A of `verified_app` (`crate::app_caller`): the peer named by
+/// `token` (never by pid) is the signed app that contains this binary.
+pub(crate) fn verify_app_token(token: &[u32; 8]) -> Result<(), crate::app_caller::NotTheApp> {
+    use crate::app_caller::NotTheApp;
+    let own =
+        signing(&own_code().map_err(NotTheApp::Unavailable)?).map_err(NotTheApp::Unavailable)?;
+    let team =
+        own.team.ok_or_else(|| NotTheApp::Unavailable("this build has no Team ID".into()))?;
+    if team.len() != 10
+        || !team.bytes().all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+    {
+        return Err(NotTheApp::Unavailable(format!("unexpected Team ID {team:?}")));
+    }
+    // Read once per process: a later swap of the bundle on disk cannot move
+    // the identifier the daemon expects.
+    static IDENTIFIER: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    let identifier = IDENTIFIER
+        .get_or_init(|| containing_app_identifier(&team))
+        .clone()
+        .map_err(NotTheApp::Unavailable)?;
+    let requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and identifier \"{identifier}\""
+    ))
+    .map_err(NotTheApp::Unavailable)?;
+    let guest = guest_code(token).map_err(NotTheApp::Signature)?;
+    // SAFETY: both references are live owned objects.
+    status(unsafe { SecCodeCheckValidity(guest.0, 0, requirement.0) }, "app check")
+        .map_err(NotTheApp::Signature)
+}
+
+/// Whether this binary is Team-signed. Fails closed: when the signing
+/// information cannot be read the binary counts as signed, so the
+/// install-key proof is refused and only prover A could pass.
+pub(crate) fn team_signed() -> bool {
+    match own_code().and_then(|code| signing(&code)) {
+        Ok(own) => own.team.is_some(),
+        Err(_) => true,
+    }
+}
+
+/// Resolves `token` to running code (tests: a pid-reused token must fail).
+#[cfg(test)]
+pub(crate) fn guest_for_test(token: &[u32; 8]) -> Result<(), String> {
+    guest_code(token).map(|_| ())
+}
+
+/// `kSecCSBasicValidateOnly`: the signature and its code directory (which
+/// binds the Info.plist and the identifier), without hashing every page and
+/// resource of a large app bundle.
+const BASIC_VALIDATE_ONLY: u32 = (1 << 1) | (1 << 2);
+
+/// The signed identifier of the app bundle that contains this executable.
+/// It comes from the bundle's code directory after the bundle's signature is
+/// checked against this build's team, never from an unsigned Info.plist.
+fn containing_app_identifier(team: &str) -> Result<String, String> {
+    let executable = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    let bundle = crate::app_caller::containing_bundle(&executable)
+        .ok_or("this binary is not inside an app bundle")?;
+    let path = bundle.as_os_str().as_encoded_bytes();
+    // SAFETY: the bytes are live for the call; CFURL copies them.
+    let url = Owned::new(
+        unsafe {
+            CFURLCreateFromFileSystemRepresentation(
+                ptr::null(),
+                path.as_ptr(),
+                path.len() as CFIndex,
+                1,
+            )
+        },
+        "CFURLCreateFromFileSystemRepresentation",
+    )?;
+    let mut code: CFTypeRef = ptr::null();
+    // SAFETY: `url.0` is a live CFURL; the out-pointer is valid.
+    status(
+        unsafe { SecStaticCodeCreateWithPath(url.0, 0, &raw mut code) },
+        "SecStaticCodeCreateWithPath",
+    )?;
+    let code = Owned::new(code, "SecStaticCodeCreateWithPath")?;
+    let team_requirement = requirement(&format!(
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\""
+    ))?;
+    // SAFETY: both references are live owned objects.
+    status(
+        unsafe { SecStaticCodeCheckValidity(code.0, BASIC_VALIDATE_ONLY, team_requirement.0) },
+        "containing app signature",
+    )?;
+    let mut information: CFTypeRef = ptr::null();
+    // SAFETY: `code.0` is live; the out-pointer is valid.
+    status(
+        unsafe { SecCodeCopySigningInformation(code.0, 0, &raw mut information) },
+        "SecCodeCopySigningInformation",
+    )?;
+    let information = Owned::new(information, "SecCodeCopySigningInformation")?;
+    // SAFETY: the dictionary is live and the key is a framework constant; the
+    // value is borrowed (Get rule) and copied before `information` drops.
+    let identifier = unsafe { string(CFDictionaryGetValue(information.0, kSecCodeInfoIdentifier)) }
+        .ok_or("the containing app has no signed identifier")?;
+    if !crate::app_caller::plain_bundle_identifier(&identifier) {
+        return Err(format!("unexpected bundle identifier {identifier:?}"));
+    }
+    Ok(identifier)
+}
+
+pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
     let mut token = [0u32; 8];
     let mut length = size_of_val(&token) as libc::socklen_t;
     // SAFETY: the out-buffer is valid for `length` bytes.

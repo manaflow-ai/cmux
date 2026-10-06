@@ -59,13 +59,10 @@ nonisolated enum UpdaterStrings {
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
 
-    // R114 card
+    static func whatsNewTitle(_ version: String) -> String { format("updater.card.whatsNew", "What's New in cmux %@", version) }
+
+    // R114 card; restartToUpdate is the Settings row control's label.
     static var restartToUpdate: String { text("updater.card.restartToUpdate", "Restart to Update") }
-    static func cardReadyDetail(_ version: String) -> String { format("updater.card.readyDetail", "cmux %@ is ready", version) }
-    static var cardReadyDetailNoVersion: String { text("updater.card.readyDetailNoVersion", "A new version is ready") }
-    static func cardAvailableDetail(_ version: String) -> String {
-        format("updater.card.availableDetail", "Click to download and install cmux %@", version)
-    }
     static var cardWaitingTitle: String { text("updater.card.waitingTitle", "Update Waits for Agents") }
     static func cardWaitingDetail(_ count: Int) -> String {
         format("updater.card.waitingDetail", "Installs when the running agents finish (%ld)", count)

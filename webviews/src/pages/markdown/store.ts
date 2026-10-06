@@ -7,12 +7,14 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
+import { createEditReporter } from "../shared/editReporter";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
   MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
+  MARKDOWN_EDITED_OP,
   MARKDOWN_SAVE_OP,
   isMarkdownConfig,
   type MarkdownChange,
@@ -105,11 +107,34 @@ export class MarkdownStore {
   private stopChanges: (() => void) | null = null;
   private stopLook: (() => void) | null = null;
   private started = false;
+  private readonly reporter;
 
   constructor(
     private readonly client: PageClient | null,
     private readonly schedule: Schedule = defaultSchedule,
-  ) {}
+    reportSchedule: Schedule = defaultSchedule,
+  ) {
+    this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+  }
+
+  /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
+  private reportEdited(): void {
+    const config = this.state.config;
+    if (!config || !this.client || this.state.readOnly) return;
+    this.client
+      .call<unknown>(MARKDOWN_EDITED_OP, { path: config.path, text: this.currentText(), baseHash: this.baseHash })
+      .catch((error) => {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown edited", error);
+      });
+  }
+
+  /** The host's `cmux.markdown.flush`: saves pending edits now; `dirty` when some are still not on disk. */
+  async flush(): Promise<{ dirty: boolean }> {
+    if (this.state.readOnly) return { dirty: false };
+    if (!this.state.conflict && this.currentText() !== this.savedText) await this.save();
+    return { dirty: this.state.conflict !== null || this.currentText() !== this.savedText };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -233,6 +258,7 @@ export class MarkdownStore {
   /** A user edit in either mode: the file is edited, and saves after the user pauses. */
   edited(): void {
     if (this.state.readOnly || this.state.phase !== "ready") return;
+    this.reporter.edited();
     if (this.state.status !== "saving") this.set({ status: "edited" });
     this.cancelAutosave?.();
     if (this.state.conflict) return;

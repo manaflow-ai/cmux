@@ -163,6 +163,18 @@ public final class ActionRegistry {
 
     // MARK: - Binding
 
+    /// Ids bound twice without an `unbind` (two owners; the newer silently wins). Checked by the
+    /// `noActionIsBoundTwice` test, never trapped; the app logs a fault. A real bind replacing a
+    /// ``bindUnavailable(_:reason:)`` placeholder is no duplicate; anything else bound twice is.
+    public private(set) var duplicateBindings: [ActionID] = []
+    private var placeholders: Set<ActionID> = []
+
+    func noteBinding(_ id: ActionID, placeholder: Bool) {
+        let canonical = canonicalID(for: id)
+        if indexByID[canonical] != nil, !placeholders.contains(canonical) { duplicateBindings.append(id) }
+        if placeholder { placeholders.insert(canonical) } else { placeholders.remove(canonical) }
+    }
+
     /// Registers `action`, replacing any action with the same ID. Legacy IDs
     /// are folded into their canonical ID.
     public func register(_ action: Action) {
@@ -208,6 +220,7 @@ public final class ActionRegistry {
         handler: @escaping @MainActor () -> Void
     ) -> Bool {
         guard let descriptor = descriptor(for: id) else { return false }
+        noteBinding(descriptor.id, placeholder: false)
         register(Action(
             id: descriptor.id,
             title: descriptor.title,
@@ -223,6 +236,7 @@ public final class ActionRegistry {
     /// Removes the handler for `id`. The descriptor stays in the catalog.
     public func unbind(_ id: ActionID) {
         let id = canonicalID(for: id)
+        placeholders.remove(id)
         guard let index = indexByID[id] else { return }
         actions.remove(at: index)
         indexByID = Dictionary(uniqueKeysWithValues: actions.enumerated().map { ($1.id, $0) })

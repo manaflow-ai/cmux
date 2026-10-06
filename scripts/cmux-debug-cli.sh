@@ -102,4 +102,40 @@ export CMUX_SOCKET_PATH="$socket_path"
 export CMUX_TAG="$tag_slug"
 export CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${tag_bundle_id}"
 export CMUX_BUNDLED_CLI_PATH="$cli_path"
+
+# DEBUG app routes use the app-owned JSON-lines socket. The bundled CLI's
+# `remote rpc` command is for workspace agent relays and does not expose these
+# app-local debug methods.
+if [[ "${1:-}" == "rpc" ]]; then
+  method="${2:-}"
+  params="${3:-}"
+  [[ -n "$params" ]] || params='{}'
+  if [[ -z "$method" ]]; then
+    echo "Usage: CMUX_TAG=$CMUX_TAG $0 rpc METHOD [PARAMS_JSON]" >&2
+    exit 2
+  fi
+  CMUX_DEBUG_METHOD="$method" CMUX_DEBUG_PARAMS="$params" CMUX_DEBUG_SOCKET="$socket_path" python3 - <<'PY'
+import json
+import os
+import socket
+
+request = {
+    "id": 1,
+    "method": os.environ["CMUX_DEBUG_METHOD"],
+    "params": json.loads(os.environ["CMUX_DEBUG_PARAMS"]),
+}
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+    client.settimeout(30)
+    client.connect(os.environ["CMUX_DEBUG_SOCKET"])
+    client.sendall((json.dumps(request, separators=(",", ":")) + "\n").encode())
+    response = bytearray()
+    while not response.endswith(b"\n"):
+        chunk = client.recv(65536)
+        if not chunk:
+            break
+        response.extend(chunk)
+print(response.decode().strip())
+PY
+  exit 0
+fi
 exec "$cli_path" "$@"

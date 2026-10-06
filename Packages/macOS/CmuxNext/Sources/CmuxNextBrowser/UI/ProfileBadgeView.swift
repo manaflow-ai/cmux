@@ -21,6 +21,10 @@ public struct BrowserProfileBadge: Hashable, Sendable {
 final class ProfileBadgeView: NSView {
     static let size: CGFloat = 16
     private let label = NSTextField(labelWithString: "")
+    private let symbol = NSImageView()
+    /// What the badge shows now (tests): an SF Symbol name, or text.
+    private(set) var shownSymbol: String?
+    var shownText: String { label.stringValue }
     private var color: GroupColor?
     /// The profile's menu (right-click or click): the host's actions.
     var makeMenu: (() -> NSMenu?)?
@@ -33,8 +37,14 @@ final class ProfileBadgeView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 9, weight: .semibold)
         label.alignment = .center
+        symbol.translatesAutoresizingMaskIntoConstraints = false
+        symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        symbol.isHidden = true
         addSubview(label)
+        addSubview(symbol)
         NSLayoutConstraint.activate([
+            symbol.centerXAnchor.constraint(equalTo: centerXAnchor),
+            symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
             widthAnchor.constraint(equalToConstant: Self.size),
             heightAnchor.constraint(equalToConstant: Self.size),
             label.centerXAnchor.constraint(equalTo: centerXAnchor),
@@ -50,7 +60,17 @@ final class ProfileBadgeView: NSView {
 
     func show(_ badge: BrowserProfileBadge) {
         color = badge.color
-        label.stringValue = badge.monogram
+        // A profile icon is an emoji, a letter, or an SF Symbol name.
+        if let image = Self.symbolImage(badge.monogram) {
+            shownSymbol = badge.monogram
+            symbol.image = image
+            label.stringValue = ""
+        } else {
+            shownSymbol = nil
+            symbol.image = nil
+            label.stringValue = badge.monogram
+        }
+        symbol.isHidden = shownSymbol == nil
         let help = BrowserProfileStrings.badgeHelp(badge.name)
         toolTip = help
         setAccessibilityLabel(help)
@@ -58,11 +78,18 @@ final class ProfileBadgeView: NSView {
         updateLayer()
     }
 
+    /// The symbol for `name` when it is an SF Symbol name (lowercase
+    /// letters, digits and dots, more than one character).
+    static func symbolImage(_ name: String) -> NSImage? {
+        guard name.count > 1, name.allSatisfy({ ($0.isASCII && ($0.isLowercase || $0.isNumber)) || $0 == "." }) else { return nil }
+        return NSImage(systemSymbolName: name, accessibilityDescription: nil)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? { makeMenu?() }
 
     override func mouseDown(with event: NSEvent) {
         guard let menu = makeMenu?() else { return super.mouseDown(with: event) }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 4), in: self)
     }
 
     override var wantsUpdateLayer: Bool { true }
@@ -71,6 +98,7 @@ final class ProfileBadgeView: NSView {
         performWithTheme {
             layer?.backgroundColor = (color?.fill ?? Palette.hoverFill).cgColor
             label.textColor = Palette.textSecondary
+            symbol.contentTintColor = Palette.textSecondary
         }
     }
 }

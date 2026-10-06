@@ -5,9 +5,15 @@ public nonisolated enum UpdatesMeteredSetting: String, Sendable, Hashable, CaseI
     case download
 }
 
-/// How a ready update makes itself known (`updates.notify`).
+/// How a ready update makes itself known (`updates.notify`): the control
+/// on the Settings item, or nothing (installs on quit). The old `card`
+/// value (the update card, removed 2026-10-05) loads as `badge`.
 public nonisolated enum UpdatesNotifySetting: String, Sendable, Hashable, CaseIterable {
-    case card, badge, silent
+    case badge, silent
+
+    /// Values older files may hold, read as their replacement without a
+    /// diagnostic.
+    static let legacyValues: [String: Self] = ["card": .badge]
 }
 
 /// `updates.*` in cmux.json (R114): automatic checks, downloads and
@@ -19,9 +25,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public var checkIntervalSeconds: Double = 3600
     public var downloadAutomatically = true
     public var installOnQuit = true
-    public var notify: UpdatesNotifySetting = .card
-    /// Hours in which a ready update shows no card; nil is off.
-    public var quietHours: QuietHours?
+    public var notify: UpdatesNotifySetting = .badge
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = 1
     public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
@@ -35,7 +39,6 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     public static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
     public static let installOnQuitPath = ["updates", "installOnQuit"]
     public static let notifyPath = ["updates", "notify"]
-    public static let quietHoursPath = ["updates", "quietHours"]
     public static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
 
     static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> Self {
@@ -45,24 +48,14 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         if let value = reader.number("checkIntervalSeconds", range: checkIntervalRange) { settings.checkIntervalSeconds = value }
         if let value = reader.bool("downloadAutomatically") { settings.downloadAutomatically = value }
         if let value = reader.bool("installOnQuit") { settings.installOnQuit = value }
-        if let value = reader.choice("notify", UpdatesNotifySetting.self) { settings.notify = value }
+        if let legacy = root.value(at: notifyPath)?.stringValue.flatMap({ UpdatesNotifySetting.legacyValues[$0] }) {
+            settings.notify = legacy
+        } else if let value = reader.choice("notify", UpdatesNotifySetting.self) {
+            settings.notify = value
+        }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
         diagnostics = reader.diagnostics
-        settings.quietHours = quietHours(root, diagnostics: &diagnostics)
         return settings
-    }
-
-    private static func quietHours(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> QuietHours? {
-        guard let value = root.value(at: quietHoursPath) else { return nil }
-        if case .null = value { return nil }
-        guard case .object(let members) = value,
-              let start = members["start"]?.stringValue.flatMap(QuietHours.minutes),
-              let end = members["end"]?.stringValue.flatMap(QuietHours.minutes) else {
-            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "updates.quietHours",
-                                                  message: "expected {\"start\": \"HH:MM\", \"end\": \"HH:MM\"}"))
-            return nil
-        }
-        return QuietHours(start: start, end: end)
     }
 }

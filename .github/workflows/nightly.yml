@@ -121,7 +121,11 @@ env:
 jobs:
   decide:
     if: github.event_name != 'workflow_dispatch' || inputs.tag_permission_probe != true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # This gate only resolves the fixed revision and publication decision.
+    # Keep its default on the hosted runner so a busy paid Linux pool cannot
+    # delay every nightly before the macOS work is admitted; retain the normal
+    # Linux runner fallback for repositories that do not set the override.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_DECIDE_RUNNER || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -959,6 +963,62 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # cmux-next release source archive: Ghostty at its submodule revision and
+      # every Zig package of the build, so the MPL-2.0 source offer for Ghostty's
+      # Zig packages names an archive this release publishes (and the public
+      # cmux-next-src-<commit> tag) instead of upstream URLs. Built and verified
+      # on every nightly-next build (twice, byte-identical); the publish job
+      # attaches it only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1.
+      # Blocking: a Ghostty Zig package with no license text (or any other
+      # collect, verify or reproducibility failure) fails this job, so the sign
+      # job never runs and no nightly-next ships without the license tree.
+      # tests/test_nightly_next_source_archive.py holds this.
+      - name: Build the cmux-next source archive
+        id: source_archive
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        run: |
+          set -euo pipefail
+          if ! ZIG_GLOBAL_CACHE_DIR="$HOME/.cache/zig" \
+            ./scripts/cmux-next/build-ghostty-source-archive.sh "$RUNNER_TEMP/source-archive"; then
+            echo "::error title=cmux-next source archive failed::If the log names a Ghostty package without a license file, review its upstream license and pin the text in cmux-tui/build-support/notices/ghostty/pinned-licenses/MANIFEST.json (update PINNED_MANIFEST_SHA256 in collect-ghostty-licenses.py). nightly-next does not ship without the Ghostty license tree."
+            exit 1
+          fi
+
+      # bin/cmux links libghostty-vt from the submodule ghostty-vt-sys's
+      # build.rs selects, at this commit's gitlink (no product override). Every
+      # Zig package it declares must be in a shipped license tree; a gap stops
+      # nightly-next. tests/test_nightly_next_source_archive.py holds this.
+      - name: libghostty-vt Zig packages are covered by the notices
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/source-archive"
+          source="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p' | awk '{print $1}')"
+          manifests=(--license-manifest "$out/ghostty-licenses/SOURCE-MANIFEST.json")
+          [[ "$source" == ghostty ]] || manifests+=(--license-manifest "$out/$source-licenses/SOURCE-MANIFEST.json")
+          python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py "${manifests[@]}" --link-graph scripts/cmux-next/notices/vt-link-graph.json
+
+      - name: Upload the cmux-next source archive
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-source-archive
+          path: ${{ runner.temp }}/source-archive
+          if-no-files-found: error
+          retention-days: 3
+
+      # Signing only embeds the license trees. Keep that handoff separate from
+      # the optional source offer so each signing leg does not download the
+      # complete source archive just to copy a few notices into the app.
+      - name: Upload cmux-next license trees
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-license-trees
+          path: ${{ runner.temp }}/source-archive/*-licenses
+          if-no-files-found: error
+          retention-days: 3
+
   build-nightly-app:
     needs: decide
     outputs:
@@ -1072,6 +1132,24 @@ jobs:
           scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
+      # The Home Chief's brain host (Native/OptChat/optchat-chief) ships in the
+      # cmux-next nightly only: this step hands it to the Release build's
+      # "Bundle optchat-chief" phase, which copies it to Resources/bin, and
+      # build-sign-notarize-nightly signs it with the app's Developer ID and
+      # hardened runtime (sign-cmux-bundle-helpers.sh signs every Mach-O
+      # there). Main's nightly, RC and stable never set the variable, so they
+      # bundle nothing, and the app starts the bundled Chief only on DEV and
+      # NIGHTLY bundle ids (HomeBrainHost.bundledChiefAllowed).
+      - name: Build the OptChat Chief (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        run: |
+          set -euo pipefail
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
+          chief_bin="$RUNNER_TEMP/cmux-next-optchat-chief/optchat-chief"
+          CMUX_NEXT_OPTCHAT_CHIEF_ARCHS="$archs" scripts/cmux-next/build-optchat-chief.sh --output "$chief_bin"
+          echo "CMUX_NEXT_OPTCHAT_CHIEF_BIN=$chief_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1" >> "$GITHUB_ENV"
+
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
       # cross-platform R2 artifact matrix. Main and release keep the immutable
@@ -1149,6 +1227,21 @@ jobs:
         run: |
           scripts/cmux-next/ensure-cef.sh --optional
           scripts/cmux-next/ensure-cef.sh --optional --arch x86_64
+
+      # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
+      # bundles: the daemon, app host and Cloud server come from this tree
+      # (pin-cmux-tui.sh tree mode), so the notices do too, with exact closures
+      # from `cargo tree` (this runner has cargo). The Release build copies the
+      # regenerated file; the sign job verifies the bundle against
+      # scripts/cmux-next/notices/bundle-map.json.
+      - name: Generate third-party notices (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
 
       - name: Build nightly app (Release)
         run: |
@@ -1470,6 +1563,10 @@ jobs:
           # ~15s of fetch on every variant and are never read here.
           submodules: false
 
+      - name: Initialize cmux-next notices submodule
+        if: github.ref_name == 'nightly-next'
+        run: git submodule update --init --depth 1 ghostty-next
+
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
@@ -1501,6 +1598,17 @@ jobs:
         with:
           name: cmux-nightly-ghostty-cli-helper
           path: nightly-inputs/ghostty
+
+      # Blocking, like the step that builds it: a nightly-next app always
+      # ships the Ghostty license tree. This is a small artifact containing
+      # only the trees, rather than the complete source offer archive.
+      - name: Download the Ghostty dependency license trees (cmux-next)
+        id: ghostty_licenses
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-license-trees
+          path: nightly-inputs/license-trees
 
       - name: Restore unsigned nightly products
         run: |
@@ -1574,6 +1682,33 @@ jobs:
           install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
           echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
 
+      # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
+      # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
+      # source offer that names this release's cmux-next source archive and tag.
+      - name: Inject the Ghostty dependency licenses (cmux-next)
+        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        run: |
+          set -euo pipefail
+          APP_DIR="build-universal/Build/Products/Release/cmux.app"
+          tree="nightly-inputs/license-trees/ghostty-licenses"
+          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
+          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
+          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
+          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
+          # selects, at this commit's gitlink (the resolved cmux-tui client
+          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
+          # Today: Contents/Resources/ghostty-next-licenses.
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
+          vt_name="${vt%% *}" vt_revision="${vt##* }"
+          if [[ "$vt_name" != ghostty ]]; then
+            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
+            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+              --root "$next_tree" --revision "$vt_revision"
+            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
+            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
+          fi
+
       # Every variant installs the one commit resolve-nightly-cmux-tui-client
       # chose, from its attested immutable manifest, before thinning.
       - name: Bundle the cmux-tui client
@@ -1640,6 +1775,18 @@ jobs:
               [ "$archs" = "$NIGHTLY_VARIANT" ]
             fi
           done
+          # The cmux-next nightly carries the OptChat Chief with the app's slices.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            chief="$APP/Contents/Resources/bin/optchat-chief"
+            [ -x "$chief" ] || { echo "nightly-next is missing bin/optchat-chief" >&2; exit 1; }
+            archs="$(lipo -archs "$chief")"
+            echo "$chief: $archs"
+            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+            else
+              [ "$archs" = "$NIGHTLY_VARIANT" ]
+            fi
+          fi
           # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
           for alias in cmux-tui acpmux; do
             [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {
@@ -1843,6 +1990,12 @@ jobs:
 
       - name: Verify bundled Mach-O load commands
         run: ./scripts/verify-bundle-load-commands.sh "$CHANNEL_APP_PATH"
+
+      # Every Mach-O must map to its notices (bundle-map.json): fail here,
+      # before the notarization wait. notarize-nightly-dmg.sh checks the app
+      # and the mounted DMG again.
+      - name: Verify third-party notices cover every bundled binary
+        run: ./scripts/verify-app-bundle-licenses.sh "$CHANNEL_APP_PATH"
 
       - name: Verify signed app SSH daemon contract
         run: |
@@ -2101,6 +2254,7 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-darwin-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
+            --immutable "nightly-out/cmuxd-remote-THIRD_PARTY_LICENSES-${NIGHTLY_BUILD}.txt" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
@@ -2110,6 +2264,48 @@ jobs:
             --feed nightly-out/appcast-x86_64.xml \
             --feed nightly-out/appcast-universal.xml \
             --feed nightly-out/appcast.xml
+
+      - name: Download the cmux-next source archive
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-next-source-archive
+          path: source-archive
+
+      # Gated by vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE (the coordinator sets it).
+      # Tags the build commit cmux-next-src-<11 characters> and attaches
+      # cmux-next-source-<build>.tar.gz to the nightly-next release. The prune
+      # step removes it only together with the app assets of <build>, whose
+      # source offer names it (prune_nightly_release_assets.py), never by age.
+      - name: Publish the cmux-next source archive
+        if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          short="${HEAD_SHA:0:11}"
+          src=(source-archive/cmux-next-source-*.tar.gz)
+          [[ ${#src[@]} -eq 1 && -f "${src[0]}" ]] || { echo "expected one source archive, found: ${src[*]}" >&2; exit 1; }
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --rev "$HEAD_SHA" --print-source | sed -n 's/^libghostty-vt source: //p')"
+          next=()
+          if [[ "${vt%% *}" != ghostty ]]; then
+            next=(--next-name "${vt%% *}" --next-revision "${vt##* }"
+              --next-license-manifest "source-archive/${vt%% *}-licenses/SOURCE-MANIFEST.json")
+          fi
+          python3 scripts/cmux-next/notices/ghostty_source_archive.py verify --archive "${src[0]}" \
+            --license-manifest source-archive/ghostty-licenses/SOURCE-MANIFEST.json \
+            --revision "$(git rev-parse "$HEAD_SHA:ghostty")" ${next[@]+"${next[@]}"}
+          mkdir -p source-out
+          cp "${src[0]}" "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
+          if existing="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/cmux-next-src-$short" --jq .object.sha 2>/dev/null)"; then
+            [[ "$existing" == "$HEAD_SHA" ]] || { echo "tag cmux-next-src-$short points at $existing, not $HEAD_SHA" >&2; exit 1; }
+          else
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/cmux-next-src-$short" -f "sha=$HEAD_SHA" >/dev/null
+          fi
+          python3 scripts/ci/publish-release-assets.py \
+            --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+            --immutable "source-out/cmux-next-source-${NIGHTLY_BUILD}.tar.gz"
 
       - name: Mint release tag app token
         id: release-tag-token
@@ -2281,6 +2477,106 @@ jobs:
   # Keep one open issue per failed publication boundary. A stale channel tag
   # leaves the assets, release metadata, and feeds available, so the incident
   # must say that explicitly instead of claiming installs stopped updating.
+  # R114 changelog (cmux-next track only): signed release notes for the
+  # in-app changelog. The content-signing environment (main, feat-cmux-next,
+  # nightly-next) holds only the Ed25519 content key; this job never sees the
+  # Sparkle key or R2 credentials. publish-release-notes uploads the result
+  # with release-next's scoped R2 token after the appcasts are live.
+  sign-release-notes:
+    needs: [decide, build-nightly-app]
+    if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
+    environment: content-signing
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+      HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+      CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.decide.outputs.head_sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Build and sign the release notes
+        env:
+          CONTENT_SIGNING_ED25519_PEM: ${{ secrets.CONTENT_SIGNING_ED25519_PEM }}
+        run: |
+          set -euo pipefail
+          # The previous published commit: the nightly-next tag still points at
+          # it (publish-nightly moves it after this run publishes).
+          since="$(git rev-parse -q --verify 'refs/tags/nightly-next^{commit}' || true)"
+          python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
+            --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
+            --head "$HEAD_SHA" --since "$since" --out notes
+          # Extend the published index only when its signature verifies.
+          previous=""
+          if curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json https://files-next.cmux.com/nightly-next/notes/index.json \
+             && curl -fsSL -A "cmux-release-notes/1" -o notes/previous-index.json.sig https://files-next.cmux.com/nightly-next/notes/index.json.sig \
+             && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" notes/previous-index.json; then
+            previous=notes/previous-index.json
+          fi
+          python3 scripts/cmux-next/release-notes.py index --notes "notes/$NIGHTLY_BUILD.json" \
+            ${previous:+--previous "$previous"} --out notes/index.json
+          rm -f notes/previous-index.json notes/previous-index.json.sig
+          # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
+          signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
+          if [ -f release-notes/next/announcements.json ]; then
+            python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
+            cp release-notes/next/announcements.json notes/announcements.json
+            signed+=(notes/announcements.json)
+          fi
+          key="$(mktemp)"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$CONTENT_SIGNING_ED25519_PEM" > "$key"
+          python3 scripts/cmux-next/release-notes.py sign --key "$key" "${signed[@]}"
+          for f in "${signed[@]}"; do
+            python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$f"
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: notes/
+          retention-days: 7
+
+  publish-release-notes:
+    needs: [decide, publish-nightly, sign-release-notes]
+    if: needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.sign-release-notes.result == 'success'
+    environment: ${{ needs.decide.outputs.environment }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.decide.outputs.head_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-notes
+          path: notes
+      - name: Upload the signed release notes to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+        run: |
+          set -euo pipefail
+          for file in notes/*; do
+            name="$(basename "$file")"
+            key="${NIGHTLY_NEXT_R2_PREFIX}notes/$name"
+            python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
+            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
+            case "$name" in *.json) type="application/json" ;; *) type="text/plain" ;; esac
+            python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
+              --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"
+          done
+
   report-nightly-failure:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && (contains(needs.*.result, 'failure') || needs.publish-nightly.outputs.tag_status == 'stale')

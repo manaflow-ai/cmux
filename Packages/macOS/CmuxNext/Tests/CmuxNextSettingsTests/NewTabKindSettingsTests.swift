@@ -2,8 +2,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// `tabs.newTabKind`: what Cmd-T and + open. The new tab page ("page",
-/// decision Q1 of plans/cmux-next/new-tab.md) unless the file says
+/// `tabs.newTabKind`: what Cmd-T and + open. The New Tab page ("page") unless the file says
 /// otherwise; a bad value keeps "page" with a diagnostic. The
 /// Settings window and the new tab page's "default" toggle edit it.
 @Suite struct NewTabKindSettingsTests {

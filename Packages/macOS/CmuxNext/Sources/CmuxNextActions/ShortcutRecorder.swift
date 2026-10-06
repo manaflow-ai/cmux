@@ -177,13 +177,7 @@ public import AppKit
 
     // MARK: Text
 
-    private func title(_ id: ActionID) -> String {
-        registry.descriptor(for: id)?.title ?? id.rawValue
-    }
-
-    private func titles(_ ids: [ActionID]) -> String {
-        ListFormatter.localizedString(byJoining: ids.map(title))
-    }
+    private func titles(_ ids: [ActionID]) -> String { ShortcutAssessmentText(registry).titles(ids) }
 
     private func savedNotice(_ shortcut: Shortcut, removedFrom owners: [ActionID]) -> String {
         owners.isEmpty ? ShortcutRecorderStrings.shortcutSaved(shortcut.displayString)
@@ -191,18 +185,11 @@ public import AppKit
     }
 
     private func conflict(_ shortcut: Shortcut, owners: [ActionID], canKeepBoth: Bool) -> String {
-        let used = ShortcutRecorderStrings.shortcutUsedBy(shortcut.displayString, titles(owners))
-        return canKeepBoth ? used + " " + ShortcutRecorderStrings.shortcutCanKeepBoth : used
+        ShortcutAssessmentText(registry).conflict(shortcut, owners: owners, canKeepBoth: canKeepBoth)
     }
 
     private func message(for refusal: ShortcutRefusal, shortcut: Shortcut, id: ActionID) -> String {
-        switch refusal {
-        case .needsModifier: ShortcutRecorderStrings.shortcutNeedsModifier
-        case .reservedByMacOS(let name): ShortcutRecorderStrings.shortcutReservedByMacOS(shortcut.displayString, name)
-        case .systemAction(let owner): ShortcutRecorderStrings.shortcutOwnedBySystemAction(shortcut.displayString, title(owner))
-        case .numberedFamily(let owner): ShortcutRecorderStrings.shortcutInNumberedFamily(shortcut.displayString, title(owner))
-        case .editsNumberedFamily: ShortcutRecorderStrings.shortcutFamilyInConfig(id.rawValue)
-        }
+        ShortcutAssessmentText(registry).refusal(refusal, shortcut: shortcut, id: id)
     }
 
     private func note(_ note: ShortcutNote, shortcut: Shortcut) -> String {

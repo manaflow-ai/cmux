@@ -12,9 +12,16 @@ pub(crate) fn apply_resource_patch(
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    // Moves by any path keep ephemeral content ephemeral (or are refused).
+    crate::state::ephemeral_moves::carry_ephemeral(transaction, &patch)?;
     // Closes by any path land in the closed history before their rows go.
     crate::state::closed_history_store::capture_closed(transaction, &patch)?;
+    let closing = closing_browsers(transaction, &patch)?;
+    // Creations by any path get their personal row (personal-mixed-order-v1).
+    let created = crate::state::personal_order::created_workspaces(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
+    delete_closed_browser_rows(transaction, &closing)?;
+    crate::state::personal_order::place_created_workspaces(transaction, &created)?;
     Ok(patch)
 }
 
@@ -52,6 +59,66 @@ pub(crate) fn apply_resource_patch_unrecorded(
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
+    let closing = closing_browsers(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
+    delete_closed_browser_rows(transaction, &closing)?;
     Ok(patch)
+}
+
+/// The browser contents `patch` may close: tombstoned browsers and the
+/// content of tabs it closes with their content (read before the patch
+/// applies, while the tab rows are live).
+fn closing_browsers(
+    transaction: &Transaction<'_>,
+    patch: &ResourcePatch,
+) -> anyhow::Result<Vec<String>> {
+    let mut browsers = Vec::new();
+    for change in &patch.changes {
+        match change {
+            ResourceChange::TombstoneBrowser { public_id } => {
+                browsers.push(public_id.as_str().to_string());
+            }
+            ResourceChange::TombstoneTab { tab_id, close_content: true } => {
+                let content = transaction
+                    .query_row(
+                        "SELECT content_id FROM resource_tabs
+                         WHERE public_id = ?1 AND content_kind = 'browser'
+                           AND deleted_revision IS NULL",
+                        [tab_id.as_str()],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()?;
+                browsers.extend(content);
+            }
+            _ => {}
+        }
+    }
+    Ok(browsers)
+}
+
+/// Closed browser content leaves no frontend or conversation record behind
+/// (the closed history captured what reopen needs before the patch applied).
+/// Only content the patch actually tombstoned is touched.
+fn delete_closed_browser_rows(
+    transaction: &Transaction<'_>,
+    browsers: &[String],
+) -> anyhow::Result<()> {
+    for browser in browsers {
+        let closed = transaction
+            .query_row(
+                "SELECT 1 FROM resource_browsers
+                 WHERE public_id = ?1 AND deleted_revision IS NOT NULL",
+                [browser],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if closed {
+            crate::state::conversation_tabs_store::delete_closed_browser_rows(
+                transaction,
+                browser,
+            )?;
+        }
+    }
+    Ok(())
 }

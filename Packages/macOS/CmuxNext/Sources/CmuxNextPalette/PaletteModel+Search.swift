@@ -68,7 +68,7 @@ extension PaletteModel {
             let searchID = searchGeneration
             if FuzzyQuery(state.query).isEmpty || !page.filtersByQuery {
                 searchTask = nil
-                let ranked = PaletteRanker.rankEmpty(
+                let ranked = ranker.rankEmpty(
                     entries: state.entries,
                     sectionOrders: state.sectionOrders,
                     frecency: frecency,

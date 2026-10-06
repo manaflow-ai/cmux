@@ -11,6 +11,9 @@ import CmuxNextDesign
 /// closes; closing it closes the page.
 final class BrowserPopupPanels {
     private let contextMenus: BrowserContextMenuBuilder
+    /// The link, image and selection rows for a right-click, by the
+    /// opener's tab (`BrowserPageRequests.hitItems`).
+    var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
 
     init(contextMenus: BrowserContextMenuBuilder = .shared) {
         self.contextMenus = contextMenus
@@ -113,7 +116,7 @@ final class BrowserPopupPanels {
 
     /// Handles an intent of a panel page; returns false for other pages
     /// and for the intents the caller routes through the opener's tab
-    /// (links opened in a new tab).
+    /// (links opened in a new tab, downloads).
     func handle(_ page: any BrowserTab, _ intent: BrowserTabIntent) -> Bool {
         guard let entry = entries[ObjectIdentifier(page)] else { return false }
         switch intent {
@@ -128,14 +131,15 @@ final class BrowserPopupPanels {
             if page.isAgentDriven { child.markAgentDriven() }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
-            contextMenus.present(request, in: page.contentView)
+            contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .download, .notice, .rerouteStore, .takeFocus, .unhandledKey:
+        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey:
             // A panel has no tab to select, no chrome for notices or an
             // omnibar to take focus, one store, and no page shortcuts.
             break
-        case .openURL, .adoptTab:
+        case .openURL, .adoptTab, .download:
+            // A download joins the App's list through the opener's tab.
             return false
         }
         return true

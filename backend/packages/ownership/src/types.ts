@@ -32,6 +32,8 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /** A VM install's one machine (kind vm, made at bind), resolved by UserDO with the grant. */
+  readonly bound_machine?: string
   /**
    * Agents (chiefs) the user owns, resolved by the Worker from UserDO's chief records for ops
    * that add participants (Home). Owners trust it only because the Worker builds every

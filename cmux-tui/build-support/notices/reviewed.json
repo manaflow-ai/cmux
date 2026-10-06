@@ -1,0 +1,658 @@
+{
+  "comment": "License review data for rust_notices.py. Owned by the license review: change an entry only with a stated reason. Elections fail the run when the crate's manifest expression changes.",
+  "extra_license_files": {
+    "r-efi": [
+      "AUTHORS"
+    ],
+    "regex-syntax": [
+      "src/unicode_tables/LICENSE-UNICODE"
+    ],
+    "ring": [
+      "src/polyfill/once_cell/LICENSE-APACHE",
+      "src/polyfill/once_cell/LICENSE-MIT",
+      "third_party/fiat/LICENSE"
+    ],
+    "rquickjs-sys": [
+      "quickjs/LICENSE"
+    ],
+    "terminput": [
+      "src/parser/LICENSE"
+    ],
+    "tracing-core": [
+      "src/spin/LICENSE"
+    ]
+  },
+  "extra_license_reasons": {
+    "r-efi": "AUTHORS holds the MIT text and the copyright holders; the README points there.",
+    "regex-syntax": "The Unicode tables are derived from Unicode data under the Unicode license.",
+    "ring": "Bundled code under its own terms: the once_cell polyfill (MIT and Apache-2.0 texts) and fiat-crypto output (Apache-2.0, the fiat-crypto authors).",
+    "rquickjs-sys": "Bundles the QuickJS C engine, which is compiled into the binary.",
+    "terminput": "The parser module carries its own MIT text (copyright 2019 Timon).",
+    "tracing-core": "The vendored spin module carries the spin crate's MIT text (copyright 2014 Mathijs van de Nes)."
+  },
+  "skipped_license_files": {
+    "libsqlite3-sys": {
+      "files": [
+        "sqlcipher/LICENSE"
+      ],
+      "reason": "SQLCipher is compiled only with the bundled-sqlcipher feature; cmux-tui enables `bundled` (plain SQLite, public domain)."
+    },
+    "rquickjs-sys": {
+      "files": [
+        "vendor/wasi-libc/NOTICE.md"
+      ],
+      "reason": "wasi-libc is used only for wasm targets; the macOS binaries do not link it."
+    },
+    "deltae": {
+      "files": [
+        "docs/doc/LICENSE-APACHE.txt",
+        "docs/doc/LICENSE-MIT.txt"
+      ],
+      "reason": "Copies of the crate's own top-level license texts inside its documentation."
+    }
+  },
+  "license_texts": {
+    "block2 0.6.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-b4167b582b2f/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/b4167b582b2f75f9a1be75495c41b765344fd03c/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        }
+      ]
+    },
+    "boringtun 0.7.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/cloudflare-boringtun-051c9d47dc9c/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/cloudflare/boringtun/051c9d47dc9c5cb36e461b7d36dcd673820dc98b/LICENSE.md",
+          "sha256": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391"
+        }
+      ]
+    },
+    "dispatch2 0.3.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-8852b424193c/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "iroh 1.0.3": {
+      "reason": "declares MIT OR Apache-2.0 but the package ships only LICENSE-BSD3 (the Tailscale notice); the MIT and Apache-2.0 texts are the repository's at f2eb930d, the commit .cargo_vcs_info.json records",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-f2eb930dda37/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/f2eb930dda3779c6d852b72f3712aacd6e573ab1/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-f2eb930dda37/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/f2eb930dda3779c6d852b72f3712aacd6e573ab1/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "iroh 1.2.0": {
+      "reason": "declares MIT OR Apache-2.0 but the package ships only LICENSE-BSD3 (the Tailscale notice); the MIT and Apache-2.0 texts are the repository's at 9816d250, the git revision Cargo.lock pins",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-9816d2505ddd/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/9816d2505ddd9c62a4c847be7c06b404175af5c4/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-9816d2505ddd/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/9816d2505ddd9c62a4c847be7c06b404175af5c4/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "iroh-base 1.0.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-e5c710a29fbd/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-e5c710a29fbd/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "iroh-dns 1.0.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-e5c710a29fbd/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-e5c710a29fbd/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/e5c710a29fbd06bdce35fd23ad94d04a62acf15a/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "iroh-relay 1.0.3": {
+      "reason": "declares MIT OR Apache-2.0 but the package ships only LICENSE-BSD3 (the Tailscale notice); the MIT and Apache-2.0 texts are the repository's at f2eb930d, the commit .cargo_vcs_info.json records",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-f2eb930dda37/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/f2eb930dda3779c6d852b72f3712aacd6e573ab1/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-f2eb930dda37/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/f2eb930dda3779c6d852b72f3712aacd6e573ab1/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "iroh-relay 1.2.0": {
+      "reason": "declares MIT OR Apache-2.0 but the package ships only LICENSE-BSD3 (the Tailscale notice); the MIT and Apache-2.0 texts are the repository's at 9816d250, the git revision Cargo.lock pins",
+      "files": [
+        {
+          "file": "texts/n0-computer-iroh-9816d2505ddd/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/9816d2505ddd9c62a4c847be7c06b404175af5c4/LICENSE-MIT",
+          "sha256": "f169adb8124d3b005416d8485d00777c9a7bdd9099982c52a4493f9732e6d050"
+        },
+        {
+          "file": "texts/n0-computer-iroh-9816d2505ddd/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/iroh/9816d2505ddd9c62a4c847be7c06b404175af5c4/LICENSE-APACHE",
+          "sha256": "903131e2786f073a942fbf8fae122d9e576e4dad758c6da7f9f2ba58fd8611ab"
+        }
+      ]
+    },
+    "irpc-iroh 0.17.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-irpc-0ed2b235d5c7/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/irpc/0ed2b235d5c797b54d8263ecb3b0247272d055f9/LICENSE-MIT",
+          "sha256": "339060c99d5c80c2742cae417f765980afe6b0149a78f959bbf2a79f19ab3af5"
+        },
+        {
+          "file": "texts/n0-computer-irpc-0ed2b235d5c7/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/irpc/0ed2b235d5c797b54d8263ecb3b0247272d055f9/LICENSE-APACHE",
+          "sha256": "7953ad8cebf4e01199521a5faa221ef59bec5cee0a9856b179590613a8560cbc"
+        }
+      ]
+    },
+    "jni 0.22.4": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/jni-rs-jni-rs-5ae9458a4ec4/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-MIT",
+          "sha256": "fea1d5bf3dd71605ce5d7d2ff695c1837e914c77195e523a86b5391716477960"
+        },
+        {
+          "file": "texts/jni-rs-jni-rs-5ae9458a4ec4/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/jni-rs/jni-rs/5ae9458a4ec44c5318f37ddc7569c1d4ae8a69e7/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+        }
+      ]
+    },
+    "netwatch 0.19.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-051ab8761006/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-051ab8761006/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
+    "netwatch 0.19.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
+    "objc2 0.6.4": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-8852b424193c/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        }
+      ]
+    },
+    "objc2-core-foundation 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "objc2-core-wlan 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "objc2-encode 4.1.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-8d214f547736/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        }
+      ]
+    },
+    "objc2-foundation 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8).",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        }
+      ]
+    },
+    "objc2-security 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "objc2-security-foundation 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "objc2-system-configuration 0.3.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release The upstream LICENSE.md only points to opensource.org (no permission notice, no copyright line), so a reviewer-supplied text ships too: SPDX license-list-data v3.29.0 (31ba1a50) text/MIT.txt with line 3 set to \"Copyright (c) Mads Marquart\" (the same bytes as cmux-browser's interim fix, sha256 340585b8), plus the unmodified SPDX v3.29.0 Zlib and Apache-2.0 texts for the other two alternatives.",
+      "files": [
+        {
+          "file": "texts/madsmtm-objc2-7b1abfd750a2/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+          "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+        },
+        {
+          "file": "texts/reviewer-supplied/MIT-Mads-Marquart.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/MIT.txt",
+          "sha256": "340585b843bc251b8559e08ef87ba844c144f77bcf58ff796f7bc78e11d0008f"
+        },
+        {
+          "file": "texts/reviewer-supplied/Zlib.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Zlib.txt",
+          "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+        },
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "portmapper 0.19.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-051ab8761006/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-051ab8761006/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/051ab8761006d7f2155e34a49f6bb881b582d5ab/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
+    "portmapper 0.19.3": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE-MIT, LICENSE-APACHE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-MIT",
+          "sha256": "33616ec4c88b6e00de66e6c06f1a55d80bb32a9d7939f3aa83d28e673a1adcae"
+        },
+        {
+          "file": "texts/n0-computer-net-tools-0030e57fc709/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/n0-computer/net-tools/0030e57fc70981895bb86212ff0f059cc41c8a4e/LICENSE-APACHE",
+          "sha256": "7986218ec4ea89de3511a843ae27fea2584a525036c220ff7b26589179f07888"
+        }
+      ]
+    },
+    "ratatui-termina 0.1.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/ratatui-ratatui-e665c36cb147/LICENSE",
+          "source": "https://raw.githubusercontent.com/ratatui/ratatui/e665c36cb14752a61cd777fbd06dbef8474f2add/LICENSE",
+          "sha256": "50eb43e8d742c9c61a9391e42b2184fce54dbd1893a1bb1c85b8c9ee217ab1f5"
+        }
+      ]
+    },
+    "rquickjs-core 0.14.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE",
+          "source": "https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE",
+          "sha256": "976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70"
+        }
+      ]
+    },
+    "rquickjs-sys 0.14.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release. The vendored QuickJS-NG sources (rquickjs submodule sys/quickjs = quickjs-ng/quickjs 0fdea21ff109, byte-identical to the .crate's quickjs/) compile libregexp.c, libunicode.c, quickjs.c and dtoa.c into the binary; their MIT text is quickjs/LICENSE. Two more texts ship with them: the Unicode License V3 of the Unicode data tables in libunicode-table.h (lines 5-43 of that file, the comment body without its /* */ lines; libunicode.c includes the tables), and the MIT notice of quickjs-c-atomics.h (Copyright (c) 2023 Marcin Kolny; lines 1-23, the header comment; quickjs.c includes it on every non-tcc, non-wasm target).",
+      "files": [
+        {
+          "file": "texts/DelSkayn-rquickjs-d7ef5eeae702/LICENSE",
+          "source": "https://raw.githubusercontent.com/DelSkayn/rquickjs/d7ef5eeae702fea24c03643064de454f1c1dd4b0/LICENSE",
+          "sha256": "976ad3d07927343ab99b31510625acba89eac8e0e517c712925620ddeda91b70"
+        },
+        {
+          "file": "texts/quickjs-ng-quickjs-0fdea21ff109/UNICODE-LICENSE-V3.txt",
+          "source": "https://raw.githubusercontent.com/quickjs-ng/quickjs/0fdea21ff1090084e91dad812b343d92e79ba9d9/libunicode-table.h#L5-L43",
+          "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96"
+        },
+        {
+          "file": "texts/quickjs-ng-quickjs-0fdea21ff109/quickjs-c-atomics-LICENSE.txt",
+          "source": "https://raw.githubusercontent.com/quickjs-ng/quickjs/0fdea21ff1090084e91dad812b343d92e79ba9d9/quickjs-c-atomics.h#L1-L23",
+          "sha256": "0a726795ea99fd5934f81f54e7e885031e844862755281df8afc3e6e5b571b9c"
+        }
+      ]
+    },
+    "siphasher 1.0.3": {
+      "reason": "declares MIT OR Apache-2.0 but ships only COPYING (a pointer with copyright lines); upstream jedisct1/rust-siphash 451f67d7 has no license file, so the unmodified SPDX v3.29.0 Apache-2.0 text ships (reviewer-supplied).",
+      "files": [
+        {
+          "file": "texts/reviewer-supplied/Apache-2.0.txt",
+          "source": "https://raw.githubusercontent.com/spdx/license-list-data/31ba1a50e5397e00a304dbadc76531740e89ee48/text/Apache-2.0.txt",
+          "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+        }
+      ]
+    },
+    "ts-rs 12.0.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/Aleph-Alpha-ts-rs-7182ad828959/LICENSE",
+          "source": "https://raw.githubusercontent.com/Aleph-Alpha/ts-rs/7182ad8289596097235406b715fa04506443b4ad/LICENSE",
+          "sha256": "db7f7f8e7236a2d0b41b855b2501b7b913caebbcda6ce498637a304ad1706ce1"
+        }
+      ]
+    },
+    "uniffi 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_bindgen 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_build 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_core 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_meta 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_pipeline 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uniffi_udl 0.31.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/mozilla-uniffi-rs-ec08cf9db85e/LICENSE",
+          "source": "https://raw.githubusercontent.com/mozilla/uniffi-rs/ec08cf9db85e938c37e2ecb4a5dec5ad4a68f95a/LICENSE",
+          "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+        }
+      ]
+    },
+    "uuid-simd 0.8.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/Nugine-simd-d74c030d9dc4/LICENSE",
+          "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+        }
+      ]
+    },
+    "valuable 0.1.1": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/tokio-rs-valuable-9efc29b6e58c/LICENSE",
+          "source": "https://raw.githubusercontent.com/tokio-rs/valuable/9efc29b6e58cef28f6566a47aa7e142a55fead77/LICENSE",
+          "sha256": "ed60d479b8fd1f64e9cbc3de449a16a53ac1b3d1b6aeb9bf9d190a8e93061b44"
+        }
+      ]
+    },
+    "vsimd 0.8.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/Nugine-simd-d74c030d9dc4/LICENSE",
+          "source": "https://raw.githubusercontent.com/Nugine/simd/d74c030d9dc4f3cae02146d1f497ff62726ef09a/LICENSE",
+          "sha256": "71674605ec4c087fe9eb534e3e4f9e26eb2e4aabcd76a29fd156c6a844d44b3d"
+        }
+      ]
+    },
+    "vtparse 0.6.2": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/wez-wezterm-edeae72b5fc5/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/wez/wezterm/edeae72b5fc55c7fa4aa1d08bbefd08c5493f757/LICENSE.md",
+          "sha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
+        }
+      ]
+    },
+    "wezterm-input-types 0.1.0": {
+      "reason": "the .crate ships no license file; the text is the repository's LICENSE.md at the commit that .cargo_vcs_info.json records for this release",
+      "files": [
+        {
+          "file": "texts/wez-wezterm-d5ca5509b95e/LICENSE.md",
+          "source": "https://raw.githubusercontent.com/wez/wezterm/d5ca5509b95edc31291ba29bd1fcbf3f0b12c92d/LICENSE.md",
+          "sha256": "37db33bbbd7348969eda397b89a16f252d56c1ca7481b6ccaf56ccdcbab5dcca"
+        }
+      ]
+    },
+    "winapi-x86_64-pc-windows-gnu 0.4.0": {
+      "reason": "the .crate (2018, no .cargo_vcs_info.json) ships no license file; Cargo.toml says MIT/Apache-2.0 and repository retep998/winapi-rs. The texts are that repository's root LICENSE-MIT and LICENSE-APACHE at 9497609ef44c ('Publish 0.3.4'), the commit whose x86_64/Cargo.toml is this crate's 0.4.0 manifest (include list without license files; fa4e2c5a later added them to the crate directory). It holds MinGW import libraries for the Windows target (independent mingw-w64 review, 2026-10-05).",
+      "files": [
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-APACHE",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-APACHE",
+          "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+        },
+        {
+          "file": "texts/retep998-winapi-rs-9497609ef44c/LICENSE-MIT",
+          "source": "https://raw.githubusercontent.com/retep998/winapi-rs/9497609ef44cc9bcd16cd2411c0ee6ccaf5483aa/LICENSE-MIT",
+          "sha256": "5b19674a1db628a475850a131956ed49521b744e3dda8f5a94141f9aba681219"
+        }
+      ]
+    }
+  },
+  "elections": {
+    "r-efi": {
+      "declared": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "concluded": "MIT",
+      "reason": "r-efi offers MIT OR Apache-2.0 OR LGPL-2.1-or-later; its AUTHORS file holds the MIT text and the copyright holders, so MIT is the elected license (UEFI targets only)."
+    }
+  }
+}

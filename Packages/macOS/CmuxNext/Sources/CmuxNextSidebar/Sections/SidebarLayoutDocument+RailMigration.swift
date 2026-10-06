@@ -108,8 +108,14 @@ extension SidebarLayoutDocument {
     /// Built-ins that are first-party apps now (R63/R64).
     public nonisolated static let firstPartyApps: [SidebarBuiltIn: String] = [.home: "cmux/home", .appStore: "cmux/app-store"]
 
+    /// The large-tiles arrangement (#17349). It is no longer the default
+    /// top (Lawrence 2026-10-05: rows); a user can still choose it.
+    public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
+
     /// Every migration in order (sections, then app refs), as one op list
-    /// that applies to this layout.
+    /// that applies to this layout. No migration turns a plain-row top
+    /// section into tiles; the tiles default was never stored (the store
+    /// did not serve `sidebar-layout-v1` yet), so none moves back either.
     public nonisolated var layoutMigrationOps: [SidebarLayoutOp] {
         sectionsMigrationOps + sectionsMigration.appRefMigrationOps
     }

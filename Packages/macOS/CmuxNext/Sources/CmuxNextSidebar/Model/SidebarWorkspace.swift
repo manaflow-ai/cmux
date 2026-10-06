@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+public import CmuxNextIcons
 import Foundation
 
 /// Unread state for the badge.
@@ -16,6 +17,34 @@ public nonisolated enum UnreadState: Hashable, Sendable {
     }
 }
 
+/// What a workspace row shows: the kind of its selected tab.
+public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendable {
+    /// An agent: an agent chat, a Home conversation or an agent terminal.
+    case harness
+    /// A terminal or remote terminal.
+    case terminal
+    /// A browser page.
+    case browser
+
+    /// The leading symbol shown when the workspace has no custom icon.
+    public var symbol: String {
+        switch self {
+        case .harness: "bubble.left.and.text.bubble.right"
+        case .terminal: "terminal"
+        case .browser: "globe"
+        }
+    }
+
+    /// The matching built-in icon-pack glyph for rows without a custom icon.
+    public var iconName: IconName {
+        switch self {
+        case .harness: .agentChat
+        case .terminal: .terminal
+        case .browser: .browser
+        }
+    }
+}
+
 /// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID
@@ -23,16 +52,21 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// between machines; drops across machine sections are refused.
     public var machineID: MachineID
     public var title: String
-    /// Passive detail (cwd, git branch). Shown in the tooltip and
-    /// accessibility label, never as a second line: it rarely changes and
-    /// repeats on every row.
+    /// Passive detail such as the cwd or git branch. It is used as the row's
+    /// secondary line when no live status is available.
     public var subtitle: String?
-    /// Live status (agent status line, hook `set_status`). The only text
-    /// that earns the row a second line.
+    /// Live status from the agent or hook `set_status`. It takes precedence
+    /// over ``subtitle`` in the row's secondary line.
     public var status: String?
-    /// Set only when the user chose an icon or color. Rows are text-first:
-    /// nil shows no icon.
+    /// Set only when the user chose an icon or color. When nil, the row draws
+    /// ``kindBrand``'s mark, else ``SidebarWorkspaceKind.iconName``, so every
+    /// row keeps a type glyph.
     public var icon: WorkspaceIcon?
+    /// The kind of the workspace's selected tab.
+    public var kind: SidebarWorkspaceKind
+    /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
+    /// mark is the row's type glyph; nil for other tabs and unknown agents.
+    public var kindBrand: String?
     public var unread: UnreadState
     /// The row's status indicator: the merged status of the workspace's
     /// tabs and its own status entries (`StatusStack`), drawn by the
@@ -59,6 +93,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         subtitle: String? = nil,
         status: String? = nil,
         icon: WorkspaceIcon? = nil,
+        kind: SidebarWorkspaceKind = .terminal,
+        kindBrand: String? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
@@ -73,6 +109,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.subtitle = subtitle
         self.status = status
         self.icon = icon
+        self.kind = kind
+        self.kindBrand = kindBrand
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle
@@ -88,5 +126,10 @@ nonisolated extension SidebarWorkspace {
     public var liveDetail: String? {
         guard let status, !status.isEmpty else { return nil }
         return status
+    }
+
+    /// The most useful detail to show below the workspace title.
+    public var rowDetail: String? {
+        liveDetail ?? subtitle.flatMap { $0.isEmpty ? nil : $0 }
     }
 }

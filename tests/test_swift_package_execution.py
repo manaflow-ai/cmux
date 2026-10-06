@@ -34,6 +34,9 @@ class SwiftPackageExecutionTests(unittest.TestCase):
             selected_packages = selected_packages or [package]
             for selected_package in selected_packages:
                 (root / "Packages/macOS" / selected_package).mkdir(parents=True)
+                # The lane accepts only a package directory with a manifest
+                # (ebd7bcd5a43); swift itself is a stub here.
+                (root / "Packages/macOS" / selected_package / "Package.swift").write_text("// swift-tools-version:5.9\n")
             if ghosttykit:
                 # A binaryTarget on the root xcframework, like a GhosttyKit package's manifest.
                 (root / "Packages/macOS" / package / "Package.swift").write_text(
@@ -138,14 +141,19 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout)
 
-    def test_package_lane_stops_after_the_first_selected_failure(self) -> None:
+    def test_a_failed_package_is_reported_and_later_packages_still_run(self) -> None:
+        # A failure must not hide the results of the packages after it, and
+        # the summary table names the failed package; the lane fails at the end.
         result = self.run_step(
             "Foo.swift:1:2: error: broken package\n",
             status=1,
             selected_packages=["FirstPackage", "SecondPackage"],
         )
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertEqual(result.stdout.count("::group::swift test "), 1, result.stdout)
+        self.assertEqual(result.stdout.count("::group::swift test "), 2, result.stdout)
+        table = result.stdout.split("Swift package test results:\n", 1)[1]
+        self.assertRegex(table, r"FirstPackage +failed \(exit 1\)")
+        self.assertRegex(table, r"SecondPackage +failed \(exit 1\)")
 
     def test_binary_diagnostic_exception_does_not_hide_other_process_failures(self) -> None:
         passed = "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds.\n"

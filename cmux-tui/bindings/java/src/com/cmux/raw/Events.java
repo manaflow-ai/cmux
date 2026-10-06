@@ -11,6 +11,7 @@ import java.util.Map;
 public final class Events {
     private Events() {}
 
+    public static final EventMetadata ACTIVITY_CHANGED = new EventMetadata("activity-changed", 12, "vm-activity-v1", List.of("control"), true);
     public static final EventMetadata AGENT_CHANGED = new EventMetadata("agent-changed", 11, null, List.of("subscribe"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
@@ -19,6 +20,12 @@ public final class Events {
     public static final EventMetadata CLIENT_CHANGED = new EventMetadata("client-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_DETACHED = new EventMetadata("client-detached", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CLIENT_LIST_INVALIDATED = new EventMetadata("client-list-invalidated", 9, null, List.of("subscribe"), false);
+    public static final EventMetadata CLOUD_CONVERSATION_CHANGED = new EventMetadata("cloud-conversation-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_CONVERSATION_RESYNCED = new EventMetadata("cloud-conversation-resynced", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_INBOX_CHANGED = new EventMetadata("cloud-inbox-changed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_INBOX_RESET = new EventMetadata("cloud-inbox-reset", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_SESSION_NEEDED = new EventMetadata("cloud-session-needed", 12, "cloud-conversations-v1", List.of("subscribe"), true);
+    public static final EventMetadata CLOUD_SUBSCRIPTION_STATE = new EventMetadata("cloud-subscription-state", 12, "cloud-conversations-v1", List.of("subscribe"), true);
     public static final EventMetadata COLORS_CHANGED = new EventMetadata("colors-changed", 6, null, List.of("attach-byte"), true);
     public static final EventMetadata CONFIG_RELOAD_REQUESTED = new EventMetadata("config-reload-requested", 6, null, List.of("subscribe"), true);
     public static final EventMetadata CONVERSATION_CHANGED = new EventMetadata("conversation-changed", 12, "local-conversations-v1", List.of("subscribe"), true);
@@ -57,6 +64,8 @@ public final class Events {
     public static final EventMetadata TAB_CHANGED = new EventMetadata("tab-changed", 12, "tab-metadata-v1", List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_CLOSED = new EventMetadata("tab-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata TAB_RENAMED = new EventMetadata("tab-renamed", 7, null, List.of("subscribe-deltas"), true);
+    public static final EventMetadata TERMINAL_CLIPBOARD_READ = new EventMetadata("terminal-clipboard-read", 12, "terminal-clipboard-read-v1", List.of("control"), true);
+    public static final EventMetadata TERMINAL_CLIPBOARD_READ_CANCELLED = new EventMetadata("terminal-clipboard-read-cancelled", 12, "terminal-clipboard-read-v1", List.of("control"), true);
     public static final EventMetadata TERMINAL_REAPED = new EventMetadata("terminal-reaped", 12, "terminal-reap-v1", List.of("subscribe"), true);
     public static final EventMetadata TERMINAL_REGISTRY_CHANGED = new EventMetadata("terminal-registry-changed", 9, null, List.of("subscribe"), true);
     public static final EventMetadata TITLE_CHANGED = new EventMetadata("title-changed", 5, null, List.of("subscribe"), true);
@@ -73,6 +82,7 @@ public final class Events {
     public static final Map<String, EventMetadata> ALL;
     static {
         LinkedHashMap<String, EventMetadata> values = new LinkedHashMap<>();
+        values.put("activity-changed", ACTIVITY_CHANGED);
         values.put("agent-changed", AGENT_CHANGED);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
@@ -81,6 +91,12 @@ public final class Events {
         values.put("client-changed", CLIENT_CHANGED);
         values.put("client-detached", CLIENT_DETACHED);
         values.put("client-list-invalidated", CLIENT_LIST_INVALIDATED);
+        values.put("cloud-conversation-changed", CLOUD_CONVERSATION_CHANGED);
+        values.put("cloud-conversation-resynced", CLOUD_CONVERSATION_RESYNCED);
+        values.put("cloud-inbox-changed", CLOUD_INBOX_CHANGED);
+        values.put("cloud-inbox-reset", CLOUD_INBOX_RESET);
+        values.put("cloud-session-needed", CLOUD_SESSION_NEEDED);
+        values.put("cloud-subscription-state", CLOUD_SUBSCRIPTION_STATE);
         values.put("colors-changed", COLORS_CHANGED);
         values.put("config-reload-requested", CONFIG_RELOAD_REQUESTED);
         values.put("conversation-changed", CONVERSATION_CHANGED);
@@ -119,6 +135,8 @@ public final class Events {
         values.put("tab-changed", TAB_CHANGED);
         values.put("tab-closed", TAB_CLOSED);
         values.put("tab-renamed", TAB_RENAMED);
+        values.put("terminal-clipboard-read", TERMINAL_CLIPBOARD_READ);
+        values.put("terminal-clipboard-read-cancelled", TERMINAL_CLIPBOARD_READ_CANCELLED);
         values.put("terminal-reaped", TERMINAL_REAPED);
         values.put("terminal-registry-changed", TERMINAL_REGISTRY_CHANGED);
         values.put("title-changed", TITLE_CHANGED);

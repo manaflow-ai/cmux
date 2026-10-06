@@ -66,6 +66,7 @@ pub(super) fn serve_line_connection(
         let _ = writer_thread.join();
         return;
     }
+    let mut hello = client_hello::HelloGate::new(transport);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
         connection_permit.clone(),
@@ -96,9 +97,30 @@ pub(super) fn serve_line_connection(
             continue;
         }
         let keep_open = match admission.refusal(&line) {
-            Some(refusal) => writer.send_control(&refusal).is_ok(),
+            Some(refusal) => {
+                // A refused line still counts as a line: the window closes.
+                hello.close();
+                writer.send_control(&refusal).is_ok()
+            }
             None => {
-                handle_connection_frame(&mux, client, transport, &line, &writer, &surface_scheduler)
+                let peer = || {
+                    let stream = reader.get_ref();
+                    client_hello::Peer {
+                        key: stream.peer_process_key(),
+                        token: stream.peer_token(),
+                    }
+                };
+                match hello.observe(&mux, client, &line, peer) {
+                    Some(reply) => writer.send_control(&reply).is_ok(),
+                    None => handle_connection_frame(
+                        &mux,
+                        client,
+                        transport,
+                        &line,
+                        &writer,
+                        &surface_scheduler,
+                    ),
+                }
             }
         };
         zeroize_string(&mut line);

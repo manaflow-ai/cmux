@@ -34,6 +34,7 @@ public final class SettingsApplier {
             return diagnostics
         }
 
+        if design.showModifierHoldHints != snapshot.showModifierHoldHints { design.showModifierHoldHints = snapshot.showModifierHoldHints }
         let density = snapshot.density.flatMap(Density.init(rawValue:)) ?? .compact
         if design.density != density { design.density = density }
         if design.animationSpeed != snapshot.animationSpeed { design.animationSpeed = snapshot.animationSpeed }

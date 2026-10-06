@@ -4,7 +4,7 @@ use super::*;
 
 const PROVIDER: u64 = 9;
 const APP: super::super::provider::ProviderClaim =
-    super::super::provider::ProviderClaim { agent: false, app_kind: true };
+    super::super::provider::ProviderClaim { agent: false, verified_app: true };
 
 /// Registers a provider connection and returns its event stream.
 fn provider(f: &Fixture, families: &[&str]) -> Receiver<Value> {
@@ -247,9 +247,9 @@ fn the_idle_stop_waits_for_a_provider_call_in_flight() {
 #[test]
 fn only_the_cmux_app_and_never_an_agent_may_provide() {
     let f = fixture();
-    let agent = super::super::provider::ProviderClaim { agent: true, app_kind: true };
-    let undeclared = super::super::provider::ProviderClaim { agent: false, app_kind: false };
-    for claim in [agent, undeclared] {
+    let agent = super::super::provider::ProviderClaim { agent: true, verified_app: true };
+    let unverified = super::super::provider::ProviderClaim { agent: false, verified_app: false };
+    for claim in [agent, unverified] {
         let refused =
             f.supervisor.register_provider(PROVIDER, claim, vec!["action".into()]).unwrap_err();
         assert_eq!(refused.code, "apps.provider.forbidden", "{claim:?}");

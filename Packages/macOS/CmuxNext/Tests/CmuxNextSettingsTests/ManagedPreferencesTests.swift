@@ -133,7 +133,12 @@ import Testing
         await #expect(throws: SettingManaged(key: Self.speed, source: .team("Acme"))) { try await settings.setSetting(descriptor, to: "off", by: .user) }
     }
 
-    @Test(.timeLimit(.minutes(1))) func aProfileChangeReloadsThroughTheFileWatcher() async throws {
+    /// The wiring from the managed-profile watcher to a reload. Watcher
+    /// latency has its own 1 s bound (ConfigFileWatcherTests); this test's
+    /// duration is mostly main-actor hops, which take a minute or more under
+    /// the full package run (a test here without a watcher took 55 s there),
+    /// so its limit only catches a reload that never comes.
+    @Test(.timeLimit(.minutes(5))) func aProfileChangeReloadsThroughTheFileWatcher() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-managed-watch-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let configURL = directory.appending(path: "cmux.json")
@@ -149,9 +154,13 @@ import Testing
 
         try FileManager.default.createDirectory(at: profile.deletingLastPathComponent(), withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: [Self.speed: "off"], format: .xml, options: 0).write(to: profile, options: .atomic)
-        while settings.managedKeys.isEmpty {
+        // waitForLoad returns at once when the test is cancelled (time limit):
+        // stop then, or this loop spins on the main actor and starves every
+        // other main-actor test in the process.
+        while settings.managedKeys.isEmpty, !Task.isCancelled {
             await settings.waitForLoad(atLeast: settings.loadCount + 1)
         }
+        try #require(!settings.managedKeys.isEmpty, "the profile change never reloaded the settings")
         #expect(settings.snapshot.animationSpeed == .off)
     }
 

@@ -73,7 +73,7 @@ extension ControlRouter {
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 try await self.writeSetting(nil, at: path, store: store, call: call)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
-            }
+            }.withDeadline(.fixed(.seconds(120))) // `confirm: true` waits for the person, as settings.set
         } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
@@ -99,6 +99,8 @@ extension ControlRouter {
             "bundle_id": identity.bundleID.map(JSONValue.string) ?? .null,
             "tag": identity.tag.map(JSONValue.string) ?? .null,
             "pid": JSONValue(Int(identity.processID)),
+            "app_bundle_path": identity.appBundlePath.map(JSONValue.string) ?? .null,
+            "app_cli_path": identity.appCLIPath.map(JSONValue.string) ?? .null,
             "socket_path": transport.socketPath.map(JSONValue.string) ?? .null,
             "access_mode": transport.accessMode.map(JSONValue.string) ?? .null,
             "protocol_version": JSONValue(Self.protocolVersion),
@@ -136,36 +138,6 @@ extension ControlRouter {
             if let error = await task.value { failure = failure ?? error }
         }
         return failure
-    }
-
-    /// The control error for failed action work. A terminal start that
-    /// missed its deadline is a `timeout` that says the terminal may still
-    /// appear; a command whose reply missed its deadline is a `timeout` that
-    /// says it may still apply; anything else is a `daemon_error`.
-    static func workError(_ failure: ActionWorkFailure, action: String, method: String) -> ControlError {
-        guard failure.terminalMayAppear else {
-            guard failure.mayHaveApplied else {
-                return ControlError(code: "daemon_error", message: failure.message, data: ["action": .string(action)])
-            }
-            // The command's reply missed its deadline: it may still apply.
-            var error = ControlError.timeout(method, after: .zero)
-            error.message = failure.message
-            error.data = ["action": .string(action), "detail": .string(failure.message)]
-            return error
-        }
-        var error = ControlError.terminalStartTimeout(method, after: TerminalStartDeadline.daemon)
-        if case .object(var members) = error.data {
-            members["action"] = .string(action)
-            members["detail"] = .string(failure.message)
-            error.data = .object(members)
-        }
-        return error
-    }
-
-    /// Typed refusal for a destructive action run without `confirm: true`.
-    static func confirmationRequired(_ id: String) -> ControlError {
-        ControlError(code: "confirmation_required", message: ActionRegistry.confirmationRequiredReason(forRawID: id),
-                     data: ["action": .string(id), "argument": .string(ActionArgument.confirmName)])
     }
 
     // MARK: - settings

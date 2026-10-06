@@ -1,8 +1,8 @@
 public import CoreGraphics
 
 /// Where an agent cursor for a target tab draws (decisions CURSOR-HIDDEN,
-/// CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). Rects are in the overlay
-/// coordinates of `window`.
+/// CURSOR-SHOW, CURSOR-SCREENS, 2026-10-04). Rects are in the content-view
+/// coordinates of `window`, flipped.
 public nonisolated enum AgentCursorVisibility: Equatable, Sendable {
     /// The target's page is on screen. `viewport` is the page viewport the
     /// event coordinates map into; `clip` is its part not scrolled out or

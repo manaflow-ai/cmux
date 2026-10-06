@@ -71,10 +71,36 @@ struct KeyCodeLayout: Sendable {
     /// on AZERTY) keeps its ANSI position.
     static func current() -> KeyCodeLayout {
         var layout = ansi
-        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return layout }
-        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
         var typed: [String: UInt32] = [:]
+        for (code, key) in typedKeys() where typed[key] == nil { typed[key] = UInt32(code) }
+        for (key, code) in typed { layout.codes[key] = code }
+        return layout
+    }
+
+    /// The `Shortcut` key each physical key has on the selected layout (a
+    /// Ghostty physical trigger such as `key_h` or `arrow_left` as a table
+    /// key): what it types unshifted, else its US ANSI character; arrows,
+    /// Return, Tab, Space, Escape, Delete and the navigation keys by their
+    /// key-equivalent characters.
+    static func currentKeyNames() -> [UInt16: String] {
+        var names: [UInt16: String] = [:]
+        for (key, code) in ansi.codes where key != Shortcut.deleteKey { names[UInt16(code)] = key }
+        let navigation: [(Int, Int)] = [(kVK_Home, NSHomeFunctionKey), (kVK_End, NSEndFunctionKey), (kVK_PageUp, NSPageUpFunctionKey),
+                                        (kVK_PageDown, NSPageDownFunctionKey), (kVK_ForwardDelete, NSDeleteFunctionKey)]
+        for (code, character) in navigation {
+            if let scalar = UnicodeScalar(UInt32(character)) { names[UInt16(code)] = String(Character(scalar)) }
+        }
+        for (code, key) in typedKeys() { names[code] = key }
+        return names
+    }
+
+    /// What each main-row key types unshifted on the selected layout, by
+    /// ascending key code; empty when the layout cannot be read.
+    private static func typedKeys() -> [(code: UInt16, key: String)] {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return [] }
+        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
+        var typed: [(code: UInt16, key: String)] = []
         data.withUnsafeBytes { raw in
             guard let keyboard = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
             for code in UInt16(0)..<128 where !Self.keypad.contains(Int(code)) {
@@ -88,11 +114,9 @@ struct KeyCodeLayout: Sendable {
                     capacity, &length, &characters
                 )
                 guard status == noErr, length == 1, characters[0] > 0x20, characters[0] != 0x7F else { continue }
-                let key = String(utf16CodeUnits: characters, count: length).lowercased()
-                if typed[key] == nil { typed[key] = UInt32(code) }
+                typed.append((code, String(utf16CodeUnits: characters, count: length).lowercased()))
             }
         }
-        for (key, code) in typed { layout.codes[key] = code }
-        return layout
+        return typed
     }
 }

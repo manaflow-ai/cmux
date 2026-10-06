@@ -10,7 +10,8 @@ import CmuxNextTabs
 /// one target tab (`AgentCursorVisibilityResolver` decides). Only the facts
 /// that target needs: its pane in the window that shows its workspace, its
 /// sidebar row in a window that only lists it. Every rect is in the
-/// window's overlay coordinates (the shown `LayoutRootView`).
+/// window's content-view coordinates, flipped (origin top-left, y down):
+/// the space of the window-level cursor host (`AgentCursorContentSpace`).
 struct AgentCursorSnapshotBuilder {
     weak var services: AppServices?
 
@@ -58,17 +59,26 @@ struct AgentCursorSnapshotBuilder {
                         location: AgentCursorVisibilitySnapshot.TabLocation?, _ services: AppServices) -> AgentCursorVisibilitySnapshot.Window {
         let window = controller.window
         let content = controller.content
-        let root = content?.layoutView
-        let shown = content?.workspace.id
+        let space = window?.contentView.map(AgentCursorContentSpace.init)
+        // The Home page draws the home workspace's chief conversation: that workspace is on screen.
+        let homePage = controller.shownTopPage == .home ? controller.topPages.views[.home] : nil
+        let shown = content?.workspace.id ?? homePage.flatMap { _ in services.home.homeWorkspace?.id }
         var rows: [String: AgentCursorRect] = [:]
         var panes: [AgentCursorVisibilitySnapshot.Pane] = []
-        if let location, let root, let content {
+        if let location, let space {
             if shown == location.workspace {
-                if let pane = pane(location.pane, target: target, content: content, root: root) { panes = [pane] }
+                if let content, let pane = pane(location.pane, target: target, content: content, space: space) {
+                    panes = [pane]
+                } else if let homePage, homePage.window != nil {
+                    panes = [Self.page(location.pane, target: target, view: homePage, space: space)]
+                }
             } else {
                 let sidebar = controller.sidebar.container.sidebarView
-                if let row = SidebarRowAnchor.workspaceRow(SidebarWorkspaceID(location.workspace), in: sidebar) {
-                    rows[location.workspace] = AgentCursorRect(root.convert(row, from: sidebar))
+                // The home workspace has no list row while the Home item shows: that item is its row.
+                let isHome = services.home.homeWorkspace?.id == location.workspace
+                if let row = SidebarRowAnchor.workspaceRow(SidebarWorkspaceID(location.workspace), in: sidebar)
+                    ?? (isHome ? SidebarRowAnchor.layoutItem(SidebarLayoutDocument.homeRef, in: sidebar) : nil) {
+                    rows[location.workspace] = AgentCursorRect(space.rect(row, from: sidebar))
                 }
             }
         }
@@ -77,7 +87,7 @@ struct AgentCursorSnapshotBuilder {
             screen: window?.screen?.localizedName,
             minimized: window?.isMiniaturized ?? true,
             onActiveSpace: window?.isOnActiveSpace ?? false,
-            overlay: AgentCursorRect(root?.bounds ?? .zero),
+            overlay: AgentCursorRect(space?.bounds ?? .zero),
             shownWorkspace: shown,
             listedWorkspaces: services.windows.registry.members(of: controller.state.id),
             sidebarHidden: controller.state.sidebarHidden,
@@ -88,28 +98,37 @@ struct AgentCursorSnapshotBuilder {
 
     // MARK: Pane
 
+    /// A top page that draws `pane`'s content: the page's bounds are the
+    /// pane's frame and clip; it has no strip.
+    private static func page(_ key: String, target: String, view: NSView,
+                             space: AgentCursorContentSpace) -> AgentCursorVisibilitySnapshot.Pane {
+        let frame = AgentCursorRect(space.rect(view.bounds, from: view))
+        return AgentCursorVisibilitySnapshot.Pane(id: key, frame: frame, clip: frame, selectedTab: target, strip: nil, chips: [:], page: nil)
+    }
+
     private func pane(_ key: String, target: String, content: WorkspaceContentController,
-                      root: LayoutRootView) -> AgentCursorVisibilitySnapshot.Pane? {
+                      space: AgentCursorContentSpace) -> AgentCursorVisibilitySnapshot.Pane? {
+        let root: LayoutRootView = content.layoutView
         guard let controller = content.paneController(key: key) else { return nil }
         let visibility = root.visibility(of: controller.layoutPaneID)
         let strip = controller.view.stripView
         let selected = controller.stripModel.selectedID?.rawValue
         var chips: [String: AgentCursorRect] = [:]
         if let chip = TabChipAnchor.rect(of: StripTabID(target), in: strip) {
-            chips[target] = AgentCursorRect(root.convert(chip, from: strip))
+            chips[target] = AgentCursorRect(space.rect(chip, from: strip))
         }
         var page: AgentCursorVisibilitySnapshot.Page?
         if selected == target, controller.currentTabKey == target, case let .browser(entry)? = controller.currentContent,
            entry.chrome.window != nil {
-            page = .init(viewport: AgentCursorRect(root.convert(entry.chrome.pageViewportRect, from: entry.chrome)),
+            page = .init(viewport: AgentCursorRect(space.rect(entry.chrome.pageViewportRect, from: entry.chrome)),
                          zoom: entry.tab.state.zoom)
         }
         return AgentCursorVisibilitySnapshot.Pane(
             id: key,
-            frame: visibility.map { AgentCursorRect($0.frame) },
-            clip: visibility.map { AgentCursorRect($0.clip) },
+            frame: visibility.map { AgentCursorRect(space.rect($0.frame, from: root)) },
+            clip: visibility.map { AgentCursorRect(space.rect($0.clip, from: root)) },
             selectedTab: selected,
-            strip: strip.window == nil ? nil : AgentCursorRect(root.convert(strip.bounds, from: strip)),
+            strip: strip.window == nil ? nil : AgentCursorRect(space.rect(strip.bounds, from: strip)),
             chips: chips,
             page: page
         )

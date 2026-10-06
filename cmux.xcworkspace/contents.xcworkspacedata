@@ -11,6 +11,12 @@
       location = "container:Packages/Shared"
       name = "Packages (Shared)">
       <FileRef
+         location = "group:CmuxAgentBrands">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxAgentCursor">
+      </FileRef>
+      <FileRef
          location = "group:CmuxAPIClient">
       </FileRef>
       <FileRef

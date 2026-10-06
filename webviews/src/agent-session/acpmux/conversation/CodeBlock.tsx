@@ -1,12 +1,16 @@
 // Fenced code inside a transcript, rendered by @pierre/diffs `File` with the pane's
 // syntax theme (a ```diff fence is highlighted as a diff). Ported from
 // the agent-pane reference prototype (src/conversation/CodeBlock.tsx).
-import { useLayoutEffect, useRef, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { CodeBrackets, Copy, WrapLines } from "./icons";
+import { translate, type Translate, useT } from "../i18n";
+import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
+import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
+import { PlainCode } from "./StreamingCode";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
@@ -21,10 +25,9 @@ const codeUnsafeCSS = `${diffUnsafeCSS}
 pre, code, [data-code], [data-content], [data-line] { background: transparent !important; --diffs-line-bg: transparent; }
 `;
 
-/// Header label shown for a fence language.
+/// Header label shown for a fence language: its name, which no language translates.
+// l10n-allow: programming language names
 const LANG_LABELS: Record<string, string> = {
-  text: "Plain text",
-  txt: "Plain text",
   python: "Python",
   py: "Python",
   json: "JSON",
@@ -38,8 +41,8 @@ const LANG_LABELS: Record<string, string> = {
   bash: "Shell",
 };
 
-export function languageLabel(lang: string) {
-  return LANG_LABELS[lang] ?? lang;
+export function languageLabel(lang: string, t: Translate = translate) {
+  return lang === "text" || lang === "txt" ? t("code.plainText") : (LANG_LABELS[lang] ?? lang);
 }
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
@@ -54,17 +57,31 @@ export type CodeBlockProps = {
 };
 
 /**
- * Fenced code card: language label with wrap and copy over a Pierre `File`.
+ * Fenced code card. A fence over the highlight limits (highlightLimits.ts) draws as plain
+ * monospace text; any other is highlighted (`HighlightedCode`).
+ */
+export function CodeBlock(props: CodeBlockProps) {
+  return highlightsCode(props.code) ? <HighlightedCode {...props} /> : <PlainCode code={props.code} lang={props.lang ?? "text"} />;
+}
+
+/**
+ * Fenced code card: language label with wrap and copy over a Pierre `File`, highlighted in the
+ * pane's worker pool (highlightPool.ts) where the page has one.
  *
  * One File lives as long as the card. A streaming fence grows on every chunk, so new text
  * re-renders the same instance instead of building another; a theme switch on the page
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
-export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
+function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
+  const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
   const [wrap, setWrap] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A highlight job past its budget (highlightWatchdog.ts) draws the card as plain text.
+  const name = `snippet-${useId()}`;
+  const [tooSlow, setTooSlow] = useState(false);
+  useLayoutEffect(() => onHighlightTimeout(name, () => setTooSlow(true)), [name]);
   useLayoutEffect(() => {
     const el = host.current;
     if (!el) return;
@@ -77,8 +94,9 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
         disableLineNumbers: true,
         overflow: "scroll",
         unsafeCSS: codeUnsafeCSS,
+        tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
-      undefined,
+      paneHighlightPool(),
       // React owns the host element: Pierre must not remove it on cleanUp.
       true,
     );
@@ -100,21 +118,22 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
     // Shiki throws for a language the bundle does not ship; those draw as plain text.
     file.render({
       fileContainer: el,
-      file: { name: "snippet", contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
+      file: { name, contents: code, lang: (isHighlighted(lang) ? lang : "text") as never },
     });
-  }, [code, lang, wrap]);
+  }, [code, lang, wrap, name]);
+  if (tooSlow) return <PlainCode code={code} lang={lang} />;
   return (
     <div className="cv-codeblock">
       <div className="cv-codeblock__header">
         <CodeBrackets size={17} strokeWidth={1.2} />
-        <span>{label ?? languageLabel(lang)}</span>
+        <span>{label ?? languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
           <button
             type="button"
             className="cv-codeblock__action"
             aria-pressed={wrap}
-            aria-label="Wrap lines"
-            title="Wrap lines"
+            aria-label={t("changes.wrapLines")}
+            title={t("changes.wrapLines")}
             onClick={() => setWrap((value) => !value)}
           >
             <WrapLines />
@@ -122,8 +141,8 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
           <button
             type="button"
             className="cv-codeblock__action"
-            aria-label={copied ? "Copied" : "Copy code"}
-            title={copied ? "Copied" : "Copy code"}
+            aria-label={copied ? t("code.copied") : t("code.copy")}
+            title={copied ? t("code.copied") : t("code.copy")}
             onClick={() => void copyText(code).then(() => setCopied(true))}
           >
             <Copy />

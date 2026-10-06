@@ -58,15 +58,41 @@ import Testing
         #expect(model.presentation == start)
     }
 
+    /// With the sidebar hidden the window controls stay mounted at rest and
+    /// the strip keeps its leading clearance. Hovering the corner does not
+    /// change the geometry.
+    /// The sidebar state reaches the window root through an observation, so
+    /// the test waits for it instead of for a fixed number of turns. The hide
+    /// is the animated one a click makes; in a window with no screen (the
+    /// aws-m4pro fleet Macs) Motion applies it at once
+    /// (`Motion.canAnimate(in:)`), so it settles on every host.
     @Test func withTheSidebarHiddenTheStripStartsAfterTheToggle() async throws {
         let harness = try await ViewChangePermissionTests.harness()
         defer { harness.stop() }
+        let root = harness.window.root
         harness.window.sidebar.model.presentation = .hidden
+        try await ViewChangePermissionTests.waitUntil { root.sidebarHidden }
+        try #require(root.sidebarHidden, "the sidebar state reached the window root")
         await settle(harness)
-        let toggle = try #require(harness.window.root.sidebarToggleFrame)
+        let toggle = try #require(root.sidebarToggleFrame)
         let strip = try #require(harness.pane?.view.stripView)
+        // The pane moves to the window edge as the sidebar's hide finishes.
+        try await ViewChangePermissionTests.waitUntil {
+            root.layoutSubtreeIfNeeded()
+            return strip.convert(strip.bounds, to: nil).minX < toggle.minX
+        }
         let stripFrame = strip.convert(strip.bounds, to: nil)
-        #expect(stripFrame.minX + strip.computeWindowControlsInset() >= toggle.maxX)
+        try #require(stripFrame.minX < toggle.minX, "the strip reaches the window edge, under the toggle")
+
+        root.cornerReveal.setPointerInside(false)
+        #expect(!root.windowControlsCollapsed)
+        let insetAtRest = strip.computeWindowControlsInset()
+        #expect(insetAtRest > 0, "the strip keeps room for stable controls")
+
+        root.cornerReveal.setPointerInside(true)
+        #expect(!root.windowControlsCollapsed)
+        #expect(strip.computeWindowControlsInset() == insetAtRest)
+        root.cornerReveal.setPointerInside(false)
     }
 
     @Test func theToggleNamesItsActionAndShortcut() async throws {

@@ -27,11 +27,22 @@ final class HomeService {
     @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The chief tab creation's idempotency key (one per creation).
+    @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
+    /// The signed-in user's chief placed on a paired server (G6), as last
+    /// read on a connect or sign-in; its main conversation is the Chief tab.
+    private(set) var cloudChief: CloudChief?
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
-    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeSource)
+    /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
+    /// merged with the local ones into the one store.
+    @ObservationIgnored let cloudSource = CloudHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored private(set) lazy var homeRouter = HomeSourceRouter(local: homeSource, cloud: cloudSource)
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter)
+    @ObservationIgnored var cloudLink: Task<Void, Never>?
+    @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
@@ -51,13 +62,18 @@ final class HomeService {
     func start() {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
         let local = services.machines.local
+        let auth = services.cloud.auth
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            for await connection in Observations({ local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil }) {
+            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
+            for await (connection, _) in Observations({
+                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+            }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)
             }
         }
+        startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
         availability = Task { [weak self] in
@@ -77,6 +93,11 @@ final class HomeService {
     }
 
     var connection: DaemonConnection? { isAvailable ? services.machines.local.connection : nil }
+
+    /// Records the placed chief the last read found (HomeService+Workspace).
+    func setCloudChief(_ chief: CloudChief?) {
+        if cloudChief != chief { cloudChief = chief }
+    }
 
     /// Home opened in a window: start the local mux's brain host once per launch.
     func homeDidOpen() {
@@ -139,6 +160,8 @@ final class HomeService {
         case .conversationTyping(let typing):
             sessions[typing.conversation]?.setTyping(typing.participant, on: typing.on)
             homeSource.publish(.typing(ConversationID(typing.conversation), ParticipantID(typing.participant), on: typing.on))
+        case .cloudConversations(let event):
+            handleCloud(event)
         default:
             break
         }

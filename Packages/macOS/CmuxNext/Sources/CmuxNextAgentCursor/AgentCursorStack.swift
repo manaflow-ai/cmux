@@ -3,7 +3,7 @@ public import QuartzCore
 
 /// The agent cursor parts for one content area, wired once: the publisher
 /// (the one entry point drivers call), the overlay model and the CALayer
-/// host on the area's `OverlayPlane` layer. With no input events it draws
+/// host on one window-level cursor layer. With no input events it draws
 /// nothing and does no work.
 public final class AgentCursorStack {
     public let publisher: AgentCursorPublisher

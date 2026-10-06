@@ -99,6 +99,23 @@ class ChecksJobStructure(unittest.TestCase):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_package_conventions_lint_is_its_own_step(self):
+        # test-ios.yml runs this lint only for pull requests, merge groups and
+        # dispatches; direct pushes to feat-cmux-next skipped it, and a
+        # namespace-type red (CloudLinkSocketPolicy) reached the base unseen.
+        _, checks, _ = self.split()
+        lint = [step for step in checks if "lint-ios-package-conventions.sh" in step["run"]]
+        self.assertEqual(len(lint), 1, [step["name"] for step in checks])
+        self.assertEqual(lint[0]["run"].strip(), "./scripts/lint-ios-package-conventions.sh")
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        # PyYAML reads the `on:` key as True.
+        push_paths = document[True]["push"]["paths"]
+        for path in ("Packages/macOS/**", "Packages/Shared/**", "Packages/iOS/**",
+                     "scripts/lint-ios-package-conventions*", "scripts/lint_swift_namespaces.py",
+                     "scripts/lint-namespace-types-*.txt", "scripts/swift_source_mask.py"):
+            with self.subTest(path=path):
+                self.assertIn(path, push_paths)
+
     def test_rust_ratchet_is_its_own_step(self):
         _, checks, _ = self.split()
         godfile_runs = [step["run"] for step in checks if "check-no-godfiles.sh" in step["run"]]
@@ -181,20 +198,229 @@ class GodfileScopes(unittest.TestCase):
 
 
 class PathRoutingStructure(unittest.TestCase):
-    def test_path_route_gates_mac_jobs_and_keeps_webviews_on_one_compile(self):
+    def test_path_route_gates_each_mac_job_on_its_tier(self):
+        """tests/test_cmux_next_route.py covers which paths reach which tier."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         route = jobs["path_route"]
-        self.assertIn("native", route["outputs"])
-        self.assertIn("macos", route["outputs"])
+        for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
+            self.assertIn(output, route["outputs"])
+        self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
-        self.assertIn("needs.path_route.outputs.native", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
+        self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
         self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
-        self.assertIn("needs.path_route.outputs.macos", jobs["cmux-scheme-compile"]["if"])
-        route_script = route["steps"][-1]["run"]
-        self.assertIn("webviews/*", route_script)
-        self.assertIn("web/*", route_script)
-        self.assertIn("Packages/macOS/CmuxNext/*", route_script)
-        self.assertIn("Packages/*", route_script)
+        self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
+
+    def test_package_tests_never_wait_for_the_cmux_tui_tree(self):
+        """#17470's swift test spent 13 of 29 minutes waiting for the base tree."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        swift = jobs["swift-test"]
+        self.assertNotIn("same-tree-cmux-tui", swift["needs"])
+        self.assertFalse([step for step in swift["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+        self.assertIn("SWIFT_FILTER", swift["env"])
+
+    def test_generated_files_are_checked_outside_the_package_tests(self):
+        """a925bd9 went red when PRs that skipped swift test landed a stale export."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
+        self.assertIn("check-action-surfaces.sh", runs)
+        self.assertIn("ci-target-graph.py --check", runs)
+        self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
+        swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
+        self.assertNotIn("check-action-surfaces.sh", swift_runs)
+
+    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        autofix = jobs["generated-autofix"]
+        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
+        self.assertNotIn("vars.", str(autofix["runs-on"]))
+        run = autofix["steps"][-1]["run"]
+        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
+        self.assertIn('"$current" != "$HEAD_SHA"', run)
+        self.assertNotIn("--force", run)
+        # Never a bot push to a protected branch.
+        self.assertIn("github.event.pull_request.head.ref != 'main'", autofix["if"])
+        # The regenerated files are copied onto the head, not patched against
+        # the merge commit, whose context the head may not have.
+        self.assertNotIn("git apply \"$patch\"", run)
+        self.assertIn("git add", run)
+
+    def test_red_push_runs_name_their_pull_requests(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        attribution = jobs["push-attribution"]
+        self.assertIn("failure()", attribution["if"])
+        self.assertIn("github.event_name == 'push'", attribution["if"])
+        for job_id in ("checks", "generated-files", "swift-test", "daemon-test", "release-compile", "cmux-scheme-compile"):
+            self.assertIn(job_id, attribution["needs"])
+
+    def test_push_head_preflight_skips_superseded_macos_jobs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        preflight = jobs["push-head-preflight"]
+        self.assertIn("github.sha", preflight["steps"][0]["env"]["SHA"])
+        self.assertIn("git", preflight["steps"][0]["run"])
+        self.assertIn("ls-remote", preflight["steps"][0]["run"])
+        self.assertIn("current", preflight["outputs"])
+        for job_id in ("macos-placement", "swift-test", "daemon-test", "generated-files", "release-compile", "cmux-scheme-compile"):
+            job = jobs[job_id]
+            needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
+            with self.subTest(job=job_id):
+                self.assertIn("push-head-preflight", needs)
+                self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+
+    def test_current_feat_push_still_requests_nightly_next(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        nightly = jobs["request-nightly-next"]
+        self.assertEqual(nightly["needs"], "release-compile")
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", nightly["if"])
+        self.assertIn("needs.release-compile.result == 'success'", nightly["if"])
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("group: cmux-next-${{ github.event.pull_request.number || github.run_id }}", text)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", text)
+
+    def test_branch_lookup_uses_git_https_basic_auth_and_a_timeout(self):
+        for filename, job_id in (("cmux-next.yml", "push-head-preflight"),
+                                 ("cmux-tui-artifacts.yml", "tree-preflight")):
+            document = yaml.safe_load((WORKFLOW.parent / filename).read_text())
+            script = document["jobs"][job_id]["steps"][-1]["run"]
+            with self.subTest(workflow=filename):
+                self.assertIn("Authorization: Basic", script)
+                self.assertIn("x-access-token:%s", script)
+                self.assertIn("timeout 15 git", script)
+                self.assertNotIn("Authorization: Bearer", script)
+
+
+class PushPreflightBehavior(unittest.TestCase):
+    """Execute the workflow shell with bounded fake network and git responses."""
+
+    def run_preflight(self, *, artifacts=False, event="push", ref="refs/heads/feat-cmux-next",
+                      remote="a" * 40, remote_tree_key="0" * 39 + "2", published=False,
+                      missing="", malformed=False, fork=False):
+        filename = "cmux-tui-artifacts.yml" if artifacts else "cmux-next.yml"
+        workflow = yaml.safe_load((WORKFLOW.parent / filename).read_text())
+        job_id = "tree-preflight" if artifacts else "push-head-preflight"
+        script = workflow["jobs"][job_id]["steps"][-1]["run"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git = root / "git"
+            git.write_text('''#!/bin/bash
+case "$*" in
+  *ls-remote*) [[ -z "$REMOTE_SHA" ]] && exit 1; printf '%s\\trefs/heads/feat-cmux-next\\n' "$REMOTE_SHA" ;;
+  *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
+  *diff*) exit 0 ;;
+  *rev-parse*) printf '%040d\\n' 1 ;;
+  *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
+  *) exit 1 ;;
+esac
+''')
+            git.chmod(0o755)
+            curl = root / "curl"
+            curl.write_text('''#!/bin/bash
+[[ "$PUBLISHED" == true ]] || exit 22
+for arg in "$@"; do
+  [[ "$arg" == https://* ]] && url="$arg"
+done
+[[ -z "$MISSING" || "$url" != *"$MISSING"* ]] || exit 22
+
+if [[ "$url" == *completion.json* ]]; then
+  args=("$@")
+  for ((index=0; index<${#args[@]}; index++)); do
+    arg="${args[index]}"
+    if [[ "$arg" == -o ]]; then
+      outfile="${args[index + 1]}"
+      cat > "$outfile" <<'JSON'
+{"key":"0000000000000000000000000000000000000002","binaries":{"cmux-tui-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-app-host-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000","cmux-tui-cloud-server-aarch64-apple-darwin":"0000000000000000000000000000000000000000000000000000000000000000"}}
+JSON
+      exit 0
+    fi
+  done
+  exit 1
+fi
+
+[[ "$MALFORMED" != true ]] || { printf 'bad checksum\\n'; exit 0; }
+printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
+''')
+            curl.chmod(0o755)
+            output = root / "output"
+            env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}",
+                   "GITHUB_OUTPUT": str(output), "RUNNER_TEMP": str(root), "EVENT_NAME": event, "REF": ref,
+                   "SHA": "a" * 40, "SOURCE_COMMIT": "a" * 40,
+                   "REMOTE_SHA": remote, "PUBLISHED": str(published).lower(),
+                   "REMOTE_TREE_KEY": remote_tree_key, "REMOTE_FETCH_MARKER": str(root / "remote-fetched"),
+                   "MISSING": missing, "MALFORMED": str(malformed).lower(),
+                   "HEAD_REPOSITORY": "outside/fork" if fork else "manaflow-ai/cmux",
+                   "REPOSITORY": "manaflow-ai/cmux", "SERVER_URL": "https://github.com",
+                   "GH_TOKEN": "fixture", "RUN_ID": "123"}
+            result = subprocess.run(["bash", "-c", script], env=env, text=True,
+                                    capture_output=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_current_push_keeps_native_compile(self):
+        self.assertEqual(self.run_preflight()["current"], "true")
+
+    def test_superseded_push_skips_native_compile(self):
+        self.assertEqual(self.run_preflight(remote="b" * 40)["current"], "false")
+
+    def test_ref_lookup_failure_keeps_current_compile_enabled(self):
+        self.assertEqual(self.run_preflight(remote="")["current"], "true")
+
+    def test_pr_and_dispatch_are_never_superseded(self):
+        for event in ("pull_request", "workflow_dispatch"):
+            with self.subTest(event=event):
+                self.assertEqual(self.run_preflight(event=event, remote="b" * 40)["current"], "true")
+
+    def test_published_tree_skips_mac_build_and_daemon_tests(self):
+        output = self.run_preflight(artifacts=True, published=True)
+        self.assertEqual(output["tree_ready"], "true")
+        self.assertEqual(output["run_macos"], "false")
+
+    def test_partial_tree_requires_companion_repair(self):
+        for missing in ("app-host", "cloud-server", "app-host-aarch64-apple-darwin?", "cloud-server-aarch64-apple-darwin?"):
+            with self.subTest(missing=missing):
+                output = self.run_preflight(artifacts=True, published=True, missing=missing)
+                self.assertEqual(output["tree_ready"], "false")
+                self.assertEqual(output["run_macos"], "true")
+
+    def test_malformed_tree_checksum_requires_repair(self):
+        output = self.run_preflight(artifacts=True, published=True, malformed=True)
+        self.assertEqual(output["tree_ready"], "false")
+        self.assertEqual(output["run_macos"], "true")
+
+    def test_new_tree_schedules_mac_build_and_daemon_tests(self):
+        self.assertEqual(self.run_preflight(artifacts=True)["run_macos"], "true")
+
+    def test_same_tree_superseded_push_keeps_missing_tree_build(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40)
+        self.assertEqual(output["run_macos"], "true")
+        self.assertEqual(output["superseded"], "false")
+
+    def test_same_tree_superseded_push_skips_complete_tree_build(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40, published=True)
+        self.assertEqual(output["run_macos"], "false")
+        self.assertEqual(output["superseded"], "true")
+
+    def test_distinct_tree_superseded_push_keeps_missing_tree_build(self):
+        output = self.run_preflight(artifacts=True, remote="b" * 40, remote_tree_key="3" * 40)
+        self.assertEqual(output["run_macos"], "true")
+        self.assertEqual(output["superseded"], "false")
+
+    def test_main_keeps_commit_and_latest_publication(self):
+        self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/main",
+                                            published=True)["run_macos"], "true")
+
+    def test_manual_republish_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, event="workflow_dispatch",
+                                            ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
+    def test_pin_push_keeps_commit_artifacts_enabled(self):
+        self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
+                                            published=True)["run_macos"], "true")
+
+    def test_fork_never_schedules_trusted_build(self):
+        self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",
+                                            fork=True)["run_macos"], "false")
 
 
 RESET_STALE_SUBMODULES = "scripts/ci/reset-stale-submodules.sh"
@@ -231,7 +457,48 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
+                                           "same-tree-cmux-tui", "swift-test"])
+
+
+
+class SupersededCommitIsNotRed(unittest.TestCase):
+    """A superseded commit's cmux-next run skips the jobs that need its tree.
+
+    Queued cmux-tui artifacts runs of an older branch head are superseded by
+    design, so that commit's same-tree cmux-tui is never published. The gate
+    job runs `pin-cmux-tui.sh wait` on a Linux runner (no macOS runner waits
+    for a tree) and reports superseded=true; every job that fetches the tree
+    then ends skipped, not failed. A real publish failure fails the gate.
+    """
+
+    GATE = "same-tree-cmux-tui"
+
+    def jobs(self) -> dict:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def test_the_gate_waits_for_the_tree_and_reports_superseded(self):
+        gate = self.jobs().get(self.GATE)
+        self.assertIsNotNone(gate, f"no {self.GATE} job")
+        self.assertEqual(gate.get("outputs", {}).get("superseded"), "${{ steps.wait.outputs.superseded }}")
+        runs = [step for step in gate["steps"] if "pin-cmux-tui.sh wait" in step.get("run", "")]
+        self.assertEqual(len(runs), 1)
+        self.assertEqual(runs[0].get("id"), "wait")
+        self.assertIn("ubuntu", gate["runs-on"])
+        self.assertNotIn("macos", gate["runs-on"])
+
+    def test_every_tree_fetching_job_skips_a_superseded_commit(self):
+        fetching = {
+            name: job for name, job in self.jobs().items()
+            if any("pin-cmux-tui.sh fetch" in step.get("run", "") for step in job.get("steps", []))
+        }
+        self.assertTrue(fetching)
+        for name, job in fetching.items():
+            with self.subTest(job=name):
+                self.assertIn(self.GATE, job["needs"])
+                condition = " ".join(job["if"].split())
+                self.assertIn(f"needs.{self.GATE}.result == 'success'", condition)
+                self.assertIn(f"needs.{self.GATE}.outputs.superseded != 'true'", condition)
 
 
 if __name__ == "__main__":

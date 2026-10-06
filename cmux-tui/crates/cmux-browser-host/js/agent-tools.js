@@ -758,7 +758,8 @@
         }
         return secretsHost("load", { object: source });
       },
-      list: () => secretsHost("list"),
+      // Main's key order (a host may answer with sorted keys).
+      list: () => (secretsHost("list") || []).map(({ name, domains, totp, agentKnown }) => ({ name, domains, totp, agentKnown })),
       has: (name) => secretsHost("has", { name }),
       delete: (name) => secretsHost("delete", { name }),
       clear: () => {

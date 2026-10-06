@@ -41,14 +41,25 @@ public final class UpdaterService {
     }
     /// The R114 install gate over ``indicatorPhase``.
     public internal(set) var flow = UpdateFlow()
+    /// Opens the changelog page (set by the App; the what's-new card's click).
+    @ObservationIgnored public var openChangelog: (() -> Bool)?
+    /// Runs an allow-listed action id (set by the App; an announcement's Try It).
+    @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
+    /// The announcement cards to show (filtered), newest feed order.
+    public internal(set) var announcements: [Announcement] = []
+    /// `announcements.enabled` / `announcements.fetch` (set by the App).
+    public var announcementsEnabled = true { didSet { if oldValue != announcementsEnabled { refreshAnnouncements() } } }
+    public var announcementsFetch = true
+    @ObservationIgnored var announcementsLoader: (@Sendable () async -> [Announcement])?
+    @ObservationIgnored var allAnnouncements: [Announcement] = []
+    /// This build's notes while the what's-new card shows, else nil.
+    public internal(set) var whatsNew: ReleaseNotes?
+    /// Reads a build's verified notes (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var notesLoader: (@Sendable (String) async -> ReleaseNotes?)?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
-    public var preferences = UpdatePreferences.defaults {
-        didSet { if preferences.quietHours != oldValue.quietHours { scheduleQuietBoundary() } }
-    }
-    /// The local minute of the day the card is evaluated at.
-    public internal(set) var minuteOfDay = 0
+    public var preferences = UpdatePreferences.defaults
     /// Asks the App to confirm an install although agents run (CmuxDialog).
     @ObservationIgnored public var confirmInterrupt: ((UpdateBlockers) -> Void)?
     /// Sparkle's staged install and its cancel (replaced by tests).
@@ -63,8 +74,6 @@ public final class UpdaterService {
     @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
-    @ObservationIgnored var quietTimer: DemandTimer?
-    @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let now: () -> Date
 
     /// Asks the App to show the update sheet (set by the App): a failure's
@@ -98,9 +107,7 @@ public final class UpdaterService {
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
-                clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping () -> Date = Date.init) {
-        self.clock = clock
         self.now = now
         self.identity = identity
         self.policy = policy
@@ -126,7 +133,6 @@ public final class UpdaterService {
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
         }
-        minuteOfDay = Self.minuteOfDay(now())
         restorePinnedTestFeed()
         restoreRollbackSkip()
     }
@@ -145,6 +151,8 @@ public final class UpdaterService {
         guard !started else { return }
         started = true
         observeFlowPhase()
+        loadWhatsNew()
+        refreshAnnouncements()
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -279,7 +287,8 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
-            card: card
+            card: card,
+            badge: settingsBadgeTitle
         )
     }
 

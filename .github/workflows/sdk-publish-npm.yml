@@ -176,6 +176,9 @@ jobs:
           [[ "$artifact_sha256" =~ ^[0-9a-f]{64}$ ]] || exit 1
           echo "artifact_sha256=$artifact_sha256" >> "$GITHUB_OUTPUT"
 
+      - name: Check the npm artifact license
+        run: python3 cmux-tui/bindings/check_package_license.py npm "$RUNNER_TEMP"/cmux-npm-dist/*.tgz
+
       - name: Upload the validated npm artifact
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

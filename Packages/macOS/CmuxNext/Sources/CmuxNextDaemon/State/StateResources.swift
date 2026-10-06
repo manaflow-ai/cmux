@@ -72,17 +72,26 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
     /// Position the item held when it closed.
     public var index: Int
     public var closedAtMs: UInt64
+    /// The first member's screens (closed-history-v2 mirrors its first
+    /// member at the top level for v1 clients).
     public var screens: [Screen]
+    /// Every member's screens, one list per member (`ClosedMemberRecord`);
+    /// empty for a v1 item, whose `screens` are the whole item.
+    public var memberScreens: [[Screen]]
 
     enum CodingKeys: String, CodingKey {
-        case id, kind, name, index, screens
+        case id, kind, name, index, screens, members
         case workspaceID = "workspace_id"
         case paneID = "pane_id"
         case closedAtMs = "closed_at_ms"
     }
 
+    private struct Member: Decodable {
+        var screens: [Screen]?
+    }
+
     public init(id: String, kind: Kind, name: String? = nil, workspaceID: ResourceID? = nil, paneID: ResourceID? = nil,
-                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = []) {
+                index: Int = 0, closedAtMs: UInt64 = 0, screens: [Screen] = [], memberScreens: [[Screen]] = []) {
         self.id = id
         self.kind = kind
         self.name = name
@@ -91,6 +100,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         self.index = index
         self.closedAtMs = closedAtMs
         self.screens = screens
+        self.memberScreens = memberScreens
     }
 
     public init(from decoder: any Decoder) throws {
@@ -103,10 +113,12 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
         index = try c.decodeIfPresent(Int.self, forKey: .index) ?? 0
         closedAtMs = try StateDecimal.decode(c, .closedAtMs) ?? 0
         screens = try c.decodeIfPresent([Screen].self, forKey: .screens) ?? []
+        memberScreens = try c.decodeIfPresent([Member].self, forKey: .members)?.map { $0.screens ?? [] } ?? []
     }
 
-    /// Every tab the item would recreate, in order.
-    public var tabs: [Tab] { screens.flatMap(\.tabs) }
+    /// Every tab the item would recreate, in order: every member's (one
+    /// close gesture of several tabs is one item), else the item's own.
+    public var tabs: [Tab] { (memberScreens.isEmpty ? screens : memberScreens.flatMap { $0 }).flatMap(\.tabs) }
 }
 
 /// A workspace's status, progress, and newest log line

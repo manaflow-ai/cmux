@@ -1,7 +1,7 @@
 import Foundation
 
 /// The install gate over Sparkle's flow (R114): downloads stay invisible,
-/// a ready update is one quiet card, one click installs unless agents are
+/// a ready update is the compact control on the Settings row, one click installs unless agents are
 /// in a turn (then the click waits for them), and a quit installs a staged
 /// update unless `updates.installOnQuit` is off. A pure value: the App
 /// feeds events and performs the effects.
@@ -109,13 +109,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     }
 
     /// The card above Settings, or nil. Background work never shows; what
-    /// the user asked for (a check, a held install) always shows.
-    public func card(preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
+    /// the user asked for (a check, a held install) always shows. A found
+    /// or staged update is no card: the Settings row's control shows it
+    /// (``settingsBadgeTitle(preferences:)``).
+    public var card: UpdateCard? {
         switch phase {
-        case .hidden:
+        case .hidden, .available:
             return nil
-        case .available(let version):
-            return quietCard(.available(version: version), preferences: preferences, minuteOfDay: minuteOfDay)
         case .checking:
             return userAsked ? .checking : nil
         case .downloading(let progress):
@@ -125,26 +125,19 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         case .installing:
             return .installing
         case .ready(let version):
-            if installRequested, !blockers.isEmpty {
-                return .waiting(version: version, busyAgents: blockers.busyAgents)
-            }
-            return quietCard(.ready(version: version), preferences: preferences, minuteOfDay: minuteOfDay)
+            guard installRequested, !blockers.isEmpty else { return nil }
+            return .waiting(version: version, busyAgents: blockers.busyAgents)
         }
-    }
-
-    /// A card nobody asked for: only with `notify = card`, outside quiet hours.
-    private func quietCard(_ card: UpdateCard, preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
-        guard preferences.notify == .card else { return nil }
-        if let quiet = preferences.quietHours, quiet.contains(minuteOfDay: minuteOfDay) { return nil }
-        return card
     }
 
     /// The badge on the Settings item: a staged update, unless silent.
     public func showsSettingsBadge(preferences: UpdatePreferences) -> Bool {
-        guard preferences.notify != .silent else { return false }
-        switch phase {
-        case .available, .ready, .installing: return true
-        case .hidden, .checking, .downloading, .note: return false
-        }
+        settingsBadgeTitle(preferences: preferences) != nil
+    }
+
+    /// The Settings row control's tooltip and VoiceOver label ("Restart to
+    /// Update" for a staged update), or nil when the control does not show.
+    public func settingsBadgeTitle(preferences: UpdatePreferences) -> String? {
+        preferences.notify == .silent ? nil : phase.badgeTitle
     }
 }

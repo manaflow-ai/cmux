@@ -1,7 +1,7 @@
 /// What a window is (plans/cmux-next/windows.md). The kind alone decides a
 /// window's chrome, background, close semantics and what each shortcut
-/// means there. Overlay panels (palette, hover cards, sheets, the
-/// appearance studio) are not kinds: they resolve to their root window's
+/// means there. Overlay panels (palette, hover cards,
+/// sheets) are not kinds: they resolve to their root window's
 /// kind (``WindowKindRegistry``).
 ///
 /// The raw values are the `kind` of `debug.window_snapshot`.

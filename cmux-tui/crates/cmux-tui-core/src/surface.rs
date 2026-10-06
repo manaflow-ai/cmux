@@ -10,6 +10,10 @@ mod exit_state;
 pub(crate) mod spawn;
 use spawn::{LocalLaunch, LocalSpawn};
 #[cfg(unix)]
+mod clipboard_read;
+#[cfg(all(unix, test))]
+pub(crate) use clipboard_read::test_fixture::hosted_surface_for_clipboard_test;
+#[cfg(unix)]
 mod host_frames;
 #[cfg(unix)]
 mod prelaunch;
@@ -39,6 +43,7 @@ use ghostty_vt::{
     Terminal, TerminalColorOverrides, TerminalPointerSemanticSnapshot, TrackedScreenPoint,
 };
 
+use crate::daemon_env::set_env;
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
@@ -160,6 +165,8 @@ pub struct SurfaceOptions {
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
+    /// The `claude` shim directory, kept first on every child's PATH.
+    pub claude_shim_dir: Option<String>,
     /// Optional Chrome/Chromium binary for browser surfaces.
     pub chrome_binary: Option<String>,
     /// Optional existing Chrome CDP endpoint, as ws://... or http://host:port.
@@ -240,6 +247,7 @@ impl Default for SurfaceOptions {
             rows: 24,
             scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
+            claude_shim_dir: None,
             chrome_binary: None,
             cdp_url: None,
             browser_discover: false,
@@ -464,21 +472,6 @@ struct HostedFrameStager {
     expected_sequence: u64,
     smart_renderer: bool,
     pending: Option<PendingHostedTransition>,
-}
-
-#[cfg(unix)]
-fn is_targeted_host_response(kind: MessageKind) -> bool {
-    matches!(
-        kind,
-        MessageKind::Capability
-            | MessageKind::ResizeAck
-            | MessageKind::CellPixelSizeAck
-            | MessageKind::KittyGraphicsLimitsAck
-            | MessageKind::ClearHistoryAck
-            | MessageKind::TerminateAck
-            | MessageKind::DetachAck
-            | MessageKind::InputAck
-    )
 }
 
 #[cfg(unix)]
@@ -1922,6 +1915,7 @@ fn hosted_terminal_callbacks(
                 mux.emit_terminal_bell(id);
             }
         })),
+        on_clipboard_read: None,
     }
 }
 
@@ -2174,15 +2168,11 @@ impl Surface {
             })
             .transpose()?;
         if let Some(terminal_public_id) = terminal_public_id.as_ref() {
-            set_surface_environment(&mut opts, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
+            set_env(&mut opts.extra_env, "CMUX_TUI_TERMINAL_ID", terminal_public_id.as_str());
             configure_agent_browser_session(&mut opts, terminal_public_id.as_str());
         }
         if let Some(mux) = mux.upgrade() {
-            set_surface_environment(
-                &mut opts,
-                "CMUX_TUI_SESSION_ID",
-                mux.session_public_id().as_str(),
-            );
+            set_env(&mut opts.extra_env, "CMUX_TUI_SESSION_ID", mux.session_public_id().as_str());
         }
         let kitty_reservation = mux
             .upgrade()
@@ -2693,6 +2683,7 @@ impl Surface {
             viewport: Mutex::new(TerminalViewportState::default()),
         }));
         Self::install_deferred_cell_pixel_handler(&surface, &control_responses);
+        Self::install_clipboard_read_handler(&surface);
         spawn_frame_producer(&surface, frame_rx)?;
 
         // Keep exact-child rollback ownership armed through the final thread
@@ -2772,7 +2763,7 @@ impl Surface {
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
-                        if is_targeted_host_response(frame.kind) && frame.request_id != 0
+                        if host_frames::is_targeted_host_response(frame.kind) && frame.request_id != 0
                         {
                             if frame.version != protocol_version
                                 || frame.flags != 0
@@ -3295,6 +3286,7 @@ impl Surface {
                             &surface,
                             &replacement_control_responses,
                         );
+                        Self::install_clipboard_read_handler(&surface);
 
                         let replacement_reader = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -6056,15 +6048,6 @@ impl Surface {
     }
 }
 
-fn set_surface_environment(options: &mut SurfaceOptions, key: &str, value: &str) {
-    if let Some((_, current)) = options.extra_env.iter_mut().find(|(candidate, _)| candidate == key)
-    {
-        *current = value.into();
-    } else {
-        options.extra_env.push((key.into(), value.into()));
-    }
-}
-
 fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &str) {
     let enabled = options
         .extra_env
@@ -6074,7 +6057,7 @@ fn configure_agent_browser_session(options: &mut SurfaceOptions, terminal_id: &s
         // agent-browser daemons are keyed by session. A distinct caller
         // session prevents a command from another workspace from silently
         // reusing the first workspace's page-scoped CDP connection.
-        set_surface_environment(options, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+        set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
     }
 }
 
@@ -6849,14 +6832,14 @@ impl PtySurface {
                 pending_sequence: replay.pending_sequence.into(),
             };
             if grid_changed {
-                self.broadcast_attach_frame(frame);
+                self.publish_resize_locked(&term, Some(frame));
             } else {
                 // A cell-pixel-only change reflows nothing: snapshot viewers
                 // keep their grid and generation.
                 self.broadcast_attach_frame_to_replay_taps(frame);
             }
         } else if grid_changed {
-            self.resync_snapshot_taps();
+            self.publish_resize_locked(&term, None);
         }
         // Geometry changes are terminal-stream transitions too. Publish the
         // revision before releasing the parser lock so screen snapshots have
@@ -7052,6 +7035,8 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 #[cfg(test)]
 mod tests {
     mod attach_tap;
+    #[cfg(unix)]
+    mod clipboard_read;
     use base64::Engine as _;
     use std::sync::mpsc::sync_channel;
 

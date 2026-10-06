@@ -133,6 +133,7 @@ final class SidebarListView: NSView {
         var o = SidebarLayoutOptions()
         o.filterMatches = model.filterMatches
         o.showWorkspaceTabs = model.showWorkspaceTabs
+        o.showsSoleMachineHeader = true
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight
@@ -200,10 +201,20 @@ final class SidebarListView: NSView {
                 targets.append((view, target))
             }
         }
+        // An empty section's placeholder and the section's rows hand off at
+        // once, both ways, so neither fades out under the other.
+        let returning = Set(layout.rows.compactMap { row -> SectionID? in
+            guard case let .emptySection(section) = row.key, old.row(for: row.key) == nil else { return nil }
+            return section
+        })
         var leaving: [SidebarRowView] = []
+        var replacedRows = false
         for (key, view) in rowViews where !keep.contains(key) {
             rowViews[key] = nil
-            if suppressed.contains(key) || !animate {
+            let placeholder = if case .emptySection = key { true } else { false }
+            let replaced = old.row(for: key).map { returning.contains($0.section) } ?? false
+            replacedRows = replacedRows || replaced
+            if suppressed.contains(key) || !animate || placeholder || replaced {
                 recycle(view)
             } else {
                 leaving.append(view)
@@ -213,7 +224,8 @@ final class SidebarListView: NSView {
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
-        decorations.setPill(pillFrame, animated: animate)
+        // A pill whose row the placeholder replaced at once leaves with it.
+        decorations.setPill(pillFrame, animated: animate && !(pillFrame == nil && replacedRows))
         decorations.setGap(gapFrame, animated: animate)
         let moves = {
             for (view, target) in targets {
@@ -228,14 +240,14 @@ final class SidebarListView: NSView {
         }
         // Existing rows move, new rows (group expand, insert) appear, and
         // removed rows (group collapse, close) leave faster still.
-        Motion.animate(.move, moves)
-        Motion.animate(.appear) {
+        Motion.animate(.move, in: self, moves)
+        Motion.animate(.appear, in: self) {
             for (view, target) in appearing {
                 view.animator().frame = target
                 view.animator().alphaValue = 1
             }
         }
-        Motion.animate(.disappear, {
+        Motion.animate(.disappear, in: self, {
             for view in leaving {
                 view.animator().alphaValue = 0
                 view.animator().frame = view.frame.offsetBy(dx: 0, dy: -Metrics.space3)
@@ -259,7 +271,7 @@ final class SidebarListView: NSView {
             guard let ws = workspaces[id] else { return }
             view.configure(ws, row: row)
             view.isSecondarySelected = model.selection.contains(id) && model.activeWorkspaceID != id
-            view.isDropTarget = external?.proposal == .intoWorkspace(id)
+            view.isDropTarget = external?.proposal == .intoWorkspace(id) || drag?.target == .ontoWorkspace(id)
         case let (.tab(_, tabID), view as SidebarTabRowView):
             guard let tab = tabs[tabID] else { return }
             view.configure(tab, row: row)

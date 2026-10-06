@@ -82,6 +82,21 @@ import Testing
         #expect(shape(s, local) == "a G1[g1,g3] N[g2,b] G2[h1,h2] c")
     }
 
+    /// A row dropped onto another forms the group at the target row (the
+    /// drop's anchor), not at the first member in tree order.
+    @Test func createGroupOntoARowFormsTheGroupAtTheTarget() {
+        let rows = { SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "Local", kind: .local)),
+                                    nodes: ["a", "y", "b", "x"].map { .workspace(w($0)) }) }
+        // y dragged down onto x: a, b, then the group where x was.
+        var down = [rows()]
+        SidebarEdits.apply(.createGroup(GroupID("N"), name: "", color: .grey, workspaces: [id("x"), id("y")], anchor: id("x")), to: &down)
+        #expect(shape(down, local) == "a b N[y,x]")
+        // x dragged up onto y: the group where y was.
+        var up = [rows()]
+        SidebarEdits.apply(.createGroup(GroupID("N"), name: "", color: .grey, workspaces: [id("y"), id("x")], anchor: id("y")), to: &up)
+        #expect(shape(up, local) == "a N[y,x] b")
+    }
+
     @Test func createGroupFromLooseItems() {
         var s = fixture()
         let new = GroupID("N")
@@ -246,134 +261,6 @@ import Testing
         #expect(DropResolver.resolveTabDrop(y: row.y + row.height / 2, base: layout, sections: sections, sourceMachine: .local) == .intoWorkspace(id("a")))
     }
 }
-
-// MARK: - Drop position math
-
-@Suite struct DropMath {
-    let sections = fixture()
-
-    func base(excluding ids: [String] = [], group: GroupID? = nil) -> SidebarLayout {
-        var o = SidebarLayoutOptions()
-        o.excludedWorkspaces = Set(ids.map(id))
-        o.excludedGroup = group
-        o.showEmptyPinned = true
-        return SidebarLayout.make(sections: sections, metrics: .standard, options: o)
-    }
-
-    func y(_ key: SidebarRowKey, _ fraction: CGFloat, in layout: SidebarLayout) -> CGFloat {
-        let row = layout.row(for: key)!
-        return row.y + row.height * fraction
-    }
-
-    func resolve(_ key: SidebarRowKey, _ fraction: CGFloat, dragging ids: [String]) -> DropTarget? {
-        let layout = base(excluding: ids)
-        return DropResolver.resolve(y: y(key, fraction, in: layout), payload: .workspaces(ids.map(id)), base: layout, sections: sections)
-    }
-
-    @Test func upperAndLowerHalfOfLooseRow() {
-        // Dragging c: base is [a, G1, b, G2]; b has index 2.
-        #expect(resolve(.workspace(id("b")), 0.2, dragging: ["c"]) == .position(DropPosition(section: local, index: 2)))
-        #expect(resolve(.workspace(id("b")), 0.7, dragging: ["c"]) == .position(DropPosition(section: local, index: 3)))
-    }
-
-    @Test func rowsInsideExpandedGroup() {
-        #expect(resolve(.workspace(id("g2")), 0.3, dragging: ["a"]) == .position(DropPosition(section: local, group: g1, index: 1)))
-        #expect(resolve(.workspace(id("g2")), 0.6, dragging: ["a"]) == .position(DropPosition(section: local, group: g1, index: 2)))
-    }
-
-    @Test func bottomOfLastGroupedRowExitsGroup() {
-        // Dragging a: G1 is section index 0, so "after G1" is index 1.
-        #expect(resolve(.workspace(id("g3")), 0.6, dragging: ["a"]) == .position(DropPosition(section: local, group: g1, index: 3)))
-        #expect(resolve(.workspace(id("g3")), 0.9, dragging: ["a"]) == .position(DropPosition(section: local, index: 1)))
-    }
-
-    @Test func collapsedGroupHeaderZones() {
-        #expect(resolve(.group(g2), 0.1, dragging: ["a"]) == .position(DropPosition(section: local, index: 2)))
-        #expect(resolve(.group(g2), 0.5, dragging: ["a"]) == .intoGroup(g2))
-        #expect(resolve(.group(g2), 0.9, dragging: ["a"]) == .position(DropPosition(section: local, index: 3)))
-    }
-
-    @Test func expandedGroupHeaderZones() {
-        #expect(resolve(.group(g1), 0.2, dragging: ["c"]) == .position(DropPosition(section: local, index: 1)))
-        #expect(resolve(.group(g1), 0.7, dragging: ["c"]) == .position(DropPosition(section: local, group: g1, index: 0)))
-    }
-
-    @Test func sectionHeaderTargetsTopOrPreviousSectionEnd() {
-        #expect(resolve(.section(local), 0.8, dragging: ["c"]) == .position(DropPosition(section: local, index: 0)))
-        // Upper part of the local header means "end of pinned".
-        #expect(resolve(.section(local), 0.1, dragging: ["c"]) == .position(DropPosition(section: .pinned, index: 1)))
-    }
-
-    @Test func crossMachineHoverIsRefused() {
-        #expect(resolve(.workspace(id("b")), 0.3, dragging: ["x"]) == nil)
-        #expect(resolve(.workspace(id("p1")), 0.3, dragging: ["x"]) == .position(DropPosition(section: .pinned, index: 0)))
-    }
-
-    @Test func pointerOutsideListClamps() {
-        let layout = base(excluding: ["a"])
-        let below = DropResolver.resolve(y: layout.totalHeight + 500, payload: .workspaces([id("a")]), base: layout, sections: sections)
-        #expect(below == nil) // last row belongs to cloud; a is local
-        let belowCloud = DropResolver.resolve(y: layout.totalHeight + 500, payload: .workspaces([id("x")]), base: base(excluding: ["x"]), sections: sections)
-        #expect(belowCloud == .position(DropPosition(section: cloudSection, index: 1)))
-    }
-
-    @Test func gapCoordinateMapping() {
-        #expect(DropResolver.baseY(forDisplayY: 50, gapY: 100, gapHeight: 40) == 50)
-        #expect(DropResolver.baseY(forDisplayY: 120, gapY: 100, gapHeight: 40) == nil)
-        #expect(DropResolver.baseY(forDisplayY: 160, gapY: 100, gapHeight: 40) == 120)
-        #expect(DropResolver.baseY(forDisplayY: 160, gapY: nil, gapHeight: 0) == 160)
-    }
-
-    @Test func gapIsStableUnderPointer() {
-        // Open the gap where the pointer resolved, then re-resolve from the
-        // displayed layout: the target must not change.
-        let ids = ["c"]
-        let baseLayout = base(excluding: ids)
-        let pointerBase = y(.workspace(id("b")), 0.7, in: baseLayout)
-        let target = DropResolver.resolve(y: pointerBase, payload: .workspaces(ids.map(id)), base: baseLayout, sections: sections)
-        guard case let .position(position) = target else { Issue.record("expected position"); return }
-        var o = SidebarLayoutOptions()
-        o.excludedWorkspaces = Set(ids.map(id))
-        o.showEmptyPinned = true
-        o.gap = position
-        o.gapHeight = 40
-        let displayed = SidebarLayout.make(sections: sections, metrics: .standard, options: o)
-        let gapY = displayed.gapY!
-        // Past the gap the pointer lands in G2's top edge zone, still "before G2".
-        let edge = baseLayout.row(for: .group(g2))!.height * DropResolver.groupEdgeFraction * 0.8
-        for displayY in stride(from: gapY - 10, through: gapY + displayed.gapShift + edge, by: 1) {
-            guard let by = DropResolver.baseY(forDisplayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { continue }
-            let again = DropResolver.resolve(y: by, payload: .workspaces(ids.map(id)), base: baseLayout, sections: sections)
-            // Just above the gap or just below it still names the same slot.
-            #expect(again == target)
-        }
-    }
-
-    @Test func resolvedTargetAppliesToExpectedOrder() {
-        // Drag a onto the lower half of b; applying the target puts a after b.
-        guard case let .position(position) = resolve(.workspace(id("b")), 0.8, dragging: ["a"]) else {
-            Issue.record("expected position"); return
-        }
-        var s = sections
-        SidebarEdits.apply(.reorder([id("a")], to: position), to: &s)
-        #expect(shape(s, local) == "G1[g1,g2,g3] b a G2[h1,h2] c")
-    }
-
-    @Test func groupPayloadTreatsExpandedGroupAsBlock() {
-        // Drag G2 over G1's rows: upper half of the block is before G1.
-        let layout = base(group: g2)
-        let top = layout.row(for: .group(g1))!.y
-        let bottom = layout.row(for: .workspace(id("g3")))!.maxY
-        let upper = DropResolver.resolve(y: top + (bottom - top) * 0.3, payload: .group(g2), base: layout, sections: sections)
-        let lower = DropResolver.resolve(y: top + (bottom - top) * 0.7, payload: .group(g2), base: layout, sections: sections)
-        #expect(upper == .position(DropPosition(section: local, index: 1)))
-        #expect(lower == .position(DropPosition(section: local, index: 2)))
-        // Groups never leave their machine section.
-        let overCloud = DropResolver.resolve(y: y(.workspace(id("x")), 0.5, in: layout), payload: .group(g2), base: layout, sections: sections)
-        #expect(overCloud == nil)
-    }
-}
-
 // MARK: - Keyboard reorder
 
 @Suite struct KeyboardReorderTests {

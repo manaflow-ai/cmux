@@ -74,6 +74,27 @@ enum KeybindingStrings {
                               table: "Keybindings", bundle: .module), keys)
     }
 
+    static var needsKeybindingsJSON: String {
+        String(localized: "keybinding.error.needsKeybindingsJSON",
+               defaultValue: "cmux.json holds one shortcut per action, with no When clause or arguments. This change needs keybindings.json, which is not ready yet.",
+               table: "Keybindings", bundle: .module)
+    }
+
+    static var ghosttyReadOnly: String {
+        String(localized: "keybinding.error.ghosttyReadOnly", defaultValue: "This shortcut comes from your Ghostty config. Change it there.",
+               table: "Keybindings", bundle: .module)
+    }
+
+    static var atMostTwoKeys: String {
+        String(localized: "keybinding.error.atMostTwoKeys", defaultValue: "cmux.json holds shortcuts of one key or a two-key chord.",
+               table: "Keybindings", bundle: .module)
+    }
+
+    static func unknownCommand(_ id: String) -> String {
+        String(format: String(localized: "keybinding.error.unknownCommand", defaultValue: "No action has the id %@.",
+                              table: "Keybindings", bundle: .module), id)
+    }
+
     static func noWindow(_ id: String) -> String {
         String(format: String(localized: "keybinding.error.noWindow", defaultValue: "No window has the id %@.",
                               table: "Keybindings", bundle: .module), id)

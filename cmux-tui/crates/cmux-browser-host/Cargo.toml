@@ -13,7 +13,9 @@ workspace = true
 
 [dependencies]
 serde.workspace = true
-serde_json.workspace = true
+# raw_value only (a9): script values keep the page's key order. Never
+# preserve_order, which would change every map in the crate.
+serde_json = { workspace = true, features = ["raw_value"] }
 url = "2.5"
 hmac.workspace = true
 sha1 = "0.10"

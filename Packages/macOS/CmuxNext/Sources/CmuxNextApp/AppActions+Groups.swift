@@ -35,6 +35,19 @@ extension AppActions {
         // Cmd-Shift-C (Arc, Chrome extensions): the page's URL, as the
         // omnibar's Copy writes it (the full URL, never the elided text).
         registry.bind("browser.copyURL", isEnabled: { chrome()?.tab.state.url != nil }, invoke: { _ = chrome($0)?.copyPageURL() })
+        // Site settings of the site that blocked the newest download (the
+        // blocked-download notice's button, without the mouse).
+        registry.bind("browser.download.openBlockedSiteSettings", isEnabled: { services.cache.pageRequests.canOpenLatestBlockedSiteSettings },
+                      invoke: { _ in
+                          let requests = services.cache.pageRequests
+                          if let latest = requests.downloads.latestBlocked { requests.openBlockedSiteSettings(site: latest.site, tab: latest.tab) }
+                      })
+        // The prompt bar's permission question, answered without the mouse.
+        let promptAnswers: [(ActionID, BrowserPrompt.PermissionChoice)] = [("browser.prompt.allow", .allow), ("browser.prompt.block", .block)]
+        for (id, choice) in promptAnswers {
+            registry.bind(id, isEnabled: { chrome().flatMap { BrowserPrompt.firstPermission(in: $0.tab.pendingPrompts) } != nil },
+                          invoke: { _ = chrome($0).map { BrowserPrompt.answerFirstPermission(choice, in: $0.tab.pendingPrompts) } })
+        }
         // Cmd-L goes through the window's focus coordinator, which also takes
         // key back from a focused Chromium page window.
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in

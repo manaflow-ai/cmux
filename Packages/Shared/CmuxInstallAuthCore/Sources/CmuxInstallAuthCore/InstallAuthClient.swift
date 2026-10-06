@@ -86,8 +86,10 @@ public actor InstallAuthClient {
         return try await task.value
     }
 
-    /// The op classes the phone's install asks for (a narrowing of the default grant).
-    public static let grantClasses = ["read", "mutate-own", "mutate-shared"]
+    /// The op classes the phone's install asks for: the backend's ios default grant
+    /// (`defaultInstallClasses`), which a register may narrow but never widen.
+    /// `cloud-link` lets the phone mint Cloud link tokens; it has no `execute`.
+    public static let grantClasses = ["read", "mutate-own", "cloud-link"]
 
     /// L14-2: sign-out revokes this install (needs the Stack session; the
     /// owner also drops the install's push targets). The key is rotated and

@@ -23,9 +23,9 @@ import Testing
         #expect(NewTabKind.resolve(selectedKind: nil, engine: nil, isLocalBrowser: false, isAgent: true) == .agent)
     }
 
-    /// `tabs.newTabKind` (user decision 2026-10-01): the same kind unless
-    /// set; a fixed kind ignores the pane; Auto takes what was last opened
-    /// and falls back to the same kind.
+    /// `tabs.newTabKind`: the New Tab page unless set (user decision
+    /// 2026-10-05: a generic New picks the kind there); a fixed kind ignores
+    /// the pane; Auto takes what was last opened and falls back to the same kind.
     @Test func theSettingChoosesOverTheSameKind() {
         let same = NewTabKind.browser(engine: "cef")
         #expect(NewTabDefaultKind.fallback == .page)
@@ -82,7 +82,7 @@ import Testing
         let chords: [ActionID: Shortcut] = [
             "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
             "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
-            "palette.newAgentChat": Shortcut("i", modifiers: [.command, .shift]),
+            "palette.newAgentChat": Shortcut("i", modifiers: [.command]),
         ]
         // Ghostty's macOS defaults near these keys: scroll to selection,
         // write screen file, select all, inspector, clear screen.

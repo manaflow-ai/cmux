@@ -5,7 +5,8 @@ public import CmuxNextDesign
 import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
-/// section for the local daemon, loose workspaces first, then groups.
+/// section per daemon, its sections in order (loose runs and groups, which
+/// may interleave with `personal-mixed-order-v1`).
 public struct SidebarMapping {
     public static let shared = Self()
     /// The workspace kind of the home workspace (`workspace-kind-v1`).
@@ -17,14 +18,15 @@ public struct SidebarMapping {
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
                                 showsUnread: Bool = true,
-                                statusLine: (String) -> String? = { _ in nil }) -> [SidebarRowSection] {
+                                statusLine: (String) -> String? = { _ in nil },
+                                selectedTab: (PaneModel) -> String? = { _ in nil }) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
         for section in daemonSections {
             // The home workspace (`kind` "home") is what the Home item in the
             // top section shows; it is not also a workspace row (nxdog28)
             // while that item is in the layout (`hidesHomeWorkspace`).
             let rows = section.workspaces.filter { !hidesHomeWorkspace || $0.kind != Self.homeKind }
-                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread) }
+                .map { row($0, machine: machine.id, status: statusLine($0.id), showsUnread: showsUnread, selectedTab: selectedTab) }
             if let group = section.group {
                 nodes.append(.group(SidebarGroup(
                     id: GroupID(group.id.rawValue),
@@ -41,10 +43,14 @@ public struct SidebarMapping {
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
-    public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true) -> SidebarWorkspace {
+    /// `selectedTab` is the window's tab selection in a pane (a `TabModel.id`), nil for the
+    /// daemon's default tab.
+    public func row(_ workspace: WorkspaceModel, machine: MachineID, status: String? = nil, showsUnread: Bool = true,
+                    selectedTab: (PaneModel) -> String? = { _ in nil }) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
+        let front = frontTab(workspace, selectedTab: selectedTab)
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -53,15 +59,34 @@ public struct SidebarMapping {
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
             icon: Self.icon(color: workspace.color, icon: workspace.icon),
+            kind: kind(front),
+            kindBrand: AgentBrandCatalog.brand(for: front?.agentSession?.harness ?? front?.agent?.agent)?.rawValue,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
             }
         )
+    }
+
+    /// The tab the row stands for: the selected tab of the workspace's most
+    /// recently focused pane; nil for a workspace with no tabs.
+    func frontTab(_ workspace: WorkspaceModel, selectedTab: (PaneModel) -> String?) -> TabModel? {
+        let panes = workspace.screens.flatMap(\.panes).filter { !$0.tabs.isEmpty }
+        guard let pane = panes.max(by: { $0.focusedAt < $1.focusedAt }) else { return nil }
+        if let id = selectedTab(pane), let tab = pane.tabs.first(where: { $0.id == id }) { return tab }
+        return pane.tabs[min(max(pane.defaultTabIndex, 0), pane.tabs.count - 1)]
+    }
+
+    /// What a tab shows: an agent (chat, Home conversation or agent terminal),
+    /// a page, else a terminal.
+    func kind(_ tab: TabModel?) -> SidebarWorkspaceKind {
+        guard let tab else { return .terminal }
+        if tab.kind == .conversation || tab.agent != nil { return .harness }
+        return tab.kind == .browser ? .browser : .terminal
     }
 
     /// The brand of the first agent that works or waits in these tabs (design/agent-icons).

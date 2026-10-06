@@ -45,17 +45,21 @@ public final class HomeNativeTranscriptView: NSView {
     }
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
+    /// The first-run panel's open-a-terminal or start-an-agent row was
+    /// picked (the host runs the matching registry action).
+    public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
+    /// The host is still loading the conversation's first page: the
+    /// first-run panel waits, so a Chief conversation with history never
+    /// flashes it before its messages arrive (stability rule).
+    public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
     private var observers: [any NSObjectProtocol] = []
 
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID) {
         self.me = me
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake())
-        // One binding per shown conversation; `stop()` ends it once. The
-        // open below moves into the binding with the cloud source's
-        // open/close contract (HomeStoreBinding opens and closes its own).
+        // One binding per shown conversation; it opens the conversation on
+        // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
-        // task-owner: one snapshot read; ends with its reply
-        Task { await store.open(conversation) }
         attachmentPreparer = store
         super.init(frame: .zero)
         wantsLayer = true
@@ -74,6 +78,7 @@ public final class HomeNativeTranscriptView: NSView {
             self.transcript.setDraft(prompt)
             self.window?.makeFirstResponder(self.transcript.primaryInput)
         }
+        firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
         applyTheme()
@@ -140,9 +145,15 @@ public final class HomeNativeTranscriptView: NSView {
         layoutNotice()
     }
 
+    /// The first-run rows' shortcuts and the tab hint's keys, as the
+    /// registry shows them; nil hides one.
+    public func setFirstRunShortcuts(terminal: String?, agent: String?, tabs: String?) {
+        firstRun.setShortcuts(terminal: terminal, agent: agent, tabs: tabs)
+    }
+
     /// The first-run panel shows only in an empty Chief conversation.
     private func updateFirstRun() {
-        firstRun.isHidden = !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
+        firstRun.isHidden = holdsFirstRun || !(transcript.isEmpty && transcript.conversationSummary?.kind(me: me) == .chief)
     }
 
     public override func viewDidMoveToWindow() {
@@ -180,7 +191,8 @@ public final class HomeNativeTranscriptView: NSView {
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         performWithTheme {
-            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
+            firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary,
+                                 fill: Palette.elevatedBackground, hover: Palette.hoverFill, border: Palette.separator)
             noticeLabel.textColor = Palette.textSecondary
         }
     }

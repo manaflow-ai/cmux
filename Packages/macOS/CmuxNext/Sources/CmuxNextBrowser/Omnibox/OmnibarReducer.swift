@@ -42,6 +42,7 @@ nonisolated struct OmnibarStep {
         case .rowClick(let row, let disposition): rowClick(row, disposition)
         case .popupScroll: break // at most 8 rows: the card never scrolls, the wheel is swallowed
         case .suggestions(let generation, let rows): suggestionsArrived(rows, generation: generation)
+        case .moreSuggestions(let generation, let rows, let capacity): moreSuggestionsArrived(rows, generation: generation, capacity: capacity)
         case .pageURLChanged(let url): pageURLChanged(url)
         case .searchEngineChanged: if state.phase == .editing { refreshSuggestions(keepSelection: true) }
         case .pasteAndGo(let text): pasteAndGo(text)

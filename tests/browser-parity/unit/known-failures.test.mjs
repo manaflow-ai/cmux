@@ -18,3 +18,13 @@ test("known environment failures match exactly", () => {
   assert.equal(knownFailure("cmux-dev", "05-input", [both[0], 'unexpected "__error__:1": boom'], "linux"), null);
   assert.equal(knownFailure("cmux-dev", "05-input", [], "linux"), null);
 });
+
+test("a scenario the engine cannot run is known on every platform, whatever differs", () => {
+  const problems = ['missing "next-call-fails"', 'unexpected "__error__:1": Error: expected a domain'];
+  for (const platform of ["linux", "darwin"]) {
+    assert.match(knownFailure("host-headless", "39-policy-rules", problems, platform), /content-rule/);
+  }
+  assert.equal(knownFailure("cmux-dev", "39-policy-rules", problems, "linux"), null, "only for host-headless");
+  assert.equal(knownFailure("host-headless", "38-cookie-guards", problems, "linux"), null);
+  assert.equal(knownFailure("host-headless", "39-policy-rules", [], "linux"), null, "a pass is a pass");
+});

@@ -46,7 +46,18 @@ Object.assign(globals, {
 Object.assign(dom.window, {
   matchMedia: () => ({ matches: true, addEventListener() {}, removeEventListener() {} }),
 });
-afterAll(() => Object.assign(globals, saved));
+// The composer's folder menu is a shared Base UI menu (src/ui), which reaches for DOM classes by name.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) =>
+    /^(HTML|SVG|Element|Event|KeyboardEvent|PointerEvent|MouseEvent|FocusEvent|Shadow|Document|Mutation|Resize|getComputedStyle)/.test(
+      key,
+    ) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -78,7 +89,7 @@ const snapshot = (sessionId: string | undefined, rows: AcpmuxSnapshot["rows"] = 
 let root: ReturnType<typeof createRoot>;
 let calls: [string, Record<string, unknown>][];
 /// Mounts the page against a host whose `ready` reply carries `surface`, then shows `first`.
-const mount = async (surface: string | undefined, first: AcpmuxSnapshot) => {
+const mount = async (surface: string | undefined, first: AcpmuxSnapshot, newSession = false) => {
   const record =
     (method: string) =>
     async (params: Record<string, unknown>): Promise<unknown> => {
@@ -86,7 +97,7 @@ const mount = async (surface: string | undefined, first: AcpmuxSnapshot) => {
       return null;
     };
   host.cmuxAcpmuxActions = {
-    ready: async () => ({ protocolVersion: 1, transport: "test", ...(surface ? { surface } : {}) }),
+    ready: async () => ({ protocolVersion: 1, transport: "test", newSession, ...(surface ? { surface } : {}) }),
     "chat.send": record("chat.send"),
     "quick.dismiss": record("quick.dismiss"),
     "quick.openInWindow": record("quick.openInWindow"),
@@ -231,18 +242,89 @@ test("⌘Return with an empty composer opens a started chat without sending, and
   expect(calls).toEqual([["quick.openInWindow", { sessionId: "s3" }]]);
 });
 
-test("without a surface the pane is unchanged: home lists, session list, no key hints, Escape stays in the page", async () => {
+test("without a surface the pane is unchanged: home lists, no session list, no key hints, Escape stays in the page", async () => {
   await mount(undefined, snapshot("s1"));
   const page = container();
   expect(page.querySelector(".acpmux-quick")).toBeNull();
   expect(page.querySelector(".acpmux-quick-keys")).toBeNull();
   expect(page.querySelector(".acpmux-home-area")).not.toBeNull();
   expect(page.querySelector(".acpmux-empty")).not.toBeNull();
-  expect(page.querySelector(".acpmux-sidebar")).not.toBeNull();
+  // Agent chats live in the window's one sidebar, not in the pane.
+  expect(page.querySelector(".acpmux-sidebar")).toBeNull();
   expect(page.querySelector(".acpmux-header")).not.toBeNull();
   await type("draft");
   await key("Escape");
   await key("Enter", { metaKey: true });
   expect(methods()).toEqual([]);
   expect(prompt().value).toBe("draft");
+});
+
+test("a direct blank pane chat converts with ! without a chooser page", async () => {
+  await mount(undefined, snapshot("s1"));
+  host.cmuxAcpmuxActions!["tab.open"] = async (params) => {
+    calls.push(["tab.open", params]);
+  };
+  expect(container().querySelector(".acpmux-newtab")).toBeNull();
+  await act(async () => prompt().handle.insertTyped("!git status"));
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "git status", run: false }]);
+  expect(methods()).not.toContain("chat.send");
+});
+
+test("a direct blank chat chooses a recent project inline without treating it as already selected", async () => {
+  const fresh = snapshot("s1");
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh);
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+  };
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  expect(project).not.toBeNull();
+  await act(async () => project.click());
+  expect(calls).toContainEqual(["chat.new", { cwd: "/src/app" }]);
+});
+
+test("an unstarted chat keeps its chosen project for terminal conversion without launching an agent", async () => {
+  const fresh = snapshot(undefined);
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh, true);
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+    throw new Error("no agent installed");
+  };
+  host.cmuxAcpmuxActions!["tab.open"] = async (params) => {
+    calls.push(["tab.open", params]);
+  };
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
+  expect(container().querySelector('[aria-label="Folder"]')?.textContent).toContain("app");
+  await key("Enter");
+  expect(methods()).not.toContain("chat.send");
+  expect(methods()).not.toContain("chat.new");
+  await act(async () => prompt().handle.insertTyped("!"));
+  expect(calls).toContainEqual(["tab.open", { kind: "terminal", text: "", run: false, cwd: "/src/app" }]);
+});
+
+test("the first prompt starts the chat in the inline project's folder", async () => {
+  const fresh = snapshot(undefined);
+  fresh.sessions = [{ sessionId: "older", cwd: "/src/app", displayTitle: "App", updatedAt: 1 }];
+  await mount(undefined, fresh, true);
+  host.cmuxAcpmuxActions!["chat.new"] = async (params) => {
+    calls.push(["chat.new", params]);
+  };
+  await act(async () => (container().querySelector('[aria-label="Folder"]') as HTMLButtonElement).click());
+  // The folder menu is a shared Base UI menu, portaled to the body: its recent folders are radio rows.
+  const project = dom.window.document.querySelector(".acpmux-location-menu [role=menuitemradio]") as HTMLElement;
+  await act(async () => project.click());
+  await key("Enter");
+  expect(calls).toEqual([]);
+  await type("hello");
+  await key("Enter");
+  expect(calls).toEqual([
+    ["chat.new", { cwd: "/src/app" }],
+    ["chat.send", { text: "hello", attachments: [] }],
+  ]);
 });

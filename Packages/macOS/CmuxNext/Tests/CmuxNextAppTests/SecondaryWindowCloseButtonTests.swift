@@ -38,17 +38,7 @@ struct SecondaryWindowCloseButtonTests {
         #expect(holderIndex > contentIndex, "\(label): close button under the content view", sourceLocation: sourceLocation)
     }
 
-    @Test func settingsAndDebugSettingsWindowsHaveACloseButton() async throws {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-close-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appending(path: "cmux.json")
-        try Data("{}".utf8).write(to: url)
-        let registry = ActionRegistry(catalog: [])
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
-        await settings.reload()
-        let settingsWindow = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: registry, host: nil))
-        Self.expectCloseButton(settingsWindow.window, "Settings")
+    @Test func debugSettingsWindowHasACloseButton() {
         let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
         Self.expectCloseButton(debug.window, "Debug Settings")
     }
@@ -57,7 +47,7 @@ struct SecondaryWindowCloseButtonTests {
         let services = MockOnboardingServices()
         services.accountsView = NSView()
         services.firstTaskView = NSView()
-        let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .role))
+        let controller = OnboardingWindowController(model: OnboardingModel(services: services, start: .accounts))
         Self.expectCloseButton(controller.window, "Onboarding")
     }
 

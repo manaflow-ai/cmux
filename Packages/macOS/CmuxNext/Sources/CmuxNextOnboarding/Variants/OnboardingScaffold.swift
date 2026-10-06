@@ -67,13 +67,16 @@ final class OnboardingFooter: NSView {
     private let context: OnboardingStepContext
     private var loop: RenderLoop?
 
+    /// A counter only helps on a long run; two or three screens need none.
+    static func showsCounter(count: Int) -> Bool { count > 3 }
+
     init(context: OnboardingStepContext, glassContinue: Bool = true, showsCounter: Bool = true) {
         self.context = context
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count),
+        let counter = OnboardingLabel.make(OnboardingStrings.stepCounter(context.index + 1, context.count, step: context.model.step),
                                            font: OnboardingMetrics.captionFont, color: Palette.textTertiary)
-        counter.isHidden = !showsCounter
+        counter.isHidden = !showsCounter || !Self.showsCounter(count: context.count)
         let skip = OnboardingControl.plainButton(OnboardingStrings.skip, target: self, action: #selector(skipPressed))
         let next = OnboardingControl.button(context.model.primaryTitle, prominent: glassContinue, target: self, action: #selector(nextPressed))
         for view in [counter, skip, next] as [NSView] { addSubview(view) }
@@ -86,7 +89,10 @@ final class OnboardingFooter: NSView {
         let model = context.model
         loop = RenderLoop { [weak next] in
             let title = model.primaryTitle
-            if next?.title != title { next?.title = title }
+            if next?.title != title {
+                next?.title = title
+                (next as? OnboardingAccentButton)?.refreshAppearance()
+            }
         }
     }
 

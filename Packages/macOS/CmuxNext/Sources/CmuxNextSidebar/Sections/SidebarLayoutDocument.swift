@@ -95,8 +95,9 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
     /// The default layout (plans/cmux-next/sidebar-sections.md): the
-    /// first-party apps Home, App Store and CodeRouter as app items (R63/R64:
-    /// apps like any other, from their manifests) on top, the workspaces, then one bottom
+    /// first-party apps Home and the App Store as plain rows on top (app
+    /// items, R63/R64: apps like any other, from their manifests; Lawrence
+    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, then one bottom
     /// row with Settings (icon and label) over 7/8 of the width and the
     /// account avatar (icon only) over the last 1/8 (a grid of 8 columns,
     /// R53). Pinned sections use

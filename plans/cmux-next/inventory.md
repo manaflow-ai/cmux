@@ -28,7 +28,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
-| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌘[ / ⌘] / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
+| focusHistoryBack / Forward / Last | Focus Back / Forward / Last | ⌃- / ⌃⇧- / — | KM | KSS:134-136, cmuxApp+HistoryMenu:11 |
 | (history) | Recently Focused / Recently Closed lists | — | M | cmuxApp+HistoryMenu:65,90 |
 | palette.openTaskManager | Task Manager | — | PM | VCP:31, cmuxApp:1080 |
 | palette.sleepyMode | Sleepy Mode | — | PM | VCP:37 |
@@ -94,8 +94,8 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newPaneAutoLayout | New Pane (Auto Layout) | ⌃⌘N | PKM | KSS:166, ContentView+PaneResizeCommands:21 |
 | toggleSplitZoom | Toggle Pane Zoom | ⇧⌘↩ | PKC | KSS:166, CV:8614, TIV |
 | equalizeSplits | Equalize Splits | ⌃⇧⌘= | PKM | KSS:170 |
-| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J | PKM | KSS:171-174, RSP:117 |
-| focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ | PK | KSS:159-162 |
+| resizePaneLeft/Right/Up/Down | Resize Pane | ⌃⇧H/L/K/J or ⌃⌘←→↑↓ | PKM | KSS:171-174, RSP:117 |
+| focusLeft/Right/Up/Down | Focus Pane | ⌥⌘←→↑↓ or ⌃⌘H/L/K/J | PK | KSS:159-162 |
 | focusPreviousPane / focusNextPane | Focus Previous / Next Pane | — | PK | KSS:163-164 |
 | triggerFlash | Flash Focused Panel | ⇧⌘H | PKC | KSS:120, GTV:9254 |
 | palette.swapWithSession | Swap With Session… | — | PC | VCP:21, GTV:9306 |
@@ -204,7 +204,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| palette.newAgentChat | New agent chat | ⇧⌘I (#16620) | P | ContentView+AgentChatCommandPalette:31 |
+| palette.newAgentChat | New agent chat | ⌘I | P | ContentView+AgentChatCommandPalette:31 |
 | palette.openTerminalChatView | Open terminal as chat | — | P | :37 |
 | palette.launchClaudeTeams / launchCodexTeams | Claude / Codex Teams | — | P | :88 |
 | palette.forkAgentConversation{Right,Left,Top,Bottom,NewTab,NewWorkspace} | Fork Conversation To ▸ | — | PC | CV:8509, GhosttyNSView+ForkConversationContextMenu:288 |
@@ -219,6 +219,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newCloudMachine | New Cloud Machine… | ⌘Y | PKMC | KSS:98 |
 | palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
 | cmuxCloud relay: `vm.*`, `vm.domain.*`, `vm.publication.*`, network/tunnel/firewall | Typed host relay operations | Catalog + code mode | P/MCP/CLI | `backend/catalog/cloud-relay-operations.json`; bwrap receives only `/run/cmux-cloud.sock`; merge gated on #16944 Swift test |
+| cloudDomainList / cloudPublicationList | Cloud domain and publication read actions | `vm.domain.list` / `vm.publication.list` relay operations | P/MCP/CLI | `CloudActionCatalog`, `CloudAPIClient`, and `CloudHandlers+Domains`; redacted list routes only |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |

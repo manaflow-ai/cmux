@@ -43,12 +43,12 @@ public final class HomeNativeFixture {
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
-        await store.open(id)
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: me)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
         self.view = view
+        await view.binding.opened()
         if attachments { await addAttachments(in: id) }
     }
 
