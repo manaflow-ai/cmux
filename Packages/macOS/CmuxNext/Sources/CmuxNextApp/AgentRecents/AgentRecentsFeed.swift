@@ -121,7 +121,7 @@ final class AgentRecentsFeed {
         guard fd >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.connect() }
+            Task { @MainActor in self?.connect() }
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source
