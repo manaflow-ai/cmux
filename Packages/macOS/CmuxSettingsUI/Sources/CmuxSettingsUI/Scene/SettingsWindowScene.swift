@@ -139,10 +139,12 @@ public struct SettingsWindowRoot: View {
     var activeSection: SettingsSectionID {
         pendingInitialSection ?? selectedSection
     }
-    /// Whether the user currently has a non-empty search query. When
-    /// false the sidebar should track section selection only; when true
-    /// the per-entry selection survives.
-    private var isSearching: Bool { searchQuery.isSearching }
+    /// Whether the sidebar is showing search hits for a non-empty query.
+    /// When false the sidebar should track section selection only; when
+    /// true the per-entry selection survives. Follows the applied results,
+    /// not the field text, so a click during the match debounce is judged
+    /// by the list the user actually clicked in.
+    private var isSearching: Bool { searchQuery.isShowingSearchResults }
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
     // hit). Mirroring that here lets List's selection semantics behave

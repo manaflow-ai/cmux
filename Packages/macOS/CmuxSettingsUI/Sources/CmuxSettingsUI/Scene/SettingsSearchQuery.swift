@@ -34,8 +34,6 @@ final class SettingsSearchQuery {
     /// The query ``results`` were computed for.
     private(set) var appliedText = ""
 
-    /// Whether the field holds a non-blank query. Read by actions, not views.
-    var isSearching: Bool { Self.isSearching(storedText) }
     /// Whether the sidebar is showing ranked search hits rather than the
     /// grouped browse list.
     var isShowingSearchResults: Bool { Self.isSearching(appliedText) }
