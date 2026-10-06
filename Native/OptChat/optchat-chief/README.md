@@ -640,6 +640,17 @@ the change, 6 consecutive turns: the first wrote 17,950, each later one read
 breakpoint (the view below the 50k mark, the new message, Claude Code's own
 context). Trade-off: one busy Chief concentrates on one account until failover.
 
+**Grid marker in the turn's view.** The view after its first mark (all of
+a view below 50k) goes as one block per 4,096-character grid piece (the last
+line end at or before every 4,096 characters from the view's start, so an
+unchanged prefix keeps its cuts), and our one marker sits on the piece that
+ends at the last cut; the next turn has a block boundary at the same offset,
+which the API's lookback from its marker reads. Measured on cmux-lawrence-2
+(2026-10-06, six short turns, 8 KB view, subrouter v0.1.137): turns 2-6 read
+15,630 and wrote 2,730-2,890 (84-85%), from 9,965 read and about 8,000
+written (55%) with the session key alone. The compactor keeps its
+50k/80k/100k layout (`cached_layout_at_marks`).
+
 ## Compactor routes
 
 The team subrouter serves Claude Code clients: a raw Messages API call for a
