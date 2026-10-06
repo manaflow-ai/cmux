@@ -219,16 +219,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         tabFacts(panel, workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id)
     }
 
-    /// The frame gate's scope in `webView`: this session, its directories,
-    /// and the tab that shows the web view as the authority judges it (a
-    /// web view no attached tab shows counts as a user's tab). Document
-    /// verdicts ask no tab capability, so the tab's workspace is not read.
+    /// The frame gate's scope in `webView`: this session, its directories
+    /// and workspace, and the tab that shows the web view as the authority
+    /// judges it, in the workspace that holds it now, so the gate refuses
+    /// every later script and input step once the tab moved out of the
+    /// session's workspace (``BrowserReplFrameGate/checkTab(in:)``). A web
+    /// view no attached tab shows counts as a user's tab, and no workspace
+    /// is judged for it.
     @MainActor
     private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
-        let tab = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel
-            .map { tabFacts($0, workspaceID: nil) }
-            ?? BrowserReplTabFacts(mainFrameURL: webView.url)
-        return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: tab)
+        guard let panel = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel else {
+            return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: BrowserReplTabFacts(mainFrameURL: webView.url))
+        }
+        return BrowserReplFrameGate.Scope(
+            sessionID: sessionID,
+            fileRoots: currentFileRoots,
+            tab: tabFacts(panel, workspaceID: panel.workspaceId),
+            workspaceID: workspaceID
+        )
     }
 
     /// `panel`, held by the workspace `workspaceID`, as the authority judges it.
@@ -468,6 +476,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return try await handle(method: method, params: params)
                 }
             }()
+            // A tab the session may no longer use (the user moved it to
+            // another workspace while the call ran) hands back nothing.
+            try checkTab(spec, params: params)
             // A method that leaves the page (navigate, history, reload)
             // fails when the page it landed on is one the authority refuses.
             if spec.judgesLandedPage, let panel = targetPanel(params) {
@@ -2137,6 +2148,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 ) else {
                     throw Self.error("invalid", "Could not create a wheel event")
                 }
+                try self.frameGate.checkTab(in: webView)
                 webView.deliverAutomationMouseEvent(event)
                 await BrowserReplNativeInput.roundTrip(webView)
                 return
@@ -2202,7 +2214,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         attachment: BrowserReplTabAttachment,
         dropAllowed: Bool = true
     ) async throws {
+        // Each native step asks the tab capability again
+        // (BrowserReplFrameGate.checkTab): a tab moved out of the session's
+        // workspace while the call waited gets no further event.
         func send() throws {
+            try frameGate.checkTab(in: webView)
             guard let event = BrowserReplNativeInput.mouseEvent(
                 type: type,
                 button: button,
@@ -2236,6 +2252,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
         case .leftMouseDragged:
             if let drop = attachment.drag?.drop {
+                try frameGate.checkTab(in: webView)
                 drop.draggingLocation = location
                 attachment.drag?.operation = webView.draggingUpdated(drop)
                 await BrowserReplNativeInput.roundTrip(webView)
@@ -2265,10 +2282,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
             }
             if let drop = attachment.drag?.drop {
+                try frameGate.checkTab(in: webView)
                 drop.draggingLocation = location
                 let operation = dropAllowed ? webView.draggingUpdated(drop) : []
                 await BrowserReplNativeInput.roundTrip(webView)
-                if !operation.isEmpty, webView.prepareForDragOperation(drop) {
+                if !operation.isEmpty, (try? frameGate.checkTab(in: webView)) != nil, webView.prepareForDragOperation(drop) {
                     _ = webView.performDragOperation(drop)
                     webView.concludeDragOperation(drop)
                 } else {
@@ -2341,6 +2359,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
             // for that before it answers the round trip below.
             try await webView.withAutomationFocusContainment {
+                try self.frameGate.checkTab(in: webView)
                 let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
                 guard result == .delivered else {
                     throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
@@ -2479,7 +2498,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 text,
                 into: webView,
                 world: world,
-                isCurrent: { [weak panel] in panel?.webView === webView },
+                // Also asked right before the commit: a tab moved out of the
+                // session's workspace meanwhile gets no text.
+                isCurrent: { [weak panel, frameGate] in
+                    panel?.webView === webView && (try? frameGate.checkTab(in: webView)) != nil
+                },
                 checkTarget: checkTarget
             )
             await BrowserReplNativeInput.roundTrip(webView)

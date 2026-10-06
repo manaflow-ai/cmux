@@ -372,7 +372,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the sessions attached to it that may not use it there: no event, dialog,
   file chooser, download or network event of the tab reaches them after
   the move, and their next call on it fails with `denied` (a tab a session
-  created stays its own wherever it moves). It closes only tabs it created and user tabs it is attached
+  created stays its own wherever it moves). A call already in flight when
+  the tab moves stops too: the frame gate asks the tab capability, with
+  the tab's workspace as it is then, before every script it runs and every
+  input it guards, the driver before each native mouse, drag, key and text
+  step, and again before it hands back a result, so the moved tab is
+  neither read nor sent input and the call fails with `denied`. It closes only tabs it created and user tabs it is attached
   to. Navigation-time decisions in tabs a session created (the navigation
   delegate, popups and downloads) still apply the creating session's
   policy and file roots through their own checks (`BrowserReplNavigationGuard`,
