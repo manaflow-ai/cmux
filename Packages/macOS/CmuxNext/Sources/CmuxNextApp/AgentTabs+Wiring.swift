@@ -108,6 +108,7 @@ extension AgentTabStore {
         Task { [weak tabs] in
             let name = await MacName.computerName()
             tabs?.localHostName = name
+            AgentPaneModel.localMachineName = tabs?.localHostName
         }
         services.madeAgentTabs = tabs
         return tabs

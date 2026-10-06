@@ -60,6 +60,12 @@ public final class MessagesLabHomeView: NSView {
 
     // MARK: Host API
 
+    /// The host's notice, the transcript's system row under the newest message (nil: none).
+    public var notice: String? {
+        get { projection.notice }
+        set { projection.notice = newValue }
+    }
+
     /// H17: offline the user can type, but Send and tapbacks are off.
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }

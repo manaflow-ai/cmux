@@ -68,8 +68,8 @@ extension SidebarListView {
             drag.lastY = point.y
         }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
-        guard let target = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections,
-                                        ungroupedFirst: model.ungroupedFirst) else { return }
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: model.sections, ungroupedFirst: model.ungroupedFirst)
+        guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
@@ -84,13 +84,13 @@ extension SidebarListView {
         case let (.workspaces(ids), .position(position)):
             model.send(.reorder(ids, to: position))
         case let (.workspaces(ids), .intoGroup(group)):
-            model.send(.move(ids, toGroup: group))
+            SidebarGroupDrop.join(self, ids, group, origin: drag.origin)
         case let (.group(group), .position(position)):
             model.send(.reorderGroup(group, index: position.index))
         case let (.workspaces(ids), .ontoWorkspace(anchor)):
             // The target first, then the dragged rows (the Arc/Dia order).
-            // The group forms at the target row (`anchor`).
-            model.send(.createGroup(.make(), name: "", color: .grey, workspaces: [anchor] + ids, anchor: anchor))
+            SidebarGroupDrop.group(self, ids, onto: anchor, origin: drag.origin)
+            drag.renameOnLand = anchor
         case (.group, .intoGroup), (.group, .ontoWorkspace):
             break
         }
@@ -117,6 +117,7 @@ extension SidebarListView {
             for key in drag.hiddenKeys { self.rowViews[key]?.alphaValue = 1 }
             self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
+            if let anchor = drag.renameOnLand { self.inlineRename.beginGroup(of: anchor) }
         }
     }
 }

@@ -59,6 +59,9 @@ pub(super) struct Inner {
     /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
     /// app's CEF tab keeps the app's Open panel and clipboard.
     pub(super) owns_browser: bool,
+    /// Every tab intercepts its file choosers (headless); false: only the
+    /// tabs a session drives (headful, `choosers.rs`).
+    pub(super) intercept_all: std::sync::atomic::AtomicBool,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -137,6 +140,7 @@ impl Inner {
             default_ua: std::sync::OnceLock::new(),
             proxy_contexts: Mutex::default(),
             owns_browser,
+            intercept_all: std::sync::atomic::AtomicBool::new(true),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -235,19 +239,7 @@ impl CdpDriver {
         if let Some(bypass) = bypass {
             params["proxyBypassList"] = json!(bypass);
         }
-        let created =
-            self.inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
-        let context =
-            created.get("browserContextId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
-                || DriverError::invalid("Target.createBrowserContext returned no id"),
-            )?;
-        self.inner
-            .proxy_contexts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(context.clone());
-        super::clipboard::deny_clipboard_permissions(&self.inner.conn, Some(&context))?;
-        Ok(context)
+        super::cookies::new_context(&self.inner, params)
     }
 
     /// Closes a proxy store and every tab in it.
@@ -456,9 +448,9 @@ impl Inner {
                 let _ =
                     self.conn.call(Some(&session_id), "DOM.disable", json!({}), INTERNAL_TIMEOUT);
             }
-            FollowUp::SetUpFrame { target_id: _, session_id } => {
+            FollowUp::SetUpFrame { target_id, session_id } => {
                 // Failures leave the frame unreachable; it must still run.
-                if self.set_up_frame(&session_id).is_err() {
+                if self.set_up_frame(&target_id, &session_id).is_err() {
                     let _ = self.conn.call(
                         Some(&session_id),
                         "Runtime.runIfWaitingForDebugger",
@@ -526,7 +518,9 @@ impl Inner {
             .collect(),
             SETUP_TIMEOUT,
         );
-        self.intercept_choosers_on(session_id, self.owns_browser && !shell);
+        if !shell {
+            self.intercept_choosers_on(target_id, session_id);
+        }
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
             let mut state = self.lock();
@@ -551,7 +545,7 @@ impl Inner {
         })
     }
 
-    fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
+    fn set_up_frame(&self, target_id: &str, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
         let results = self.conn.call_batch(
@@ -574,7 +568,7 @@ impl Inner {
             .collect(),
             SETUP_TIMEOUT,
         );
-        self.intercept_choosers_on(session_id, self.owns_browser);
+        self.intercept_choosers_on(target_id, session_id);
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 

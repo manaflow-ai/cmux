@@ -63,7 +63,6 @@ public final class AgentPaneView: NSView {
     private var gestureMonitor: Any?
     /// Paces the transport's pushes (stopped when the pane closes).
     var transportPacer: AgentPaneFramePacer?
-
     /// The process pool every agent page shares (R81: fonts are listed once per pool).
     private static let processPool = WKProcessPool()
 
@@ -134,6 +133,7 @@ public final class AgentPaneView: NSView {
                 AgentPaneBridge(view: self), contentWorld: .page, name: AgentPaneRequest.handlerName
             )
         }
+        SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false

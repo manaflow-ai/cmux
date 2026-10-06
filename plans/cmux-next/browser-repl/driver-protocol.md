@@ -118,8 +118,20 @@ in every frame, script-made `about:blank` frames included, so the page's
 clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
 `clipboard-write`, sanitized or not) in every store, for a document or world
 the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
-with a copy, cut or paste editing command. File choosers on this browser are
-always intercepted (no person's Open panel).
+with a copy, cut or paste editing command.
+
+cmux-next shared browser, file choosers (items 10/11): a headless browser
+intercepts the file choosers of every tab (no person can see an Open panel),
+so D2 applies to all of them. A headful browser (`CMUX_BROWSER_HOST_HEADLESS=0`,
+for example on Xvfb, which a person may use) intercepts only the tabs a
+session created or drives, from the session's first call on the tab until
+the last session leaves it; a person's own tab keeps the browser's Open
+panel and is never cancelled. Interception is turned on after a tab's or
+frame's setup has resumed it, so a chooser the page opens in the first
+moments of a new document (before that call lands) can still reach the
+browser's own panel (headless: none is shown; headful: the person's panel).
+A popup of a session's tab on a headful browser intercepts from the first
+session call on it.
 
 cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
@@ -131,8 +143,14 @@ afterwards, popups included. Its tabs list the dataStore
 `cookies.*` without `targetId` use it, and with `targetId` the tab's own
 store. It closes at the session's end unless a tab in it (a popup too) was
 kept, then at host exit. Known gap: proxy credentials answer `unsupported`
-(they need `Fetch.authRequired`). Not yet: `permissions` (`unsupported`,
-owner decision pending).
+(they need `Fetch.authRequired`). `permissions` (chief, 2026-10-06, option
+2): CDP grants per browser context, never per tab, so the session's new tabs
+open in a private store (`<profile>/private-<n>`, or its proxy store) that
+holds the grants; no grant reaches a person's tab. A private store starts
+with a one-way copy of the profile's cookies (never written back), and closes
+like a proxy store. Clipboard grants are refused (`forbidden`); `null` or `[]`
+drops the grants and new tabs open in the profile again (a proxy store keeps
+them).
 
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each

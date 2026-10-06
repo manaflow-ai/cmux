@@ -120,8 +120,8 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
-    /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
-    private(set) var tabBarButtons: TabBarButtonsController!
+    /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
+    private(set) var configActions: ConfigActionsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry)
     let terminalDelegate = TerminalHostDelegate()
@@ -293,7 +293,7 @@ final class AppServices {
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
-        tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
+        configActions = ConfigActionsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.attach(sheet: updateSheet, services: self)

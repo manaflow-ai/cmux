@@ -84,6 +84,74 @@ struct LocationTrailWiringTests {
         #expect(trail.trail.current?.location.key.tab == second)
     }
 
+    static let workspaceKeys = [
+        "1d0b7a3e-2f4c-4b1a-9e6d-0a1b2c3d4e01", "1d0b7a3e-2f4c-4b1a-9e6d-0a1b2c3d4e02", "1d0b7a3e-2f4c-4b1a-9e6d-0a1b2c3d4e03",
+    ]
+
+    /// Three workspaces with one pane and one tab each (workspace n has pane 10n+1 and tab surface 10n+2).
+    static func workspacesTree() throws -> DaemonTree {
+        let workspaces = workspaceKeys.enumerated().map { index, key in
+            let n = (index + 1) * 10
+            return """
+            {"active":\(index == 0),"id":\(n),"key":"\(key)","name":"w\(index)","screens":[{"active":true,"id":\(n + 1),
+            "layout":{"pane":\(n + 2),"type":"leaf"},"name":null,"panes":[{"active_tab":0,"id":\(n + 2),"name":null,
+            "tabs":[{"kind":"pty","name":"t\(index)","surface":\(n + 3),"dead":false,"cwd":"/tmp/w\(index)"}]}]}]}
+            """
+        }
+        let json = #"{"generation":"g1","workspace_revision":2,"workspaces":["# + workspaces.joined(separator: ",") + "]}"
+        return try JSONDecoder().decode(DaemonTree.self, from: Data(json.utf8))
+    }
+
+    /// BACK-FORWARD-WORKSPACES-ONLY: A -> B -> C, Back, Back, Forward,
+    /// Forward lands on C again. Each step is a workspace switch, so the
+    /// window's focus first settles once more in the workspace it leaves
+    /// (the new workspace's panes arrive later); that settle is not a
+    /// place the user went and must not cut off the forward entries
+    /// (nxdog59: Forward stayed put or moved once, then stopped).
+    @Test func forwardRetracesEveryBackBetweenWorkspaces() async throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        services.windows.ordersWindowsIn = false
+        let keys = Self.workspaceKeys
+        services.daemon.store.apply(snapshot: try Self.workspacesTree())
+        let controller = try #require(services.windows.openWindow(workspaces: keys))
+        services.windows.reconcileMembership()
+        defer { controller.window?.close() }
+        let trail = services.locationTrail
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        trail.now = { clock }
+        func paneAndTab(_ key: String) -> (String, String)? {
+            guard let pane = services.daemon.store.workspaces.first(where: { $0.id == key })?.screens.first?.panes.first,
+                  let tab = pane.tabs.first else { return nil }
+            return (pane.id, tab.id)
+        }
+        func focused(_ key: String) -> Bool {
+            guard let (pane, tab) = paneAndTab(key) else { return false }
+            let focus = controller.focus.state
+            return focus.topology.workspace == key && focus.pane == pane && focus.topology.pane(pane)?.selected == tab
+        }
+
+        for key in keys {
+            clock += 5
+            services.windows.select(key, in: controller.state)
+            await Self.settle { controller.focus.state.topology.workspace == key }
+            let (pane, tab) = try #require(paneAndTab(key))
+            controller.focus.send(.selectTab(pane: pane, tab: tab, workspace: key, source: .mouse))
+            await Self.settle { focused(key) && trail.trail.current?.location.workspace == key }
+        }
+        #expect(trail.trail.entries.map(\.location.workspace) == keys)
+
+        let steps: [(ActionID, String)] = [("focusHistoryBack", keys[1]), ("focusHistoryBack", keys[0]),
+                     ("focusHistoryForward", keys[1]), ("focusHistoryForward", keys[2])]
+        for (action, expected) in steps {
+            clock += 5
+            #expect(services.registry.perform(action), "\(action) toward \(expected)")
+            await Self.settle { focused(expected) && trail.trail.pending == nil }
+            #expect(controller.state.workspaceID == expected, "\(action) toward \(expected)")
+            #expect(trail.trail.current?.location.workspace == expected, "\(action) toward \(expected)")
+            #expect(trail.trail.entries.map(\.location.workspace) == keys, "\(action) toward \(expected)")
+        }
+    }
+
     @Test func aClosedWorkspaceIsListedUnderClosedHistory() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
