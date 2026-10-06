@@ -28,6 +28,8 @@ public final class SidebarView: NSView {
     var titlebarHeight: CGFloat { titlebarHeightOverride ?? Metrics.titlebarHeight }
     let list: SidebarListView
     let scrollView = SidebarScrollView()
+    /// The one selection highlight (top items, groups and workspaces).
+    let highlight = SidebarSelectionHighlight()
     private(set) lazy var spacePaging = SidebarSpacePaging(host: self)
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
@@ -175,20 +177,10 @@ public final class SidebarView: NSView {
         list.inlineRename.begin(.workspace(id))
     }
 
-    /// Starts inline rename of a group. Commit emits `.renameGroup`.
-    public func beginRename(group id: GroupID) {
-        list.inlineRename.begin(.group(id))
-    }
-
-    /// Starts inline rename of the active workspace.
-    public func renameActiveWorkspace() {
-        guard let active = model.activeWorkspaceID else { return }
-        list.inlineRename.begin(.workspace(active))
-    }
-
     // MARK: Hierarchy
 
     private func buildHierarchy() {
+        defer { highlight.install(in: self) }
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
         newButton.alphaValue = 0
         addSubview(newButton)
@@ -273,6 +265,7 @@ public final class SidebarView: NSView {
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
+        highlight.refresh(animated: false)
     }
 
 
@@ -306,7 +299,7 @@ public final class SidebarView: NSView {
     private struct RenderState: Hashable, Sendable {
         var sections: [SidebarSection]
         var selection: Set<WorkspaceID>
-        var active: WorkspaceID?
+        var selected: SidebarItem?
         var profiles: [SidebarProfile]
         var activeProfile: ProfileKey?
         var filter: String
@@ -332,7 +325,7 @@ public final class SidebarView: NSView {
                 RenderState(
                     sections: model.sections,
                     selection: model.selection,
-                    active: model.activeWorkspaceID,
+                    selected: model.selectedItem,
                     profiles: model.profiles,
                     activeProfile: model.activeProfileID,
                     filter: model.filterText,
@@ -360,11 +353,11 @@ public final class SidebarView: NSView {
             || lastState?.titlebarHeight != state.titlebarHeight
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
+            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || lastState?.selected != state.selected
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
-            || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged || profileChanged
+            || lastState?.selected != state.selected || lastState?.filter != state.filter || chromeChanged || profileChanged
             || lastState?.preferences.showWorkspaceTabs != state.preferences.showWorkspaceTabs
         let previous = lastState?.sections
         model.showWorkspaceTabs = state.preferences.showWorkspaceTabs

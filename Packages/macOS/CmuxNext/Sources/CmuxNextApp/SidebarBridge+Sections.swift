@@ -82,21 +82,20 @@ extension SidebarBridge {
         let service = services.sidebarLayout
         let apps = services.apps.registry
         let store = services.machines.local.store
-        let window = state
         sectionsObservation = Task { [weak self] in
             // The app registry is observed too: hiding or installing an app
             // changes its item at once.
-            // So are the shown top page (its item is active), the unread
-            // count (Notifications' dot), and the built-ins' shortcuts (their
-            // tooltips, e.g. the footer gear's "Settings (⌘,)").
-            for await (layout, shownPage, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, TopPageRoute?, Int, [ActionID: String]) in
+            // So are the unread count (Notifications' dot) and the built-ins'
+            // shortcuts (their tooltips, e.g. the footer gear's "Settings (⌘,)").
+            // The selected item comes from the one selection (SidebarModel.selectedItem).
+            for await (layout, unread, shortcuts) in Observations({ () -> (SidebarLayoutDocument, Int, [ActionID: String]) in
                 _ = apps.apps
-                return (service.document, window?.page, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
+                return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry))
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          shownPage: shownPage, unread: unread,
+                                          unread: unread,
                                           app: { Self.appInfo($0, registry: apps) }, shortcut: { shortcuts[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
@@ -115,28 +114,24 @@ extension SidebarBridge {
     }
 
     /// Presentation of every built-in item in `layout`; `registered` says
-    /// whether an action exists. The item of the shown top page is active,
-    /// Notifications carries `unread`, and each built-in carries its action's
-    /// `shortcut` for its tooltip. The update notice is the footer's pill,
-    /// never an item control (SIDEBAR-FOOTER-MINIMAL).
+    /// whether an action exists. Notifications carries `unread`, and each
+    /// built-in carries its action's `shortcut` for its tooltip. The update
+    /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         shownPage: TopPageRoute? = nil, unread: Int = 0,
+                         unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
                 if item.ref.kind == LayoutItemRef.appKind {
-                    var info = app(item.ref.value)
-                    info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
-                    infos[item.id] = info
+                    infos[item.id] = app(item.ref.value)
                     continue
                 }
                 guard let builtIn = item.ref.builtIn else { continue }
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
-                info.isActive = shownPage != nil && TopPageRoute.route(for: item.ref) == shownPage
                 if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
                 infos[item.id] = info
             }
