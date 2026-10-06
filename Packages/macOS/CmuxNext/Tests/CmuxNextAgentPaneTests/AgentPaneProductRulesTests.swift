@@ -183,4 +183,22 @@ import Testing
         rig.transport.sessions.add("s-tab")
         await rig.send("_acpmux/kill", ["sessionId": "s-tab", "purge": true])
     }
+
+    /// An attach is not a grant: the click that opens a session in the pane (an attach with a
+    /// gesture) is still there for the prompt the same click sends. Only the grant uses it.
+    @Test func anAttachNeverSpendsTheGestureThatAPromptOnTheSameClickNeeds() async throws {
+        let rig = Rig()
+        try await rig.start()
+        defer { rig.server.stop() }
+        let root = rig.root
+        rig.transport.roots = { [root] }
+        rig.transport.primaryRoot = { root }
+        rig.transport.gestures.record()
+        await rig.send("_acpmux/attach", ["sessionId": "s-clicked", "limit": 10])
+        #expect(rig.transport.sessions.contains("s-clicked"))
+        #expect(rig.transport.gestures.isAvailable)
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()])
+        // The prompt used the click: the next grant needs a new one.
+        await rig.send("session/prompt", ["sessionId": "s-clicked", "prompt": [Any]()], expect: .gestureRequired)
+    }
 }
