@@ -2,8 +2,8 @@
 // A small GFM-subset Markdown renderer for assistant messages. It produces the same
 // DOM shape for every transcript: headings, paragraphs (single newlines are line
 // breaks), nested ordered/bullet/task lists, blockquotes, rules, aligned tables, fenced
-// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$` / `$$…$$` math
-// for simple arithmetic (see Math.tsx).
+// code blocks rendered by @pierre/diffs (see CodeBlock.tsx), and `$…$`, `$$…$$`, `\(…\)`
+// and `\[…\]` math typeset by KaTeX (see Math.tsx).
 import { Fragment, memo, useMemo, useRef, type ReactNode } from "react";
 import { safeHref } from "../model";
 import { CodeBlock } from "./CodeBlock";
@@ -54,10 +54,10 @@ function parseLines(lines: string[]): MdBlock[] {
       out.push({ type: "code", lang: fence[1] || "text", code: body.join("\n") });
       continue;
     }
-    const math = line.match(/^\s*\$\$(.+)\$\$\s*$/);
-    if (math) {
-      out.push({ type: "math", tex: math[1].trim() });
-      i++;
+    const display = displayMath(lines, i);
+    if (display) {
+      out.push({ type: "math", tex: display.tex });
+      i = display.next;
       continue;
     }
     const h = line.match(/^(#{1,4})\s+(.*)$/);
@@ -121,6 +121,35 @@ function parseLines(lines: string[]): MdBlock[] {
     out.push({ type: "paragraph", text: para.join("\n") });
   }
   return out;
+}
+
+/// A display equation starting at `lines[start]`: `$$…$$` on one line, or `$$` opening a block
+/// whose last line ends with `$$` (`\[ … \]` was rewritten to these by normalizeMath). A line
+/// with more text after its closing `$$` is a paragraph (the equation draws inline), and an
+/// opener that never closes is too.
+function displayMath(lines: string[], start: number): { tex: string; next: number } | null {
+  const open = lines[start]!.match(/^\s*\$\$(.*)$/);
+  if (!open) return null;
+  const rest = open[1]!;
+  const closeIndex = rest.indexOf("$$");
+  if (closeIndex >= 0) {
+    if (rest.slice(closeIndex + 2).trim() || !rest.slice(0, closeIndex).trim()) return null;
+    return { tex: rest.slice(0, closeIndex).trim(), next: start + 1 };
+  }
+  const body = [rest];
+  for (let j = start + 1; j < lines.length; j++) {
+    const line = lines[j]!;
+    const close = line.indexOf("$$");
+    if (close < 0) {
+      body.push(line);
+      continue;
+    }
+    if (line.slice(close + 2).trim()) return null;
+    body.push(line.slice(0, close));
+    const tex = body.join("\n").trim();
+    return tex ? { tex, next: j + 1 } : null;
+  }
+  return null;
 }
 
 function indentOf(l: string) {
@@ -195,8 +224,12 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
+// Groups: code, bold, strikethrough, italic, link, line break, `$$…$$` inside a paragraph,
+// `$…$` (Pandoc's rule: no space inside either dollar and no digit after the closer, so
+// "$5 and $10" stays text; no backtick inside, so "$5 or `$PATH`" does too), and a backslash
+// escape (`\$`, `\*`) that draws its character.
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$(?=\S)[^$\n]*?\S\$(?!\d)|\$[^$\s]\$)/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[] {
@@ -235,7 +268,9 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
           </a>,
         );
     } else if (m[6]) out.push(<br key={k++} />);
-    else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
+    else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
+    else if (m[8]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
+    else if (m[9]) out.push(t.slice(1));
     last = m.index! + t.length;
   }
   if (last < text.length) out.push(text.slice(last));
