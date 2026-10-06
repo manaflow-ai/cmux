@@ -25,6 +25,7 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerPickers } = await import("./ComposerPickers");
+const { rankHarnesses } = await import("./modelMenuNodes");
 const { HOVER_INTENT_MS } = await import("./modelPickerLayout");
 type Layout = "cascade" | "drill";
 /// Room left of the menu that the cascade fits in (Claude Code's families: one side submenu), and
@@ -177,6 +178,40 @@ for (const layout of ["cascade", "drill"] as Layout[]) {
       expect(
         recentRows.find((candidate) => candidate.textContent?.includes("Opus 5.5"))!.getAttribute("aria-checked"),
       ).toBe("true");
+    });
+
+    test("keeps harness rows unique and puts the current harness nearest the anchor", async () => {
+      const value = snapshot();
+      value.catalog = [
+        ...value.catalog,
+        { id: "claude-secondary", name: "Claude Code", models: [{ id: "claude-opus-4-1", name: "Opus 4.1" }] },
+      ];
+      const ranked = rankHarnesses(value.catalog, RECENTS, "claude");
+      expect(ranked.map((harness) => harness.name)).toEqual(["Claude Code", "Codex"]);
+      await render(value);
+      await open();
+      if (layout === "cascade") await press(row("Claude Code")!);
+      const claudeRows = rows().filter(
+        (candidate) => candidate.querySelector(".acpmux-menu-label")?.textContent === "Claude Code",
+      );
+      expect(claudeRows).toHaveLength(1);
+      const harnessRows = rows().filter((candidate) =>
+        ["Claude Code", "Codex"].includes(candidate.querySelector(".acpmux-menu-label")?.textContent ?? ""),
+      );
+      expect(harnessRows.at(-1)?.querySelector(".acpmux-menu-label")?.textContent).toBe("Claude Code");
+    });
+
+    test("uses a 150ms hover intent before opening a submenu", async () => {
+      expect(HOVER_INTENT_MS).toBe(150);
+      await render(snapshot());
+      await open();
+      const sonnet = row("Sonnet")!;
+      await enter(sonnet);
+      expect(labels().includes("Sonnet 4.6")).toBe(false);
+      await wait(149);
+      expect(labels().includes("Sonnet 4.6")).toBe(false);
+      await wait(20);
+      expect(labels().includes("Sonnet 4.6")).toBe(true);
     });
 
     test("hovering a family opens its models after the intent delay, default first", async () => {

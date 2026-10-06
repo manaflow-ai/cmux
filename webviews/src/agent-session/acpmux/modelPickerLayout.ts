@@ -56,7 +56,7 @@ export const RECENT_ROWS = 4;
 /// Rows a level shows before "More…".
 export const LEVEL_ROWS = 3;
 /// How long the pointer rests on a row before its submenu opens.
-export const HOVER_INTENT_MS = 120;
+export const HOVER_INTENT_MS = 150;
 /// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
 /// plus the 10px gap. Family and model submenus are at least 210px.
 export const SUBMENU_ROOM = 250;
