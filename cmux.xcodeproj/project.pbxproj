@@ -1083,6 +1083,7 @@
 		C8783B458C963A34D5A93FF3 /* CloudVPNSetupPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 914BE02DDB0D0E6C277EEF8E /* CloudVPNSetupPanelView.swift */; };
 		5189C042A99401477E4DE49A /* CloudVPNSetupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */; };
 		59FECE3AAB392E8976A8D16A /* CloudVPNSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */; };
+		D17243000000000000000002 /* CloudWelcome in Resources */ = {isa = PBXBuildFile; fileRef = D17243000000000000000001 /* CloudWelcome */; };
 		22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */; };
 		6CDA457FF93E33F097EB4F7C /* CloudWelcomeMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */; };
 		22EABB05BDD5DD6B52A4320C /* CloudWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */; };
@@ -5632,6 +5633,7 @@
 		914BE02DDB0D0E6C277EEF8E /* CloudVPNSetupPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupPanelView.swift; sourceTree = "<group>"; };
 		3718948C68AF1E2610D73490 /* CloudVPNSetupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudVPNSetupTests.swift"; sourceTree = "<group>"; };
 		EA45F7A29A3227884DC3929F /* CloudVPNSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudVPNSetupView.swift; sourceTree = "<group>"; };
+		D17243000000000000000001 /* CloudWelcome */ = {isa = PBXFileReference; lastKnownFileType = folder; path = CloudWelcome; sourceTree = "<group>"; };
 		3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeHero.swift; sourceTree = "<group>"; };
 		66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeMedia.swift; sourceTree = "<group>"; };
 		6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWelcomeTests.swift"; sourceTree = "<group>"; };
@@ -9153,6 +9155,7 @@
 				A9D9000000000000000F0016 /* markdown-viewer */,
 				A9E010000000000000000006 /* agent-session-react */,
 				A9E010000000000000000007 /* agent-session-solid */,
+				D17243000000000000000001 /* CloudWelcome */,
 
 				A5001622 /* cmux.sdef */,
 			);
@@ -13948,6 +13951,7 @@
 				A9E020000000000000000007 /* agent-session-solid in Resources */,
 				A5001100 /* Assets.xcassets in Resources */,
 				EF840DF6D022042F7E57B482 /* cloud-agent-skill.md in Resources */,
+				D17243000000000000000002 /* CloudWelcome in Resources */,
 				C0DEC0DE0000000000000011 /* cmux-cua in Resources */,
 				A5001623 /* cmux.sdef in Resources */,
 				C0A714100000000000000002 /* ComputerUseHelperIcon.icns in Resources */,
