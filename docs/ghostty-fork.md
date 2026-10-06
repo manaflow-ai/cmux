@@ -137,6 +137,31 @@ pin does not have it. cmux-next does not use that flag.
   is now `257a40956`, which contains it through merge `dcb1d6965`.
 - Conflict note: if upstream adds its own C value for `WindowPadding`, keep
   the field order `top_left`, `bottom_right`; cmux reads the header struct.
+### Layer display after teardown no longer reaches the freed renderer
+
+- Branch: `fix-metal-layer-display-cb-uaf`
+  ([manaflow-ai/ghostty#258](https://github.com/manaflow-ai/ghostty/pull/258)),
+  based on the previous pin `324c02738`.
+- Commits: `4eb8a9c12` (regression test), `e2a26bc94` (fix)
+- Summary: on macOS the host view keeps Ghostty's `IOSurfaceLayer` after
+  `ghostty_surface_free`, and its `-display` still called `drawFrame` through
+  `display_cb`/`display_ctx` on the freed renderer
+  ([#17483](https://github.com/manaflow-ai/cmux/issues/17483)).
+  `Metal.prepareDeinit` unbound them only on iOS. The macOS invalidation
+  block, which already runs on main after the renderer thread joins, now
+  clears both ivars, so `loopEnter` cannot rebind them. #17524 clears them
+  from the cmux side as well.
+- Coverage: Ghostty's `teardown invalidation makes display a no-op`, run by
+  `build-ghosttykit.yml` before packaging. It passed in
+  [run 37421168473](https://github.com/manaflow-ai/cmux/actions/runs/37421168473).
+- Artifact: https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e2a26bc9457c3a7c8bc3701c63676b41fc4cdf2c-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+- SHA-256 `bee3bce68bd6d5eb1496e17ebb0e4e3e4aea48e78a2f62dfe8fe7b8e9d512cd9`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+- Conflict note: upstream fixed the same bug in `4b4a5b241` by clearing the
+  callback in `IOSurfaceLayer.release()` from the freeing thread. On a merge,
+  keep the main-thread clear in `invalidateSurfaceUpdatesCallback`; taking
+  upstream's `release()` clear as well is harmless on macOS but bypasses the
+  iOS ownership check in `detachFromHostIfDisplayCallbackOwned`.
 
 ### VT replay blank cells keep the default style
 
