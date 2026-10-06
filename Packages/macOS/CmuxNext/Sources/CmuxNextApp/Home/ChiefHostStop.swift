@@ -24,7 +24,7 @@ nonisolated enum ChiefHostStop {
     /// Quit, end sessions: the Chief home's host, then its acpmux daemon, so nothing of the Chief outlives the quit
     /// with ppid 1. The Chief owner ends through `ChiefConversationOwner`.
     /// What End Sessions keeps running in the Chief home's acpmux.
-    static let endSessionsKeep: AcpmuxQuit.Keep = .chief
+    static let endSessionsKeep: AcpmuxQuit.Keep = .nothing
 
     @concurrent static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)

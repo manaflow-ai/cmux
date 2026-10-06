@@ -133,6 +133,11 @@ impl Hub {
         // creations can never publish the same name twice.
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
+            // The shutdown reads the sessions after it starts: a session
+            // inserted after that is never ended, so none is (shutdown.rs).
+            if self.shutting_down() {
+                return Err(super::shutdown::shutting_down_error());
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = &adopt
@@ -297,6 +302,9 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -430,7 +438,21 @@ impl Hub {
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
         };
-        *session.child.lock().await = Some(child.clone());
+        {
+            // The shutdown marks itself started, then takes each session's
+            // child: checked under that lock, either the shutdown finds this
+            // child or this spawn sees the shutdown and ends what it started.
+            let mut slot = session.child.lock().await;
+            if self.shutting_down() {
+                drop(slot);
+                child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+                if child.host_record().is_some() {
+                    self.end_unadopted_host(session).await;
+                }
+                return Err(super::shutdown::shutting_down_error());
+            }
+            *slot = Some(child.clone());
+        }
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
