@@ -582,3 +582,43 @@ fn conversation_search_drops_the_v1_index() {
     assert_eq!(left, 0);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn import_request(conversation: &str) -> Value {
+    json!({"cmd":"conversation-import","conversation":conversation,"messages":[
+        {"id":"msg_old_1","client_msg_id":"cmk_1","author":"user_local",
+         "parts":[{"type":"text","text":"hi"}],"created_at":"2026-10-06T03:06:01.998Z"},
+        {"id":"msg_old_2","client_msg_id":"turn:optchat:0:x","author":"agent_mux",
+         "parts":[{"type":"text","text":"Hello."}],"created_at":"2026-10-06T03:06:04.622Z"}
+    ]})
+}
+
+#[test]
+fn the_local_user_imports_history_once_with_its_own_authors_and_times() {
+    let (mux, client) = conversation_mux();
+    let id = create(&mux, client);
+    let events = mux.subscribe();
+    let reply = run(&mux, client, import_request(&id)).unwrap();
+    assert_eq!(reply["imported"], json!([1, 2]));
+    assert_eq!(reply["skipped"], 0);
+    let changed = changed_events(&events);
+    assert_eq!(changed.len(), 1, "one conversation-changed for the import: {changed:?}");
+    assert_eq!(changed[0]["change"]["kind"], "conversation");
+    let snapshot =
+        run(&mux, client, json!({"cmd":"conversation-snapshot","conversation":id,"tail":10})).unwrap();
+    let messages = snapshot["messages"].as_array().unwrap();
+    assert_eq!(messages[0]["created_at"], "2026-10-06T03:06:01.998Z");
+    assert_eq!(messages[1]["author"], "agent_mux");
+    assert_eq!(messages[1]["id"], "msg_old_2");
+    let again = run(&mux, client, import_request(&id)).unwrap();
+    assert_eq!((again["imported"].clone(), again["skipped"].clone()), (json!([]), json!(2)));
+    assert!(changed_events(&events).is_empty(), "a replay publishes nothing");
+}
+
+#[test]
+fn an_agent_connection_cannot_import_history() {
+    let (mux, client) = conversation_mux();
+    let id = create(&mux, client);
+    let agent = agent_client(&mux, client, "agent_mux");
+    let (error, _) = rejection(&mux, agent, import_request(&id));
+    assert!(error.contains("only the local user"), "{error}");
+}
