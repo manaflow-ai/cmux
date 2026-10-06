@@ -87,6 +87,8 @@ extension ShortcutAction {
         case .closeTab: return "Close Tab"
         case .closeOtherTabsInPane: return "Close Other Tabs in Pane"
         case .closeWorkspace: return "Close Workspace"
+        case .togglePinnedWorkspace:
+            return String(localized: "shortcut.togglePinnedWorkspace.label", defaultValue: "Pin or Unpin Focused Workspace")
         case .newWorkspaceGroup:
             return String(localized: "shortcut.newWorkspaceGroup.label", defaultValue: "New Workspace Group")
         case .groupSelectedWorkspaces:

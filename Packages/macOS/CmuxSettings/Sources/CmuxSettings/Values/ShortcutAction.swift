@@ -97,6 +97,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case closeTab
     case closeOtherTabsInPane
     case closeWorkspace
+    /// Toggles the pinned state of the focused workspace.
+    case togglePinnedWorkspace
     /// Creates a new empty workspace group.
     case newWorkspaceGroup
     /// Groups the selected workspaces in the workspace list.

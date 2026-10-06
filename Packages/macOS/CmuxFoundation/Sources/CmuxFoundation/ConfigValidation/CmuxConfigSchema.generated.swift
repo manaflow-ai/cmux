@@ -2221,6 +2221,7 @@ enum CmuxEmbeddedConfigSchema {
               "closeTab",
               "closeOtherTabsInPane",
               "closeWorkspace",
+              "togglePinnedWorkspace",
               "newWorkspaceGroup",
               "groupSelectedWorkspaces",
               "toggleFocusedWorkspaceGroupCollapsed",
