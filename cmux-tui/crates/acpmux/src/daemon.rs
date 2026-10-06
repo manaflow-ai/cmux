@@ -165,6 +165,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     let hub = Hub::new(config, store);
+    // The app's pane sends no prompt before the folder's trust answer (`server/trust_gate.rs`).
+    hub.set_trust_gate(crate::trust::Paths::current());
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
     // (default 300; 0 keeps every harness running).

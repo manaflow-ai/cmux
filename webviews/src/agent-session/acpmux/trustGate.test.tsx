@@ -128,13 +128,13 @@ test("a new chat asks before its first prompt, and Enter sends nothing until Tru
   const sent: string[] = [];
   const replies = new Map<string, Record<string, unknown>>();
   await render({ replies, chat: { cwd: "/Users/me", family: "claude", prompts: 0 }, sent });
-  expect(doc.querySelector(".acpmux-trust-ask")!.textContent).toContain("can edit and run code in me");
+  expect(doc.querySelector(".acpmux-trust-ask")!.textContent).toContain("can edit and run code in /Users/me");
 
   await act(async () => typeInto(field(), "Reply with only the word pong."));
   await enter();
   expect(sent).toEqual([]);
   // The typed prompt stays in the composer.
-  expect(field().textContent).toBe("Reply with only the word pong.");
+  expect(field().value).toBe("Reply with only the word pong.");
   expect(send()!.disabled).toBe(true);
   expect(send()!.title).toBe("Answer the trust question first");
   expect(note()).toBe("Answer the trust question first");
@@ -154,7 +154,7 @@ test("Don't trust keeps prompts from the agent and says why; Undo asks again", a
   await act(async () => typeInto(field(), "hello"));
   await enter();
   expect(sent).toEqual([]);
-  expect(field().textContent).toBe("hello");
+  expect(field().value).toBe("hello");
   expect(send()!.disabled).toBe(true);
   expect(note()).toBe("You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it.");
   await press("Undo");

@@ -26533,6 +26533,138 @@
         }
       }
     },
+    "trust.answerFirst": {
+      "comment": "Agent pane: why Send is off while the folder trust question (Trust / Don't trust) is open",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجب عن سؤال الثقة أولًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo odgovorite na pitanje o povjerenju"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Besvar spørgsmålet om tillid først"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beantworte zuerst die Vertrauensfrage"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer the trust question first"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Responde primero a la pregunta de confianza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Répondez d'abord à la question de confiance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rispondi prima alla domanda sulla fiducia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "先に信頼の確認に答えてください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សូមឆ្លើយសំណួរអំពីការទុកចិត្តជាមុនសិន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 신뢰 질문에 답하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Svar på spørsmålet om tillit først"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw odpowiedz na pytanie o zaufanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Responda primeiro à pergunta de confiança"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала ответьте на вопрос о доверии"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โปรดตอบคำถามเรื่องความเชื่อถือก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce güven sorusunu yanıtlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу дайте відповідь на запитання про довіру"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy trả lời câu hỏi về độ tin cậy trước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先回答信任问题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先回答信任問題"
+          }
+        }
+      }
+    },
     "trust.ask": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -27453,6 +27585,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "不會信任 {folder}"
+          }
+        }
+      }
+    },
+    "trust.untrustedNoPrompts": {
+      "comment": "Agent pane: why Send is off after the user chose Don't trust for the chat's folder; Undo is the action beside the answer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اخترت عدم الوثوق، لذلك لا ينفّذ الوكيل أي طلبات في هذا المجلد. اضغط تراجع لتغيير ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odabrali ste Ne vjeruj, pa agent ne izvršava upite u ovom folderu. Pritisnite Poništi da to promijenite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du valgte Stol ikke på, så agenten kører ingen prompter i denne mappe. Tryk på Fortryd for at ændre det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du hast „Nicht vertrauen“ gewählt, daher führt der Agent in diesem Ordner keine Prompts aus. Tippe auf „Rückgängig“, um das zu ändern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You chose Don't trust, so the agent runs no prompts in this folder. Press Undo to change it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elegiste No confiar, así que el agente no ejecuta peticiones en esta carpeta. Pulsa Deshacer para cambiarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous avez choisi Ne pas faire confiance : l'agent n'exécute aucune requête dans ce dossier. Appuyez sur Annuler pour changer cela."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hai scelto Non considerare attendibile, quindi l'agente non esegue prompt in questa cartella. Premi Annulla per cambiare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「信頼しない」を選んだため、エージェントはこのフォルダでプロンプトを実行しません。変更するには「元に戻す」を押してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកបានជ្រើសរើសកុំទុកចិត្ត ដូច្នេះភ្នាក់ងារមិនដំណើរការសំណើក្នុងថតនេះទេ។ ចុចមិនធ្វើវិញដើម្បីប្ដូរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "신뢰하지 않음을 선택했으므로 에이전트가 이 폴더에서 프롬프트를 실행하지 않습니다. 변경하려면 실행 취소를 누르세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du valgte Ikke stol på, så agenten kjører ingen ledetekster i denne mappen. Trykk Angre for å endre det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybrano Nie ufaj, więc agent nie wykonuje poleceń w tym folderze. Naciśnij Cofnij, aby to zmienić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Você escolheu Não confiar, então o agente não executa prompts nesta pasta. Pressione Desfazer para mudar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вы выбрали «Не доверять», поэтому агент не выполняет запросы в этой папке. Нажмите «Отменить», чтобы изменить это."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุณเลือกไม่ไว้วางใจ เอเจนต์จึงไม่รันพรอมต์ในโฟลเดอร์นี้ กดเลิกทำเพื่อเปลี่ยน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güvenme'yi seçtiniz, bu yüzden ajan bu klasörde istem çalıştırmıyor. Değiştirmek için Geri al'a basın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ви вибрали «Не довіряти», тому агент не виконує запити в цій папці. Натисніть «Скасувати», щоб змінити це."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bạn đã chọn Không tin cậy, nên tác nhân không chạy lời nhắc nào trong thư mục này. Nhấn Hoàn tác để thay đổi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你选择了“不信任”，因此代理不会在此文件夹中运行提示。按“撤销”可更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "你選擇了「不信任」，因此代理不會在此資料夾中執行提示。按「還原」可更改。"
           }
         }
       }

@@ -67,6 +67,8 @@ pub(super) async fn handle_request(
     if conn.origin != Origin::Local {
         super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
     }
+    // No prompt from the app's pane reaches an agent before the folder's trust answer.
+    super::trust_gate::check(hub, conn.origin, m, &params).await?;
     let key = super::session_key(&params).ok().map(str::to_owned);
     let mut reply = dispatch_request(hub, conn, m, params).await;
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
@@ -800,8 +802,11 @@ async fn dispatch_request(
             let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
             let setting = m == method::ACP_TRUST_SET;
             // Small files, read and written off the runtime threads.
+            // The gate's files when it is on, so the answer and the gate read one record.
+            let gate = hub.trust_gate();
             let reply = tokio::task::spawn_blocking(move || {
-                let paths = crate::trust::Paths::current()
+                let paths = gate
+                    .or_else(crate::trust::Paths::current)
                     .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
                 if setting {
                     crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())

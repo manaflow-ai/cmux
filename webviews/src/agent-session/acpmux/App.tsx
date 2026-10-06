@@ -24,7 +24,7 @@ import {
   type AcpmuxRow,
   type AcpmuxSnapshot,
 } from "./model";
-import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { AcpmuxDirectClient, type AcpmuxHostConfig, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
@@ -953,14 +953,18 @@ function AcpmuxPane() {
     !snapshot.handoff?.receipt;
   const handoffLoading = !!snapshot.sessionId && !!snapshot.canHandoff && !snapshot.handoff?.ready;
   const freshChat = !reviewing && !handoffLoading && isNewChat(snapshot, newSession);
-  // A folder the user hasn't decided on is asked about beside the chat's other permission asks,
-  // once its first prompt went; nothing waits on the answer.
+  /// Reads the chat folder's trust again (useFolderTrustAsk.ts), after acpmux refused a prompt for it.
+  const trustRecheck = useRef<(() => void) | undefined>(undefined);
+  // A folder without a trust answer is asked about beside the chat's other permission asks as
+  // soon as the chat's folder is known (a new chat's chosen one before its first prompt). No
+  // prompt goes until the answer is Trust; acpmux refuses one that does (`trust_gate.rs`).
   const trustAsk = useFolderTrustAsk(trustSource, {
     sessionId: snapshot.sessionId,
-    cwd: snapshot.summary?.cwd,
-    started: !freshChat && snapshot.rows.length > 0,
+    cwd: snapshot.summary?.cwd ?? (snapshot.sessionId ? undefined : projectDraft),
+    family: snapshot.summary?.family || snapshot.summary?.harness,
     prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
+  trustRecheck.current = trustAsk.recheck;
   const individualPermission =
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
@@ -1580,7 +1584,15 @@ function AcpmuxPane() {
           if (held) return held;
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
-          const turn = client.send(text, attachments);
+          // acpmux holds the prompt while the folder's trust question is open: it goes back into
+          // the composer, and the question is read again so it shows.
+          const turn = client.send(text, attachments).catch((error: unknown) => {
+            if (isTrustRefusal(error)) {
+              restorePrompt(text, attachments);
+              trustRecheck.current?.();
+            }
+            throw error;
+          });
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
@@ -2068,6 +2080,7 @@ function AcpmuxPane() {
         onOpenInWindow={quick ? openInWindow : undefined}
         prompt={prompt}
         handle={composerRef}
+        blocked={trustAsk.blocked}
         accessory={<DictationButton dictation={dictation} />}
       />
     </>

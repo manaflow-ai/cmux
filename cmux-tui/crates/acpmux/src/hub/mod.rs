@@ -401,6 +401,11 @@ impl Hub {
         *self.trust_gate.lock().unwrap() = paths;
     }
 
+    /// The gate's paths, while the gate is on.
+    pub fn trust_gate(&self) -> Option<crate::trust::Paths> {
+        self.trust_gate.lock().unwrap().clone()
+    }
+
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
         *self.harness_homes.lock().unwrap() = homes;
