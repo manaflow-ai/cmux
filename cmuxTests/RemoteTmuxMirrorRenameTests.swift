@@ -1,5 +1,4 @@
 import CmuxControlSocket
-import Bonsplit
 import Foundation
 import Testing
 
@@ -13,26 +12,6 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxMirrorRenameTests {
-    @Test func nestedTabContextRenameRequestsItsAddressedTmuxPane() throws {
-        let harness = try RemoteTmuxMirrorRenameHarness()
-        defer { harness.tearDown() }
-
-        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
-        let pane = try #require(mirror.bonsplitController.allPaneIds.first)
-        let tab = try #require(mirror.bonsplitController.selectedTab(inPane: pane))
-        var requestedPaneID: Int?
-        mirror.onRenamePaneRequest = { requestedPaneID = $0 }
-
-        mirror.splitTabBar(
-            mirror.bonsplitController,
-            didRequestTabContextAction: .rename,
-            for: tab,
-            inPane: pane
-        )
-
-        #expect(requestedPaneID == 4)
-    }
-
     @Test func everyMultiPaneSurfaceRenamesOnlyItsTmuxPane() throws {
         let harness = try RemoteTmuxMirrorRenameHarness()
         defer { harness.tearDown() }

@@ -581,18 +581,6 @@ extension RemoteTmuxWindowMirror {
 extension RemoteTmuxWindowMirror: BonsplitDelegate {
     func splitTabBar(
         _ controller: BonsplitController,
-        didRequestTabContextAction action: TabContextAction,
-        for tab: Bonsplit.Tab,
-        inPane pane: PaneID
-    ) {
-        guard !isApplyingRemoteLayout,
-              action == .rename,
-              let tmuxPane = paneIdByTabId[tab.id] else { return }
-        onRenamePaneRequest?(tmuxPane)
-    }
-
-    func splitTabBar(
-        _ controller: BonsplitController,
         shouldCloseTab tab: Bonsplit.Tab,
         inPane pane: PaneID
     ) -> Bool {
