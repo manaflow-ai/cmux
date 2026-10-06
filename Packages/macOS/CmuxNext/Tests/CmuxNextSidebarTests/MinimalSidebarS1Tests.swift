@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import Foundation
 import Testing
 @testable import CmuxNextSidebar
@@ -23,6 +24,29 @@ import Testing
         row.layoutSubtreeIfNeeded()
         let texts = row.subviews.compactMap { $0 as? NSTextField }.filter { !$0.isHidden }.map(\.stringValue)
         #expect(!texts.contains("sub-a"), "visible texts: \(texts)")
+    }
+
+    @Test func theSettingTurnsTheFolderLineOnAndALiveStatusAlwaysShows() throws {
+        let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~/src/app")
+        let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~/src/app", status: "Claude: running tests")
+        let sections = [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                       nodes: [.workspace(passive), .workspace(live)])]
+        let m = SidebarLayoutMetrics.standard
+        let off = SidebarLayout.make(sections: sections, metrics: m).rows
+        #expect(off.map(\.detail) == [nil, "Claude: running tests"])
+        var o = SidebarLayoutOptions()
+        o.showWorkspaceDirectory = true
+        let on = SidebarLayout.make(sections: sections, metrics: m, options: o).rows
+        #expect(on.map(\.detail) == ["~/src/app", "Claude: running tests"])
+        #expect(on.allSatisfy { $0.height == m.rowHeightWithSubtitle })
+    }
+
+    @Test func theModelPassesTheSettingToTheList() {
+        let model = SidebarModel(sections: fixture())
+        var preferences = SidebarSectionsPreferences.defaults
+        preferences.showWorkspaceDirectory = true
+        model.applyListPreferences(preferences)
+        #expect(model.listOptions().showWorkspaceDirectory)
     }
 
     // MARK: Group caret

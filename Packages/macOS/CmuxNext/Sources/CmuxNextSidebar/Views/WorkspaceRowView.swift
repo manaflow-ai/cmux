@@ -107,6 +107,7 @@ final class WorkspaceRowView: SidebarRowView {
         var agentMark: SidebarAgentMarkVariant
         var disclosure: SidebarTabDisclosure?
         var count: Int?
+        var detail: String?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
@@ -115,7 +116,7 @@ final class WorkspaceRowView: SidebarRowView {
             ws: ws, group: row.group, groupColor: row.groupColor,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize,
             agentMark: observedAgentMarkVariant(),
-            disclosure: row.tabDisclosure, count: row.tabCount
+            disclosure: row.tabDisclosure, count: row.tabCount, detail: row.detail
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
@@ -129,8 +130,8 @@ final class WorkspaceRowView: SidebarRowView {
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
         subtitle.font = SidebarStyle.subtitleFont
-        subtitle.stringValue = ws.rowDetail ?? ""
-        hasSubtitle = ws.rowDetail != nil
+        subtitle.stringValue = row.detail ?? ""
+        hasSubtitle = row.detail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
         activityState = ws.activity
         agentMarkVariant = content.agentMark
