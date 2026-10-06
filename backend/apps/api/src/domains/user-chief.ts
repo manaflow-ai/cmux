@@ -80,6 +80,33 @@ export const chiefGrantClasses = (state: UserState, install: string, agent: stri
   return [...classes, "mutate-shared"]
 }
 
+/** An unarchived chief of this user (a chief token may be minted and used for it). */
+export const chiefActive = (state: UserState, agent: string): boolean => {
+  const c = state.chiefs?.[agent]
+  return c !== undefined && c.archived_at === null && state.user !== null && state.user !== undefined && c.owner_user === state.user.id
+}
+
+/**
+ * A chief token's classes: undefined for an unknown or archived chief. The server install placed for this chief
+ * (brain_place) gets the chief's rights only after TeamDO, the server's authority, confirms the server is still
+ * enrolled with no revocation pending (`confirm`, asked on every such request: a revoke in TeamDO counts before
+ * its push reaches UserDO); an unconfirmed placed server is refused outright.
+ */
+export const placedChiefClasses = async (
+  state: UserState,
+  inst: { readonly bound_team?: string },
+  install: string,
+  agent: string,
+  classes: ReadonlyArray<string>,
+  confirm: (team: string, host: string) => Promise<boolean>
+): Promise<ReadonlyArray<string> | undefined> => {
+  if (!chiefActive(state, agent)) return undefined
+  const widened = chiefGrantClasses(state, install, agent, classes)
+  if (widened === classes) return classes
+  const place = state.chiefs?.[agent]?.brain_place
+  return inst.bound_team && place && (await confirm(inst.bound_team, place.host)) ? widened : undefined
+}
+
 /** Active chiefs' ids (the ones that receive the text confirmation level). */
 export const activeChiefs = (state: UserState): ReadonlyArray<string> => Object.values(state.chiefs ?? {}).filter((c) => c.archived_at === null).map((c) => c.id)
 

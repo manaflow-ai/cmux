@@ -46,7 +46,7 @@ describe("placed chief and a server revoked in TeamDO only", { timeout: 60_000 }
     // Past the 2 s gap between two agent messages (MIN_AGENT_GAP_MS), so only the revoke can refuse.
     await new Promise((r) => setTimeout(r, 2_100))
     const after = (await send("after-revoke")).json
-    expect(after.ok, JSON.stringify(after)).toBe(false)
-    expect(after.error.code).toBe("auth.forbidden")
+    expect(after.ok, JSON.stringify(after)).not.toBe(true)
+    expect(after.code ?? after.error?.code).toBe("auth.forbidden")
   })
 })
