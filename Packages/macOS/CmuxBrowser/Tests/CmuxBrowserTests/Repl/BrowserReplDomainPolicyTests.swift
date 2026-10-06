@@ -276,4 +276,26 @@ struct BrowserReplDomainPolicyTests {
             try store.set(name: "bad", value: "not base32!", domains: ["example.com"], totp: true, title: "t")
         }
     }
+
+    /// `policy.site` and `policy.publicSuffix` take a host from agent code
+    /// and run on the session's thread; Punycode is quadratic in a label's
+    /// length and the site walk in its label count. No host name is longer
+    /// than 1024 bytes (253 in ASCII, each label 63), so a longer one is
+    /// compared as given: neither encoded nor walked.
+    @Test("A host past 1024 bytes is neither Punycode-encoded nor walked for its site")
+    func overlongHostIsNotNormalized() throws {
+        let suffixes = BrowserReplPublicSuffixList(isPublicSuffix: { $0 == "com" })
+        let boundary = BrowserReplBoundary(publicSuffixes: suffixes)
+        let label = String((0..<600).compactMap { UnicodeScalar(0x4E00 + $0).map(Character.init) })
+        let unicode = label + ".example.com"
+        #expect(BrowserReplHostName.normalize(unicode) == unicode, "an overlong host was Punycode-encoded")
+        let site = boundary.policyOperation("site", ["host": unicode]).0
+        #expect((try? site.get()) as? String == unicode)
+        let dotted = String(repeating: "a.", count: 600) + "com"
+        #expect((try? boundary.policyOperation("site", ["host": dotted]).0.get()) as? String == dotted)
+        #expect((try? boundary.policyOperation("publicSuffix", ["name": String(repeating: "a.", count: 600) + "com"]).0.get()) as? Bool == false)
+        // A host name within the bound is still normalized.
+        #expect(BrowserReplHostName.normalize("b\u{fc}cher.example.com") == "xn--bcher-kva.example.com")
+        #expect((try? boundary.policyOperation("site", ["host": "a.b.example.com"]).0.get()) as? String == "example.com")
+    }
 }
