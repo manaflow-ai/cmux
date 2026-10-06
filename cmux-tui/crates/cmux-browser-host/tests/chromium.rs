@@ -64,7 +64,7 @@ fn serve() -> u16 {
                          <iframe id=x src=\"http://localhost:{port}/cross\" style=\"width:300px;height:100px\"></iframe>"
                     ),
                     "/child" => "<!doctype html><p id=p>child frame</p>".to_owned(),
-                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p>".to_owned(),
+                    "/cross" => "<!doctype html><p id=c>cross-origin frame</p><input id=ci>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
@@ -621,4 +621,54 @@ fn a_manual_redirect_reports_its_address() {
         .expect("net.fetch");
     assert_eq!(out["redirect"]["status"], 302, "{out}");
     assert_eq!(out["remoteIPAddress"], "127.0.0.1", "the redirect's address is gone: {out}");
+}
+
+/// The host's focus check for secret typing: a field focused inside an
+/// out-of-process (cross-origin) frame is reported with that frame's URL.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn the_focused_field_is_found_in_a_cross_origin_frame() {
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let origin = format!("http://127.0.0.1:{port}");
+    let chromium =
+        HeadlessChromium::launch(&HeadlessOptions::new(binary.into())).expect("launch Chromium");
+    let driver = CdpDriver::attach_browser(chromium.connection().clone(), AGENT, Arc::new(|_| {}))
+        .expect("attach to Chromium");
+    let call = |method: &str, params: Value| -> Value {
+        driver.call(method, &params).unwrap_or_else(|error| panic!("{method}: {error}"))
+    };
+    let target = call("tabs.open", json!({"url": format!("{origin}/")}))["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    call(
+        "tab.navigate",
+        json!({"targetId": target, "url": format!("{origin}/"), "waitUntil": "load"}),
+    );
+
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "world": "page", "source": "() => document.querySelector('#i').focus()"}),
+    );
+    let top = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(top["url"], format!("{origin}/"), "{top}");
+
+    let frames = call("frames.list", json!({"targetId": target}));
+    let cross = frames
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["url"].as_str().is_some_and(|u| u.ends_with("/cross")))
+        .expect("the out-of-process frame is listed")
+        .clone();
+    call(
+        "frame.evaluate",
+        json!({"targetId": target, "frameId": cross["frameId"], "world": "page", "source": "() => document.querySelector('#ci').focus()"}),
+    );
+    let inner = call("frame.focused", json!({"targetId": target}));
+    assert_eq!(inner["url"], format!("http://localhost:{port}/cross"), "{inner}");
+    assert_eq!(inner["frameId"], cross["frameId"]);
 }
