@@ -8,9 +8,18 @@ final class SidebarIconButton: NSButton {
     private(set) lazy var hover = ChromeHover(self, behindContent: true)
     var onPress: (() -> Void)?
 
-    private let symbol: String
+    /// Replacing the symbol or label redraws the button (a disclosure's chevron).
+    var symbol: String { didSet { if symbol != oldValue { renderedSize = 0; renderSymbol() } } }
     private let weight: NSFont.Weight
-    private let label: String
+    var label: String {
+        didSet {
+            guard label != oldValue else { return }
+            setAccessibilityLabel(label)
+            toolTip = label
+            renderedSize = 0
+            renderSymbol()
+        }
+    }
     /// Point size read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
     private var renderedSize: CGFloat = 0
