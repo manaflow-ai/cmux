@@ -20,6 +20,9 @@ final class OmniboxSuggestionPanel {
     private let content = SuggestionCardView()
     private var rows: [SuggestionRowView] = []
     private(set) var overlay: OverlayHandle?
+    /// What `show` last drew and the bar's window rect it drew under, so a
+    /// later layout can tell whether the card must move (`follow`).
+    private var shown: (suggestions: [BrowserSuggestion], highlighted: Int?, anchor: NSRect)?
 
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
@@ -39,6 +42,7 @@ final class OmniboxSuggestionPanel {
         rows.forEach { content.card.addSubview($0) }
 
         let anchorRect = anchor.convert(anchor.bounds, to: nil)
+        shown = (suggestions, highlighted, anchorRect)
         let outset = OmnibarStyle.cardSideOutset
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
@@ -75,7 +79,15 @@ final class OmniboxSuggestionPanel {
         overlay = handle
     }
 
+    /// Draws the open card again when `anchor` moved since it was shown (a
+    /// window resize, or a toolbar render that lands after the rows).
+    func follow(below anchor: NSView, pane: NSView, in window: NSWindow) {
+        guard isVisible, let shown, anchor.convert(anchor.bounds, to: nil) != shown.anchor else { return }
+        show(shown.suggestions, highlighted: shown.highlighted, below: anchor, pane: pane, in: window)
+    }
+
     func highlight(_ index: Int?) {
+        shown?.highlighted = index
         for (offset, row) in rows.enumerated() {
             row.isHighlighted = offset == index
         }
@@ -85,9 +97,10 @@ final class OmniboxSuggestionPanel {
     var rowViews: [SuggestionRowView] { rows }
 
     func dismiss() {
-        let shown = overlay
+        let presented = overlay
         overlay = nil
-        shown?.dismiss()
+        shown = nil
+        presented?.dismiss()
     }
 }
 
