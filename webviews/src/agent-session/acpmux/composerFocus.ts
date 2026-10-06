@@ -48,6 +48,57 @@ export function focusedArea(element: Element | null): string {
   return `${element.tagName.toLowerCase()}${id}${className}`;
 }
 
+/// A composer control with its menu open (Mode, Model, Effort, the location menus). The prompt is a
+/// combobox too (its slash menu): an Escape there stays in the prompt.
+const OPEN_COMPOSER_MENU = '.acpmux-composer [aria-expanded="true"]:not(.acpmux-md)';
+
+/// Escape that closes a composer menu returns the focus to the prompt, as a chat composer does,
+/// whichever way the menu hands focus back on close (each returns it to its button: at once, or
+/// a moment later, as Base UI does). Keydown records that a menu was open; keyup, after the menu
+/// closed, focuses the prompt; a focus the menu returns to one of the composer's controls after
+/// that goes to the prompt too, until the next key or press. A click outside moves no focus.
+function installEscapeToPrompt(focusComposer: () => boolean): () => void {
+  let escaping = false;
+  let returning = false;
+  const promptHasFocus = () => document.activeElement?.closest(".acpmux-composer .acpmux-md") != null;
+  const down = (event: KeyboardEvent) => {
+    returning = false;
+    escaping =
+      event.key === "Escape" &&
+      !event.isComposing &&
+      !promptHasFocus() &&
+      document.querySelector(OPEN_COMPOSER_MENU) !== null;
+  };
+  const up = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || !escaping) return;
+    escaping = false;
+    // A submenu closed (Reasoning): its menu is still open and keeps the keys.
+    if (document.querySelector(OPEN_COMPOSER_MENU)) return;
+    returning = focusComposer();
+  };
+  const focused = (event: FocusEvent) => {
+    if (!returning) return;
+    const target = event.target as Element | null;
+    if (!target?.closest?.(".acpmux-composer") || target.closest(".acpmux-md")) return;
+    returning = false;
+    focusComposer();
+  };
+  const press = () => {
+    escaping = false;
+    returning = false;
+  };
+  window.addEventListener("keydown", down, true);
+  window.addEventListener("keyup", up, true);
+  document.addEventListener("focusin", focused);
+  window.addEventListener("pointerdown", press, true);
+  return () => {
+    window.removeEventListener("keydown", down, true);
+    window.removeEventListener("keyup", up, true);
+    document.removeEventListener("focusin", focused);
+    window.removeEventListener("pointerdown", press, true);
+  };
+}
+
 /// Installs the composer's claim on the keyboard. `focusComposer` focuses the prompt and
 /// returns false when no composer is shown.
 export function useComposerKeyboard(focusComposer: () => boolean) {
@@ -70,7 +121,9 @@ export function useComposerKeyboard(focusComposer: () => boolean) {
     window.addEventListener("focus", claimIfIdle);
     window.addEventListener(COMPOSER_READY_EVENT, claimIfIdle);
     document.addEventListener("keydown", onKey);
+    const removeEscape = installEscapeToPrompt(() => latest.current());
     return () => {
+      removeEscape();
       cancelAnimationFrame(first);
       window.removeEventListener("focus", claimIfIdle);
       window.removeEventListener(COMPOSER_READY_EVENT, claimIfIdle);
