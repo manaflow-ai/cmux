@@ -335,7 +335,14 @@ public final class BrowserReplFrameGate {
     /// the tab to another one reads and sends nothing more. Every script
     /// the gate runs and every input it guards asks it first, and the
     /// driver asks it before each native input event.
+    ///
+    /// A call that was cancelled (its cell timed out, its session was
+    /// reset or closed) is refused too (`cancelled`), so it reads and sends
+    /// nothing more after a suspension in WebKit.
     public func checkTab(in webView: WKWebView) throws {
+        if Task.isCancelled {
+            throw BrowserReplDriverError(code: "cancelled", message: "cancelled because the cell that made the call timed out or its session ended; nothing more was sent to the tab")
+        }
         let (authority, tab) = authority(in: webView)
         guard let tab, let refusal = authority.verdict(BrowserReplAccess(in: tab, capability: .use)).refusal else { return }
         throw BrowserReplDriverError(code: refusal.code, message: refusal.message)

@@ -2127,19 +2127,33 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     /// Runs `body` with the panel's web view in a window. A hidden pane's web
     /// view has none, so it borrows the offscreen render host for the call.
+    ///
+    /// The render host runs `body` in a task of its own; that task is
+    /// cancelled with the call (its cell timed out, its session was reset),
+    /// so each native step's tab check (``BrowserReplFrameGate/checkTab(in:)``)
+    /// stops a cancelled call there too.
     @MainActor
-    private func withWindow<T>(_ panel: BrowserPanel, _ body: @escaping @MainActor (CmuxWebView, NSWindow) async throws -> T) async throws -> T {
+    private func withWindow<T: Sendable>(_ panel: BrowserPanel, _ body: @escaping @MainActor (CmuxWebView, NSWindow) async throws -> T) async throws -> T {
         guard let webView = panel.webView as? CmuxWebView else {
             throw Self.error("unsupported", "This tab does not accept native input")
         }
         if let window = webView.window {
             return try await body(webView, window)
         }
-        return try await panel.withBrowserReplRenderHost {
-            guard let window = webView.window else {
-                throw Self.error("unsupported", "The tab could not be rendered for input")
+        let relay = BrowserReplCancellationRelay()
+        return try await withTaskCancellationHandler {
+            try await panel.withBrowserReplRenderHost {
+                let work = Task { @MainActor () throws -> T in
+                    guard let window = webView.window else {
+                        throw Self.error("unsupported", "The tab could not be rendered for input")
+                    }
+                    return try await body(webView, window)
+                }
+                relay.bind { work.cancel() }
+                return try await work.value
             }
-            return try await body(webView, window)
+        } onCancel: {
+            relay.cancel()
         }
     }
 
@@ -3092,5 +3106,33 @@ private final class BrowserReplRace<T> {
         return try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
         }
+    }
+}
+
+/// Hands a call's cancellation to a task it runs work in that does not
+/// inherit it (the render host's): the work is cancelled when the call is,
+/// also when the call was cancelled before the work began.
+private final class BrowserReplCancellationRelay: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var cancelWork: (@Sendable () -> Void)?
+
+    /// Cancels through `cancel` when the call is cancelled, at once if it already is.
+    func bind(_ cancel: @escaping @Sendable () -> Void) {
+        let now: Bool = lock.withLock {
+            if cancelled { return true }
+            cancelWork = cancel
+            return false
+        }
+        if now { cancel() }
+    }
+
+    func cancel() {
+        let work: (@Sendable () -> Void)? = lock.withLock {
+            cancelled = true
+            defer { cancelWork = nil }
+            return cancelWork
+        }
+        work?()
     }
 }
