@@ -1464,9 +1464,8 @@ fn a_proxy_store_is_named_used_by_cookies_and_kept_with_its_tabs() {
     };
     let session_cookies = names(s.call("cookies.get", &json!({"urls": [origin]})).unwrap());
     assert!(session_cookies.contains(&"brepl_store=private".to_owned()), "{session_cookies:?}");
-    let plain_cookies = names(
-        s.call("cookies.get", &json!({"urls": [origin], "targetId": plain})).unwrap(),
-    );
+    let plain_cookies =
+        names(s.call("cookies.get", &json!({"urls": [origin], "targetId": plain})).unwrap());
     assert!(!plain_cookies.contains(&"brepl_store=private".to_owned()), "{plain_cookies:?}");
     // Keep only the popup: the store must outlive the session for it.
     s.call("tab.keep", &json!({"targetId": popup})).unwrap();
