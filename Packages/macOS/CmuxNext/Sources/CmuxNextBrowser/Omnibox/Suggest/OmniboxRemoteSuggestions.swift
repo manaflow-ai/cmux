@@ -55,8 +55,7 @@ public nonisolated struct OmniboxRemoteSuggestions {
         var rows: [BrowserSuggestion] = []
         for suggestion in suggestions where rows.count < limit {
             let text = suggestion.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Red: the calculator answer is not filtered yet.
-            _ = answer
+            if let answer, answerText(text) == answer { continue }
             guard !text.isEmpty, seen.insert(text.lowercased()).inserted, let url = engine.searchURL(for: text) else { continue }
             var row = BrowserSuggestion(kind: .search, title: text, detail: "", url: url, score: topScore - Double(rows.count))
             row.inlineCompletable = false
