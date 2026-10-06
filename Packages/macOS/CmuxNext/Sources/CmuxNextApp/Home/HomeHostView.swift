@@ -12,12 +12,36 @@ final class HomeHostView: NSView {
     private let transcript: HomeNativeTranscriptView
     private let message = NSTextField(labelWithString: "")
     private var availability: Task<Void, Never>?
+    /// The Chief's engine (harness, model, effort, last turn), over the
+    /// Chief conversation only.
+    private let engineBar: HomeEngineBar
+    private var engineWatch: Task<Void, Never>?
+    private static let engineBarHeight: CGFloat = 28
 
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id)
+        engineBar = HomeEngineBar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         super.init(frame: .zero)
+        engineBar.isHidden = true
+        addSubview(engineBar)
+        let store = service.homeStore
+        // task-owner: lives as long as this view; event-driven (Observation):
+        // shown for the Chief conversation, refreshed on each new message.
+        engineWatch = Task { [weak self] in
+            for await (isChief, _) in Observations({ () -> (Bool, Int) in
+                let chief = store.rows.first { $0.summary.id == id }?.summary.participants.contains { $0.agentClass == .chief } ?? false
+                return (chief, store.transcriptVersion[id] ?? 0)
+            }) {
+                guard let self else { return }
+                if engineBar.isHidden == isChief {
+                    engineBar.isHidden = !isChief
+                    needsLayout = true
+                }
+                if isChief { engineBar.refresh() }
+            }
+        }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
         // Paste, drop and the picker attach files through the store; the view
@@ -43,6 +67,7 @@ final class HomeHostView: NSView {
 
     isolated deinit {
         availability?.cancel()
+        engineWatch?.cancel()
         transcript.stop()
     }
 
@@ -58,7 +83,9 @@ final class HomeHostView: NSView {
 
     override func layout() {
         super.layout()
-        transcript.frame = bounds
+        let bar = engineBar.isHidden ? 0 : Self.engineBarHeight
+        engineBar.frame = NSRect(x: 0, y: bounds.height - bar, width: bounds.width, height: bar)
+        transcript.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - bar)
         let size = message.intrinsicContentSize
         message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
     }

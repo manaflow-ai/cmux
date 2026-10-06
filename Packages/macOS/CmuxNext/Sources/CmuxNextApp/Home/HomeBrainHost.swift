@@ -36,18 +36,22 @@ nonisolated struct HomeBrainHost: Sendable {
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
-        let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
-        let home: URL
-        if let custom = environment["CMUX_NEXT_MUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
-        } else if let tag, !tag.isEmpty {
-            home = base.appendingPathComponent("tags/\(tag)", isDirectory: true)
-        } else {
-            home = base
-        }
+        let home = muxHome(tag: tag, environment: environment, userHome: userHome)
         let bin = bundledBinDirectory
         return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
                              acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
+    }
+
+    /// The mux home: `CMUX_NEXT_MUX_HOME`, else `~/.cmux/mux/tags/<tag>`
+    /// for a tagged build, else `~/.cmux/mux`.
+    static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
+                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
+        if let custom = environment["CMUX_NEXT_MUX_HOME"], !custom.isEmpty {
+            return URL(fileURLWithPath: custom, isDirectory: true)
+        }
+        if let tag, !tag.isEmpty { return base.appendingPathComponent("tags/\(tag)", isDirectory: true) }
+        return base
     }
 
     var arguments: [String] {
