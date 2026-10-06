@@ -78,13 +78,18 @@ on:
         type: string
 
 concurrency:
-  # Main remains serialized because each main run also updates latest/. Keep
-  # push runs keyed by commit: GitHub evaluates workflow concurrency before the
-  # tree-preflight job can compute the immutable tree key, so a branch-wide
-  # cancel can drop the only publisher for an older base tree. Preflight skips
-  # only a superseded push whose newer head has the same key (or a key that is
-  # already complete); distinct keys remain publishable for PR merge trees.
-  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || format('sha-{0}', github.sha) }}
+  # One group per pushed branch (main, feat-cmux-next, each cmux-tui-pin-*),
+  # per PR, and per commit for a manual dispatch. cancel-in-progress stays
+  # false: a group then holds one running run and one pending run, and a newer
+  # push replaces only the pending one. A started run is never cancelled, so no
+  # publish of immutable objects stops mid-upload, and a queued run for an older
+  # branch head is superseded: only the newest head's tree matters, and the
+  # macOS runners are scarce (2026-10-06: 30 runs queued behind ~3 macos-15
+  # slots when every commit had its own group). A superseded commit needs no
+  # tree (pin-cmux-tui.sh says so); publish one on purpose with a dispatch or a
+  # cmux-tui-pin-* push. Main stays serialized because each main run also
+  # updates latest/.
+  group: cmux-tui-artifacts-${{ github.ref == 'refs/heads/main' && 'main' || github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('ref-{0}', github.ref) || format('sha-{0}', github.sha) }}
   cancel-in-progress: false
 
 permissions: {}
