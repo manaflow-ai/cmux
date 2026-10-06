@@ -3,7 +3,6 @@
 //! `tree/YYYY-MM-DD.jsonl` holds `{l, i, text, size}`.
 
 use chrono::{DateTime, Local, SecondsFormat};
-use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use optchat_core::{Kind, NodeId};
@@ -19,18 +18,10 @@ struct MainOut<'a> {
     date: &'a str,
 }
 
-/// What load needs from a message line: its id and a valid kind. The text
-/// must be present but is not kept, so a long log loads without holding it.
+/// A whole message line, as the import reads it.
 #[derive(Deserialize)]
-pub struct MainHead {
+pub struct MainLine {
     pub i: u64,
-    pub kind: String,
-    #[allow(dead_code)] // required to be present, never read
-    text: IgnoredAny,
-}
-
-#[derive(Deserialize)]
-pub struct MainIn {
     pub kind: String,
     pub text: String,
     pub date: String,
@@ -83,6 +74,26 @@ pub fn tree_line(node: NodeId, text: &str) -> std::io::Result<String> {
 /// The local day a line written now goes to.
 pub fn today() -> String {
     Local::now().format("%Y-%m-%d").to_string()
+}
+
+/// The day file a message with this stored `date` goes to: the date's own
+/// local day (its first ten characters), so the day and the date never
+/// disagree around midnight; today for a date in another format.
+pub fn day_of(date: &str) -> String {
+    let day = date.get(..10).unwrap_or("");
+    let ok = day.len() == 10
+        && day.bytes().enumerate().all(|(k, b)| {
+            if k == 4 || k == 7 {
+                b == b'-'
+            } else {
+                b.is_ascii_digit()
+            }
+        });
+    if ok {
+        day.to_owned()
+    } else {
+        today()
+    }
 }
 
 /// The `date` field for a message written now.

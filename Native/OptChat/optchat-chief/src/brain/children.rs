@@ -158,20 +158,24 @@ impl Brain {
             return;
         }
         let orphans = std::mem::take(&mut self.state.orphans);
+        let mut gone = Vec::new();
         for orphan in orphans {
             match crate::turn::adopt_orphan(&*self.agents, &self.chat, &orphan, &*self.log) {
                 Ok(()) => (self.log)(&format!("folded orphan turn session {}", orphan.session)),
-                Err(e) if e.contains("no session matches") => (self.log)(&format!(
-                    "orphan turn session {} is gone from acpmux; dropped ({e})",
-                    orphan.session
-                )),
+                Err(e) if e.contains("no session matches") => {
+                    (self.log)(&format!(
+                        "orphan turn session {} is gone from acpmux; dropped ({e})",
+                        orphan.session
+                    ));
+                    gone.push((crate::state::fold_key(&orphan.session), None));
+                }
                 Err(e) => {
                     (self.log)(&format!("orphan turn session {}: {e}", orphan.session));
                     self.state.orphans.push(orphan);
                 }
             }
         }
-        self.save();
+        self.save_with(gone);
     }
 
     /// After a reconnect: children whose turn ended while the host was away,

@@ -57,3 +57,38 @@ pub fn open(dir: &Path, budget: usize, model: Arc<dyn CompactModel>) -> OptChat 
 }
 
 pub const WAIT: Option<Duration> = Some(Duration::from_secs(30));
+
+/// When set, a crash test runs as the child: it works in this directory
+/// and is aborted at `OPTCHAT_FAULT`.
+pub const CRASH_DIR: &str = "OPTCHAT_CRASH_DIR";
+
+/// The child's directory, when this process is a crash test's child.
+pub fn crash_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os(CRASH_DIR).map(std::path::PathBuf::from)
+}
+
+/// Runs test `name` of this test binary in a child process working in
+/// `dir`, aborted at `point` (`OPTCHAT_FAULT`). True when it was aborted
+/// (a child that never reached the point exits normally).
+pub fn crash_child(name: &str, point: &str, dir: &Path) -> bool {
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", name, "--nocapture", "--test-threads", "1"])
+        .env(CRASH_DIR, dir)
+        .env(FAULT_ENV, point)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let aborted = !out.status.success();
+    assert!(
+        !aborted || stderr.contains("fault injected"),
+        "the child failed without the fault: {stderr}"
+    );
+    aborted
+}
+
+/// Every message in `chat`: (kind, text).
+pub fn log_of(chat: &OptChat) -> Vec<(Kind, String)> {
+    (0..chat.status().messages)
+        .map(|i| chat.message(i).unwrap())
+        .collect()
+}

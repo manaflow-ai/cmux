@@ -159,11 +159,18 @@ impl CompactModel for Deferred {
     }
 }
 
-/// Opens the chat directly (no host running).
-pub fn open_offline(dir: &Path) -> Result<OptChat, String> {
+/// Opens the chat in `dir` with its database `db` directly (no host running).
+pub fn open_offline(dir: &Path, db: &Path) -> Result<OptChat, String> {
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        reporter: Arc::new(|_| {}),
+        // The migration and skipped lines are worth a line; nodes waiting
+        // for the host's compactor are not.
+        reporter: Arc::new(|r| {
+            if !matches!(r, optchat_host::Report::NodeFailed { .. }) {
+                crate::log::log(format!("memory: {r}"))
+            }
+        }),
+        db: Some(db.to_owned()),
         ..Config::default()
     };
     OptChat::open_with(dir, config, Arc::new(Deferred), Arc::new(SystemClock)).map_err(|e| {
@@ -175,8 +182,8 @@ pub fn open_offline(dir: &Path) -> Result<OptChat, String> {
 }
 
 /// Appends `items` to the chat in `dir` (no host may run). Returns how many.
-pub fn import(dir: &Path, items: &[Imported]) -> Result<usize, String> {
-    let chat = open_offline(dir)?;
+pub fn import(dir: &Path, db: &Path, items: &[Imported]) -> Result<usize, String> {
+    let chat = open_offline(dir, db)?;
     let before = chat.status().messages;
     if before > 0 {
         crate::log::log(format!(
@@ -234,8 +241,9 @@ mod tests {
         assert!(parse_import("{\"text\": \"a\", \"date\": \"yesterday\"}").is_err());
         let dir = tempfile::tempdir().unwrap();
         let chat_dir = dir.path().join("chat");
-        assert_eq!(import(&chat_dir, &items).unwrap(), 2);
-        let chat = open_offline(&chat_dir).unwrap();
+        let db = dir.path().join("memory.sqlite3");
+        assert_eq!(import(&chat_dir, &db, &items).unwrap(), 2);
+        let chat = open_offline(&chat_dir, &db).unwrap();
         assert_eq!(chat.stamp(0).as_deref(), Some("2026-03-01T09:30:00-08:00"));
         assert_ne!(chat.stamp(1).as_deref(), Some("2026-03-01T09:30:00-08:00"));
     }
@@ -246,8 +254,9 @@ mod tests {
         let chat_dir = dir.path().join("chat");
         let items =
             parse_import("{\"text\": \"<b>old</b> note\"}\n{\"text\": \"second\"}\n").unwrap();
-        assert_eq!(import(&chat_dir, &items).unwrap(), 2);
-        let chat = open_offline(&chat_dir).unwrap();
+        let db = dir.path().join("memory.sqlite3");
+        assert_eq!(import(&chat_dir, &db, &items).unwrap(), 2);
+        let chat = open_offline(&chat_dir, &db).unwrap();
         assert_eq!(
             chat.message(0),
             Some((Kind::Note, "<b>old</b> note".into()))

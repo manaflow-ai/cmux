@@ -306,11 +306,11 @@ fn user_text(content: &Value) -> Option<String> {
 
 /// How many messages the memory in `chat_dir` holds (no host may run). A
 /// memory that does not exist yet holds none and is not created.
-pub fn existing_messages(chat_dir: &Path) -> Result<u64, String> {
-    if !chat_dir.exists() {
+pub fn existing_messages(chat_dir: &Path, db: &Path) -> Result<u64, String> {
+    if !chat_dir.exists() && !db.exists() {
         return Ok(0);
     }
-    let chat = crate::browse::open_offline(chat_dir)?;
+    let chat = crate::browse::open_offline(chat_dir, db)?;
     let n = chat.status().messages;
     chat.shutdown();
     Ok(n)
@@ -331,14 +331,15 @@ pub fn order_warning(existing: u64) -> Option<String> {
 /// `append_after_live` accepts that the history goes after them.
 pub fn import_history(
     chat_dir: &Path,
+    db: &Path,
     items: &[Imported],
     append_after_live: bool,
 ) -> Result<usize, String> {
-    let existing = existing_messages(chat_dir)?;
+    let existing = existing_messages(chat_dir, db)?;
     if existing > 0 && !append_after_live {
         return Err(format!(
             "refused: the memory already holds {existing} messages, and this older history would appear after them, out of time order. Import into an empty memory, or pass --append-after-live to append it after the current messages anyway"
         ));
     }
-    crate::browse::import(chat_dir, items)
+    crate::browse::import(chat_dir, db, items)
 }

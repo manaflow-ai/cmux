@@ -1,15 +1,50 @@
-//! The host's durable state (`$MUX_HOME/optchat/host.json`), its only writer
-//! being the host. Each entry is a to-do whose effect an owner dedupes (the
-//! conversation owner by idempotency key), so a lost write costs a replay,
-//! never a duplicate reply.
+//! The host's durable state, its only writer being the host. Each entry is
+//! a to-do whose effect an owner dedupes (the conversation owner by
+//! idempotency key), so a lost write costs a replay, never a duplicate reply.
+//!
+//! Since 2026-10-06 it lives in the `state` table of the Chief home's memory
+//! database (`$MUX_HOME/optchat/memory.sqlite3`), one row per top-level
+//! field (`host/<field>`, its JSON value), next to the log it describes, so
+//! the brain can move it in the same transaction as the messages it logs
+//! (`OptChat::append_with`). The old `host.json` is read into the database
+//! once (see `StateFile::attach`).
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use cmux_conversation::Op;
+use optchat_host::{OptChat, StateWrite};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// The prefix of the host state's keys in the `state` table.
+pub const HOST_PREFIX: &str = "host/";
+/// The prefix of the fold positions (`fold/<acpmux session id>`): the last
+/// event seq of a turn session already in the log, written in the same
+/// transaction as the entries folded from it.
+pub const FOLD_PREFIX: &str = "fold/";
+
+/// The state key of a session's fold position.
+pub fn fold_key(session: &str) -> String {
+    format!("{FOLD_PREFIX}{session}")
+}
+
+/// The write that records `after` as `session`'s fold position.
+pub fn fold_write(session: &str, after: u64) -> StateWrite {
+    (fold_key(session), Some(after.to_string()))
+}
+
+/// How far `session`'s events are in the log (0: none recorded).
+pub fn folded(chat: &OptChat, session: &str) -> u64 {
+    chat.state(&fold_key(session))
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HostState {
@@ -278,22 +313,186 @@ pub struct ChildRecord {
     pub floor: u64,
 }
 
-/// The file behind `HostState`.
-#[derive(Clone, Debug)]
+/// Where `HostState` is kept. Attached to a chat (`attach`, which the brain
+/// does), it is the chat database's `state` table; before that, `path` is
+/// the old `host.json`: `save` writes it (tests use that to build an old
+/// home) and `attach` imports it once.
 pub struct StateFile {
     path: PathBuf,
+    chat: Option<Arc<OptChat>>,
+    /// The JSON of each stored field, as last committed: `writes` sends only
+    /// the fields that changed.
+    saved: Mutex<BTreeMap<String, String>>,
+}
+
+impl std::fmt::Debug for StateFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateFile")
+            .field("path", &self.path)
+            .field("attached", &self.chat.is_some())
+            .finish()
+    }
+}
+
+/// The state's fields as `(host/<field>, JSON)`.
+fn fields(state: &HostState) -> BTreeMap<String, String> {
+    match serde_json::to_value(state) {
+        Ok(Value::Object(map)) => map
+            .into_iter()
+            .map(|(k, v)| (format!("{HOST_PREFIX}{k}"), v.to_string()))
+            .collect(),
+        _ => BTreeMap::new(),
+    }
 }
 
 impl StateFile {
     pub fn new(path: &Path) -> StateFile {
         StateFile {
             path: path.to_owned(),
+            chat: None,
+            saved: Mutex::new(BTreeMap::new()),
         }
     }
 
-    /// The saved state; a missing file is the empty state, an unreadable one
-    /// is reported and replaced (every entry is replayable).
+    /// Keeps the state in `chat`'s database from now on. A database with no
+    /// host state yet takes the old `host.json` (when there is one) in one
+    /// transaction, and the file is renamed `host.json.imported`; a later
+    /// start finds the state in the database and leaves any file alone.
+    pub fn attach(mut self, chat: Arc<OptChat>) -> StateFile {
+        let rows = match chat.state_prefix(HOST_PREFIX) {
+            Ok(rows) => rows,
+            Err(e) => {
+                crate::log::log(format!(
+                    "reading the host state: {e}; starting from it empty"
+                ));
+                Vec::new()
+            }
+        };
+        let mut saved: BTreeMap<String, String> = rows.into_iter().collect();
+        if saved.is_empty() && self.path.exists() {
+            let old = self.load_json();
+            let writes: Vec<StateWrite> = fields(&old)
+                .into_iter()
+                .map(|(k, v)| (k, Some(v)))
+                .collect();
+            match chat.put_state(&writes) {
+                Ok(()) => {
+                    saved = writes
+                        .into_iter()
+                        .filter_map(|(k, v)| Some((k, v?)))
+                        .collect();
+                    let kept = self.path.with_extension("json.imported");
+                    if let Err(e) = std::fs::rename(&self.path, &kept) {
+                        crate::log::log(format!("renaming {}: {e}", self.path.display()));
+                    }
+                    crate::log::log(format!(
+                        "moved the host state from {} into the memory database",
+                        self.path.display()
+                    ));
+                }
+                Err(e) => crate::log::log(format!(
+                    "moving {} into the memory database failed: {e}",
+                    self.path.display()
+                )),
+            }
+        }
+        self.saved = Mutex::new(saved);
+        self.chat = Some(chat);
+        self
+    }
+
+    /// The saved state; nothing saved is the empty state, an unreadable
+    /// field is reported and the state starts empty (every entry is
+    /// replayable).
     pub fn load(&self) -> HostState {
+        if self.chat.is_none() {
+            return self.load_json();
+        }
+        let saved = self
+            .saved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut object = serde_json::Map::new();
+        for (k, v) in saved.iter() {
+            let Some(field) = k.strip_prefix(HOST_PREFIX) else {
+                continue;
+            };
+            match serde_json::from_str::<Value>(v) {
+                Ok(value) => {
+                    object.insert(field.to_owned(), value);
+                }
+                Err(e) => crate::log::log(format!("host state field {field} is unreadable ({e})")),
+            }
+        }
+        serde_json::from_value(Value::Object(object)).unwrap_or_else(|e| {
+            crate::log::log(format!(
+                "the host state is unreadable ({e}); starting from an empty state"
+            ));
+            HostState::default()
+        })
+    }
+
+    /// The writes that bring the stored state to `state`: changed fields
+    /// only, removed ones deleted. Pure; `committed` records them once the
+    /// caller's transaction is in.
+    pub fn writes(&self, state: &HostState) -> Vec<StateWrite> {
+        let saved = self
+            .saved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = fields(state);
+        let mut out: Vec<StateWrite> = now
+            .iter()
+            .filter(|(k, v)| saved.get(*k) != Some(*v))
+            .map(|(k, v)| (k.clone(), Some(v.clone())))
+            .collect();
+        out.extend(
+            saved
+                .keys()
+                .filter(|k| !now.contains_key(*k))
+                .map(|k| (k.clone(), None)),
+        );
+        out
+    }
+
+    /// `writes` reached the database.
+    pub fn committed(&self, writes: &[StateWrite]) {
+        let mut saved = self
+            .saved
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (k, v) in writes {
+            if !k.starts_with(HOST_PREFIX) {
+                continue;
+            }
+            match v {
+                Some(v) => saved.insert(k.clone(), v.clone()),
+                None => saved.remove(k),
+            };
+        }
+    }
+
+    /// Saves `state` (and `extra` writes, such as fold positions) in one
+    /// transaction; before `attach`, writes the old `host.json`.
+    pub fn save_with(&self, state: &HostState, extra: Vec<StateWrite>) -> io::Result<()> {
+        let Some(chat) = &self.chat else {
+            return self.save_json(state);
+        };
+        let mut writes = self.writes(state);
+        writes.extend(extra);
+        if writes.is_empty() {
+            return Ok(());
+        }
+        chat.put_state(&writes).map_err(io::Error::other)?;
+        self.committed(&writes);
+        Ok(())
+    }
+
+    pub fn save(&self, state: &HostState) -> io::Result<()> {
+        self.save_with(state, Vec::new())
+    }
+
+    fn load_json(&self) -> HostState {
         match std::fs::read(&self.path) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
                 crate::log::log(format!(
@@ -313,10 +512,9 @@ impl StateFile {
         }
     }
 
-    /// Writes through a temporary file (mode 0600: it holds the outbox,
-    /// replies included), fsyncs it, renames it into place, then fsyncs the
-    /// directory so the rename itself survives a power loss.
-    pub fn save(&self, state: &HostState) -> io::Result<()> {
+    /// The old format: through a temporary file (0600), fsynced, renamed
+    /// into place, the directory fsynced.
+    fn save_json(&self, state: &HostState) -> io::Result<()> {
         let tmp = self
             .path
             .with_extension(format!("json.{}.tmp", std::process::id()));

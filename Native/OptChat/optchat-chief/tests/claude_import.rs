@@ -229,8 +229,9 @@ fn an_import_writes_the_items_with_their_dates_through_the_chat() {
     fixture(&projects);
     let (items, _) = convert_projects(&projects).unwrap();
     let chat_dir = dir.path().join("chat");
-    assert_eq!(import(&chat_dir, &items).unwrap(), items.len());
-    let chat = optchat_chief::browse::open_offline(&chat_dir).unwrap();
+    let db = dir.path().join("memory.sqlite3");
+    assert_eq!(import(&chat_dir, &db, &items).unwrap(), items.len());
+    let chat = optchat_chief::browse::open_offline(&chat_dir, &db).unwrap();
     assert_eq!(
         chat.message(1),
         Some((Kind::User, "fix the build, it fails on CI".into()))
@@ -267,26 +268,34 @@ fn a_write_after_live_messages_is_refused_unless_accepted() {
     let (items, _) = convert_projects(&projects).unwrap();
     // An empty memory takes the history.
     let empty = dir.path().join("empty");
-    assert_eq!(existing_messages(&empty).unwrap(), 0);
+    let empty_db = dir.path().join("empty.sqlite3");
+    assert_eq!(existing_messages(&empty, &empty_db).unwrap(), 0);
     assert_eq!(order_warning(0), None);
-    assert_eq!(import_history(&empty, &items, false).unwrap(), items.len());
+    assert_eq!(
+        import_history(&empty, &empty_db, &items, false).unwrap(),
+        items.len()
+    );
     // A memory with a live message refuses, and writes nothing.
     let live = dir.path().join("live");
+    let live_db = dir.path().join("live.sqlite3");
     {
-        let chat = optchat_chief::browse::open_offline(&live).unwrap();
+        let chat = optchat_chief::browse::open_offline(&live, &live_db).unwrap();
         chat.append(Kind::User, "a live message").unwrap();
         chat.shutdown();
     }
-    assert_eq!(existing_messages(&live).unwrap(), 1);
+    assert_eq!(existing_messages(&live, &live_db).unwrap(), 1);
     let warning = order_warning(1).unwrap();
     assert!(warning.contains("after"), "{warning}");
-    let refused = import_history(&live, &items, false).unwrap_err();
+    let refused = import_history(&live, &live_db, &items, false).unwrap_err();
     assert!(refused.contains("--append-after-live"), "{refused}");
     assert!(refused.contains("after"), "{refused}");
-    assert_eq!(existing_messages(&live).unwrap(), 1);
+    assert_eq!(existing_messages(&live, &live_db).unwrap(), 1);
     // Accepted: appended after the live message.
-    assert_eq!(import_history(&live, &items, true).unwrap(), items.len());
-    let chat = optchat_chief::browse::open_offline(&live).unwrap();
+    assert_eq!(
+        import_history(&live, &live_db, &items, true).unwrap(),
+        items.len()
+    );
+    let chat = optchat_chief::browse::open_offline(&live, &live_db).unwrap();
     assert_eq!(chat.message(0), Some((Kind::User, "a live message".into())));
     assert_eq!(chat.status().messages, 1 + items.len() as u64);
 }

@@ -23,6 +23,7 @@ optchat-chief settings [show | set remote.autoApprove true|false] [--mux-home DI
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
+optchat-chief memory export|import|search|stats ...         the memory database (see `optchat-chief memory`)
 Env: CMUX_DAEMON_SOCKET, MUX_HOME (~/.cmux/mux), MUX_AGENT_TOKEN_FILE,
      OPTCHAT_CHIEF_HARNESS / MUX_HARNESS (claude-sr), OPTCHAT_COMPACTOR_HARNESS (the Chief's),
      MUX_POLICY (approve-all), OPTCHAT_CHIEF_MODEL, ACPMUX_SOCKET / ACPMUX_HOME / ACPMUX_BIN,
@@ -179,7 +180,7 @@ fn main() -> std::process::ExitCode {
         Some("browse") => {
             let paths = Paths::new(&home(&flags));
             let page = optchat_chief::tools::ask_browse(&paths.tools_socket).or_else(|_| {
-                let chat = optchat_chief::browse::open_offline(&paths.chat)?;
+                let chat = optchat_chief::browse::open_offline(&paths.chat, &paths.memory_db)?;
                 let page = optchat_chief::browse::html(&chat);
                 chat.shutdown();
                 Ok::<_, String>(page)
@@ -207,7 +208,9 @@ fn main() -> std::process::ExitCode {
                 .ok_or_else(|| USAGE.to_owned())
                 .and_then(|file| std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}")))
                 .and_then(|text| optchat_chief::browse::parse_import(&text))
-                .and_then(|items| optchat_chief::browse::import(&paths.chat, &items));
+                .and_then(|items| {
+                    optchat_chief::browse::import(&paths.chat, &paths.memory_db, &items)
+                });
             match result {
                 Ok(n) => {
                     println!("imported {n} messages");
@@ -219,6 +222,16 @@ fn main() -> std::process::ExitCode {
                 }
             }
         }
+        Some("memory") => match optchat_chief::memory_cli::run(&flags, &home(&flags)) {
+            Ok(out) => {
+                println!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief memory: {e}");
+                1
+            }
+        },
         Some("import-claude-code") => {
             let paths = Paths::new(&home(&flags));
             let projects = flags
@@ -247,12 +260,16 @@ fn main() -> std::process::ExitCode {
                 if mode == Some("write") {
                     optchat_chief::claude_import::import_history(
                         &paths.chat,
+                        &paths.memory_db,
                         &items,
                         append_after_live,
                     )
                     .map(Some)
                 } else {
-                    match optchat_chief::claude_import::existing_messages(&paths.chat) {
+                    match optchat_chief::claude_import::existing_messages(
+                        &paths.chat,
+                        &paths.memory_db,
+                    ) {
                         Ok(n) => {
                             if let Some(warning) = optchat_chief::claude_import::order_warning(n) {
                                 println!("warning: {warning}");

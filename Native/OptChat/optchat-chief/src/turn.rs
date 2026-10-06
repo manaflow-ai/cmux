@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, Sender, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
-use optchat_host::OptChat;
+use optchat_host::{NewMessage, OptChat};
 use serde_json::Value;
 
 use crate::acpmux::{AgentPort, SessionSpec, TurnSignal};
@@ -171,15 +171,12 @@ pub fn run(
     // initializes must not hold the turn (and every later message) forever.
     let deadline = start.limit.map(|limit| Instant::now() + limit);
     let mut fold = TurnFold::new();
-    let append = |entries: Vec<Entry>| {
-        for entry in entries {
-            if let Err(e) = chat.append(entry.kind, &entry.text) {
-                log(&format!(
-                    "logging a {} entry failed: {e}",
-                    entry.kind.as_str()
-                ));
-            }
-        }
+    // Set once the session exists: entries folded from it carry its fold
+    // position in their transaction.
+    let folding: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
+    let append_at = |entries: Vec<Entry>, seq: u64| {
+        let session = folding.borrow().clone();
+        append_folded(chat, session.as_deref(), &entries, seq, log);
     };
     // Claude only through acpmux's own Claude Code adapter: the profile is
     // found by kind and command, never by the name alone.
@@ -233,6 +230,11 @@ pub fn run(
             return refused(trace, start, &reason);
         }
     };
+    folding.replace(Some(session.clone()));
+    // The session is on record before it can act: a host that stops from
+    // here on folds what it did at the next start, even if the brain never
+    // saved the id (it hears of it through `progress`, later).
+    append_folded(chat, Some(&session), &[], 0, log);
     progress(&session, 0);
     let (tx, rx) = channel();
     interrupt.wake_with(Some(tx.clone()));
@@ -246,11 +248,15 @@ pub fn run(
     }
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
+        let mut entries = Vec::new();
         for event in agents.events(&session, fold.seq())? {
-            append(fold.apply(&event));
+            entries.extend(fold.apply(&event));
         }
         crate::trace::tools(trace, &scope, fold.take_tool_traces());
         if fold.seq() != before {
+            // The entries and the position they reach, in one transaction.
+            append_at(entries, fold.seq());
+            optchat_host::fault("turn:after-fold");
             progress(&session, fold.seq());
         }
         Ok(())
@@ -302,10 +308,14 @@ pub fn run(
                     answered = true;
                     let _ = fetch(&mut fold);
                     let limit = start.limit.unwrap_or_default();
-                    append(fold.finish(Some(format!(
-                        "the turn ran past its limit of {} minutes and was stopped",
-                        limit.as_secs() / 60
-                    ))));
+                    let seq = fold.seq();
+                    append_at(
+                        fold.finish(Some(format!(
+                            "the turn ran past its limit of {} minutes and was stopped",
+                            limit.as_secs() / 60
+                        ))),
+                        seq,
+                    );
                     break;
                 }
                 Err(RecvTimeoutError::Disconnected) => TurnSignal::Lost,
@@ -350,7 +360,8 @@ pub fn run(
                     .and_then(stop_error);
                 let fetched = fetch(&mut fold);
                 let error = answer.err().or_else(|| fetched.err()).or(stopped);
-                append(fold.finish(error));
+                let seq = fold.seq();
+                append_at(fold.finish(error), seq);
                 break;
             }
             TurnSignal::Lost => {
@@ -364,9 +375,13 @@ pub fn run(
                     session: session.clone(),
                     after: fold.seq(),
                 });
-                append(fold.finish(Some(
-                    "the acpmux connection was lost during the turn".into(),
-                )));
+                let seq = fold.seq();
+                append_at(
+                    fold.finish(Some(
+                        "the acpmux connection was lost during the turn".into(),
+                    )),
+                    seq,
+                );
                 break;
             }
         }
@@ -476,33 +491,64 @@ pub fn usage_line(
     )
 }
 
+/// Logs folded entries; with a session, its fold position `seq` commits in
+/// the same transaction (a restart resumes after it, so no entry is logged
+/// twice and none is skipped).
+fn append_folded(
+    chat: &OptChat,
+    session: Option<&str>,
+    entries: &[Entry],
+    seq: u64,
+    log: &dyn Fn(&str),
+) {
+    let messages: Vec<NewMessage<'_>> = entries
+        .iter()
+        .map(|e| NewMessage::new(e.kind, &e.text))
+        .collect();
+    if messages.is_empty() && session.is_none() {
+        return;
+    }
+    let result = chat.append_with(&messages, |_| {
+        session
+            .map(|s| vec![crate::state::fold_write(s, seq)])
+            .unwrap_or_default()
+    });
+    if let Err(e) = result {
+        let kinds: Vec<&str> = entries.iter().map(|e| e.kind.as_str()).collect();
+        log(&format!(
+            "logging {} entries ({}) failed: {e}",
+            entries.len(),
+            kinds.join(", ")
+        ));
+    }
+}
+
 /// Folds the rest of an orphaned turn into the log, then removes its
-/// session. Err leaves the orphan for the next connect.
+/// session. Err leaves the orphan for the next connect. It resumes after
+/// the later of the orphan's saved position and the stored fold position.
 pub fn adopt_orphan(
     agents: &dyn AgentPort,
     chat: &OptChat,
     orphan: &Orphan,
     log: &dyn Fn(&str),
 ) -> Result<(), String> {
-    let mut fold = TurnFold::after(orphan.after);
-    for event in agents.events(&orphan.session, orphan.after)? {
-        for entry in fold.apply(&event) {
-            if let Err(e) = chat.append(entry.kind, &entry.text) {
-                log(&format!(
-                    "logging an orphan's {} entry failed: {e}",
-                    entry.kind.as_str()
-                ));
-            }
-        }
+    let after = orphan
+        .after
+        .max(crate::state::folded(chat, &orphan.session));
+    let mut fold = TurnFold::after(after);
+    let mut entries = Vec::new();
+    for event in agents.events(&orphan.session, after)? {
+        entries.extend(fold.apply(&event));
     }
     // Whatever it was still saying when it was removed.
-    for entry in fold.finish(None) {
-        if let Err(e) = chat.append(entry.kind, &entry.text) {
-            log(&format!(
-                "logging an orphan's {} entry failed: {e}",
-                entry.kind.as_str()
-            ));
-        }
+    entries.extend(fold.finish(None));
+    append_folded(chat, Some(&orphan.session), &entries, fold.seq(), log);
+    agents.end_session(&orphan.session)?;
+    if let Err(e) = chat.put_state(&[(crate::state::fold_key(&orphan.session), None)]) {
+        log(&format!(
+            "forgetting orphan {}'s fold position: {e}",
+            orphan.session
+        ));
     }
-    agents.end_session(&orphan.session)
+    Ok(())
 }
