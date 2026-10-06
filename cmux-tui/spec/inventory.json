@@ -406,6 +406,7 @@
     ],
     "local-admin": [
       "server-stats",
+      "subscribe-activity",
       "set-terminal-command-history",
       "register-browser-provider",
       "get-browser-provider",
@@ -759,6 +760,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "activity-changed",
       "streams": [
         "control"
       ]

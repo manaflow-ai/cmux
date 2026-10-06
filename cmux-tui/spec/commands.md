@@ -779,6 +779,40 @@ Example:
 {"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
 ```
 
+### subscribe-activity
+
+| Field | Value |
+| --- | --- |
+| name | `subscribe-activity` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `vm-activity-v1` |
+| profile | local-admin (trusted Unix socket connections only) |
+
+Opens a stream of the daemon's activity facts for the cmux Cloud VM agent, which forwards them in `cloud.vm.status.report` so the idle pause acts on real activity (plans/cmux-next/cloud-automation.md 27). The reply carries the current snapshot; then `activity-changed` events follow each change, at most one per second (leading edge plus one trailing event), never on a timer. Times and counts only: no content and no surface ids. `attached_clients` counts attached connections whose `set-client-info` kind is `tui`, `web`, `mac` or `frontend`; `live_agents` counts agents that are working or blocked; `last_user_input_at_ms` is the newest keyboard, paste or mouse input from an attached client (a one-shot `send` from an unattached connection does not count); `last_agent_action_at_ms` is the newest agent hook commit or agent state report. At most 16 subscribers; closing the connection ends the subscription. Servers advertise `vm-activity-v1` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  activity:object{
+    attached_clients:uint32,
+    live_agents:uint32,
+    last_user_input_at_ms:uint64|null,
+    last_agent_action_at_ms:uint64|null
+  }
+}
+```
+
+Example:
+
+```json
+{"id":1,"cmd":"subscribe-activity"}
+{"id":1,"ok":true,"data":{"activity":{"attached_clients":1,"live_agents":0,"last_user_input_at_ms":1791246114793,"last_agent_action_at_ms":null}}}
+{"event":"activity-changed","activity":{"attached_clients":1,"live_agents":1,"last_user_input_at_ms":1791246114793,"last_agent_action_at_ms":1791246120001}}
+```
+
 ### register-browser-provider / get-browser-provider
 
 | Field | Value |

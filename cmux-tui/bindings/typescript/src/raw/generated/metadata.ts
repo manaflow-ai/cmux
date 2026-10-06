@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 55b3f33a84982ee0c570102451cb18c6ed6fda3151ca67445e0281c1b38d06a2. */
+/* cmux-tui mux protocol 12, IR b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "55b3f33a84982ee0c570102451cb18c6ed6fda3151ca67445e0281c1b38d06a2" as const;
+export const SDK_IR_SHA256 = "b97b29ea6eb2cf4288745d8799d73ad8f53fcd5b147b5ee27e370671ee57a1a1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2560,6 +2560,24 @@ export const COMMAND_METADATA = {
       "surface filtering occurs before the bounded mailbox."
     ]
   },
+  "subscribe-activity": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "activity-changed"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+      "At most 16 subscribers."
+    ]
+  },
   "swap-pane": {
     "authority": "control",
     "since": 6,
@@ -2869,6 +2887,14 @@ export const COMMAND_METADATA = {
   }
 } as const;
 export const EVENT_METADATA = {
+  "activity-changed": {
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "agent-changed": {
     "since": 11,
     "capability": null,
@@ -3416,6 +3442,65 @@ export interface CommandSchema {
   readonly result: TypeSchema;
 }
 export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "ActivitySnapshot": {
+    "additional_properties": false,
+    "constraints": [
+      "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+      "live_agents counts agents whose state is working or blocked.",
+      "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+      "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "Times and counts only: no content and no surface ids."
+    ],
+    "fields": {
+      "attached_clients": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "last_agent_action_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_user_input_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "live_agents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ActivitySubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
@@ -21002,6 +21087,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "subscribe-activity": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ActivitySubscribeResult"
+    }
+  },
   "swap-pane": {
     "request": {
       "additional_properties": false,
@@ -22107,6 +22203,28 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   }
 };
 export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "activity-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "activity-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-changed": {
     "additional_properties": false,
     "fields": {
