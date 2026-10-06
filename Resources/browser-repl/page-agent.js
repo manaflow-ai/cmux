@@ -334,17 +334,35 @@
     return !(parent && parent.isContentEditable);
   }
 
-  function pseudoText(el, pseudo) {
+  const PSEUDO_ESCAPES = { __proto__: null, n: "\n", r: "\r", t: "\t", f: "\f", '"': '"', "'": "'", "\\": "\\" };
+  // The text of `el`'s generated content (`pseudo`): its quoted strings,
+  // with \n, \r, \t, \f, quote and backslash escapes read (others kept as
+  // written). The page sets how long the value is, so it is read one
+  // character at a time and only as far as `ctx`'s size budget can use
+  // (twice what is left: an escape takes two characters); a value cut
+  // there leaves CUT and stops the read ("size"). The caller fits it.
+  function pseudoText(el, pseudo, ctx) {
     const cs = styleOf(el, pseudo);
     if (!cs || cs.display === "none" || cs.visibility === "hidden") return "";
     const content = cs.content;
     if (!content || content === "none" || content === "normal") return "";
+    const end = Math.min(content.length, 2 * ctx.sizeLeft + 2);
     let out = "";
-    const re = /"((?:[^"\\]|\\[\s\S])*)"|'((?:[^'\\]|\\[\s\S])*)'/g;
-    let m;
-    while ((m = re.exec(content))) {
-      const raw = m[1] !== undefined ? m[1] : m[2];
-      out += raw.replace(/\\([nrtf"'\\])/g, (_, c) => ({ n: "\n", r: "\r", t: "\t", f: "\f" })[c] || c);
+    for (let i = 0; i < end; i++) {
+      const quote = content[i];
+      if (quote !== '"' && quote !== "'") continue;
+      for (i++; i < end && content[i] !== quote; i++) {
+        let c = content[i];
+        if (c === "\\" && i + 1 < end) {
+          const next = content[++i];
+          c = next in PSEUDO_ESCAPES ? PSEUDO_ESCAPES[next] : c + next;
+        }
+        out += c;
+      }
+    }
+    if (end < content.length) {
+      if (!ctx.truncated) ctx.truncated = "size";
+      out += CUT;
     }
     return out;
   }
@@ -869,10 +887,7 @@
     }
     if (isContentEditableHost(el)) {
       if (!ctx) return normalize(el.innerText) || null;
-      const b = readBudget({ maxNodes: Math.max(1, ctx.left), maxSize: Math.max(1, ctx.sizeLeft) });
-      const text = boundedInnerText(el, b);
-      spend(ctx, b.nodes - b.left);
-      return normalize(text) || null;
+      return normalize(readWithin(ctx, boundedInnerText, el)) || null;
     }
     if (tag === "progress" || tag === "meter") return el.hasAttribute("value") ? String(el.value) : null;
     if (VALUE_ROLES.has(role)) return cutAttr(el.getAttribute("aria-valuetext") || el.getAttribute("aria-valuenow")) || null;
@@ -1081,6 +1096,17 @@
     let end = ctx.sizeLeft;
     if (end > 0 && /[\ud800-\udbff]/.test(s[end - 1])) end--;
     return s.slice(0, end) + CUT;
+  }
+
+  // `read` (a bounded DOM read below) of `node` within what `ctx` has
+  // left: its nodes charged to `ctx`, and a read it cut stops `ctx` too.
+  // Characters are charged when the caller fits what it keeps.
+  function readWithin(ctx, read, node) {
+    const b = readBudget({ maxNodes: Math.max(1, ctx.left), maxSize: Math.max(1, ctx.sizeLeft) });
+    const text = read(node, b);
+    spend(ctx, b.nodes - b.left);
+    if (b.truncated && !ctx.truncated) ctx.truncated = b.truncated;
+    return text;
   }
 
   // ---------------------------------------------------------------------------
@@ -1335,7 +1361,7 @@
   }
 
   function visitChildren(el, out, ctx, visible, ariaHidden, skipText) {
-    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before")));
+    if (visible && !skipText) out.push(fit(ctx, pseudoText(el, "::before", ctx)));
     let assigned = false;
     if (tagOf(el) === "slot") {
       for (const child of slotAssigned(el, (yielded) => !ctx.truncated && (yielded || spend(ctx, 1)))) {
@@ -1361,7 +1387,7 @@
         if (owned && owned !== el) visitNode(owned, out, ctx, visible, ariaHidden, skipText);
       }
     }
-    if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after")));
+    if (visible && !skipText && !ctx.truncated) out.push(fit(ctx, pseudoText(el, "::after", ctx)));
   }
 
   // Clipping by overflow. An element that lies entirely outside the box of
@@ -1514,10 +1540,20 @@
         else if (url.offsite) node.offsite = 1;
       }
     }
-    const placeholder = el.getAttribute("placeholder");
-    if (placeholder && normalize(placeholder) !== name && (tag === "input" || tag === "textarea")) node.placeholder = fit(ctx, normalize(placeholder));
+    const placeholderAttribute = el.getAttribute("placeholder");
+    if (placeholderAttribute && (tag === "input" || tag === "textarea")) {
+      // Cut where the budget ends before it is normalized.
+      const placeholder = normalize(head(ctx, placeholderAttribute));
+      if (placeholder !== name) node.placeholder = fit(ctx, placeholder);
+    }
     if (tag === "select") {
-      const optionName = (o) => (chargeSize(ctx, NODE_SIZE), fit(ctx, normalize(o.label || o.textContent)));
+      // As `label || textContent`: the label attribute cut before it is
+      // normalized, else the option's text read within the budget.
+      const optionName = (o) => {
+        chargeSize(ctx, NODE_SIZE);
+        const label = normalize(head(ctx, o.getAttribute("label") || ""));
+        return fit(ctx, label || normalize(readWithin(ctx, boundedTextContent, o)));
+      };
       const option = (o) => (o.selected ? { name: optionName(o), selected: true } : { name: optionName(o) });
       // A list box shows its options; a drop-down shows them on request. A
       // closed drop-down prints its first INLINE_OPTIONS and a count, so only
