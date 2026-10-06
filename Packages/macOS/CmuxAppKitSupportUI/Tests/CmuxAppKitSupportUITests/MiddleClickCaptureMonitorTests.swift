@@ -128,4 +128,46 @@ import Testing
         #expect(!consumed)
         #expect(invoked == 0)
     }
+
+    // MARK: Delivery through the registered monitor
+
+    /// Builds a real middle-button `otherMouseDown` aimed at `locationInWindow` of `window`.
+    private func middleMouseDown(in window: NSWindow, at locationInWindow: NSPoint) throws -> NSEvent {
+        let screenHeight = try #require(NSScreen.screens.first?.frame.height)
+        let screenPoint = window.convertPoint(toScreen: locationInWindow)
+        let cgEvent = try #require(CGEvent(
+            mouseEventSource: CGEventSource(stateID: .hidSystemState),
+            mouseType: .otherMouseDown,
+            mouseCursorPosition: CGPoint(x: screenPoint.x, y: screenHeight - screenPoint.y),
+            mouseButton: .center
+        ))
+        cgEvent.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+        let event = try #require(NSEvent(cgEvent: cgEvent))
+        try #require(event.buttonNumber == 2)
+        return event
+    }
+
+    @Test func monitorRegisteredInWindowFiresForMiddlePressAndStopsAfterRemoval() throws {
+        _ = NSApplication.shared
+        let view = MiddleClickCaptureView()
+        var invoked = 0
+        view.onMiddleClick = { invoked += 1 }
+        let window = makeWindow(capture: view)
+        window.orderBack(nil)
+        defer { window.close() }
+        try #require(window.windowNumber > 0)
+
+        // Inside the view: the monitor runs `onMiddleClick` once for a real event.
+        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 60, y: 25)))
+        #expect(invoked == 1)
+
+        // Outside the view: the monitor lets the event through untouched.
+        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 180, y: 25)))
+        #expect(invoked == 1)
+
+        // Once the view leaves its window the monitor is gone.
+        view.removeFromSuperview()
+        NSApp.sendEvent(try middleMouseDown(in: window, at: NSPoint(x: 60, y: 25)))
+        #expect(invoked == 1)
+    }
 }
