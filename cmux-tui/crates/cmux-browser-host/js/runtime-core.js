@@ -2082,6 +2082,11 @@
       // A finished download's path is state: use it when the event came.
       const done = this._outcome;
       const { path } = done && done.path ? done : await this._page._session.call("download.path", { downloadId: this._p.downloadId });
+      // The reply can overtake the download.finished event (they travel
+      // apart): answer once the event is in, so state read after path()
+      // (session.downloads()) is current. The driver answered, so the
+      // download finished and its event is on the way.
+      await this._finished;
       if (this._page._session.onDownloadPath) this._page._session.onDownloadPath(path);
       return path;
     }

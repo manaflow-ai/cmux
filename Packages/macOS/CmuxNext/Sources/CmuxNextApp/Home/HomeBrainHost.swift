@@ -18,8 +18,11 @@ import os
 /// DevTools channel rule); Release and RC never bundle or start it: Home
 /// works and the Chief does not answer. Both keep the
 /// `host --daemon-socket --mux-home` contract and one lock per mux home.
-/// Tagged builds use `~/.cmux/mux/tags/<tag>` so a test never touches the
-/// real mux memory.
+/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
+/// every build, so the memory is one history; isolated launches (agent
+/// preflights, tests) get their own. The host lock keeps one host per home:
+/// a second build's launch exits at once and its Home shows the running
+/// host's conversation, which lives in the Chief home's own owner.
 nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -38,8 +41,8 @@ nonisolated struct HomeBrainHost: Sendable {
         DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
     }
 
-    static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
+    static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
+                        environment: [String: String] = ProcessInfo.processInfo.environment,
                         bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
                         bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
                                                                                       isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
@@ -48,22 +51,21 @@ nonisolated struct HomeBrainHost: Sendable {
         guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
-        let home = muxHome(tag: tag, environment: environment, userHome: userHome)
-        let bin = bundledBinDirectory
-        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
+        // The Chief's turns and subagents run on the Chief home's acpmux, never
+        // a tag's: a host started later by another build finds the sessions
+        // its state names.
+        var acpmuxEnvironment = environment
+        acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
+        acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
+        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
+                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
     }
 
-    /// The mux home: `CMUX_NEXT_MUX_HOME`, else `~/.cmux/mux/tags/<tag>`
-    /// for a tagged build, else `~/.cmux/mux`.
+    /// The Chief home's mux home (`ChiefHome`), the same for every build of
+    /// one account; the engine bar, sidebar and files read it.
     static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
                         userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
-        let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
-        if let custom = environment["CMUX_NEXT_MUX_HOME"], !custom.isEmpty {
-            return URL(fileURLWithPath: custom, isDirectory: true)
-        }
-        if let tag, !tag.isEmpty { return base.appendingPathComponent("tags/\(tag)", isDirectory: true) }
-        return base
+        ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
     var arguments: [String] {
@@ -74,7 +76,10 @@ nonisolated struct HomeBrainHost: Sendable {
     var childEnvironment: [String: String] {
         var variables: [String: String] = [
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
-            "CMUX_SOCKET_PATH": controlSocket,
+            // Constant links to the app that last opened Home (ChiefAppLinks):
+            // the host outlives the app that started it.
+            "CMUX_SOCKET_PATH": ChiefAppLinks.controlLink(ChiefHome(root: muxHome, isolated: false)).path,
+            "CMUX_APP_DAEMON_SOCKET": ChiefAppLinks.daemonLink(ChiefHome(root: muxHome, isolated: false)).path,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
