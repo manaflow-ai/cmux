@@ -12,6 +12,7 @@ enum CloudChiefStatus {
     /// How many messages the panel reads.
     nonisolated static let tail = 20
 
+    // crash-allow: ISO8601DateFormatter is documented thread safe; the instance is never mutated after init.
     nonisolated(unsafe) private static let dates: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
