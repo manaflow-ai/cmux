@@ -20,21 +20,24 @@ use serde_json::{Value, json};
 /// closes and the socket goes, as `acpmux` does on `_acpmux/shutdown`.
 fn serve_once_then_shut_down(listener: UnixListener, socket: std::path::PathBuf) {
     std::thread::spawn(move || {
-        let Some(Ok(conn)) = listener.incoming().next() else { return };
-        let mut out = conn.try_clone().unwrap();
-        for line in BufReader::new(conn).lines() {
-            let Ok(line) = line else { return };
-            let req: Value = serde_json::from_str(&line).unwrap();
-            let id = req["id"].clone();
-            let result = if req["method"] == "_acpmux/sessions" { json!({"sessions": []}) } else { json!({}) };
-            writeln!(out, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result})).unwrap();
-            if req["method"] == "_acpmux/watch" {
-                // Up is reported after the watch; then the daemon ends.
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                drop(listener);
-                let _ = std::fs::remove_file(&socket);
-                let _ = out.shutdown(std::net::Shutdown::Both);
-                return;
+        // A probe (the host's reachability check) connects and closes; the
+        // link is the connection that sends requests.
+        for conn in listener.incoming() {
+            let Ok(conn) = conn else { return };
+            let mut out = conn.try_clone().unwrap();
+            for line in BufReader::new(conn).lines() {
+                let Ok(line) = line else { break };
+                let req: Value = serde_json::from_str(&line).unwrap();
+                let id = req["id"].clone();
+                let result = if req["method"] == "_acpmux/sessions" { json!({"sessions": []}) } else { json!({}) };
+                writeln!(out, "{}", json!({"jsonrpc": "2.0", "id": id, "result": result})).unwrap();
+                if req["method"] == "_acpmux/sessions" {
+                    // Up is reported after the session list; then the daemon ends.
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let _ = std::fs::remove_file(&socket);
+                    let _ = out.shutdown(std::net::Shutdown::Both);
+                    return;
+                }
             }
         }
     });
@@ -57,7 +60,10 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
     let acpmux = Acpmux::new(socket, None, Vec::new());
     let (tx, rx) = channel();
     let sink = Mutex::new(tx);
-    acpmux.spawn_link(Arc::new(move |e| { let _ = sink.lock().unwrap().send(e); }), Arc::new(|_: &str| {}));
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let logged = lines.clone();
+    acpmux.spawn_link(Arc::new(move |e| { let _ = sink.lock().unwrap().send(e); }),
+                      Arc::new(move |line: &str| logged.lock().unwrap().push(line.to_owned())));
     let mut seen = Vec::new();
     let ended = loop {
         match rx.recv_timeout(common::WAIT) {
@@ -66,7 +72,7 @@ fn after_its_acpmux_daemon_shuts_down_the_host_starts_no_other() {
             Err(_) => break false,
         }
     };
-    assert!(ended, "the link reports the daemon's end; saw {seen:?}");
+    assert!(ended, "the link reports the daemon's end; saw {seen:?}; log {:?}", lines.lock().unwrap());
     std::thread::sleep(std::time::Duration::from_millis(1500));
     assert!(!marker.exists(), "no acpmux daemon was started again");
 }
