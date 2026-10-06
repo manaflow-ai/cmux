@@ -1,6 +1,5 @@
 {
   "//": "Files not yet on src/ui and their count of raw widget roles, tab indexes, key handlers and portals (test/ui-rules.ts). The count may only go down; migrate a file, then delete its line. Order and owners: plans/cmux-next/a11y-foundation.md.",
-  "agent-session/acpmux/App.tsx": 2,
   "agent-session/acpmux/changeIcons.tsx": 1,
   "agent-session/acpmux/changes/ChangedFilesTree.tsx": 1,
   "agent-session/acpmux/changes/FileMenu.tsx": 5,
