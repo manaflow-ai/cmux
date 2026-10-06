@@ -81,6 +81,16 @@ if ! grep -Fq 'const headSha = context.sha;' "$WORKFLOW_FILE"; then
 fi
 
 if ! awk '
+  /^  decide:/ { in_decide=1; next }
+  in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
+  in_decide && /vars\.CI_NIGHTLY_DECIDE_RUNNER/ && /vars\.LINUX_RUNNER/ { saw_runner_override=1 }
+  END { exit !saw_runner_override }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the short nightly decide gate must use the dedicated runner override with the paid Linux fallback"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Download signing inputs \(parallel\)/ { in_download=1; next }
   in_download && /^      - name:/ { in_download=0 }
   in_download && /id: signing-inputs-parallel/ { saw_id=1 }
