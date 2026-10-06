@@ -352,6 +352,94 @@ describe("acpmux composer pickers", () => {
     expect(button("Model")!.textContent).toBe("claude-opus-5-5");
   });
 
+  describe("an agent's own default model and reasoning", () => {
+    const claude = (summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>>): AcpmuxSnapshot => ({
+      ...snapshot(),
+      catalog: [
+        {
+          id: "claude",
+          name: "Claude Code",
+          models: [
+            { id: "default", name: "Default (Claude Code's choice)" },
+            { id: "claude-opus-5-5", name: "Opus 5.5" },
+            { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+          ],
+        },
+      ],
+      summary: { sessionId: "s", harness: "claude", model: "default", ...summary },
+    });
+    const defaultEffort = {
+      id: "effort",
+      category: "thought_level",
+      currentValue: "default",
+      options: [
+        { value: "default", name: "Default (model's choice)" },
+        { value: "low", name: "Low" },
+        { value: "high", name: "High" },
+      ],
+    };
+    const resolvedTo = (model: string) => ({
+      id: "model",
+      category: "model",
+      currentValue: model,
+      options: [
+        { value: "default", name: "Default (Claude Code's choice)" },
+        { value: "claude-opus-5-5", name: "Opus 5.5" },
+      ],
+    });
+    const store = new Map<string, string>();
+    const savedStorage = globals.localStorage;
+    beforeEach(() => {
+      store.clear();
+      globals.localStorage = {
+        getItem: (name: string) => store.get(name) ?? null,
+        setItem: (name: string, value: string) => void store.set(name, value),
+      };
+    });
+    afterEach(() => {
+      globals.localStorage = savedStorage;
+    });
+
+    test('the chips name the model the default runs and never the agent\'s "choice" phrasing', async () => {
+      await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Opus 5.5");
+      expect(button("Effort")!.textContent).toBe("Reasoning");
+      await act(async () => button("Model")!.click());
+      const menu = doc.querySelector(".acpmux-mp[role=menu]")!;
+      expect(menu.textContent).not.toMatch(/choice/i);
+      // One row for the default, named for its model with a "Default" hint, in place of a
+      // "Claude Code" provider; the reasoning row says "Default" once.
+      expect(rowLabels()).not.toContain("Claude Code");
+      const fallback = [...menu.querySelectorAll(".acpmux-mp-row")].find(
+        (row) => row.getAttribute("aria-checked") === "true",
+      )!;
+      expect(fallback.querySelector(".acpmux-menu-label")!.textContent).toBe("Opus 5.5");
+      expect(fallback.textContent).toContain("Default");
+      await key(button("Model")!, "Escape");
+      await act(async () => button("Effort")!.click());
+      expect(doc.querySelector(".acpmux-effort-title")!.textContent).toBe("Default");
+      expect(doc.querySelector(".acpmux-effort-model")!.textContent).toBe("Opus 5.5");
+      expect(doc.body.textContent).not.toMatch(/choice/i);
+    });
+
+    test('before the agent starts, the default names the model it last resolved to, else "Default"', async () => {
+      await render(claude({ configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Default");
+      await render(claude({ configOptions: [resolvedTo("claude-opus-5-5"), defaultEffort] }));
+      await render(claude({ sessionId: "next", configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Opus 5.5");
+    });
+
+    test("a model picked by name keeps its name; a recent at the default effort shows no effort", async () => {
+      await render(claude({ model: "claude-sonnet-5-5", configOptions: [defaultEffort] }));
+      expect(button("Model")!.textContent).toBe("Sonnet 5.5");
+      await settle();
+      await act(async () => button("Model")!.click());
+      const recent = doc.querySelector(".acpmux-mp-row[aria-checked=true]")!;
+      expect(recent.textContent).not.toMatch(/default|choice/i);
+    });
+  });
+
   test("automation opens a menu by its label, through the click path, with no pointer event", async () => {
     await render(snapshot({ configOptions: [effort] }));
     expect(pickerLabels().sort()).toEqual(["Effort", "Model"]);
