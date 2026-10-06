@@ -138,16 +138,46 @@ page="$work_dir/index.html"
 cat > "$page" <<'HTML'
 <!doctype html>
 <meta charset="utf-8">
-<title>cmux dev builds</title>
+<title id="page-title"></title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font:15px system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;color:#17202a}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:9px;border-bottom:1px solid #ddd}code{font-family:ui-monospace,monospace}</style>
-<h1>cmux dev builds</h1>
-<p>Fleet builds from green merges. Each track updates itself through Sparkle.</p>
-<div id="builds">Loading…</div>
+<h1 id="heading"></h1>
+<p id="subtitle"></p>
+<div id="builds"></div>
 <script>
+const translations = {
+  en: {heading:'cmux dev builds',subtitle:'Fleet builds from green merges. Each track updates itself through Sparkle.',loading:'Loading…',commit:'Commit',title:'Title',published:'Published',download:'Download',zip:'zip'},
+  ja: {heading:'cmux 開発ビルド',subtitle:'グリーンマージから作成されたフリートビルドです。各トラックは Sparkle で自動更新されます。',loading:'読み込み中…',commit:'コミット',title:'タイトル',published:'公開日時',download:'ダウンロード',zip:'zip'},
+  'zh-CN': {heading:'cmux 开发版本',subtitle:'来自绿色合并的舰队构建。每个轨道都会通过 Sparkle 自动更新。',loading:'正在加载…',commit:'提交',title:'标题',published:'发布时间',download:'下载',zip:'zip'},
+  'zh-TW': {heading:'cmux 開發版本',subtitle:'來自綠色合併的艦隊建置。每個軌道都會透過 Sparkle 自動更新。',loading:'載入中…',commit:'提交',title:'標題',published:'發布時間',download:'下載',zip:'zip'},
+  ko: {heading:'cmux 개발 빌드',subtitle:'통과한 병합에서 생성된 fleet 빌드입니다. 각 트랙은 Sparkle로 자동 업데이트됩니다.',loading:'로드 중…',commit:'커밋',title:'제목',published:'게시됨',download:'다운로드',zip:'zip'},
+  de: {heading:'cmux Entwicklungs-Builds',subtitle:'Fleet-Builds aus grünen Merges. Jeder Track aktualisiert sich über Sparkle.',loading:'Wird geladen…',commit:'Commit',title:'Titel',published:'Veröffentlicht',download:'Download',zip:'zip'},
+  es: {heading:'Compilaciones de desarrollo de cmux',subtitle:'Compilaciones del fleet a partir de merges correctos. Cada pista se actualiza con Sparkle.',loading:'Cargando…',commit:'Commit',title:'Título',published:'Publicado',download:'Descarga',zip:'zip'},
+  fr: {heading:'Builds de développement cmux',subtitle:'Builds du fleet issus de merges réussis. Chaque piste se met à jour avec Sparkle.',loading:'Chargement…',commit:'Commit',title:'Titre',published:'Publié',download:'Téléchargement',zip:'zip'},
+  it: {heading:'Build di sviluppo cmux',subtitle:'Build del fleet dai merge riusciti. Ogni traccia si aggiorna tramite Sparkle.',loading:'Caricamento…',commit:'Commit',title:'Titolo',published:'Pubblicato',download:'Download',zip:'zip'},
+  da: {heading:'cmux-udviklingsbuilds',subtitle:'Fleet-builds fra vellykkede merges. Hvert spor opdateres via Sparkle.',loading:'Indlæser…',commit:'Commit',title:'Titel',published:'Udgivet',download:'Download',zip:'zip'},
+  pl: {heading:'Wersje deweloperskie cmux',subtitle:'Buildy floty z udanych merge. Każdy kanał aktualizuje się przez Sparkle.',loading:'Ładowanie…',commit:'Commit',title:'Tytuł',published:'Opublikowano',download:'Pobierz',zip:'zip'},
+  ru: {heading:'Сборки cmux для разработки',subtitle:'Сборки флота из успешных слияний. Каждый канал обновляется через Sparkle.',loading:'Загрузка…',commit:'Коммит',title:'Название',published:'Опубликовано',download:'Скачать',zip:'zip'},
+  bs: {heading:'cmux razvojne verzije',subtitle:'Fleet verzije iz uspješnih spajanja. Svaki kanal se ažurira putem Sparklea.',loading:'Učitavanje…',commit:'Commit',title:'Naslov',published:'Objavljeno',download:'Preuzimanje',zip:'zip'},
+  ar: {heading:'إصدارات cmux التطويرية',subtitle:'إصدارات الأسطول من عمليات الدمج الناجحة. يتم تحديث كل مسار عبر Sparkle.',loading:'جار التحميل…',commit:'الإيداع',title:'العنوان',published:'تاريخ النشر',download:'التنزيل',zip:'zip'},
+  no: {heading:'cmux-utviklingsbygg',subtitle:'Fleet-bygg fra vellykkede merges. Hvert spor oppdateres gjennom Sparkle.',loading:'Laster inn…',commit:'Commit',title:'Tittel',published:'Publisert',download:'Last ned',zip:'zip'},
+  'pt-BR': {heading:'Builds de desenvolvimento do cmux',subtitle:'Builds do fleet de merges aprovados. Cada trilha é atualizada pelo Sparkle.',loading:'Carregando…',commit:'Commit',title:'Título',published:'Publicado',download:'Download',zip:'zip'},
+  th: {heading:'บิลด์พัฒนา cmux',subtitle:'บิลด์จาก fleet ที่มาจากการผสานสำเร็จ แต่ละแทร็กอัปเดตผ่าน Sparkle',loading:'กำลังโหลด…',commit:'คอมมิต',title:'ชื่อเรื่อง',published:'เผยแพร่แล้ว',download:'ดาวน์โหลด',zip:'zip'},
+  tr: {heading:'cmux geliştirme derlemeleri',subtitle:'Başarılı birleştirmelerden fleet derlemeleri. Her kanal Sparkle ile güncellenir.',loading:'Yükleniyor…',commit:'Commit',title:'Başlık',published:'Yayınlandı',download:'İndir',zip:'zip'},
+  km: {heading:'ប៊ីលដ៍អភិវឌ្ឍន៍ cmux',subtitle:'ប៊ីលដ៍ fleet ពីការរួមបញ្ចូលដែលជោគជ័យ។ បទនីមួយៗធ្វើបច្ចុប្បន្នភាពតាម Sparkle។',loading:'កំពុងផ្ទុក…',commit:'Commit',title:'ចំណងជើង',published:'បានផ្សព្វផ្សាយ',download:'ទាញយក',zip:'zip'},
+  uk: {heading:'Розробницькі збірки cmux',subtitle:'Збірки флоту з успішних злиттів. Кожен канал оновлюється через Sparkle.',loading:'Завантаження…',commit:'Коміт',title:'Назва',published:'Опубліковано',download:'Завантажити',zip:'zip'}
+};
+const requested = (navigator.languages || [navigator.language || 'en']).map(x => x.replace('_','-'));
+const locale = requested.find(x => translations[x]) || requested.map(x => x.split('-')[0]).find(x => translations[x]) || 'en';
+const text = translations[locale];
+document.documentElement.lang = locale;
+document.querySelector('#page-title').textContent = text.heading;
+document.querySelector('#heading').textContent = text.heading;
+document.querySelector('#subtitle').textContent = text.subtitle;
+document.querySelector('#builds').textContent = text.loading;
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 Promise.all(['classic','next'].map(track => fetch(`${track}/index.json`, {cache:'no-store'}).then(r => r.json()).then(x => [track,x]).catch(() => [track,{builds:[]}]))).then(all => {
-  document.querySelector('#builds').innerHTML = all.map(([track,data]) => `<h2>${esc(track)}</h2><table><tr><th>Commit</th><th>Title</th><th>Published</th><th>Download</th></tr>${(data.builds||[]).map(b => `<tr><td><code>${esc(b.sha.slice(0,12))}</code></td><td>${esc(b.title)}</td><td>${esc(b.published_at)}</td><td><a href="${esc(b.archive)}">zip</a></td></tr>`).join('')}</table>`).join('');
+  document.querySelector('#builds').innerHTML = all.map(([track,data]) => `<h2>${esc(track)}</h2><table><tr><th>${text.commit}</th><th>${text.title}</th><th>${text.published}</th><th>${text.download}</th></tr>${(data.builds||[]).map(b => `<tr><td><code>${esc(b.sha.slice(0,12))}</code></td><td>${esc(b.title)}</td><td>${esc(b.published_at)}</td><td><a href="${esc(b.archive)}">${text.zip}</a></td></tr>`).join('')}</table>`).join('');
 });
 </script>
 HTML
