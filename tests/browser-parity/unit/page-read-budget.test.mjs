@@ -399,6 +399,37 @@ test("markdown: a slot's assigned nodes are read one at a time within the budget
   }
 });
 
+test("snapshot: a slot's assigned nodes are read one at a time within the walk's budget, never listed whole", async () => {
+  // As the Markdown test above, for the snapshot walk: 5,000 slotted
+  // children and a budget of 1,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          window.__assigned = 0;
+          const native = HTMLSlotElement.prototype.assignedNodes;
+          HTMLSlotElement.prototype.assignedNodes = function (o) { const list = native.call(this, o); window.__assigned = Math.max(window.__assigned, list.length); return list; };
+          document.body.innerHTML = '<div id="host"></div>';
+          const host = document.getElementById("host");
+          host.innerHTML = '<button>b</button>'.repeat(5000);
+          host.attachShadow({ mode: "open" }).innerHTML = '<p><slot></slot></p>';
+        });`);
+      const r = await run(`await snapshot({ maxChars: Infinity, _maxNodes: 1000 }); console.log("@@" + JSON.stringify(await page.evaluate(() => window.__assigned)));`);
+      assert.ok(Number(r.value) <= 1000, `the snapshot listed ${r.value} assigned nodes at once with a budget of 1,000 nodes`);
+      const named = await run(`await page.evaluate(() => {
+          document.body.innerHTML = '<div id="h"><button slot="b">Bee one</button><button>Default one</button><button slot="b">Bee two</button><button slot="zz">Unplaced</button></div>';
+          document.getElementById("h").attachShadow({ mode: "open" }).innerHTML = '<div role="group" aria-label="A"><slot name="a"><button>Fallback a</button></slot></div><div role="group" aria-label="B"><slot name="b"></slot></div><div role="group" aria-label="D"><slot></slot></div>';
+        });
+        const s = await snapshot({ maxChars: Infinity });
+        console.log("@@" + JSON.stringify(s.tree.split("\\n").map((l) => l.trim()).filter((l) => /^- (group|button)/.test(l)).map((l) => l.replace(/ \\[ref=\\w+\\]/, "").replace(/:$/, ""))));`);
+      assert.deepEqual(JSON.parse(named.value), ['- group "A"', '- button "Fallback a"', '- group "B"', '- button "Bee one"', '- button "Bee two"', '- group "D"', '- button "Default one"']);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
   const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
   const server = http.createServer((req, res) => {
