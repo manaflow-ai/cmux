@@ -50,6 +50,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case runAction(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
+    /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
+    /// workspace's agent folder, after a real gesture (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+    case chooseFolder
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// The empty-chat action opens the existing onboarding project/history import flow.
@@ -232,6 +235,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
                 self = .unsupported(method)
             }
         case "project.browse": self = .browseProject
+        case "workspace.chooseFolder": self = .chooseFolder
         case "project.list":
             let query = (params?["query"] as? String).map { String($0.prefix(512)) }
             self = .listProjects(query)

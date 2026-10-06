@@ -96,6 +96,7 @@ import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
+import { FolderChoice } from "./FolderChoice";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
 import { handoffStrings } from "./handoff/strings";
 import type { HandoffReviewInput } from "./handoff/review";
@@ -888,6 +889,10 @@ function AcpmuxPane() {
   const [handshaken, setHandshaken] = useState(false);
   // An unsent chat can choose its folder even before an agent is available.
   const [projectDraft, setProjectDraft] = useState<string | undefined>();
+  /// The host offers Choose Folder… (a new chat in a workspace without a folder).
+  const [chooseFolder, setChooseFolder] = useState(false);
+  /// The host's localized refusal of the last Choose Folder… click.
+  const [folderError, setFolderError] = useState<string | undefined>();
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
@@ -1480,11 +1485,13 @@ function AcpmuxPane() {
           linkScheme?: unknown;
           sessionMustExist?: boolean;
           revealTurn?: unknown;
+          chooseFolder?: boolean;
           machineName?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         acpmuxPerf.markAgent("handshakeReady");
         setNewSession(host.newSession === true && !host.sessionId);
+        setChooseFolder(host.chooseFolder === true);
         setHandshaken(true);
         if (
           (host.newSession && !host.sessionId) ||
@@ -2008,6 +2015,21 @@ function AcpmuxPane() {
     <>
       <DictationNotice dictation={dictation} />
       <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+      {chooseFolder && freshChat && !quick && !snapshot.sessionId && !projectDraft && (
+        <FolderChoice
+          error={folderError}
+          onChoose={() => {
+            setFolderError(undefined);
+            void callNative<{ cwd?: string }>("workspace.chooseFolder")
+              .then((result) => {
+                if (!result?.cwd) return;
+                setChooseFolder(false);
+                chooseProject(result.cwd);
+              })
+              .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+          }}
+        />
+      )}
       <Composer
         snapshot={composerSnapshot}
         chips={ComposerChips}
