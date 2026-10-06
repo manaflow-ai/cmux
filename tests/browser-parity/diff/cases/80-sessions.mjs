@@ -43,6 +43,57 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
     expect: { listedAll: true, inOwnList: false, otherWorkspace: true, count: "Count 1" },
   },
   {
+    id: "tabs.legacy-socket-refused",
+    edge: "legacy-socket-refused",
+    appOnly: true,
+    // The older browser.* socket methods (`cmux browser <surface> eval`,
+    // `click` and the rest) carry no session, so no ownership check or
+    // secret masking: they are refused every tab a session drives (one it
+    // opened, a user's tab it drives with tabs.use()), with an error that
+    // names `cmux browser repl`. A user's tab no session drives stays
+    // theirs, also once the session that drove it ends, and the tab list
+    // still shows a session's tab.
+    custom: {
+      async cmux(ctx) {
+        const url = `${ctx.origins.primary}/diff/lab.html?legacy=${Date.now()}`;
+        const ws = await ctx.cli(["new-workspace", "--name", "parity-legacy", "--focus", "false"]);
+        const wsRef = (ws.out.match(/workspace:\d+|[0-9A-F]{8}-[0-9A-F-]{27}/i) || [])[0];
+        if (!wsRef) return { error: `new-workspace printed no id: ${ws.out.trim()} ${ws.err.trim()}`.slice(0, 300) };
+        const legacy = async (surface, ...argv) => {
+          const r = await ctx.cli(["browser", surface, ...argv]);
+          const text = `${r.out}\n${r.err}`;
+          if (r.code === 0) return "ok";
+          return /browser REPL session/.test(text) && /cmux browser repl/.test(text) ? "refused" : `failed: ${text.trim().slice(0, 200)}`;
+        };
+        const S = ctx.session("legacy");
+        try {
+          await ctx.cli(["new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
+          const opened = await ctx.repl(ctx.wrap({ path: null, code: `const own = await tabs.open(U("/diff/lab.html"));
+let row;
+for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
+return { own: own.id, user: row ? row.id : null };` }), { session: S });
+          const { own, user } = opened.value ?? {};
+          if (!own || !user) return { error: JSON.stringify(opened).slice(0, 300) };
+          const userBefore = await legacy(user, "eval", "document.title");
+          const ownEval = await legacy(own, "eval", "document.title");
+          const ownClick = await legacy(own, "click", "#counter");
+          const ownSnapshot = await legacy(own, "snapshot");
+          const listing = await ctx.cli(["browser", own, "tab", "list", "--json", "--id-format", "both"]);
+          const listed = listing.code === 0 && listing.out.toLowerCase().includes(String(own).toLowerCase());
+          const used = await ctx.repl(ctx.wrap({ path: null, code: `const p = await tabs.use(${JSON.stringify(user)}); return await p.title();` }), { session: S });
+          const userDriven = await legacy(user, "eval", "document.title");
+          await ctx.cli(["browser", "repl", "reset", S]);
+          const userAfter = await legacy(user, "eval", "document.title");
+          return { userBefore, ownEval, ownClick, ownSnapshot, listed, used: typeof used.value === "string", userDriven, userAfter };
+        } finally {
+          await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
+        }
+      },
+    },
+    scope: { "reference-a": "Reference A has no second client protocol beside its REPL", "reference-b": "Reference B has no second client protocol beside its REPL" },
+    expect: { userBefore: "ok", ownEval: "refused", ownClick: "refused", ownSnapshot: "refused", listed: true, used: true, userDriven: "refused", userAfter: "ok" },
+  },
+  {
     id: "edge.sessions-two-tabs",
     edge: "sessions-two-tabs",
     custom: {

@@ -104,5 +104,6 @@ processes or on a person's window run in the cmux app only.
 | --- | --- | --- | --- |
 | `sessions-two-tabs` | Two REPL sessions, each on its own tab, at once | Both finish with their own results; no cross-talk | `edge.sessions-two-tabs` |
 | `sessions-same-tab` | Two sessions on one tab | A tab a running session opened is its own: another session lists it with `ownedBy` and `tabs.use()` fails naming the owner; concurrent calls of the one session both land (sessions share a tab by being one `--session`) | `edge.sessions-same-tab` |
+| `legacy-socket-refused` | Another client calls the older `browser.*` socket methods (`cmux browser <surface> eval`, `click`, `snapshot`) on tabs sessions drive | A tab a session opened, and a user's tab it drives with `tabs.use()`, are refused with an error that names `cmux browser repl`; the tab list still shows them; a user's tab no session drives works, also once the session that drove it ended | `tabs.legacy-socket-refused` |
 | `web-process-crash` | The tab's web content process is killed | The page emits `crash`; calls fail as crashed until `reload()` or `goto()`, which recover | `edge.web-process-crash` |
 | `user-click-while-driving` | A person clicks in the pane while a session types | The person's click arrives as trusted input and the session's typing is intact | `edge.user-click-while-driving` |

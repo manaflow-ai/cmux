@@ -668,4 +668,26 @@ import Testing
                     "an agent's click reached \(target)")
         }
     }
+    /// The older `browser.*` socket methods (`cmux browser eval`, `click`,
+    /// `snapshot` and the rest) carry no session and no masking, so they are
+    /// refused every tab a session drives: one it created, and a user's tab
+    /// it drives with `tabs.use()`. A user's tab no session drives stays
+    /// theirs, also after the sessions that drove it left.
+    @Test func clientsOutsideTheReplAreRefusedEveryTabASessionDrives() {
+        var users = BrowserReplTabOwnership()
+        #expect(!users.refusesOutsideClients, "a user's tab no session drives was refused")
+        users.attach(sessionID: "agent")
+        #expect(users.refusesOutsideClients, "a user's tab a session drives was open to other clients")
+        users.detach(sessionID: "agent")
+        #expect(!users.refusesOutsideClients, "the user's tab stayed refused after the session left")
+
+        var own = BrowserReplTabOwnership()
+        own.markCreated(by: "creator")
+        #expect(own.refusesOutsideClients, "a session's own tab was open to other clients")
+        own.attach(sessionID: "other")
+        own.detach(sessionID: "creator")
+        #expect(own.refusesOutsideClients, "a tab another session still drives was open to other clients")
+        own.detach(sessionID: "other")
+        #expect(!own.refusesOutsideClients, "a kept tab no session drives stayed refused")
+    }
 }

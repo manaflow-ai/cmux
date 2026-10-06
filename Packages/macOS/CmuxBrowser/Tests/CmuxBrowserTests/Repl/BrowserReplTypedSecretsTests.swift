@@ -268,4 +268,21 @@ struct BrowserReplTypedSecretsTests {
             try BrowserReplSecretStore().setLiteral(key: "long", maskName: "n", value: String(repeating: "x", count: 4097), domains: Self.domains)
         }
     }
+    /// A tab holds what sessions typed into it until it closes, also after
+    /// the typist left: clients outside the REPL, which mask nothing, are
+    /// refused such a tab (``BrowserReplTypedSecrets/holdsValues(inTab:)``).
+    @Test func aTabHoldsTypedValuesUntilItCloses() throws {
+        let typed = BrowserReplTypedSecrets()
+        #expect(!typed.holdsValues(inTab: "tab1"))
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")
+        try typed.recordCredential(tab: "tab2", field: "password", value: "sheet-secret", domains: Self.domains)
+        #expect(typed.holdsValues(inTab: "tab1"))
+        #expect(typed.holdsValues(inTab: "tab2"), "a value the user typed into the sign-in sheet was not held")
+        #expect(!typed.holdsValues(inTab: "tab3"))
+        typed.sessionLeft("typist")
+        #expect(typed.holdsValues(inTab: "tab1"), "the tab stopped holding the value when its typist left")
+        typed.tabClosed("tab1")
+        #expect(!typed.holdsValues(inTab: "tab1"))
+        #expect(typed.holdsValues(inTab: "tab2"))
+    }
 }
