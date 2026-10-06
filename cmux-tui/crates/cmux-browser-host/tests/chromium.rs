@@ -1114,3 +1114,7 @@ use files::files_page;
 // The tab clipboard on the shared headless browser (item 19).
 #[path = "chromium/clipboard.rs"]
 mod clipboard;
+
+// HTML5 drag and drop (input.drag, parity 05).
+#[path = "chromium/drag.rs"]
+mod drag;
