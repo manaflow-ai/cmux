@@ -419,16 +419,14 @@ fn link_preview_image_must_match_an_attachment_record_the_author_may_use() {
     let (mux, user, chief, conversation) = setup();
     let matching = link_preview_part(Some(link_image("image/jpeg", LINK_IMAGE.len())));
     // No record of the hash yet.
-    let (message, code) =
-        rejection(&mux, user, send_parts(&conversation, "c1", json!([matching.clone()])));
+    let (message, code) = rejection(&mux, user, send_parts(&conversation, "c1", json!([matching])));
     assert_eq!(
         (message.as_str(), code.as_deref()),
         ("unknown_attachment", Some("conversation_rejected"))
     );
     upload_link_image(&mux, user, &conversation);
     // Another participant's unsent upload is not theirs to use.
-    let (message, _) =
-        rejection(&mux, chief, send_parts(&conversation, "c2", json!([matching.clone()])));
+    let (message, _) = rejection(&mux, chief, send_parts(&conversation, "c2", json!([matching])));
     assert_eq!(message, "unknown_attachment");
     // The record's type and size must match.
     let wrong_type = link_preview_part(Some(link_image("image/webp", LINK_IMAGE.len())));
@@ -438,7 +436,7 @@ fn link_preview_image_must_match_an_attachment_record_the_author_may_use() {
     let (message, _) = rejection(&mux, user, send_parts(&conversation, "c4", json!([wrong_size])));
     assert_eq!(message, "attachment_mismatch");
     // The matching record commits, and every participant can then read the image.
-    let sent = run(&mux, user, send_parts(&conversation, "c5", json!([matching.clone()]))).unwrap();
+    let sent = run(&mux, user, send_parts(&conversation, "c5", json!([matching]))).unwrap();
     assert_eq!(sent["change"]["message"]["parts"], json!([matching]));
     let (bytes, _) = read_all(&mux, chief, &conversation, &hex(LINK_IMAGE), "original").unwrap();
     assert_eq!(bytes, LINK_IMAGE);
