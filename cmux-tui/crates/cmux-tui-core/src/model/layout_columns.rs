@@ -23,7 +23,7 @@ pub(crate) struct LayoutColumn {
     pub(crate) id: SplitId,
     pub(crate) width: f32,
     pub(crate) root: Node,
-    pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
+    pub(crate) creation_order_auto_layout: Option<Vec<PaneId>>,
     /// `dock-columns-v1`: the viewport edge this column is pinned to.
     /// `None` for an ordinary scrolling column. See [`normalize_dock_columns`].
     pub(crate) dock: Option<ColumnDock>,
@@ -38,9 +38,9 @@ impl LayoutColumn {
         id: SplitId,
         width: f32,
         root: Node,
-        zellij_auto_layout: Option<Vec<PaneId>>,
+        creation_order_auto_layout: Option<Vec<PaneId>>,
     ) -> Self {
-        Self { id, width, root, zellij_auto_layout, dock: None, rows: Vec::new() }
+        Self { id, width, root, creation_order_auto_layout, dock: None, rows: Vec::new() }
     }
 
     /// A new scrolling column holding one pane.
@@ -54,7 +54,7 @@ pub(crate) enum ColumnProjection {
     /// No columns: the screen keeps its own tree.
     Unchanged,
     /// The last column left: the screen becomes this split tree.
-    Tree { root: Node, zellij_auto_layout: Option<Vec<PaneId>> },
+    Tree { root: Node, creation_order_auto_layout: Option<Vec<PaneId>> },
     /// Columns mode: the chain of the columns.
     Columns { root: Node, viewport_splits: BTreeMap<SplitId, f32>, base_width: f32 },
 }
@@ -72,7 +72,7 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
         let column = columns.pop().expect("one column");
         return ColumnProjection::Tree {
             root: column.root,
-            zellij_auto_layout: column.zellij_auto_layout,
+            creation_order_auto_layout: column.creation_order_auto_layout,
         };
     }
     if let [column] = columns.as_mut_slice() {
@@ -262,7 +262,7 @@ impl Screen {
             }
             let root = std::mem::replace(&mut self.root, Node::Leaf(0));
             let width = self.viewport_base_width.unwrap_or(1.0);
-            let auto_layout = self.zellij_auto_layout.take();
+            let auto_layout = self.creation_order_auto_layout.take();
             self.layout_columns.push(LayoutColumn::new(base_id, width, root, auto_layout));
         }
         let Some(index) =
@@ -284,9 +284,9 @@ impl Screen {
                 self.viewport_splits.clear();
                 self.viewport_base_width = None;
             }
-            ColumnProjection::Tree { root, zellij_auto_layout } => {
+            ColumnProjection::Tree { root, creation_order_auto_layout } => {
                 self.root = root;
-                self.zellij_auto_layout = zellij_auto_layout;
+                self.creation_order_auto_layout = creation_order_auto_layout;
                 self.viewport_splits.clear();
                 self.viewport_base_width = None;
             }
@@ -294,7 +294,7 @@ impl Screen {
                 self.root = root;
                 self.viewport_splits = viewport_splits;
                 self.viewport_base_width = Some(base_width);
-                self.zellij_auto_layout = None;
+                self.creation_order_auto_layout = None;
                 debug_assert!(self.layout_column_projection_is_consistent());
             }
         }
@@ -309,7 +309,7 @@ impl Screen {
             return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
         }
         if (self.layout_columns.len() < 2 && !self.has_lone_row_column())
-            || self.zellij_auto_layout.is_some()
+            || self.creation_order_auto_layout.is_some()
             || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
             || self.viewport_splits.len() + 1 != self.layout_columns.len()
         {
