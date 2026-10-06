@@ -564,8 +564,26 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
 /// What the human table shows for a result. `workspace list --order
 /// personal` adds an ORDER column (the row's place in the returned order),
 /// because INDEX stays the session order.
-fn human_view<'a>(_plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
-    std::borrow::Cow::Borrowed(result)
+fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a, Value> {
+    let personal = matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::WorkspaceList)
+    ) && plan.params.get("order").and_then(Value::as_str) == Some("personal");
+    match result.as_array() {
+        Some(rows) if personal => std::borrow::Cow::Owned(Value::Array(
+            rows.iter()
+                .enumerate()
+                .map(|(order, row)| {
+                    let mut row = row.clone();
+                    if let Some(object) = row.as_object_mut() {
+                        object.insert("order".into(), json!(order));
+                    }
+                    row
+                })
+                .collect(),
+        )),
+        _ => std::borrow::Cow::Borrowed(result),
+    }
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
