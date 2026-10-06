@@ -352,6 +352,39 @@ test("snapshot: iframes nested inside each other are cut at the walk's depth bou
   }
 });
 
+// r16 runtime#2: page.markdown walks blocks, inline runs and
+// display:contents boxes by recursion; a page nests them deeper than the
+// stack. Past 1,000 levels the subtree is left out and the Markdown says so.
+test("markdown: deep nesting (blocks, inline runs, display:contents) is cut with a note instead of failing", async () => {
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});`);
+      for (const kind of ["div", "span", "contents"]) {
+        const r = await run(`await page.evaluate((kind) => {
+            document.body.innerHTML = '<h1>First</h1><div id="root"></div><p>Last</p>';
+            let e = document.getElementById("root");
+            for (let i = 0; i < 30000; i++) {
+              e = e.appendChild(document.createElement(kind === "span" ? "span" : "div"));
+              if (kind === "contents") e.style.display = "contents";
+            }
+            e.textContent = "deepest";
+          }, ${JSON.stringify(kind)});
+          let md;
+          try { md = await page.markdown(); } catch (e) { md = "error: " + e.message; }
+          console.log("@@" + JSON.stringify({ error: /^error:/.test(md) ? md.slice(0, 300) : null, first: md.includes("# First"), last: md.includes("Last"), deepest: md.includes("deepest"), note: /<!-- not read: parts of the page nested deeper than 1000 elements -->/.test(md) }));`);
+        const v = JSON.parse(r.value);
+        assert.equal(v.error, null, kind);
+        assert.ok(v.first && v.last, `${kind}: the Markdown lost the page around the nested part`);
+        assert.ok(!v.deepest, `${kind}: read past the depth bound`);
+        assert.ok(v.note, `${kind}: no note where the nesting was cut`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("page.searchText: the text it scans and the contexts it returns stop at the page-read budget with a note", async () => {
   const servers = await startFixtureServers();
   try {
