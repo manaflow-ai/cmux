@@ -8,6 +8,7 @@ Open a PR into `feat-cmux-next` and let the queue land it. You don't stack, reba
 - It's by a batch author (the `CMUX_NEXT_BATCH_AUTHORS` variable, default `teamleaderleo`), or anyone else labels it `batch-queue`.
 - It has none of the labels `hold`, `exploration`, `needs a call`, `default call`, `do-not-merge` or `wip`.
 - Its head commit is less than 5 days old.
+- It doesn't change `.github/workflows/`. Those PRs land by hand.
 - No check is red outside the heavy tier. Pending checks are fine. The heavy tier is swift test, the Release and scheme compiles, daemon tests, generated files and the cmux-tui wait. The batch runs it once on the stack, so the PR's own copy may be red or still running.
 
 To keep a PR out, add `hold`. A PR the queue dropped at its current head stays out until you push.
@@ -29,7 +30,7 @@ To keep a PR out, add `hold`. A PR the queue dropped at its current head stays o
    - Red: the batch tests prefixes of the stack by halving. The last PR of the smallest red prefix is the culprit. It gets a comment with the failing jobs, and the batch reruns without it, for at most 3 culprits per batch.
 5. **Report.** The job summary, and the sticky comment on `CMUX_NEXT_BATCH_STICKY` when set (an HQ issue), list each PR's outcome, every validation with its wall time, the heavy-tier run and the build link.
 
-The job token merges and pushes, and GitHub starts no workflows for its events. After landing, the batch dispatches `cmux-next.yml` and `cmux-tui-artifacts.yml` on feat-cmux-next, plus the next batch.
+Pushes and merges use the `CMUX_NEXT_BATCH_APP_ID` App's token, which needs contents, workflows and pull-requests write. GitHub refuses the job token any branch based on feat-cmux-next. After landing, the batch dispatches `cmux-next.yml` and `cmux-tui-artifacts.yml` on feat-cmux-next, plus the next batch.
 
 ## Run it by hand
 
@@ -44,6 +45,8 @@ python3 scripts/ci/next_batch.py stack --prs "17505 17508" --no-regen --worktree
 
 | Setting | Use |
 | --- | --- |
+| `CMUX_NEXT_BATCH_ENABLED` (variable) | `1` turns the debounce dispatch on |
+| `CMUX_NEXT_BATCH_APP_ID` (variable), `CMUX_NEXT_BATCH_APP_KEY` (secret) | the App that pushes stacks and merges |
 | `CMUX_FLEET_CONTROLLER` (variable) | the build controller URL the mini's build job submits to |
 | `CMUX_NEXT_BATCH_STICKY` (variable) | `owner/repo#issue` for the sticky report |
 | `CMUX_NEXT_BATCH_AUTHORS` (variable) | authors whose PRs need no opt-in label |
