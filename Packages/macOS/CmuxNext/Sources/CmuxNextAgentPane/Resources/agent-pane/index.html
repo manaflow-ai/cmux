@@ -4398,6 +4398,159 @@ fieldset.acpmux-permission-card {
 
 .nt-project .acpmux-project-button{display:inline-flex;align-items:center;gap:6px;padding:4px 0;background:none;color:var(--agent-muted);font:inherit}
 .nt-project .acpmux-project-button:hover{background:none;color:var(--agent-text)}
+/* Thread minimap (ThreadMinimap.tsx). Values are measured from the Codex app recording
+   (lane notes: thread-minimap/minimap-spec.md). Colors mix the theme's text into its page
+   color; motion is transform only, and opacity changes on the frame the hovered tick does. */
+.acpmux-minimap {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 0;
+  /* Mixed into the opaque base (styles.css --acpmux-base), as the menus are: the page color can be clear. */
+  --acpmux-minimap-base: var(--acpmux-base, var(--agent-page-bg));
+  --acpmux-minimap-fill: color-mix(in srgb, var(--agent-text) 7.2%, var(--acpmux-minimap-base));
+}
+.acpmux-minimap__rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50.5px;
+  font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+.acpmux-minimap__tick {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  outline: none;
+}
+.acpmux-minimap__bar {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 26px;
+  height: 1.8px;
+  margin-top: -0.9px;
+  background: var(--agent-text);
+  opacity: 0.19;
+  transform-origin: 0 50%;
+  transition: transform 50ms cubic-bezier(0.33, 1, 0.68, 1);
+}
+/* Leaving the column settles faster than hovering grows (reference frames 151-155). */
+.acpmux-minimap__rail:not([data-hovering]) .acpmux-minimap__bar {
+  transition-duration: 35ms;
+}
+.acpmux-minimap__tick[data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.54;
+}
+.acpmux-minimap__tick[data-tone="active"] .acpmux-minimap__bar {
+  opacity: 1;
+}
+.acpmux-minimap__tick:focus-visible .acpmux-minimap__bar {
+  opacity: 1;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.acpmux-minimap__popover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 321px;
+  max-width: calc(100vw - 58.5px);
+  box-sizing: border-box;
+  /* The 0.5 px edge is an inset shadow: a 0.5 px border draws two device pixels wide. */
+  padding: 8.5px 9px 7px;
+  border-radius: 11px;
+  background: var(--acpmux-minimap-fill);
+  box-shadow:
+    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 12.6%, var(--acpmux-minimap-base)),
+    0 4px 14px color-mix(in srgb, var(--agent-shadow, rgb(0 0 0 / 20%)) 45%, transparent);
+  color: var(--agent-text);
+  -webkit-font-smoothing: antialiased;
+  cursor: default;
+}
+.acpmux-minimap__popover[hidden] {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+.acpmux-minimap__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 20px;
+  line-height: 20px;
+  font-weight: 500;
+}
+.acpmux-minimap__prompt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.acpmux-minimap__bookmark {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: color-mix(in srgb, var(--agent-text) 48%, transparent);
+  cursor: pointer;
+}
+.acpmux-minimap__bookmark:hover,
+.acpmux-minimap__bookmark[aria-pressed="true"] {
+  color: color-mix(in srgb, var(--agent-text) 80%, transparent);
+}
+.acpmux-minimap__bookmark:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
+  outline-offset: 1px;
+}
+.acpmux-minimap__reply {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 5px;
+  line-height: 21px;
+  color: color-mix(in srgb, var(--agent-text) 45%, transparent);
+}
+.acpmux-minimap__reply p {
+  margin: 0;
+}
+.acpmux-minimap__reply p + p {
+  margin-top: 13px;
+}
+.acpmux-minimap__reply p + .acpmux-minimap__item,
+.acpmux-minimap__item + .acpmux-minimap__item {
+  margin-top: 3.5px;
+}
+.acpmux-minimap__reply strong {
+  font-weight: 600;
+}
+.acpmux-minimap__item {
+  padding-left: 14px;
+  text-indent: -10px;
+}
+.acpmux-minimap__item::before {
+  content: "\2022";
+  display: inline-block;
+  width: 10px;
+  text-indent: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-minimap__bar {
+    transition: none;
+  }
+}
 
 </style>
 </head>
