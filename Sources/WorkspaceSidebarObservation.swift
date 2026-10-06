@@ -255,6 +255,8 @@ extension Workspace {
         // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
         let workspaceFields = Publishers.CombineLatest4(
+            // The authoritative display title can change independently of
+            // customTitle during remote reconciliation or automatic naming.
             $title,
             $customTitle,
             $customDescription,

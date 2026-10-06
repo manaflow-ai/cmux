@@ -157,6 +157,37 @@ struct WorkspaceSidebarObservationTests {
         )
     }
 
+    @Test func directTitleChangeRefreshesTheCachedSidebarRow() throws {
+        let workspace = Workspace()
+        let suiteName = "WorkspaceSidebarObservationTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let cache = SidebarRowSnapshotCache()
+        let factory = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        )
+        cache.replace(with: [workspace.id: factory.makeSnapshot()])
+
+        let cancellable = workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
+            .sink {
+                cache.refresh(workspaceIds: [workspace.id]) { id in
+                    guard id == workspace.id else { return nil }
+                    return factory.makeSnapshot()
+                }
+            }
+        defer {
+            cancellable.cancel()
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        workspace.title = "Authoritative rename"
+
+        #expect(cache.value(for: workspace.id)?.title == "Authoritative rename")
+    }
+
     @Test func sidebarImmediateObservationPublisherCoalescesDescriptionBursts() async {
         let workspace = Workspace()
 
