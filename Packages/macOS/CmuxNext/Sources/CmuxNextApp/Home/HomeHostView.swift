@@ -104,10 +104,16 @@ final class HomeHostView: NSView {
         addSubview(sidebar)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
-            for await (available, online, why) in Observations({ (service.isAvailable, service.homeStore.isOnline, service.unavailableMessage) }) {
+            // Usable when its own owner answers: a cloud conversation (a Chief
+            // placed on a server) needs no local Chief owner.
+            for await (available, online, why, notice) in Observations({
+                (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
+                 service.migrationNotice)
+            }) {
                 self?.transcript.isHidden = !available
                 self?.message.isHidden = available
                 self?.message.stringValue = why
+                self?.transcript.showNotice(notice)
                 self?.needsLayout = true
                 // H17: offline the user can type, but Send is off.
                 self?.transcript.isSendEnabled = online
