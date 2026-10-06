@@ -60,6 +60,22 @@ test("googleSheets.write and append refuse a value with a carriage return; nothi
   }
 });
 
+// r23 sites#2: U+2028, U+2029 and U+0085 are line terminators too (a
+// paste or typed text may end a row or a line at them): refused before
+// any draft, as CR, LF and TAB are.
+test("googleSheets.write and append refuse a value with U+2028, U+2029 or U+0085", async () => {
+  const f = await s.value('sites.googleDrive.create("spreadsheets", "cmux REPL unicode breaks")');
+  try {
+    for (const v of ["a\u2028b", "a\u2029b", "a\u0085b"]) {
+      assert.match(String(await s.error(`sites.googleSheets.write(${JSON.stringify(f.url)}, "A1", [[${JSON.stringify(v)}]])`)), /line break/, `${JSON.stringify(v)} was drafted`);
+      assert.match(String(await s.error(`sites.googleSheets.append(${JSON.stringify(f.url)}, [[${JSON.stringify(v)}]])`)), /line break/, `${JSON.stringify(v)} was drafted for append`);
+    }
+    assert.deepEqual([...files.get(f.id).sheets[0].cells.keys()], [], "a cell changed");
+  } finally {
+    await s.confirmed(`sites.googleDrive.trash(${JSON.stringify(f.url)})`);
+  }
+});
+
 // After the write, the confirmed range and one row and one column beyond
 // it are read back: a paste that changed a cell outside the range fails
 // the confirmation instead of reporting a verified write (and does not
