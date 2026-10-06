@@ -94,25 +94,30 @@ import Testing
     @Test func aRedirectAfterTheStartReadsTheRecordedRoute() {
         var gone = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
         gone.decide(.session(Self.creator))
-        #expect(!gone.redirect(.gone), "a departed session's download followed a redirect")
+        let followed1 = gone.redirect(.gone)
+        #expect(!followed1, "a departed session's download followed a redirect")
         #expect(gone.route == .cancelled)
 
         var own = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
         own.decide(.session(Self.creator))
-        #expect(own.redirect(.keeps))
+        let followed2 = own.redirect(.keeps)
+        #expect(followed2)
         #expect(own.route == .session(Self.creator))
-        #expect(!own.redirect(.refuses))
+        let followed3 = own.redirect(.refuses)
+        #expect(!followed3)
         #expect(own.route == .cancelled)
 
         let visitor = BrowserReplNetworkRecipient(sessionID: "visitor", seesCredentials: false)
         var inUsersTab = BrowserReplDownloadClaim(sessionID: "visitor", source: Self.allowed)
         inUsersTab.decide(.session(visitor))
-        #expect(inUsersTab.redirect(.refuses))
+        let followed4 = inUsersTab.redirect(.refuses)
+        #expect(followed4)
         #expect(inUsersTab.route == .user)
 
         var users = BrowserReplDownloadClaim(sessionID: nil, source: Self.allowed)
         users.decide(.user)
-        #expect(users.redirect(.gone), "the user's download was cancelled for a session's sake")
+        let followed5 = users.redirect(.gone)
+        #expect(followed5, "the user's download was cancelled for a session's sake")
         #expect(users.route == .user)
     }
 

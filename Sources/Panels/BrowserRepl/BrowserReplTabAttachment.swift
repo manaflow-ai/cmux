@@ -1654,25 +1654,11 @@ final class BrowserReplTabAttachment {
 
     /// Downloads reported to a session, by id, with that session and where
     /// each came from, judged again at each later redirect and at the end.
+    /// Its teardown hands back their ids. Where a download goes is the
+    /// download's own record (``BrowserReplDownloadClaim/route``), which
+    /// outlives this attachment; a session's download this ledger no longer
+    /// holds is cancelled (``BrowserReplDownloadClaim/end(_:)``).
     private var sessionDownloads = BrowserReplSessionDownloads()
-
-    /// Whether download `id` went to a session. Those stay in cmux's
-    /// temporary download directory, so `download.path()` can read them;
-    /// every other download takes the user's normal path.
-    func keepsDownloadInTemporaryDirectory(id: String) -> Bool {
-        sessionDownloads.sessionID(of: id) != nil
-    }
-
-    /// How a finished download goes on (``downloadDidFinish(id:path:error:)``).
-    enum DownloadEnd {
-        /// The user's download location: no session gets it.
-        case user
-        /// The session got its path; it stays in the temporary directory.
-        case session
-        /// Its creating session's policy or directories refuse a place it
-        /// came from: the file is removed, and nobody gets it.
-        case refused
-    }
 
     private static var navigationTokenKey: UInt8 = 0
     /// Read from WebKit's download delegate, which is not main-actor bound;
@@ -1748,6 +1734,32 @@ final class BrowserReplTabAttachment {
         claimBox(of: download)?.claim.sessionID
     }
 
+    /// `download`'s record: its starter, where it came from, and the route
+    /// decided when WebKit picked its destination (``decideDownloadRoute(_:of:)``).
+    nonisolated static func downloadClaim(of download: WKDownload) -> BrowserReplDownloadClaim {
+        claimBox(of: download)?.claim ?? BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed())
+    }
+
+    /// Records the route decided for `download` when WebKit picked its
+    /// destination (``downloadDidStart(id:startedBy:source:url:suggestedFilename:)``);
+    /// its redirects and its end read it from then on.
+    nonisolated static func decideDownloadRoute(_ route: BrowserReplDownloadRoute, of download: WKDownload) {
+        let box = claimBox(of: download) ?? {
+            let box = BrowserReplDownloadClaimBox(BrowserReplDownloadClaim(sessionID: nil, source: .unclaimed()))
+            objc_setAssociatedObject(download, &downloadClaimKey, box, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            return box
+        }()
+        box.decide(route)
+    }
+
+    /// Whether `download` follows a redirect WebKit reports after its
+    /// start, given what its session still holds of it (`check`), and its
+    /// record updated (``BrowserReplDownloadClaim/redirect(_:)``).
+    nonisolated static func downloadFollowsRedirect(_ download: WKDownload, _ check: BrowserReplDownloadClaim.SessionCheck) -> Bool {
+        guard let box = claimBox(of: download) else { return downloadClaim(of: download).route == nil }
+        return box.redirect(check)
+    }
+
     /// Where `download` came from: its navigation's URLs and starter (when
     /// a navigation became it), then each redirect of the download itself
     /// (``downloadRedirected(_:to:)``).
@@ -1792,13 +1804,13 @@ final class BrowserReplTabAttachment {
     ///   - source: Where the download came from (``downloadSource(of:)``),
     ///     with the response's URL last.
     ///   - url: The response's URL.
-    /// - Returns: `false` when the download must be cancelled: the tab's
-    ///   creating session may not read where it came from, or the session
-    ///   whose input started it left the tab
-    ///   (``BrowserReplDownloadRoute/cancelled``).
-    @discardableResult
-    func downloadDidStart(id: String, startedBy starter: String?, source: BrowserReplDownloadSource, url: URL?, suggestedFilename: String) -> Bool {
-        guard isAttached else { return Self.keepsDownloadWithoutSessions(startedBy: starter) }
+    /// - Returns: The route, which the caller records on the download
+    ///   (``decideDownloadRoute(_:of:)``). It is cancelled (or refused) when
+    ///   the tab's creating session may not read where it came from, or the
+    ///   session whose input started it left the tab, or the session it
+    ///   would go to is leaving.
+    func downloadDidStart(id: String, startedBy starter: String?, source: BrowserReplDownloadSource, url: URL?, suggestedFilename: String) -> BrowserReplDownloadRoute {
+        guard isAttached else { return Self.routeWithoutSessions(startedBy: starter) }
         let route = ownership.downloadRoute(
             startedBy: starter,
             source: source,
@@ -1806,10 +1818,8 @@ final class BrowserReplTabAttachment {
             fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
         )
         switch route {
-        case .user:
-            return true
-        case .cancelled:
-            return false
+        case .user, .cancelled:
+            return route
         case .refused(let refusal):
             // Every attached session hears of it; only the tab's creator
             // gets the URLs as written (the reason names the refused hop),
@@ -1822,11 +1832,11 @@ final class BrowserReplTabAttachment {
                     "targetId": targetID,
                 ])
             }
-            return false
+            return route
         case .session(let delivery):
             // A session without a sink is leaving: its teardown would not
             // see this download, so nobody gets it.
-            guard sinks[delivery.sessionID] != nil else { return false }
+            guard sinks[delivery.sessionID] != nil else { return .cancelled }
             let owner = delivery.sessionID
             sessionDownloads.add(id, to: delivery, source: source)
             // Only the tab's creator gets the URL's credential values.
@@ -1835,24 +1845,25 @@ final class BrowserReplTabAttachment {
                 "url": pageURL(url?.absoluteString ?? ""),
                 "suggestedFilename": suggestedFilename,
             ], to: owner)
-            return true
+            return route
         }
     }
 
-    /// Download `id`, which went to a session, went on to `url` after WebKit
-    /// picked its destination. Returns `false` when it must be cancelled: its
-    /// session, the tab's creator, may not read that place. A download a
-    /// session got in a user's tab goes to the user's location instead.
-    /// Either way the session gets `download.finished` with the reason.
-    func downloadRedirected(id: String, to url: URL?) -> Bool {
+    /// Download `id`, which its record routed to `recipient`'s session,
+    /// went on to `url` after WebKit picked its destination: whether that
+    /// session still holds it and may read that place. When it may not, the
+    /// session gets `download.finished` with the reason, and the record
+    /// decides what follows (``BrowserReplDownloadClaim/redirect(_:)``).
+    func downloadRedirectCheck(id: String, to url: URL?, recipient: BrowserReplNetworkRecipient) -> BrowserReplDownloadClaim.SessionCheck {
+        guard sessionDownloads.sessionID(of: id) == recipient.sessionID else { return .gone }
         guard let url, let refusal = sessionDownloads.redirect(
             id,
             to: url.absoluteString,
             policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
             fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
-        ) else { return true }
+        ) else { return .keeps }
         emit(.downloadFinished, ["downloadId": id, "error": "refused: \(refusal.reason)"], to: refusal.sessionID)
-        return !isLiveCreator(refusal.sessionID)
+        return .refuses
     }
 
     /// Whether a download that has no destination yet may follow a redirect,
@@ -1862,7 +1873,7 @@ final class BrowserReplTabAttachment {
     /// so the request never reaches a place the tab's creating session's
     /// policy or directories refuse.
     func allowsDownloadRedirect(startedBy starter: String?, source: BrowserReplDownloadSource) -> Bool {
-        guard isAttached else { return Self.keepsDownloadWithoutSessions(startedBy: starter) }
+        guard isAttached else { return starter == nil }
         let route = ownership.downloadRoute(
             startedBy: starter,
             source: source,
@@ -1875,41 +1886,45 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    /// Whether a download goes on in a tab no session drives (no attached
-    /// session, or no attachment at all): only one no session's input
-    /// started. One a session's input started outlived that session, whose
-    /// teardown never saw it, so it is cancelled, never saved for the user.
-    nonisolated static func keepsDownloadWithoutSessions(startedBy starter: String?) -> Bool {
-        starter == nil
+    /// The route of a download in a tab no session drives (no attached
+    /// session, or no attachment at all): the user's for one no session's
+    /// input started. One a session's input started outlived that session,
+    /// whose teardown never saw it, so it is cancelled, never saved for the
+    /// user.
+    nonisolated static func routeWithoutSessions(startedBy starter: String?) -> BrowserReplDownloadRoute {
+        starter == nil ? .user : .cancelled
     }
 
-    /// Reports download `id`'s end to the session it went to. A finished
-    /// file's every source is judged again first, under the session's policy
-    /// and directories now: one they refuse gives the session no path.
-    @discardableResult
-    func downloadDidFinish(id: String, path: String?, error: String?) -> DownloadEnd {
-        guard let path, error == nil else {
-            guard let owner = sessionDownloads.remove(id) else { return .user }
-            var payload: [String: Any] = ["downloadId": id]
-            if let error { payload["error"] = error }
-            emit(.downloadFinished, payload, to: owner)
-            return .session
-        }
-        switch sessionDownloads.finish(
+    /// Download `id` failed: its session, if it still holds it, gets
+    /// `download.finished` with the error.
+    func downloadDidFail(id: String, error: String) {
+        guard let owner = sessionDownloads.remove(id) else { return }
+        emit(.downloadFinished, ["downloadId": id, "error": error], to: owner)
+    }
+
+    /// Reports download `id`'s end to the session that still holds it, and
+    /// returns what that session's record says
+    /// (``BrowserReplSessionDownloads/finish(_:policy:fileRoots:)``). A
+    /// finished file's every source is judged again first, under the
+    /// session's policy and directories now: one they refuse gives the
+    /// session no path. The download's own record decides where the file
+    /// goes (``BrowserReplDownloadClaim/end(_:)``).
+    func downloadDidFinish(id: String, path: String) -> BrowserReplSessionDownloads.Finish {
+        let finish = sessionDownloads.finish(
             id,
             policy: { BrowserReplPolicyBoard.shared.policy(for: $0) },
             fileRoots: { BrowserReplPolicyBoard.shared.fileRoots(for: $0) }
-        ) {
+        )
+        switch finish {
         case .notSessions:
-            return .user
+            break
         case .session(let owner):
             downloadPaths[id] = path
             emit(.downloadFinished, ["downloadId": id, "path": path], to: owner)
-            return .session
         case .refused(let owner, let reason):
             emit(.downloadFinished, ["downloadId": id, "error": "refused: \(reason)"], to: owner)
-            return isLiveCreator(owner) ? .refused : .user
         }
+        return finish
     }
 
     /// Whether `sessionID` is the tab's live creator, whose tab never keeps
@@ -1934,6 +1949,14 @@ final class BrowserReplDownloadClaimBox: NSObject, @unchecked Sendable {
 
     func went(to url: String) {
         lock.withLock { stored.source.went(to: url) }
+    }
+
+    func decide(_ route: BrowserReplDownloadRoute) {
+        lock.withLock { stored.decide(route) }
+    }
+
+    func redirect(_ check: BrowserReplDownloadClaim.SessionCheck) -> Bool {
+        lock.withLock { stored.redirect(check) }
     }
 }
 
