@@ -60,6 +60,7 @@ public final class SleepyModeSettingsStore {
     )
     private var applyingDefaults = false
     private var defaultsObserver: NSObjectProtocol?
+    private var configWriteTask: Task<Void, Never>?
 
     /// Loads persisted preferences from `defaults` (inject an isolated
     /// `UserDefaults` for tests/previews); missing keys fall back to defaults.
@@ -154,7 +155,10 @@ public final class SleepyModeSettingsStore {
         defaults.set(value, forKey: key)
         guard !applyingDefaults, let configStore else { return }
         let jsonKey = JSONKey<String>(id: key, defaultValue: "")
-        Task {
+        let previousWrite = configWriteTask
+        let logger = self.logger
+        configWriteTask = Task {
+            await previousWrite?.value
             do {
                 try await configStore.set(value, for: jsonKey)
             } catch {
@@ -167,7 +171,10 @@ public final class SleepyModeSettingsStore {
         defaults.set(value, forKey: key)
         guard !applyingDefaults, let configStore else { return }
         let jsonKey = JSONKey<Bool>(id: key, defaultValue: false)
-        Task {
+        let previousWrite = configWriteTask
+        let logger = self.logger
+        configWriteTask = Task {
+            await previousWrite?.value
             do {
                 try await configStore.set(value, for: jsonKey)
             } catch {
