@@ -59,7 +59,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          set -uo pipefail
+          set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
             echo "::warning::Namespace autofix skipped: the scoped write App is not configured."
             exit 0
