@@ -165,4 +165,7 @@ extension HomeComposeOutcome {
 extension NSMenuItem {
     /// The list row menu's Archive Chief title.
     public static var homeArchiveChiefTitle: String { HomeConversationStrings.archiveChief }
+    /// The sidebar row menu's Pin and Unpin titles.
+    public static var homePinTitle: String { HomeConversationStrings.pin }
+    public static var homeUnpinTitle: String { HomeConversationStrings.unpin }
 }

@@ -15,9 +15,19 @@ final class HomePinStore {
         self.defaults = defaults
     }
 
-    func pins(account: String) -> HomePins { HomePins() }
+    func pins(account: String) -> HomePins {
+        guard let data = defaults.data(forKey: Self.key(account)), let pins = try? JSONDecoder().decode(HomePins.self, from: data) else {
+            return HomePins()
+        }
+        return pins
+    }
 
-    func save(_ pins: HomePins, account: String) {}
+    func save(_ pins: HomePins, account: String) {
+        guard let data = try? JSONEncoder().encode(pins) else { return }
+        defaults.set(data, forKey: Self.key(account))
+    }
+
+    static func key(_ account: String) -> String { "cmux.home.pins.\(account)" }
 }
 
 /// The data source of the Home sidebar (the vendored MessagesLab sidebar
@@ -45,15 +55,20 @@ final class HomeSidebarSource {
     }
 
     func model(now: Date = Date()) -> HomeSidebarModel {
-        HomeSidebarModel(rows: [], pins: pins, me: me(), query: query, contacts: [], now: now)
+        HomeSidebarModel(rows: rows(), pins: pins, me: me(), query: query, contacts: query.isEmpty ? [] : contacts(), now: now)
     }
 
-    func select(_ id: ConversationID) {}
+    func select(_ id: ConversationID) { onSelect(id) }
 
-    func start(with contact: HomeContact) {}
+    func start(with contact: HomeContact) { onStart(contact) }
 
-    func setPinned(_ on: Bool, _ id: ConversationID) {}
+    /// Pins or unpins `id` and keeps it for this account.
+    func setPinned(_ on: Bool, _ id: ConversationID) {
+        guard let row = rows().first(where: { $0.id == id }) else { return }
+        pins.setPinned(on, row)
+        store.save(pins, account: account())
+    }
 
     /// The signed-in account changed: its own pins.
-    func reloadPins() {}
+    func reloadPins() { pins = store.pins(account: account()) }
 }
