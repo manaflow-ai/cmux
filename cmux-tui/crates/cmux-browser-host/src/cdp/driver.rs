@@ -209,8 +209,28 @@ impl Driver for CdpDriver {
             "tab.info" => inner.info(params),
             "tab.setViewport" => inner.set_viewport(params),
             "frames.list" => inner.frames_list(params),
-            "frame.evaluate" => inner.evaluate(params),
-            "frame.observe" => inner.evaluate(&crate::observe::evaluate_params(params)?),
+            "frame.evaluate" => {
+                // The host's capture mask also hides secrets in closed shadow roots.
+                if params.get("closedRoots").and_then(Value::as_bool) == Some(true)
+                    && params.get("world").and_then(Value::as_str) == Some("host")
+                {
+                    inner.sync_closed_roots_for(params, super::state::World::Host)?;
+                }
+                inner.evaluate(params)
+            }
+            "frame.observe" => {
+                let evaluate = crate::observe::evaluate_params(params)?;
+                // Reads that walk the DOM see closed shadow roots; without
+                // them the read misses closed-root content but still runs.
+                if params
+                    .get("method")
+                    .and_then(Value::as_str)
+                    .is_some_and(|m| super::closed_roots::WALKING_OBSERVE_METHODS.contains(&m))
+                {
+                    let _ = inner.sync_closed_roots_for(params, super::state::World::Agent);
+                }
+                inner.evaluate(&evaluate)
+            }
             "frame.contentFrame" => inner.content_frame(params),
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),

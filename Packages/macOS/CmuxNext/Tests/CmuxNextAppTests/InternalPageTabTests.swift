@@ -94,6 +94,38 @@ struct InternalPageTabTests {
         #expect(commands == ["focusSearch"])
     }
 
+    /// Cmd-F also works while a text field inside the page has the keyboard:
+    /// the page's own fields are not app text inputs, so the find action runs
+    /// (a lock for the coordinator's "from any field there").
+    @Test func commandFRunsFindWhileAFieldInsideTheSettingsPageIsFocused() async throws {
+        let (services, window, pane) = try await world()
+        #expect(services.registry.perform("openSettings", invocation: ActionInvocation()))
+        let key = try #require(services.pages.keys(of: .settings).first)
+        await BrowserTabTests.settle { pane.stripModel.selectedID?.rawValue == key }
+        let event = try KeyInterceptionTests.key("f", keyCode: 3, [.command])
+        let decision = services.keyRouter.decide(event, focus: window.focus.state, keyWindow: .content,
+                                                 facts: KeyRouter.Facts(pageEditableFocused: true))
+        guard case .run(let candidate) = decision else { Issue.record("Cmd-F did not run: \(decision)"); return }
+        #expect(candidate.id == "find")
+    }
+
+    /// Settings open as a top page (TopPages, no pane): Cmd-F focuses its search too.
+    @Test func commandFOnSettingsAsATopPageFocusesItsSearch() async throws {
+        let (services, window, _) = try await world()
+        let route = TopPageRoute.page(.settings)
+        #expect(TopPages.show(route, services: services, in: window.state) != nil)
+        let view = try #require(window.topPages.views[route] as? InternalPageView)
+        let page = try #require(view.content as? PageWebView)
+        let shell = try #require(window.window)
+        shell.makeFirstResponder(view.focusTarget)
+        final class Sent { var items: [CmuxNextSettings.JSONValue] = [] }
+        let sent = Sent()
+        page.router.send = { sent.items.append($0) }
+        _ = await page.router.handle(["t": "sub", "id": 1, "stream": .string(PageNativeOp.pageCommand)])
+        #expect(services.keyRouter.interceptKeyDown(try KeyInterceptionTests.key("f", keyCode: 3, [.command]), in: shell))
+        #expect(sent.items.compactMap { $0["data"]?["command"]?.stringValue } == ["focusSearch"])
+    }
+
     @Test func openSettingsOpensATabNotAWindow() async throws {
         let (services, window, pane) = try await world()
         let windowsBefore = NSApp.windows.count

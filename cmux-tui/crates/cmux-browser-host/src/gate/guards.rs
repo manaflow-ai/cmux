@@ -16,7 +16,8 @@ use std::sync::PoisonError;
 /// (tests find the step by it).
 const CAPTURE_MASK: &str = "/* cmux-capture-mask */ (values, token) => { \
     const g = globalThis; const st = g.__cmuxCaptureState || (g.__cmuxCaptureState = { saved: new Map(), runs: new Map() }); \
-    const roots = (root, out) => { out.push(root); for (const el of root.querySelectorAll('*')) if (el.shadowRoot) roots(el.shadowRoot, out); return out; }; \
+    const closed = g.__cmuxClosedRoots; const shadow = (el) => el.shadowRoot || (closed && closed.get(el)); \
+    const roots = (root, out) => { out.push(root); for (const el of root.querySelectorAll('*')) { const r = shadow(el); if (r) roots(r, out); } return out; }; \
     const holds = (text) => !!text && values.some((v) => text.includes(v)); \
     const scan = () => { const found = new Set(); for (const root of roots(document, [])) { \
       for (const el of root.querySelectorAll('input, textarea')) if (el.type === 'password' || holds(el.value)) found.add(el); \
@@ -168,8 +169,10 @@ impl Gate {
             _ => vec![Value::Null],
         };
         let evaluate = |frame: &Value, source: &str, args: Value| {
-            let mut call =
-                json!({"targetId": target, "world": "host", "source": source, "args": args});
+            // closedRoots: the host world also sees closed shadow roots
+            // (CDP engines; others ignore it).
+            let mut call = json!({"targetId": target, "world": "host", "source": source, "args": args,
+                "closedRoots": source != CAPTURE_UNMASK});
             if !frame.is_null() {
                 call["frameId"] = frame.clone();
             }

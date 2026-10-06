@@ -28,7 +28,7 @@ const STALE_MARKER: &str = "cmux-stale-handle:";
 /// group of its own: frames in one process share a CDP session, and a
 /// release of one shared group killed the objects of a concurrent call
 /// ("Could not find object with given id": the snapshot lost a frame).
-fn handle_group() -> String {
+pub(super) fn handle_group() -> String {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     format!("cmux-handles-{}", NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
@@ -49,13 +49,17 @@ struct CallResult {
 }
 
 /// A script context: the CDP session that owns it and its id there.
-struct Context {
-    session: String,
-    id: i64,
+pub(super) struct Context {
+    pub(super) session: String,
+    pub(super) id: i64,
 }
 
 impl Inner {
-    fn frame_or_main(&self, session: &Session, params: &Value) -> Result<String, DriverError> {
+    pub(super) fn frame_or_main(
+        &self,
+        session: &Session,
+        params: &Value,
+    ) -> Result<String, DriverError> {
         if let Some(frame_id) = params.get("frameId").and_then(Value::as_str) {
             return Ok(frame_id.to_owned());
         }
@@ -76,7 +80,7 @@ impl Inner {
 
     /// The execution context of `world` in a frame. The agent world is created
     /// (and the agent installed) when the frame has none yet.
-    fn context(
+    pub(super) fn context(
         &self,
         session: &Session,
         frame_id: &str,
@@ -364,7 +368,7 @@ impl Inner {
         Ok(objects)
     }
 
-    fn release_handles(&self, session_id: &str, group: &str) {
+    pub(super) fn release_handles(&self, session_id: &str, group: &str) {
         let _ = self.conn.call(
             Some(session_id),
             "Runtime.releaseObjectGroup",
