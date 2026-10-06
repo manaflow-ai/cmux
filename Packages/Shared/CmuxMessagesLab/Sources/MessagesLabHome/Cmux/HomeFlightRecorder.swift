@@ -12,7 +12,8 @@ import UniformTypeIdentifiers
 /// Off until the app sets the policy: CmuxNext turns it on by default in DEV
 /// builds, behind Debug Settings opt-ins in NIGHTLY (recording, and window
 /// captures separately), and never in Release or RC.
-public enum HomeFlightRecorder {
+public struct HomeFlightRecorder {
+    public init() {}
     /// Whether the recorder samples after a send and dumps on a finding. Read live.
     nonisolated(unsafe) public static var isEnabled: () -> Bool = { false }
     /// Whether a dump also writes window captures (about 0.5 s of frames). Read live.
