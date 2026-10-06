@@ -60,4 +60,27 @@ import Testing
         #expect((wire.first?["preview"] as? [String: Any])?["hash"] as? String == preview)
         #expect(wire.last?["type"] as? String == "text")
     }
+
+    /// A link preview maps to the Home link preview (same fields, the image
+    /// as an attachment-style derived image) and back to the owner's part.
+    @Test func linkPreviewPartsMapBothWays() throws {
+        let hash = String(repeating: "c", count: 64)
+        let json = #"""
+        {"id":"msg_1","conversation":"conv_A","seq":1,"client_msg_id":"c1","author":"user_local","created_at":"2026-10-05T12:00:00.000Z",
+         "parts":[{"type":"text","text":"look https://example.com/post"},
+                  {"type":"link_preview","url":"https://example.com/post","title":"A post","site":"example.com",
+                   "image":{"hash":"\#(hash)","mime_type":"image/webp","byte_count":77}}],
+         "reactions":[]}
+        """#
+        let message = try JSONDecoder().decode(ConversationMessage.self, from: Data(json.utf8))
+        let link = LinkPreview(url: "https://example.com/post", title: "A post", site: "example.com",
+                               image: AttachmentDerivedImage(hash: hash, mimeType: "image/webp", byteCount: 77))
+        #expect(HomeCoreMapping.message(message).parts == [.text("look https://example.com/post"), .linkPreview(link)])
+
+        let op = HomeOp.sendMessage(conversation: ConversationID("conv_A"), parts: [.linkPreview(link)])
+        let mapped = try #require(HomeCoreMapping.op(op, key: IdempotencyKey("c1")))
+        guard case .send(_, let parts, nil) = mapped.op else { Issue.record("not a send"); return }
+        #expect(parts == [.linkPreview(ConversationLinkPreview(url: "https://example.com/post", title: "A post", site: "example.com",
+                                                               image: ConversationDerivedImage(hash: hash, mimeType: "image/webp", byteCount: 77)))])
+    }
 }
