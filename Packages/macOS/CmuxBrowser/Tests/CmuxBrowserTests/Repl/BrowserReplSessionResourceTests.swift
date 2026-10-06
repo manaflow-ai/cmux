@@ -973,6 +973,46 @@ struct BrowserReplSessionResourceTests {
         #expect(lines.last == "ran", "\(lines)")
     }
 
+    /// r18 lane e5: one session protects at most its quota of distinct
+    /// files with `secrets.load` (512 by default), so one session cannot
+    /// fill the app-wide set alone. Past it the load fails with `limit`,
+    /// naming the quota; loading a file it already protects takes nothing.
+    @Test("secrets.load protects at most the session's quota of distinct files")
+    func secretSourceFilesAreBoundedPerSession() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("brepl-source-quota-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for index in 1...3 {
+            try Data(#"{"https://example.com":{"pw\#(index)":"quota-test-value-\#(index)"}}"#.utf8)
+                .write(to: directory.appendingPathComponent("s\(index).json"))
+        }
+        let session = BrowserReplSession(
+            id: "source-quota-\(UUID().uuidString)",
+            cwd: directory.path,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "quota.js", source: resourceRuntime)], agentScripts: []),
+            driver: HeldCookiesDriver(),
+            limits: BrowserReplResourceLimits.standard.with(.secretSourceFiles, 2),
+            executionTimeLimitSupported: BrowserReplWatchdog.isSupported
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            for (const name of ["s1.json", "s2.json", "s3.json", "s1.json"]) {
+              const error = JSON.parse(native.secrets("load", JSON.stringify({ path: name }))).error;
+              console.log(name, error ? error.code + " " + error.message : "ok");
+            }
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(400)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 4, "\(lines)")
+        #expect(lines.first == "s1.json ok" && lines.dropFirst().first == "s2.json ok", "\(lines)")
+        #expect(lines.dropFirst(2).first?.hasPrefix("s3.json limit") == true && lines.dropFirst(2).first?.contains("at most 2") == true, "\(lines)")
+        #expect(lines.last == "s1.json ok", "a file the session already protects took more of its quota: \(lines)")
+        #expect(BrowserReplResourceLimits.standard[.secretSourceFiles] == 512)
+    }
+
     /// The running cell's source is parsed and compiled (several times its
     /// size) before the cell can measure its heap, so it is reserved in the
     /// session's memory first: a cell whose parse cannot fit is refused
