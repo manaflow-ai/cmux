@@ -104,14 +104,23 @@ extension HomeService {
         let placed = await readPlacedChief()
         guard !Task.isCancelled else { return }
         setCloudChief(placed)
-        // Local conversations live in the Chief home's owner, not this build's daemon.
-        homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
-        guard let owner = await chiefConnection(), !Task.isCancelled else { return }
-        let listedAll = try await ConversationClient(owner).list()
+        // Local conversations live in the Chief home's owner, not this build's
+        // daemon. A placed chief does not wait for it: its tab shows now, and
+        // the owner's first connection runs this again (HomeService.start),
+        // when a local Chief with history takes the tab back.
+        let owner: DaemonConnection?
+        if placed == nil {
+            homeWorkspaceStep = "waiting for the chief owner \(self.chief.home.session)"
+            owner = await chiefConnection()
+            guard owner != nil, !Task.isCancelled else { return }
+        } else {
+            owner = chief.supports(DaemonCapabilities.shared.localConversations) ? chief.connection : nil
+        }
+        let listedAll = try await owner.map { try await ConversationClient($0).list() } ?? []
         let known = Set(listedAll.map(\.id))
         let listed = HomeChiefName.select(from: listedAll)
         // The local Chief is looked up (never created) once a chief is placed.
-        let localChief = placed == nil ? try await chiefConversation(owner) : listed?.id
+        let localChief = if placed == nil, let owner { try await chiefConversation(owner) } else { listed?.id }
         let localHasHistory = placed == nil || (listed?.lastSeq ?? 0) > 0
         guard let chief = HomeChiefSource.choose(local: localChief, localHasHistory: localHasHistory, placed: placed) else { return }
         homeWorkspaceStep = "waiting for the home workspace in the tree"
@@ -124,7 +133,8 @@ extension HomeService {
         guard !Task.isCancelled, let workspace = found else { return }
         // A local conversation tab whose conversation the Chief owner does not
         // have shows nothing: a build's own Chief from before the Chief home.
-        let dangling = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { tab in
+        // Only the owner's own list can call a tab dangling.
+        let dangling = owner == nil ? [] : workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { tab in
             tab.kind == .conversation
                 && tab.snapshot.conversation.map { ref in ref.owner == "local" && ref.conversation.map { !known.contains($0) } == true } == true
         }
