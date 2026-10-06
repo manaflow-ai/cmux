@@ -76,6 +76,11 @@ lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
 
 [[test]]
+path = "tests/test_cli_canvas_arguments.py"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
+
+[[test]]
 path = "tests/test_browser_profile_cli.py"
 lane = "macos-cli-no-socket"
 requirements = ["cmux-cli"]
