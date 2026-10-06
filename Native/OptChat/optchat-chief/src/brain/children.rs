@@ -55,6 +55,9 @@ impl Brain {
                     self.turn_permission(session_id, permission_id, request);
                     return;
                 }
+                if self.sub_permission(&session_id, &permission_id, &request) {
+                    return;
+                }
                 // A child can ask before its session_changed reached us.
                 let known = self.sessions.get(&session_id).cloned();
                 let session = match known {
@@ -320,7 +323,7 @@ pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>
 }
 
 /// A child's permission request as a message to the Chief.
-fn permission_text(name: &str, request: &Value) -> String {
+pub(super) fn permission_text(name: &str, request: &Value) -> String {
     let call = request.get("toolCall");
     let title = call
         .and_then(|c| c.get("title"))

@@ -322,7 +322,7 @@ impl FileStore {
                 &now
             }
         };
-        let loc = self.main.append(&lines::main_line(i, kind, text, date))?;
+        let loc = self.main.append(&lines::main_line(i, kind, text, date)?)?;
         self.messages.push(loc);
         Ok(i)
     }

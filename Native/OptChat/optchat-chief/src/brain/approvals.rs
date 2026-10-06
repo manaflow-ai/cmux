@@ -112,7 +112,8 @@ impl Brain {
         if self.chief.remote_auto_approve {
             return None;
         }
-        (self.turn_ask || self.ask_child_live()).then_some(crate::approval::ASK)
+        (self.turn_ask || self.ask_child_live() || self.ask_subagent_live())
+            .then_some(crate::approval::ASK)
     }
 
     /// Drops the running turn's own pending approvals (its session ends);

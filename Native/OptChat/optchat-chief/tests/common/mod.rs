@@ -288,6 +288,8 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// Every permission answer: (session, permission id, option id).
+    pub responses: Vec<(String, String, Option<String>)>,
 }
 
 /// An `_acpmux/harnesses` answer as a machine with `sr` and `claude` on
@@ -311,8 +313,6 @@ pub fn acpx_catalog() -> Value {
         "claude-sr": {"argv": [acp], "env": {"ANTHROPIC_BASE_URL": "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"}, "description": "Claude through the subrouter server http://cmux-lawrences-mac-mini.tail137216.ts.net:31415", "family": "claude"},
         "codex": {"argv": ["/Users/lawrence/.local/share/cmux-acp/current/bin/codex-acp"], "description": "imported from ~/.acpx", "family": "codex"},
     }, "defaultHarness": "claude"})
-    /// Every permission answer: (session, permission id, option id).
-    pub responses: Vec<(String, String, Option<String>)>,
 }
 
 pub struct FakeAgents {

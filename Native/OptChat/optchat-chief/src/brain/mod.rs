@@ -85,6 +85,8 @@ pub enum Input {
     SubagentStarted {
         id: String,
         session_id: String,
+        /// `ask` under the spawn floor.
+        policy: Option<String>,
     },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
@@ -484,7 +486,11 @@ impl Brain {
                 let plan = self.register_spawn(&tasks);
                 let _ = reply.send(plan);
             }
-            Input::SubagentStarted { id, session_id } => self.sub_started(&id, session_id),
+            Input::SubagentStarted {
+                id,
+                session_id,
+                policy,
+            } => self.sub_started(&id, session_id, policy),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
