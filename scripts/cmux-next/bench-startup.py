@@ -450,6 +450,27 @@ def daemon_side(tag, runs):
         print(f"  {label:<46} {statistics.median(values):>8.0f} {max(values):>8.0f}")
 
 
+def stall_site(stall):
+    """The first app frame of a stall, without its module and offset."""
+    frames = stall["frames"]
+    for frame in [f for f in frames if "CmuxNext" in f] + [f for f in frames if "cmux DEV" in f]:
+        if "cmux DEV" in frame:
+            return frame.split(" + ")[0].replace("cmux DEV.debug.dylib ", "").replace("cmux DEV ", "")[:100]
+    return (stall["frames"] or ["?"])[0].split(" + ")[0][:100]
+
+
+def print_stalls(runs):
+    """Main-thread stall time per run, and the sites that stalled in most runs."""
+    totals = [sum(s["ms"] for s in run.get("stalls", [])) for run in runs]
+    print(f"  main-thread stalls: median total {statistics.median(totals):.0f} ms per launch (max {max(totals):.0f})")
+    sites = {}
+    for run in runs:
+        for stall in run.get("stalls", []):
+            sites.setdefault(stall_site(stall), []).append(stall["ms"])
+    for site, values in sorted(sites.items(), key=lambda item: -sum(item[1]))[:8]:
+        print(f"    {len(values)}/{len(runs)} runs, median {statistics.median(values):>4.0f} ms  {site}")
+
+
 def table(runs):
     """Rows in the order the marks landed (by median), each with its gap
     from the row before."""
@@ -522,6 +543,8 @@ def main():
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
             for label, mark, median, worst, gap, count in table(runs):
                 print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
+            if args.hangs:
+                print_stalls(runs)
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
