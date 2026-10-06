@@ -21,7 +21,8 @@ import CmuxNextSettings
 /// gesture event); a `drag` takes `press: false` (no mouse-down: it
 /// continues a drag left open) and `release: false` (no mouse-up: the drag
 /// stays open for `debug.tab_drag` and screenshots); `button`: `left`
-/// (default), `right`;
+/// (default), `right`, `middle` (AppKit's `otherMouse*` events, button
+/// number 2: a middle click on a sidebar workspace row closes it);
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -116,15 +117,26 @@ enum DebugMouse {
     static func eventTypes(button: String?) -> (down: NSEvent.EventType, up: NSEvent.EventType, dragged: NSEvent.EventType) {
         switch button {
         case "right": (.rightMouseDown, .rightMouseUp, .rightMouseDragged)
+        case "middle": (.otherMouseDown, .otherMouseUp, .otherMouseDragged)
         default: (.leftMouseDown, .leftMouseUp, .leftMouseDragged)
         }
     }
 
     static func mouse(_ type: NSEvent.EventType, at point: NSPoint, in window: NSWindow, flags: NSEvent.ModifierFlags,
                       clicks: Int) -> NSEvent? {
-        NSEvent.mouseEvent(with: type, location: baseLocation(point, in: window), modifierFlags: flags,
-                           timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
-                           eventNumber: 0, clickCount: clicks, pressure: type == .leftMouseUp || type == .rightMouseUp ? 0 : 1)
+        guard let event = NSEvent.mouseEvent(
+            with: type, location: baseLocation(point, in: window), modifierFlags: flags,
+            timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 0, clickCount: clicks, pressure: [.leftMouseUp, .rightMouseUp, .otherMouseUp].contains(type) ? 0 : 1
+        ) else { return nil }
+        guard [.otherMouseDown, .otherMouseUp, .otherMouseDragged].contains(type) else { return event }
+        // NSEvent.mouseEvent leaves buttonNumber 0 on otherMouse events; the
+        // middle button is 2, which the views that handle it check. The
+        // copy keeps the window and the window-local point (on a Mac with a
+        // display; DebugMouseButtonTests).
+        guard let cg = event.cgEvent?.copy() else { return nil }
+        cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+        return NSEvent(cgEvent: cg)
     }
 
     /// A pixel scroll at `point`, addressed to `window` like the window
