@@ -198,9 +198,9 @@ cli() {
 call() { cli app call "$@"; }
 # The app opens on Home, where no pane is ready: show the first workspace, then seed until it takes.
 seed() {
-  local attempt
+  local _
   cli action run workspace.selectFirst --focus
-  for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
     call debug.showcase.seed '{"focus":true}' | grep -Eq '"?seeded"?[": ]+true' && return 0
     sleep 2
   done
