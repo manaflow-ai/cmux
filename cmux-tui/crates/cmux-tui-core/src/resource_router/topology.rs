@@ -12,7 +12,9 @@ use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
 mod workspace_mutations;
+mod workspace_order;
 use workspace_mutations::{move_workspace, rename_workspace};
+use workspace_order::list_workspaces;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -66,13 +68,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     match request.envelope.operation {
-        ResourceOperation::WorkspaceList => list_resources(
-            mux,
-            &request.selectors,
-            ResourceTarget::Session,
-            "workspaces",
-            "workspace.list",
-        ),
+        ResourceOperation::WorkspaceList => list_workspaces(mux, &request),
         ResourceOperation::WorkspaceGet => {
             get_resource(mux, &request.selectors, ResourceTarget::Workspace, "workspaces")
         }

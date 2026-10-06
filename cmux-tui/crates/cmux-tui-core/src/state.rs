@@ -28,7 +28,10 @@ pub(crate) mod home_store;
 mod home_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
+#[cfg(test)]
+mod mixed_order_tests;
 pub(crate) mod personal;
+pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
 pub(crate) mod router;

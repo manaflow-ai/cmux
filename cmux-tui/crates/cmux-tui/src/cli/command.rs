@@ -643,7 +643,7 @@ fn parse_workspace(
         ["placement", "list"] => {
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
-        ["list"] => request(ResourceOperation::WorkspaceList, selectors, flags, Map::new()),
+        ["list"] => state::workspace_list(selectors, flags),
         ["create"] => {
             let mut params = Map::new();
             if let Some(name) = flags.take("name") {

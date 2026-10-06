@@ -1122,10 +1122,10 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
-    assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
-    assert_eq!(events.batches[0].changes[0]["kind"], "upsert");
-    assert_eq!(events.batches[0].changes[0]["resource"], "workspace");
-    assert!(events.batches[0].changes[0].get("event").is_none());
+    let c = events.batches[0].changes.as_array().unwrap();
+    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
+    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert!(c[0].get("event").is_none() && c.len() == 2);
     assert_eq!(
         registry
             .connection
