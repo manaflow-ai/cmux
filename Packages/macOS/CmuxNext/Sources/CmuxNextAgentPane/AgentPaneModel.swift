@@ -58,6 +58,8 @@ public final class AgentPaneModel {
     /// (`quick.openInWindow`). Gets the chat's session, nil before the
     /// first prompt.
     @ObservationIgnored public var onQuickOpenInWindow: ((String?) -> Void)?
+    /// This Mac's name for the page's location row, read at each handshake.
+    @ObservationIgnored public var machineName: (@MainActor () -> String?)?
     /// This build's URL scheme, handed to the page with every handshake so
     /// the links it copies open in this build; nil leaves it out.
     @ObservationIgnored public var linkScheme: String?
@@ -209,6 +211,7 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
+                handshake.machineName = machineName?()
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
