@@ -57,9 +57,11 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
         /// The name is empty, longer than ``maximumNameLength`` or has a
         /// character outside `A-Z a-z 0-9 . _ -`.
         case invalidName
-        /// ``maximumSessions`` sessions are live, or, for a private
-        /// session, ``maximumPrivateSessions`` private ones.
+        /// ``maximumSessions`` sessions are live.
         case tooManySessions(limit: Int)
+        /// For a private session, ``maximumPrivateSessions`` private ones
+        /// are live; only their owners reset them.
+        case tooManyPrivateSessions(limit: Int)
         /// A live session of that name belongs to another client (its
         /// owner token is not the caller's).
         case ownedByAnotherClient
@@ -172,7 +174,7 @@ public final class BrowserReplSessionRegistry: @unchecked Sendable {
             }
             if owner != nil, live.keys.filter({ owners[$0] != nil }).count >= maximumPrivateSessions {
                 lock.unlock()
-                throw Refusal.tooManySessions(limit: maximumPrivateSessions)
+                throw Refusal.tooManyPrivateSessions(limit: maximumPrivateSessions)
             }
             session = make(key.makeInstanceID())
             // A session that ended by itself (its JavaScript heap passed

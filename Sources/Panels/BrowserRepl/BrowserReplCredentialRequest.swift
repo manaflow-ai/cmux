@@ -270,7 +270,7 @@ final class BrowserReplCredentialSheet: NSObject {
         }
         let note = NSTextField(wrappingLabelWithString: String(
             localized: "browser.repl.auth.notice",
-            defaultValue: "An agent asked cmux to fill this sign-in form. cmux masks what you type wherever the agent reads it back, but scripts on the page can read the filled fields."
+            defaultValue: "An agent asked cmux to fill this sign-in form. cmux hides the exact text you type where it appears in what the agent reads back, but not altered copies of it (such as encoded or split text), and scripts on the page can read the filled fields."
         ))
         note.textColor = .secondaryLabelColor
         note.preferredMaxLayoutWidth = 380

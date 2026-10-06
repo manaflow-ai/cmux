@@ -623495,55 +623495,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent asked cmux to fill this sign-in form. cmux masks what you type wherever the agent reads it back, but scripts on the page can read the filled fields."
+            "value": "An agent asked cmux to fill this sign-in form. cmux hides the exact text you type where it appears in what the agent reads back, but not altered copies of it (such as encoded or split text), and scripts on the page can read the filled fields."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. يُخفي cmux ما تكتبه في كل ما يقرؤه الوكيل، لكن نصوص الصفحة البرمجية يمكنها قراءة الحقول المعبأة."
+            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. يُخفي cmux النص المطابق لما تكتبه حيثما يظهر فيما يقرؤه الوكيل، لكنه لا يُخفي النسخ المعدَّلة منه (مثل النص المرمَّز أو المقسَّم)، ويمكن لنصوص الصفحة البرمجية قراءة الحقول المعبأة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. cmux maskiert, was du eingibst, überall, wo der Agent es zurückliest, aber Skripte der Seite können die ausgefüllten Felder lesen."
+            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. cmux verbirgt den genauen Text, den du eingibst, wo er in dem erscheint, was der Agent zurückliest, aber keine veränderten Kopien davon (etwa codierten oder aufgeteilten Text), und Skripte der Seite können die ausgefüllten Felder lesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. cmux enmascara lo que escribes en todo lo que el agente lee, pero los scripts de la página pueden leer los campos rellenados."
+            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. cmux oculta el texto exacto que escribes donde aparece en lo que el agente lee, pero no las copias alteradas (como texto codificado o dividido), y los scripts de la página pueden leer los campos rellenados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. cmux masque ce que vous saisissez partout où l’agent le relit, mais les scripts de la page peuvent lire les champs remplis."
+            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. cmux masque le texte exact que vous saisissez là où il apparaît dans ce que l’agent relit, mais pas ses copies modifiées (texte encodé ou découpé, par exemple), et les scripts de la page peuvent lire les champs remplis."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容は、エージェントが読み取るすべての箇所で cmux がマスクしますが、ページのスクリプトは入力済みのフィールドを読み取れます。"
+            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。cmux は、入力した内容とまったく同じテキストがエージェントの読み取る内容に現れた場合にマスクしますが、変換されたコピー（エンコードや分割されたテキストなど）はマスクしません。また、ページのスクリプトは入力済みのフィールドを読み取れます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. cmux는 에이전트가 읽어 가는 모든 곳에서 입력한 내용을 가리지만, 페이지의 스크립트는 채워진 필드를 읽을 수 있습니다."
+            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. cmux는 입력한 내용과 정확히 같은 텍스트가 에이전트가 읽어 가는 내용에 나타나면 가리지만, 변형된 사본(인코딩되거나 나뉜 텍스트 등)은 가리지 않으며, 페이지의 스크립트는 채워진 필드를 읽을 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "一个代理请求 cmux 填写此登录表单。cmux 会在代理读取的所有内容中遮盖你输入的内容，但页面上的脚本可以读取已填写的字段。"
+            "value": "一个代理请求 cmux 填写此登录表单。当你输入的原文出现在代理读取的内容中时，cmux 会将其遮盖，但不会遮盖经过改动的副本（例如编码或拆分后的文本），并且页面上的脚本可以读取已填写的字段。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "一個代理請求 cmux 填寫此登入表單。cmux 會在代理讀取的所有內容中遮蓋你輸入的內容，但頁面上的指令碼可以讀取已填寫的欄位。"
+            "value": "一個代理請求 cmux 填寫此登入表單。當你輸入的原文出現在代理讀取的內容中時，cmux 會將其遮蓋，但不會遮蓋經過改動的副本（例如編碼或拆分後的文字），而且頁面上的指令碼可以讀取已填寫的欄位。"
           }
         }
       }
@@ -624193,6 +624193,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "工作階段名稱為 1 到 64 個字元：字母、數字、'.'、'_' 和 '-'"
+          }
+        }
+      }
+    },
+    "cli.browser.repl.error.tooManyPrivateSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many private browser REPL sessions are open (runs without --session); only the client that started one can reset it, so quit REPL clients you no longer use or wait 30 minutes for idle ones to end, or pass --session NAME to use a named session"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عدد جلسات REPL الخاصة للمتصفح المفتوحة كبير جدًا (التشغيلات دون --session)؛ لا يمكن إعادة تعيين الجلسة إلا من العميل الذي بدأها، لذا أغلق عملاء REPL التي لم تعد تستخدمها أو انتظر 30 دقيقة حتى تنتهي الجلسات الخاملة، أو مرِّر --session NAME لاستخدام جلسة مسماة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele private Browser-REPL-Sitzungen sind geöffnet (Läufe ohne --session); nur der Client, der eine gestartet hat, kann sie zurücksetzen. Beenden Sie REPL-Clients, die Sie nicht mehr verwenden, warten Sie 30 Minuten, bis inaktive enden, oder übergeben Sie --session NAME, um eine benannte Sitzung zu verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hay demasiadas sesiones REPL privadas del navegador abiertas (ejecuciones sin --session); solo el cliente que inició una puede restablecerla, así que cierra los clientes REPL que ya no uses, espera 30 minutos a que terminen las inactivas o pasa --session NAME para usar una sesión con nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de sessions REPL privées du navigateur sont ouvertes (exécutions sans --session) ; seul le client qui en a lancé une peut la réinitialiser : quittez les clients REPL que vous n’utilisez plus, attendez 30 minutes que les sessions inactives se terminent, ou passez --session NAME pour utiliser une session nommée"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプライベートなブラウザ REPL セッション（--session なしの実行）が多すぎます。セッションをリセットできるのは開始したクライアントだけです。使わなくなった REPL クライアントを終了するか、アイドル状態のセッションが 30 分で終了するのを待つか、--session NAME を指定して名前付きセッションを使用してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열려 있는 비공개 브라우저 REPL 세션(--session 없이 실행)이 너무 많습니다. 세션은 시작한 클라이언트만 재설정할 수 있으므로 더 이상 사용하지 않는 REPL 클라이언트를 종료하거나, 유휴 세션이 30분 후 종료될 때까지 기다리거나, --session NAME을 전달해 이름 있는 세션을 사용하세요"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开的私有浏览器 REPL 会话（不带 --session 的运行）过多；只有启动会话的客户端才能重置它，请退出不再使用的 REPL 客户端，或等待空闲会话在 30 分钟后结束，或传入 --session NAME 以使用命名会话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟的私有瀏覽器 REPL 工作階段（不帶 --session 的執行）過多；只有啟動工作階段的用戶端才能重設它，請結束不再使用的 REPL 用戶端，或等待閒置工作階段在 30 分鐘後結束，或傳入 --session NAME 以使用具名工作階段"
           }
         }
       }
