@@ -47,8 +47,11 @@ extension SidebarView {
         let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
+        // The one selection marks its top item active (its glyph, accessibility).
+        var selectedInfos = model.itemInfo
+        for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
-            SidebarRegionView.Content(sections: sections.map(titled), infos: model.itemInfo, collapsed: model.collapsedLayoutSections,
+            SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: b.width))
         }
         aboveRegion.update(content(bands.above), width: b.width)
