@@ -32,7 +32,7 @@ struct SessionFilter {
 
 pub struct HeadlessSource {
     pub(crate) driver: CdpDriver,
-    profile: String,
+    pub(crate) profile: String,
     subscribers: Subscribers,
     next_subscriber: AtomicU64,
     leases: Mutex<LeaseTable>,
@@ -46,7 +46,7 @@ pub struct HeadlessSource {
     /// the input it left pressed is released.
     driven: Mutex<HashMap<String, HashSet<u64>>>,
     /// Each session's `session.configure` options (item 4d).
-    pub(crate) configs: Mutex<HashMap<u64, crate::headless_configure::SessionConfig>>,
+    pub(crate) configs: Mutex<crate::headless_configure::Configs>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -307,7 +307,10 @@ impl TabSource for SharedHeadless {
                     active: tab["active"].as_bool().unwrap_or(false),
                     window_id: tab.get("windowId").cloned().unwrap_or(json!(1)),
                     state: "live".to_owned(),
-                    data_store: self.0.profile.clone(),
+                    data_store: tab["targetId"]
+                        .as_str()
+                        .and_then(|target| self.0.data_store_of(target))
+                        .unwrap_or_else(|| self.0.profile.clone()),
                     opener: tab["openerTargetId"].as_str().map(str::to_owned),
                 })
             })
@@ -359,9 +362,7 @@ impl TabSource for SharedHeadless {
 
     fn kept(&self, session: u64, target_id: &str) {
         let created = self.0.routes().is_creator(session, target_id);
-        if created {
-            self.0.configure_kept(session, target_id);
-        }
+        self.0.configure_kept(session, target_id, created);
         self.0.routes().kept(session, target_id);
     }
 
@@ -383,6 +384,16 @@ impl TabSource for SharedHeadless {
         }
         if method == "session.configure" {
             return Some(self.0.configure(session, &params));
+        }
+        // Only the host names a store: tab-less cookies.* use the
+        // session's proxy store, else the profile's.
+        if let Some(fields) = params.as_object_mut() {
+            fields.remove("browserContextId");
+        }
+        if method.starts_with("cookies.")
+            && let Some(context) = self.0.proxy_of(session)
+        {
+            params["browserContextId"] = json!(context);
         }
         Some(self.0.driver.call(method, &params))
     }
@@ -496,6 +507,10 @@ impl TabSource for SharedHeadless {
 impl SharedHeadless {
     fn dispatch(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
         let mut params = call.params.clone();
+        // A tab call's store is its tab's; only the host names one.
+        if let Some(fields) = params.as_object_mut() {
+            fields.remove("browserContextId");
+        }
         if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
             params["fetchId"] = json!(fetch_id(call.session, id));
         }
