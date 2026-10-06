@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextDesign
 import CmuxNextIcons
 import Testing
@@ -31,5 +32,28 @@ import Testing
         let image = try #require(list.addButtonImage)
         #expect(image.isTemplate)
         #expect(image.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
+    }
+
+    @Test func chiefConversationRowsUseTheRegistryMarkAndKeepTheirChromeBreathingRoom() throws {
+        let me = Participant(id: ParticipantID("me"), kind: .human, displayName: "Me")
+        let chief = Participant(id: ParticipantID("chief"), kind: .agent, displayName: "Chief", agentClass: .chief,
+                                ownerUser: ParticipantID("me"))
+        let now = Date(timeIntervalSince1970: 1_790_000_000)
+        let summary = ConversationSummary(id: ConversationID("chief"), title: "Chief", participants: [me, chief],
+                                          lastSeq: Seq(1), createdAt: now, updatedAt: now)
+        let row = InboxRow(summary: summary, kind: .chief, title: "Chief", preview: "Worked for 3s",
+                           previewAttachments: nil, previewAuthor: nil, timestamp: now, unread: 0, mentions: 0,
+                           isPinned: false, isSending: false, hasFailedSend: false, isTyping: false)
+        let cell = HomeConversationCellView(frame: NSRect(x: 0, y: 0, width: 320, height: HomeConversationCellView.height))
+        cell.show(row, me: me.id)
+        cell.layoutSubtreeIfNeeded()
+
+        let icon = try #require(cell.avatarGlyph.image)
+        #expect(icon.isTemplate)
+        #expect(icon.size == NSSize(width: Metrics.iconSize, height: Metrics.iconSize))
+        #expect(cell.avatar.isHidden)
+        #expect(cell.highlightFrame.maxY <= cell.bounds.height - Metrics.space1)
+        #expect(cell.time.lineBreakMode == .byClipping)
+        #expect(HomeConversationTableRowView().drawsSeparator == false)
     }
 }
