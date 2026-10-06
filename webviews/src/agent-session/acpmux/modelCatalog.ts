@@ -45,24 +45,22 @@ export function mergeModelCatalog(names: unknown, probed: unknown): Catalog {
   return merged;
 }
 
+/// The models of `models` the picker offers: those acpmux will run, and `current` whatever it is.
+export function offeredModels<T extends { id: string; unavailable?: string }>(models: T[], current?: string): T[] {
+  return models.filter((model) => !model.unavailable || model.id === current);
+}
+
 /// The models offered for the session: its harness's catalog entry, else the choices of the
 /// session's own model option (an agent reports them before acpmux's probe finishes).
 export function sessionModels(
   catalog: Catalog,
-  summary: Pick<Summary, "harness" | "configOptions"> | undefined,
+  summary: Pick<Summary, "harness" | "model" | "configOptions"> | undefined,
 ): { id: string; name: string }[] {
   const listed = catalog.find((harness) => harness.id === summary?.harness)?.models ?? [];
-  if (listed.length > 0) return listed.map((model) => ({ id: model.id, name: modelLabel(model) }));
+  if (listed.length > 0)
+    return offeredModels(listed, summary?.model).map((model) => ({ id: model.id, name: model.name || model.id }));
   const option = summary?.configOptions?.find(
     (candidate) => candidate.category === "model" || candidate.id === "model",
   );
   return (option?.options ?? []).map((choice) => ({ id: choice.value, name: choice.name || choice.value }));
-}
-
-/// A model's label; one acpmux will not run says so, with the start of the reason.
-export function modelLabel(model: { id: string; name?: string; unavailable?: string }): string {
-  const name = model.name || model.id;
-  if (!model.unavailable) return name;
-  const reason = model.unavailable.length > 60 ? `${model.unavailable.slice(0, 59)}…` : model.unavailable;
-  return `${name} · unavailable: ${reason}`;
 }

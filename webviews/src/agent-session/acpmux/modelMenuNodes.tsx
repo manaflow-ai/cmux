@@ -5,6 +5,7 @@ import type React from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { Combo } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
+import { offeredModels } from "./modelCatalog";
 import { EffortTrack } from "./EffortTrack";
 import type { Translate } from "./i18n";
 import {
@@ -35,10 +36,11 @@ export type PickerData = ReturnType<typeof pickerData>;
 /// Models of other harnesses never enter: every row comes from this taxonomy.
 export function pickerData(props: ModelPickerProps) {
   const entry = props.catalog.find((harness) => harness.id === props.harness);
-  const taxonomy = buildTaxonomy(entry?.models ?? [], entry?.name ?? props.harness ?? "");
+  const models = offeredModels(entry?.models ?? [], props.model);
+  const taxonomy = buildTaxonomy(models, entry?.name ?? props.harness ?? "");
   const current: Current = { model: props.model, effort: props.effort };
   // The catalog's default model, which the taxonomy leaves out of its providers.
-  const defaultChoice = entry?.models.find((candidate) => isDefaultChoice(candidate));
+  const defaultChoice = models.find((candidate) => isDefaultChoice(candidate));
   const recents = runnableRecents(props.recents, taxonomy, props.harness, Number.MAX_SAFE_INTEGER, defaultChoice?.id);
   const numbered = recents.slice(0, RECENT_ROWS);
   const model = taxonomy.byId.get(props.model ?? "");
@@ -50,8 +52,11 @@ export function pickerData(props: ModelPickerProps) {
     combo.effort && !isDefaultChoice({ id: combo.effort, name: combo.effortName })
       ? (combo.effortName ?? effortName(combo.effort))
       : undefined;
-  // Other harnesses are offered only as a new chat, and only when the pane can start one.
-  const harnesses = props.catalog.filter((harness) => harness.id === props.harness || props.onHarness);
+  // Other harnesses are offered only as a new chat, only when the pane can start one, and only
+  // those acpmux can start.
+  const harnesses = props.catalog.filter(
+    (harness) => harness.id === props.harness || (props.onHarness && !harness.unavailable),
+  );
   const land = (landing: Landing | undefined) => {
     if (landing) props.onLand(landing.model, landing.effort);
   };
@@ -142,12 +147,11 @@ export function folded<T>(
   return order === "bestLast" ? [more, ...ordered(rows, order)] : [...rows, more];
 }
 
-/// One harness choice: the current one checked, another as a new chat. One acpmux cannot start
-/// (`unavailable`) says so and opens its reason with Try again instead of starting a chat that
-/// fails seconds later; one whose switch just failed says so (`harnessNotes`). Resting on an
-/// available one sends the prewarm hint; picking it switches.
+/// One harness choice: the current one checked, another as a new chat (pickerData leaves out
+/// those acpmux cannot start); one whose switch just failed says so (`harnessNotes`). Resting on
+/// one sends the prewarm hint; picking it switches.
 export function harnessNode(
-  harness: { id: string; name: string; unavailable?: string },
+  harness: { id: string; name: string },
   props: ModelPickerProps,
   t: Translate,
   section?: string,
@@ -159,15 +163,6 @@ export function harnessNode(
     section,
     checked: harness.id === props.harness,
   };
-  if (harness.unavailable && harness.id !== props.harness)
-    return {
-      ...node,
-      detail: t("picker.unavailable"),
-      children: [
-        { key: `harness:${harness.id}:reason`, label: harness.unavailable },
-        { key: `harness:${harness.id}:retry`, label: t("picker.tryAgain"), run: () => props.onHarness?.(harness.id) },
-      ],
-    };
   return {
     ...node,
     detail: props.harnessNotes?.[harness.id] ?? (harness.id === props.harness ? undefined : t("picker.newChat")),

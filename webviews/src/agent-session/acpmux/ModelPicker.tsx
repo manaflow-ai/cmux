@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { offeredModels } from "./modelCatalog";
 import { buildTaxonomy } from "./modelTaxonomy";
 import { menuRoom, pickerLayout, type MenuHandle, type ModelPickerProps, type PickerLayout } from "./modelPickerLayout";
 import { ModelPickerCascade } from "./ModelPickerCascade";
@@ -26,14 +27,15 @@ export function ModelPicker(props: ModelPickerProps) {
     [onHarnessHint],
   );
   const close = useCallback(() => openChange(false), [openChange]);
-  const { catalog, harness, measureRoom = menuRoom } = props;
+  const { catalog, harness, model, measureRoom = menuRoom } = props;
   useLayoutEffect(() => {
     if (!open || layout || !menu.current) return;
     const entry = catalog.find((candidate) => candidate.id === harness);
     // Providers, then families, then models: two submenus side by side; one otherwise.
-    const depth = buildTaxonomy(entry?.models ?? [], entry?.name ?? harness ?? "").providers.length > 1 ? 2 : 1;
+    const offered = offeredModels(entry?.models ?? [], model);
+    const depth = buildTaxonomy(offered, entry?.name ?? harness ?? "").providers.length > 1 ? 2 : 1;
     setLayout(pickerLayout(measureRoom(menu.current), depth));
-  }, [open, layout, catalog, harness, measureRoom]);
+  }, [open, layout, catalog, harness, model, measureRoom]);
   const Body = layout === "drill" ? ModelPickerDrill : ModelPickerCascade;
   return (
     <ModelPickerShell
