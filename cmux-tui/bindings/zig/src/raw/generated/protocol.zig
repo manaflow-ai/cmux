@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e";
+pub const ir_sha256 = "46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -404,17 +404,20 @@ pub const ConversationSummary = struct {
 };
 
 pub const ConversationTabRecord = struct {
-    /// Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.
+    /// Agent session source (agent-session-tabs-v1); exclusive with the other sources.
     agent_session: ?AgentSessionSource = null,
     /// Conversation source: a conv_ id, with owner.
     conversation: ?[]const u8 = null,
     /// Conversation source: local or cloud.
     owner: ?[]const u8 = null,
+    /// Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.
+    page: ?[]const u8 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "agent_session",
         "conversation",
         "owner",
+        "page",
     };
 };
 
@@ -5370,6 +5373,7 @@ pub const NewConversationTabRequest = struct {
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
+    page: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     rows: wire.Field(u16) = .absent,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
@@ -5401,6 +5405,7 @@ pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !
             .capability = "conversation-tabs-v1",
             .fields = &.{
                 .{ .name = "agent_session", .since = null, .capability = "agent-session-tabs-v1" },
+                .{ .name = "page", .since = null, .capability = "page-tabs-v1" },
                 .{ .name = "transaction", .since = null, .capability = "conversation-tab-transaction-v1" },
             },
         },

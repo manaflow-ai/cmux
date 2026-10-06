@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
+/* cmux-tui mux protocol 12, IR 46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e" as const;
+export const SDK_IR_SHA256 = "46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1464,6 +1464,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "agent-session-tabs-v1"
       },
+      "page": {
+        "since": null,
+        "capability": "page-tabs-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1471,7 +1475,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
     ]
   },
   "new-frontend-browser-tab": {
@@ -4636,7 +4640,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "agent_session": {
         "capability": "agent-session-tabs-v1",
-        "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+        "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -4655,6 +4659,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "owner": {
         "description": "Conversation source: local or cloud.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "capability": "page-tabs-v1",
+        "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -15777,6 +15791,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "owner": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "page": {
+          "capability": "page-tabs-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",

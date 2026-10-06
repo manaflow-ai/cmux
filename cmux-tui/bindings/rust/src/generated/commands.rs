@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e.
+// cmux-tui mux protocol 12, IR 46474e014bc77adc5dda52ee7c0bb874a425d39dcee7ddaf0006cbfba11beb05.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1649,6 +1649,8 @@ pub struct NewConversationTabRequest {
     pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owner: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3699,6 +3701,9 @@ impl CmuxClient {
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
+        if !request.page.is_missing() {
+            self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;

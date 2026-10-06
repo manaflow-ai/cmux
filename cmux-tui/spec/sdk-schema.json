@@ -7144,8 +7144,18 @@
      },
      "presence": "optional",
      "nullable": false,
-     "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+     "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
      "capability": "agent-session-tabs-v1"
+    },
+    "page": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
+     "capability": "page-tabs-v1"
     }
    },
    "additional_properties": false
@@ -14510,6 +14520,16 @@
       "default": null,
       "capability": "agent-session-tabs-v1"
      },
+     "page": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "page-tabs-v1"
+     },
      "pane": {
       "type": {
        "kind": "ref",
@@ -14635,7 +14655,7 @@
    },
    "stream": null,
    "constraints": [
-    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+    "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
    ]
   },
   "bind-conversation-tab-session": {
