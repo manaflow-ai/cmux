@@ -38,4 +38,18 @@ import Testing
         #expect(decided == .cancel)
         #expect(asked == 0)
     }
+
+    /// Every page the host ships routes by fragment only: its first load (``PageDescriptor/url(route:)``)
+    /// and a route change keep the main frame; a path or query on its origin does not.
+    @Test(arguments: [PageDescriptor.cloud, .settings, .apps, .coderouter, .changelog, .history, .diff, .markdown, .editor])
+    func everyPageRoutesByFragmentOnly(_ descriptor: PageDescriptor) {
+        func policy(_ url: URL) -> PageNavigation.Policy {
+            PageNavigation.policy(for: url, page: descriptor, userClicked: false, mainFrame: true, hook: nil)
+        }
+        #expect(policy(descriptor.url()) == .allow, "\(descriptor.id)")
+        #expect(policy(descriptor.url(route: "#/x/y?focus=1")) == .allow, "\(descriptor.id)")
+        #expect(policy(descriptor.url().appendingPathComponent("other")) == .cancel, "\(descriptor.id)")
+        let query = URL(string: descriptor.url().absoluteString + "?file=a")
+        #expect(PageNavigation.policy(for: query, page: descriptor, userClicked: false, mainFrame: true, hook: nil) == .cancel)
+    }
 }
