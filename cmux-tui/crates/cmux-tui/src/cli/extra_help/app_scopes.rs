@@ -7,11 +7,31 @@ use std::io::Write;
 /// when an app scope, a browser page or `notify` owns it. `None` leaves the
 /// request to the resource grammar's help.
 pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
+    if let Some(code) = process_help(args) {
+        return Some(code);
+    }
     let text = text(args)?;
     let mut stdout = std::io::stdout().lock();
     let _ = stdout.write_all(text.as_bytes());
     let _ = stdout.flush();
     Some(0)
+}
+
+/// `help acp|mcp|coderouter|link` runs that command's own `--help`, so the
+/// two spellings print the same text.
+fn process_help(args: &[String]) -> Option<i32> {
+    let [help, scope] = args else { return None };
+    if help.as_str() != "help" {
+        return None;
+    }
+    let flag = || vec![scope.clone(), "--help".to_owned()];
+    match scope.as_str() {
+        "acp" => Some(crate::acp::run(vec!["--help".into()])),
+        "link" => Some(crate::link::run(&["--help".to_owned()])),
+        "mcp" => super::super::mcp::run_if_requested(&flag()),
+        "coderouter" => super::super::coderouter::run_if_requested(&flag()),
+        _ => None,
+    }
 }
 
 fn text(args: &[String]) -> Option<String> {
