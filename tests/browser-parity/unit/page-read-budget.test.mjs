@@ -277,6 +277,42 @@ test("dropdownOptions and extract: page-controlled lists stop at the page-read b
   }
 });
 
+test("dropdownOptions: ARIA options are read one at a time within the node budget, never listed whole", async () => {
+  // The dev driver's agent world is the page world, so a querySelectorAll
+  // the page installs records the largest option list the read asks for.
+  // The listbox holds one shown option and 260,000 hidden ones (not
+  // returned); the budget is 250,000 nodes.
+  const servers = await startFixtureServers();
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate(() => {
+          document.body.innerHTML = '<div role="listbox" id="l" aria-label="Many"><div role="option">First</div><div style="display:none">' + '<div role="option">o</div>'.repeat(260000) + '</div></div>';
+          window.__options = 0;
+          for (const proto of [Document.prototype, DocumentFragment.prototype, Element.prototype]) {
+            const native = proto.querySelectorAll;
+            proto.querySelectorAll = function (selector) {
+              const list = native.call(this, selector);
+              if (String(selector).includes("role=option")) window.__options = Math.max(window.__options, list.length);
+              return list;
+            };
+          }
+        });`);
+      const r = await run(`const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify({ listed: await page.evaluate(() => window.__options), options: o.length }));`);
+      const v = JSON.parse(r.value);
+      assert.ok(v.listed <= 250000, `dropdownOptions listed ${v.listed} options at once with a budget of 250,000 nodes`);
+      assert.equal(v.options, 1);
+      assert.match(r.output, /# page\.dropdownOptions: the page is too large to read whole: it stopped after 250,000 nodes/);
+      // Below the budget, the options are still read.
+      const small = await run(`await page.evaluate(() => { document.body.innerHTML = '<div role="listbox" id="l" aria-label="Few"><div role="option">One</div><span><div role="option" aria-selected="true">Two</div></span></div>'; });
+        const o = await page.dropdownOptions("#l"); console.log("@@" + JSON.stringify(o.map((x) => [x.label, x.selected])));`);
+      assert.deepEqual(JSON.parse(small.value), [["One", false], ["Two", true]]);
+    });
+  } finally {
+    await servers.close();
+  }
+});
+
 test("tabs.content: each URL and the whole call stop at the page-read budget, and a cut row says so", async () => {
   const big = "<!doctype html><title>Big</title><p>" + "A".repeat(5000000) + "</p>";
   const server = http.createServer((req, res) => {
