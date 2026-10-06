@@ -193,4 +193,25 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
     public func captureMasks(forReader sessionID: String) -> [[String: Any]] {
         lock.withLock { entriesLocked(forReader: sessionID) }.map { ["value": $0.value, "domains": $0.domains.map(\.json)] }
     }
+
+    /// Runs a screenshot or PDF `capture` that `sessionID` takes with its
+    /// own `sessionMasks` plus the values other sessions typed, and refuses
+    /// its result (`stale`) when another session recorded a value since the
+    /// masks were taken. The check after the capture reads the records as
+    /// they are then, never the masks: a value typed between the mask and
+    /// the capture is not among the masks, and the capture's pixels may
+    /// show it.
+    @MainActor
+    public func capturing<T>(
+        forReader sessionID: String,
+        sessionMasks: [[String: Any]],
+        _ capture: @MainActor ([[String: Any]]) async throws -> T
+    ) async throws -> T {
+        let mark = captureMark(forReader: sessionID)
+        let result = try await capture(sessionMasks + captureMasks(forReader: sessionID))
+        guard !typedSince(mark, forReader: sessionID) else {
+            throw BrowserReplDriverError(code: "stale", message: "Another session typed a secret into a tab while the capture was taken, so it may show the value unmasked; try again")
+        }
+        return result
+    }
 }

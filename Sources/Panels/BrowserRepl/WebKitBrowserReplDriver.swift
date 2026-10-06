@@ -443,29 +443,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // The secrets other sessions typed into tabs
         // (BrowserReplTypedSecrets) are masked by the session's egress gate,
         // in the same pass as its own (typedSecretRedaction()); screenshots
-        // and PDFs get them as capture masks (typedSecretMasks(_:)).
+        // and PDFs get them as capture masks (withTypedSecretMasks(_:_:)).
         return result
     }
 
-    /// The session's capture masks plus the secrets other sessions typed.
-    @MainActor
-    private func typedSecretMasks(_ params: [String: Any]) -> [[String: Any]] {
-        (params["secretMasks"] as? [[String: Any]] ?? [])
-            + BrowserReplTabAttachments.typedSecrets.captureMasks(forReader: sessionID)
-    }
-
-    /// Runs `capture` with the typed-secret masks it takes, and refuses its
-    /// result (`stale`) when another session typed a secret meanwhile: that
-    /// value is not among the masks, and the capture's pixels may show it.
+    /// Runs `capture` with the session's capture masks plus the secrets
+    /// other sessions typed, and refuses its result (`stale`) when another
+    /// session typed a secret meanwhile: that value is not among the masks,
+    /// and the capture's pixels may show it
+    /// (``BrowserReplTypedSecrets/capturing(forReader:sessionMasks:_:)``).
     @MainActor
     private func withTypedSecretMasks<T>(_ params: [String: Any], _ capture: ([[String: Any]]) async throws -> T) async throws -> T {
-        let typed = BrowserReplTabAttachments.typedSecrets
-        let mark = typed.captureMark(forReader: sessionID)
-        let result = try await capture(typedSecretMasks(params))
-        guard !typed.typedSince(mark, forReader: sessionID) else {
-            throw Self.error("stale", "Another session typed a secret into a tab while the capture was taken, so it may show the value unmasked; try again")
-        }
-        return result
+        try await BrowserReplTabAttachments.typedSecrets.capturing(
+            forReader: sessionID,
+            sessionMasks: params["secretMasks"] as? [[String: Any]] ?? [],
+            capture
+        )
     }
 
     @MainActor
