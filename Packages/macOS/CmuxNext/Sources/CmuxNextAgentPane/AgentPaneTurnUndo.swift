@@ -9,9 +9,11 @@ public import Foundation
 /// Rules (the host checks them, not the page): each request spends the pane's GRANT credit (a real
 /// click or key, ``AgentPaneUserGestures/consume()``); every path is canonical (symlinks resolved
 /// for its folder) and inside the pane's roots; the file itself is a regular file, never a
-/// symlink; its bytes equal `after` exactly, read again right before the write; the write is a
-/// temporary file in the same folder, renamed over the file with its permissions kept; a file the
-/// turn created goes to the Trash. A file that fails a rule keeps its bytes.
+/// symlink and has no second name (a hard link); its bytes equal `after` exactly, read again right
+/// before the write; every step after the folder check is relative to one descriptor of the
+/// folder; the write is a temporary file in that folder with the original's permission bits,
+/// extended attributes and ACL, renamed over the file; a file the turn created goes to the Trash.
+/// A file over ``maximumTextBytes`` cannot be undone. A file that fails a rule keeps its bytes.
 public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringConvertible {
     public struct File: Equatable, Sendable {
         public var path: String
@@ -72,23 +74,29 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
         return undo.files.map { file in (file.path, Self.run(file, apply: undo.apply, roots: canonicalRoots, trash: trash)) }
     }
 
+    /// One file. Every step after the folder check works relative to one descriptor of the
+    /// folder (opened without following a final symlink, its real path checked against the roots),
+    /// so a folder swapped for a symlink after the check cannot redirect the read, write or rename.
     static func run(_ file: File, apply: Bool, roots: [String], trash: (URL) throws -> Void) -> Status {
         let url = URL(fileURLWithPath: file.path)
         let name = url.lastPathComponent
-        guard !name.isEmpty, name != ".", name != "..",
-              let folder = AcpmuxPathPolicy.canonical(url.deletingLastPathComponent().path) else { return .cannotUndo }
-        let path = (folder as NSString).appendingPathComponent(name)
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"),
+              let canonicalFolder = AcpmuxPathPolicy.canonical(url.deletingLastPathComponent().path) else { return .cannotUndo }
+        let folder = open(canonicalFolder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard folder >= 0 else { return .cannotUndo }
+        defer { close(folder) }
+        // Where the descriptor really is now, not where the string pointed a moment ago.
+        guard let held = Self.path(of: folder) else { return .cannotUndo }
+        let real = AcpmuxPathPolicy.canonical(held) ?? held
+        let path = (real as NSString).appendingPathComponent(name)
         guard roots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: path) }) else { return .outsideRoots }
-        var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return .cannotUndo }
         let after = Data(file.after.utf8)
-        switch Self.contents(path) {
-        case nil: return .cannotUndo
-        case let bytes? where bytes != after: return .changed
-        default: break
-        }
+        let found = Self.check(folder, name, holds: after)
+        guard case .regular(let mode) = found else { return found.status }
         guard apply else { return file.before == nil ? .wouldTrash : .wouldRevert }
         guard let before = file.before else {
+            // Checked again right before the move: the Trash call takes a path.
+            guard case .regular = Self.check(folder, name, holds: after) else { return .changed }
             do {
                 try trash(URL(fileURLWithPath: path))
                 return .trashed
@@ -96,12 +104,45 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
                 return .cannotUndo
             }
         }
-        return Self.replace(path, folder: folder, with: Data(before.utf8), expecting: after, mode: info.st_mode & 0o7777)
+        return Self.replace(name, in: folder, with: Data(before.utf8), expecting: after, mode: mode)
     }
 
-    /// The file's bytes, read without following a symlink; nil when it cannot be read.
-    static func contents(_ path: String) -> Data? {
-        let descriptor = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+    /// What a file is, read relative to its folder's descriptor.
+    enum Check {
+        /// A regular file with one name that holds exactly the expected bytes, and its permission bits.
+        case regular(mode_t)
+        case failed(Status)
+
+        var status: Status {
+            switch self {
+            case .regular: .cannotUndo
+            case .failed(let status): status
+            }
+        }
+    }
+
+    static func check(_ folder: Int32, _ name: String, holds expected: Data) -> Check {
+        var info = stat()
+        guard fstatat(folder, name, &info, AT_SYMLINK_NOFOLLOW) == 0, (info.st_mode & S_IFMT) == S_IFREG else { return .failed(.cannotUndo) }
+        // A second name keeps the turn's content after the rename: refuse it.
+        guard info.st_nlink == 1 else { return .failed(.cannotUndo) }
+        // Over the cap is "cannot undo", never "changed": the user did not change it.
+        guard info.st_size <= off_t(maximumTextBytes) else { return .failed(.cannotUndo) }
+        guard let bytes = Self.contents(folder, name) else { return .failed(.cannotUndo) }
+        return bytes == expected ? .regular(info.st_mode & 0o7777) : .failed(.changed)
+    }
+
+    /// The real path of a descriptor (F_GETPATH).
+    static func path(of descriptor: Int32) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard fcntl(descriptor, F_GETPATH, &buffer) == 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    /// The file's bytes, opened relative to `folder` without following a symlink; nil when it
+    /// cannot be read or is over ``maximumTextBytes``.
+    static func contents(_ folder: Int32, _ name: String) -> Data? {
+        let descriptor = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { close(descriptor) }
         var data = Data()
@@ -111,15 +152,16 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
             if count < 0 { return nil }
             if count == 0 { return data }
             data.append(contentsOf: buffer[0..<count])
-            if data.count > maximumTextBytes { return data }
+            if data.count > maximumTextBytes { return nil }
         }
     }
 
-    /// Writes `bytes` to a temporary file next to `path`, checks `path` still holds `expecting`,
-    /// then renames the temporary file over it.
-    static func replace(_ path: String, folder: String, with bytes: Data, expecting: Data, mode: mode_t) -> Status {
-        let temporary = (folder as NSString).appendingPathComponent(".cmux-undo-\(UUID().uuidString)")
-        let descriptor = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
+    /// Writes `bytes` to a temporary file in `folder` with the original's permission bits,
+    /// extended attributes and ACL, checks the file still holds `expecting`, then renames the
+    /// temporary file over it. Any failure removes the temporary file and leaves the original.
+    static func replace(_ name: String, in folder: Int32, with bytes: Data, expecting: Data, mode: mode_t) -> Status {
+        let temporary = ".cmux-undo-\(UUID().uuidString)"
+        let descriptor = openat(folder, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, mode)
         guard descriptor >= 0 else { return .cannotUndo }
         let written = bytes.withUnsafeBytes { raw -> Bool in
             var offset = 0
@@ -131,16 +173,31 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
             return true
         }
         // open's mode is masked by the umask; the file keeps the original's bits.
-        let kept = fchmod(descriptor, mode) == 0
+        let kept = fchmod(descriptor, mode) == 0 && Self.copyMetadata(from: name, in: folder, to: descriptor)
         let synced = fsync(descriptor) == 0
         close(descriptor)
-        var info = stat()
-        guard written, kept, synced, lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
-              Self.contents(path) == expecting, rename(temporary, path) == 0 else {
-            unlink(temporary)
-            return Self.contents(path) == expecting ? .cannotUndo : .changed
+        guard written, kept, synced else {
+            unlinkat(folder, temporary, 0)
+            return .cannotUndo
+        }
+        let now = Self.check(folder, name, holds: expecting)
+        guard case .regular = now else {
+            unlinkat(folder, temporary, 0)
+            return now.status
+        }
+        guard renameat(folder, temporary, folder, name) == 0 else {
+            unlinkat(folder, temporary, 0)
+            return .cannotUndo
         }
         return .reverted
+    }
+
+    /// The original's extended attributes and ACL onto the temporary file.
+    static func copyMetadata(from name: String, in folder: Int32, to destination: Int32) -> Bool {
+        let source = openat(folder, name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard source >= 0 else { return false }
+        defer { close(source) }
+        return fcopyfile(source, destination, nil, copyfile_flags_t(COPYFILE_XATTR | COPYFILE_ACL)) == 0
     }
 }
 
