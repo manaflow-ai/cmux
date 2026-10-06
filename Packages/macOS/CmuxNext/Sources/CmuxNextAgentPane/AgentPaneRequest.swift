@@ -33,6 +33,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case shellRead(id: String, after: Int)
     /// `shell.stop {id}`: interrupt the run's process group.
     case shellStop(id: String)
+    /// `shell.complete {line, cwd}`: Tab in shell mode. `line` is the text before the caret; the
+    /// user's own shell lists the candidates (``AgentPaneShellCompletion``). Only with a real
+    /// gesture in the pane: completion functions run code.
+    case shellComplete(line: String, cwd: String?)
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(agent: String)
@@ -115,7 +119,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A shell mode request: a command can carry secrets and `shell.read` polls, so never logged.
     public var isShell: Bool {
         switch self {
-        case .shellRun, .shellRead, .shellStop: true
+        case .shellRun, .shellRead, .shellStop, .shellComplete: true
         default: false
         }
     }

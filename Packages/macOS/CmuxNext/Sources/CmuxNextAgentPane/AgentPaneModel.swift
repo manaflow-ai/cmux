@@ -257,6 +257,7 @@ public final class AgentPaneModel {
         case .touched:
             return AgentPaneReply.success()
         case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
+        case .shellComplete(let line, let cwd): return await respondToShellComplete(line: line, cwd: cwd)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
