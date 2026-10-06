@@ -41,12 +41,20 @@ public struct DaemonLauncher: Sendable {
         /// The app's install key (P8 3b-2): handed on stdin to an owner that
         /// `ensure` spawns, and proved by `client-hello` on each connection.
         public var installKey: FrontendInstallKey?
+        /// True when `binary` is the app bundle's own `bin/cmux-tui`, built
+        /// from this tree. That build always accepts
+        /// `--terminal-reap-grace-seconds` (since c40e1186701d), so the
+        /// launcher passes it without the `--help` probe, which can time out
+        /// on a loaded machine and start an owner that never reaps. An
+        /// external binary (`CMUX_NEXT_TUI_BIN`) is still probed.
+        public var binaryIsBundled: Bool
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false) {
             self.binary = binary
+            self.binaryIsBundled = binaryIsBundled
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
@@ -119,7 +127,8 @@ public struct DaemonLauncher: Sendable {
         let keyStore = FrontendInstallKeyStores.forApp(stateDirectory: stateDirectory)
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
-                                          installKey: keyStore?.loadOrCreate())
+                                          installKey: keyStore?.loadOrCreate(),
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         return DaemonLauncher(configuration: configuration, environment: appEnvironment(
@@ -139,7 +148,8 @@ public struct DaemonLauncher: Sendable {
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> DaemonLauncher {
         let binary = try resolveBinary(bundle: bundle, environment: processEnvironment)
-        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory)
+        let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
         let environment = chiefEnvironment(processEnvironment)
         return DaemonLauncher(configuration: configuration, environment: { environment })
     }
@@ -187,6 +197,14 @@ public struct DaemonLauncher: Sendable {
             if fileManager.isExecutableFile(atPath: bundled.path) { return bundled }
         }
         throw DaemonError.binaryNotFound(searched: searched)
+    }
+
+    /// True when `binary` is `bundle`'s `Contents/Resources/bin/cmux-tui`.
+    static func isBundledBinary(_ binary: URL, bundle: Bundle) -> Bool {
+        guard let resources = bundle.resourceURL else { return false }
+        let bundled = resources.appendingPathComponent("bin/cmux-tui")
+        return binary.standardizedFileURL.resolvingSymlinksInPath().path
+            == bundled.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     /// `cmux-app`, or `cmux-app-<tag>` with the tag reduced to a safe single
