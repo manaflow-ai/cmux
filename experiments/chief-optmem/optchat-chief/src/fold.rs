@@ -27,6 +27,8 @@ pub struct Ended {
 struct Tool {
     name: String,
     input: Value,
+    /// When acpmux recorded the call (ms), for the trace's duration.
+    started: Option<u64>,
     /// The `tool` entry is in the log.
     logged: bool,
     /// The `echo` entry is in the log.
@@ -80,9 +82,39 @@ pub fn answer_usage(answer: &Value) -> Option<(Usage, &'static str)> {
     ))
 }
 
+/// One finished tool call, for the trace: its name, input, result size,
+/// outcome and duration (from acpmux's event times).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolTrace {
+    pub id: String,
+    pub name: String,
+    pub input: Value,
+    pub result_bytes: usize,
+    pub ok: bool,
+    /// The failed call's result text.
+    pub error: Option<String>,
+    pub ms: Option<u64>,
+}
+
+/// One model request of the turn (Claude Code's raw assistant lines of one
+/// message id), with the token use it reported.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Request {
+    pub id: String,
+    pub model: Option<String>,
+    pub usage: Usage,
+}
+
 #[derive(Debug, Default)]
 pub struct TurnFold {
     last_seq: u64,
+    /// Every model request seen, in order (Claude harnesses only).
+    requests: Vec<Request>,
+    /// Finished tool calls not yet taken by the trace.
+    traces: Vec<ToolTrace>,
+    /// Finished tool calls, and how many of them failed.
+    tools_done: usize,
+    tools_failed: usize,
     /// Usage of the turn's first model request: the only one that can read a
     /// cache entry another turn wrote, so it shows whether the view is cached.
     first_usage: Option<Usage>,
@@ -114,6 +146,21 @@ impl TurnFold {
 
     pub fn first_usage(&self) -> Option<Usage> {
         self.first_usage
+    }
+
+    /// The turn's model requests so far (Claude Code's assistant messages).
+    pub fn requests(&self) -> &[Request] {
+        &self.requests
+    }
+
+    /// Tool calls finished in this fold, and how many failed.
+    pub fn tool_counts(&self) -> (usize, usize) {
+        (self.tools_done, self.tools_failed)
+    }
+
+    /// The tool calls finished since the last call, for the trace.
+    pub fn take_tool_traces(&mut self) -> Vec<ToolTrace> {
+        std::mem::take(&mut self.traces)
     }
 
     /// Highest seq folded; the next fetch asks for the events after it.
@@ -159,12 +206,29 @@ impl TurnFold {
             // `parent_tool_use_id`, so this is where a subagent's steps show.
             self.in_subagent =
                 matches!(event.msg.get("parent_tool_use_id"), Some(Value::String(_)));
-            if event.kind == "claude.assistant" && !self.in_subagent && self.first_usage.is_none() {
-                self.first_usage = event
-                    .msg
-                    .get("message")
-                    .and_then(|m| m.get("usage"))
-                    .and_then(Usage::parse);
+            if event.kind == "claude.assistant" && !self.in_subagent {
+                let message = event.msg.get("message");
+                let usage = message.and_then(|m| m.get("usage")).and_then(Usage::parse);
+                if self.first_usage.is_none() {
+                    self.first_usage = usage;
+                }
+                if let Some(usage) = usage {
+                    let id = message
+                        .and_then(|m| m.get("id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    let model = message
+                        .and_then(|m| m.get("model"))
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    // Claude Code writes one line per content block of a
+                    // message, each with the message's usage so far.
+                    match self.requests.last_mut() {
+                        Some(last) if !id.is_empty() && last.id == id => last.usage = usage,
+                        _ => self.requests.push(Request { id, model, usage }),
+                    }
+                }
             }
             return out;
         }
@@ -188,12 +252,12 @@ impl TurnFold {
             (_, "tool_call") => {
                 self.finish_talk(&mut out);
                 if let Some(update) = update {
-                    self.tool_call(update, &mut out);
+                    self.tool_call(update, event.at, &mut out);
                 }
             }
             (_, "tool_call_update") => {
                 if let Some(update) = update {
-                    self.tool_update(update, &mut out);
+                    self.tool_update(update, event.at, &mut out);
                 }
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {
@@ -241,9 +305,10 @@ impl TurnFold {
         }
     }
 
-    fn tool_call(&mut self, update: &Value, out: &mut Vec<Entry>) {
+    fn tool_call(&mut self, update: &Value, at: Option<u64>, out: &mut Vec<Entry>) {
         let Some(id) = tool_id(update) else { return };
         let tool = self.tools.entry(id).or_default();
+        tool.started = tool.started.or(at);
         tool.name = tool_name(update).unwrap_or_else(|| tool.name.clone());
         if let Some(input) = update.get("rawInput").filter(|v| has_input(v)) {
             tool.input = input.clone();
@@ -255,10 +320,10 @@ impl TurnFold {
         }
     }
 
-    fn tool_update(&mut self, update: &Value, out: &mut Vec<Entry>) {
+    fn tool_update(&mut self, update: &Value, at: Option<u64>, out: &mut Vec<Entry>) {
         let Some(id) = tool_id(update) else { return };
         let unknown = !self.tools.contains_key(&id);
-        let tool = self.tools.entry(id).or_default();
+        let tool = self.tools.entry(id.clone()).or_default();
         if unknown && tool_name(update).is_none() && !update.get("rawInput").is_some_and(has_input)
         {
             // A call folded before this fold began (an orphan's rest): its
@@ -281,7 +346,26 @@ impl TurnFold {
             log_tool(tool, out);
             tool.done = true;
             let text = result_text(update);
-            let text = if status == "failed" {
+            let failed = status == "failed";
+            self.tools_done += 1;
+            self.tools_failed += usize::from(failed);
+            self.traces.push(ToolTrace {
+                id,
+                name: if tool.name.is_empty() {
+                    "tool".to_owned()
+                } else {
+                    tool.name.clone()
+                },
+                input: tool.input.clone(),
+                result_bytes: text.len(),
+                ok: !failed,
+                error: failed.then(|| text.clone()),
+                ms: match (tool.started, at) {
+                    (Some(a), Some(b)) => Some(b.saturating_sub(a)),
+                    _ => None,
+                },
+            });
+            let text = if failed {
                 format!("error: {text}")
             } else {
                 text
@@ -616,6 +700,58 @@ mod tests {
             json!({"toolCallId": "t1", "status": "completed", "content": [{"type": "content", "content": {"type": "text", "text": "ok"}}]}),
         ));
         assert_eq!(kinds(&out), vec![(Kind::Echo, "ok")]);
+    }
+
+    /// The trace: each finished tool call with its duration from acpmux's
+    /// event times, and one request per Claude Code message id.
+    #[test]
+    fn tool_traces_and_requests_for_the_trace() {
+        let at = |mut e: AcpmuxEvent, ms: u64| {
+            e.at = Some(ms);
+            e
+        };
+        let assistant = |seq: u64, id: &str, read: u64| {
+            ev(
+                seq,
+                "in",
+                "claude.assistant",
+                json!({"type": "assistant", "message": {"id": id, "model": "m", "usage": {"input_tokens": 1, "cache_read_input_tokens": read, "cache_creation_input_tokens": 2, "output_tokens": 3}}}),
+            )
+        };
+        let mut fold = TurnFold::new();
+        fold.apply(&assistant(1, "m1", 10));
+        fold.apply(&assistant(2, "m1", 20));
+        fold.apply(&at(
+            update(
+                3,
+                "tool_call",
+                json!({"toolCallId": "t", "rawInput": {"command": "ls"}, "_meta": {"claude": {"tool": "Bash"}}}),
+            ),
+            1_000,
+        ));
+        fold.apply(&at(
+            update(
+                4,
+                "tool_call_update",
+                json!({"toolCallId": "t", "status": "failed", "rawOutput": "boom"}),
+            ),
+            1_250,
+        ));
+        fold.apply(&assistant(5, "m2", 30));
+        let traces = fold.take_tool_traces();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].name, "Bash");
+        assert_eq!(traces[0].ms, Some(250));
+        assert!(!traces[0].ok);
+        assert_eq!(traces[0].error.as_deref(), Some("boom"));
+        assert!(fold.take_tool_traces().is_empty());
+        assert_eq!(fold.tool_counts(), (1, 1));
+        let reads: Vec<u64> = fold.requests().iter().map(|r| r.usage.cache_read).collect();
+        assert_eq!(
+            reads,
+            vec![20, 30],
+            "one request per message id, its last usage"
+        );
     }
 
     #[test]

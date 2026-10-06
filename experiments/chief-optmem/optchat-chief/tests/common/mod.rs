@@ -497,6 +497,8 @@ pub struct Harness {
     pub agents: Arc<FakeAgents>,
     pub brain: Brain,
     pub rx: Receiver<Input>,
+    /// The brain's input channel (what the host's workers send on).
+    pub tx: Sender<Input>,
 }
 
 pub fn settings(dir: &Path) -> Settings {
@@ -573,7 +575,7 @@ impl Harness {
             agents.clone(),
             settings,
             StateFile::new(&dir.path().join("host.json")),
-            tx,
+            tx.clone(),
             log,
         );
         Harness {
@@ -583,6 +585,7 @@ impl Harness {
             agents,
             brain,
             rx,
+            tx,
         }
     }
 

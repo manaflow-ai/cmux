@@ -79,6 +79,7 @@ pub struct Native {
     config: NativeConfig,
     model: Arc<dyn ChatModel>,
     retry: Duration,
+    trace: crate::trace::Trace,
 }
 
 impl Native {
@@ -87,7 +88,14 @@ impl Native {
             config,
             model,
             retry,
+            trace: crate::trace::Trace::off(),
         }
+    }
+
+    /// Traces every model request and tool call of each turn.
+    pub fn with_trace(mut self, trace: crate::trace::Trace) -> Native {
+        self.trace = trace;
+        self
     }
 
     /// The tool list: constant, the head of every cached prefix (section 7.2).
@@ -211,6 +219,9 @@ impl Native {
         let mut reply: Option<String> = None;
         let mut first_usage = None;
         let mut totals = Usage::default();
+        let scope = json!({"turn": start.key});
+        let mut requests = Vec::new();
+        let (mut tools, mut tool_errors) = (0, 0);
         let error = loop {
             if deadline.is_some_and(|d| Instant::now() >= d) {
                 break Some(limit_text(start.limit));
@@ -234,6 +245,16 @@ impl Native {
                 Err(e) => break Some(e.message),
             };
             if let Some(usage) = message.get("usage").and_then(Usage::parse) {
+                requests.push(crate::fold::Request {
+                    id: message
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned(),
+                    model: Some(self.config.model.clone()),
+                    usage,
+                });
+                crate::trace::requests(&self.trace, &scope, &requests[requests.len() - 1..]);
                 first_usage.get_or_insert(usage);
                 totals.input += usage.input;
                 totals.cache_read += usage.cache_read;
@@ -273,7 +294,23 @@ impl Native {
                 "tool_use" => {
                     let mut results = Vec::new();
                     for block in blocks.iter().filter(|b| b["type"] == "tool_use") {
+                        let began = Instant::now();
                         let (text, is_error) = self.run_tool(block, chat, &shell, deadline);
+                        tools += 1;
+                        tool_errors += usize::from(is_error);
+                        crate::trace::tools(
+                            &self.trace,
+                            &scope,
+                            vec![crate::fold::ToolTrace {
+                                id: block["id"].as_str().unwrap_or("").to_owned(),
+                                name: block["name"].as_str().unwrap_or("tool").to_owned(),
+                                input: block.get("input").cloned().unwrap_or(json!({})),
+                                result_bytes: text.len(),
+                                ok: !is_error,
+                                error: is_error.then(|| text.clone()),
+                                ms: Some(began.elapsed().as_millis() as u64),
+                            }],
+                        );
                         let text = cap_tool_result(&text).into_owned();
                         append(
                             Kind::Echo,
@@ -312,6 +349,14 @@ impl Native {
             error,
             orphan: None,
             cancelled: false,
+            stats: crate::turn::TurnStats {
+                first: first_usage,
+                totals: Some((totals, "turn total")),
+                cost: None,
+                requests: requests.len(),
+                tools,
+                tool_errors,
+            },
         }
     }
 

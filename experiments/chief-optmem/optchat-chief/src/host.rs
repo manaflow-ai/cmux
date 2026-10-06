@@ -205,6 +205,22 @@ fn start(
         env("OPTCHAT_COMPACTOR_HARNESS").as_deref(),
     );
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
+    // Section 9's subagents run on this harness (default the Chief's).
+    let sub_harness = env("OPTCHAT_SUBAGENT_HARNESS").unwrap_or_else(|| harness.clone());
+    // The monitoring trace (trace.rs); OPTCHAT_TRACE_FULL=1 adds whole texts.
+    let trace = match crate::trace::Trace::open(
+        &paths.traces,
+        env("OPTCHAT_TRACE_FULL").as_deref() == Some("1"),
+    ) {
+        Ok(trace) => trace,
+        Err(e) => {
+            log(format!(
+                "opening the trace {}: {e}; tracing is off",
+                paths.traces.display()
+            ));
+            crate::trace::Trace::off()
+        }
+    };
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
@@ -215,14 +231,19 @@ fn start(
     // says what a harness is (its declared family, else its kind and
     // command), never its name. Only the native engine with the API
     // compactor runs without acpmux.
-    let (family, compactor_family) =
-        if engine_choice.as_deref() == Some("native") && route == CompactRoute::Api {
-            (Family::Other, Family::Other)
-        } else {
-            let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
-                .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
-            harness_families(&answer, &harness, &compactor_harness)?
-        };
+    let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
+    let (family, compactor_family, sub_family) = if uses_acpmux {
+        let answer = crate::acpmux::query_harnesses(&acpmux_socket, &|line: &str| log(line))
+            .map_err(|e| format!("reading acpmux's harnesses: {e}"))?;
+        let (family, compactor_family) = harness_families(&answer, &harness, &compactor_harness)?;
+        (
+            family,
+            compactor_family,
+            crate::acpmux::harness_family(&answer, &sub_harness)?,
+        )
+    } else {
+        (Family::Other, Family::Other, Family::Other)
+    };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
     // directory; acpmux gives any other harness no MCP server, so its memory
@@ -241,6 +262,19 @@ fn start(
         tools,
     };
     session_dir::write(paths, &setup).map_err(|e| format!("writing the session directory: {e}"))?;
+    // Section 9: every subagent's directory and system prompt.
+    let sub_tools = if sub_family == Family::Claude {
+        crate::prompt::Tools::Mcp
+    } else {
+        crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
+    };
+    let sub_text = crate::prompt::subagent_system_text(instructions.as_deref(), &sub_tools);
+    let sub_setup = SessionSetup {
+        tools: sub_tools,
+        ..setup.clone()
+    };
+    session_dir::write_subagent(paths, &sub_setup, &sub_text)
+        .map_err(|e| format!("writing the subagent directory: {e}"))?;
 
     let (base_url, api_key) = (config.base_url.clone(), config.api_key.clone());
 
@@ -272,6 +306,27 @@ fn start(
             &compactor_harness,
             compactor_family,
         ));
+    }
+    // The subagent preset: required, so a subagent never falls back to the
+    // turn preset (whose system prompt is the Chief's view).
+    let sub_preset_name = format!("optchat-sub-{}", crate::paths::home_id(home));
+    if uses_acpmux {
+        let mut env = if isolate {
+            session_dir::isolation_env(paths)
+        } else {
+            BTreeMap::new()
+        };
+        env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+        if sub_family == Family::Codex {
+            env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+        }
+        required.push(Preset {
+            name: sub_preset_name.clone(),
+            harness: sub_harness.clone(),
+            env,
+            args: Vec::new(),
+            system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),
+        });
     }
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
@@ -326,7 +381,8 @@ fn start(
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
-                        .with_log(compactor_log.clone()),
+                        .with_log(compactor_log.clone())
+                        .with_trace(trace.clone()),
                 ) as Arc<dyn CompactModel>
             };
             let text = format!(
@@ -366,8 +422,61 @@ fn start(
         )
         .map_err(|e| format!("opening the memory: {e}"))?,
     );
-    crate::tools::serve(&paths.tools_socket, chat.clone())
-        .map_err(|e| format!("serving the memory tools: {e}"))?;
+    // Section 9: spawn and tell, served beside zoom and date (acpmux only).
+    let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> =
+        if env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0") {
+            None
+        } else {
+            crate::workspaces::AppWorkspaces::from_env(daemon_socket)
+                .map(|w| Arc::new(w) as Arc<dyn crate::workspaces::Workspaces>)
+        };
+    let orchestrator = uses_acpmux.then(|| {
+        let spawner = crate::subagents::Spawner::new(
+            chat.clone(),
+            agents.clone(),
+            crate::subagents::SubagentSettings {
+                harness: sub_harness.clone(),
+                policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
+                model: env("OPTCHAT_SUBAGENT_MODEL"),
+                preset: Some(sub_preset_name.clone()),
+                cwd: paths.subagent.clone(),
+                prefix: format!("optchat-sub-{}", crate::paths::home_id(home)),
+                parent: parent_tag(home),
+                claude_md: (sub_family == Family::Claude).then(|| sub_text.clone()),
+            },
+            tx.clone(),
+            Arc::new(|line: &str| log(line)),
+        )
+        .with_trace(trace.clone())
+        .with_workspaces(workspaces.clone());
+        Arc::new(spawner) as Arc<dyn crate::tools::Orchestrator>
+    });
+    log(format!(
+        "subagents: {}; workspaces: {}; trace: {}",
+        if uses_acpmux {
+            format!("spawn/tell on {sub_harness} sessions through acpmux")
+        } else {
+            "off (no acpmux)".to_owned()
+        },
+        if workspaces.is_some() {
+            "one per subagent, through the app's control socket"
+        } else {
+            "off (no CMUX_SOCKET_PATH or OPTCHAT_SUBAGENT_WORKSPACES=0)"
+        },
+        if trace.is_on() {
+            paths.traces.display().to_string()
+        } else {
+            "off".to_owned()
+        }
+    ));
+    crate::tools::serve_all(
+        &paths.tools_socket,
+        crate::tools::Served {
+            memory: chat.clone(),
+            orchestrator,
+        },
+    )
+    .map_err(|e| format!("serving the memory tools: {e}"))?;
     let status = chat.status();
     // Section 10: on start, print the view, so the log shows what the agent sees.
     log(format!(
@@ -405,11 +514,10 @@ fn start(
                 base_url
             ));
             let model = HttpModel::new(&base_url, api_key, native_config.server_fallback);
-            Engine::Native(Arc::new(Native::new(
-                native_config,
-                Arc::new(model),
-                optchat_host::RETRY,
-            )))
+            Engine::Native(Arc::new(
+                Native::new(native_config, Arc::new(model), optchat_host::RETRY)
+                    .with_trace(trace.clone()),
+            ))
         }
         None | Some("acpmux") => {
             log(format!(
@@ -460,7 +568,9 @@ fn start(
         tx.clone(),
         brain_log.clone(),
     )
-    .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)));
+    .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
+    .with_trace(trace.clone())
+    .with_workspaces(workspaces);
     spawn_probe(model, fallback, system, route, tx.clone());
     let (display_name, title) = LinkConfig::names_from_env();
     daemon::spawn_link(

@@ -10,6 +10,9 @@ use optchat_chief::paths::{Paths, mux_home};
 const USAGE: &str = "optchat-chief host --daemon-socket PATH [--mux-home DIR]   run the Chief host (one per MUX_HOME)
 optchat-chief mcp [--socket PATH | --mux-home DIR]           stdio MCP server with zoom and date
 optchat-chief zoom ID N | date ID [--socket PATH | --mux-home DIR]  the memory tools as commands (harnesses without MCP)
+optchat-chief spawn \"task\" [\"task\" ...] | tell ID \"message\"     section 9's subagent tools as commands
+optchat-chief trace [--since 1h] [--turn ID] [--json] [--mux-home DIR]  the monitoring trace as a timeline
+optchat-chief stats [--since 24h] [--json] [--mux-home DIR]      per turn, node and subagent: latency, tools, cache, cost
 optchat-chief agents spawn --name N --cwd DIR [--harness H] [--policy P] \"task\"
 optchat-chief agents list | prompt NAME \"text\" | allow NAME [OPTION_ID] | deny NAME
 optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as one HTML page
@@ -35,7 +38,8 @@ fn main() {
                     .unwrap_or_else(mux_home);
                 Paths::new(&home).tools_socket
             });
-            match optchat_chief::mcp::run(&socket) {
+            let subagent = flags.value("role") == Some("subagent");
+            match optchat_chief::mcp::run(&socket, subagent) {
                 Ok(()) => 0,
                 Err(e) => {
                     eprintln!("optchat-chief mcp: {e}");
@@ -43,7 +47,7 @@ fn main() {
                 }
             }
         }
-        Some(tool @ ("zoom" | "date")) => {
+        Some(tool @ ("zoom" | "date" | "spawn" | "tell")) => {
             let socket = flags
                 .value("socket")
                 .map(PathBuf::from)
@@ -57,12 +61,29 @@ fn main() {
                 ("date", [id]) => {
                     optchat_chief::tools::Call::parse("date", &serde_json::json!({"id": id}))
                 }
+                ("spawn", tasks) if !tasks.is_empty() => {
+                    optchat_chief::tools::Call::parse("spawn", &serde_json::json!({"tasks": tasks}))
+                }
+                ("tell", [id, message @ ..]) if !message.is_empty() => {
+                    optchat_chief::tools::Call::parse(
+                        "tell",
+                        &serde_json::json!({"id": id, "message": message.join(" ")}),
+                    )
+                }
                 _ => Err(format!(
                     "usage: optchat-chief {tool} {}",
-                    if tool == "zoom" { "ID N" } else { "ID" }
+                    match tool {
+                        "zoom" => "ID N",
+                        "date" => "ID",
+                        "spawn" => "\"task\" [\"task\" ...]",
+                        _ => "ID \"message\"",
+                    }
                 )),
             };
-            match call.and_then(|c| optchat_chief::tools::ask(&socket, c)) {
+            // A subagent's tools (OPTCHAT_SUBAGENT=1) have no spawn or tell.
+            let subagent =
+                optchat_chief::cli::env(optchat_chief::session_dir::SUBAGENT_ENV).is_some();
+            match call.and_then(|c| optchat_chief::tools::ask_as(&socket, c, subagent)) {
                 Ok(text) => {
                     println!("{text}");
                     0
@@ -73,6 +94,16 @@ fn main() {
                 }
             }
         }
+        Some(verb @ ("trace" | "stats")) => match optchat_chief::report::run(verb, &args[1..]) {
+            Ok(out) => {
+                print!("{out}");
+                0
+            }
+            Err(e) => {
+                eprintln!("optchat-chief {verb}: {e}");
+                1
+            }
+        },
         Some("agents") => match optchat_chief::agents::run(&flags) {
             Ok(out) => {
                 println!("{out}");

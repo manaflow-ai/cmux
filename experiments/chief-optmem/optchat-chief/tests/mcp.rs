@@ -78,7 +78,7 @@ fn the_mcp_server_answers_zoom_and_date_from_the_live_memory() {
 
 #[test]
 fn without_the_host_a_tool_call_is_an_error_result() {
-    let backend = SocketBackend("/nonexistent/tools.sock".into());
+    let backend = SocketBackend("/nonexistent/tools.sock".into(), false);
     let answer = handle(
         &json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "zoom", "arguments": {"id": 0, "n": 1}}}),
         &backend,

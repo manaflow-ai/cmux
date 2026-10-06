@@ -197,6 +197,10 @@ struct Live {
     /// Token use the harness reported, summed over the node's prompts.
     usage: Option<Usage>,
     cost: Option<f64>,
+    /// The last prompt's failure (None: it built the line), for the trace.
+    error: Option<String>,
+    /// The node's context as the trace records it (size, hash, pieces).
+    context: Value,
 }
 
 pub type Log = Arc<dyn Fn(&str) + Send + Sync>;
@@ -213,6 +217,7 @@ pub struct AcpmuxCompactor {
     /// breakpoint of its own): later nodes go without it.
     marker_refused: AtomicBool,
     log: Option<Log>,
+    trace: crate::trace::Trace,
 }
 
 impl AcpmuxCompactor {
@@ -232,7 +237,14 @@ impl AcpmuxCompactor {
                 .map_or(0, |d| d.as_millis() as u64),
             marker_refused: AtomicBool::new(false),
             log: None,
+            trace: crate::trace::Trace::off(),
         }
+    }
+
+    /// Traces every node: seconds, prompts, token use, cost, outcome.
+    pub fn with_trace(mut self, trace: crate::trace::Trace) -> AcpmuxCompactor {
+        self.trace = trace;
+        self
     }
 
     /// Logs one line per node: its seconds, prompts and token use.
@@ -355,6 +367,8 @@ impl AcpmuxCompactor {
                         prompts: 0,
                         usage: None,
                         cost: None,
+                        error: None,
+                        context: Value::Null,
                     },
                 );
                 Ok(id)
@@ -514,8 +528,12 @@ impl AcpmuxCompactor {
     }
 }
 
-impl CompactModel for AcpmuxCompactor {
-    fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
+impl AcpmuxCompactor {
+    fn call_inner(
+        &self,
+        request: &CompactRequest,
+        followups: &[Followup],
+    ) -> Result<Reply, ModelError> {
         let node = request.node;
         let (session, blocks) = match followups.last() {
             None => {
@@ -539,11 +557,44 @@ impl CompactModel for AcpmuxCompactor {
         };
         self.prompt(node, &session, blocks)
     }
+}
+
+impl CompactModel for AcpmuxCompactor {
+    fn call(&self, request: &CompactRequest, followups: &[Followup]) -> Result<Reply, ModelError> {
+        let result = self.call_inner(request, followups);
+        if let Some(l) = self.live.lock().expect("live").get_mut(&request.node) {
+            l.error = result.as_ref().err().map(|e| e.message.clone());
+            if l.context.is_null() {
+                l.context = json!({
+                    "bytes": request.context.len(),
+                    "hash": crate::trace::hash(&request.context),
+                    "pieces": crate::trace::pieces(&request.context),
+                    "system_hash": crate::trace::hash(&request.system),
+                });
+            }
+        }
+        result
+    }
 
     fn end(&self, request: &CompactRequest) {
         let Some(live) = self.live.lock().expect("live").remove(&request.node) else {
             return;
         };
+        self.trace.emit(
+            "node",
+            json!({
+                "node": request.node.name(),
+                "harness": self.spec.harness,
+                "model": self.spec.model,
+                "ms": live.opened.elapsed().as_millis() as u64,
+                "prompts": live.prompts,
+                "usage": live.usage.as_ref().map(crate::trace::usage),
+                "cost_usd": live.cost,
+                "ok": live.error.is_none(),
+                "error": live.error.as_deref().map(|e| self.trace.text(e)),
+                "context": live.context,
+            }),
+        );
         // Purged: a node's session holds the chat's text, and nothing reads it again.
         let _ = self.port.end_session(&live.id);
         // So is Claude Code's own transcript of it (the whole view, each time),

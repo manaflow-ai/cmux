@@ -55,10 +55,24 @@ pub fn shell_quote(value: &str) -> String {
 
 /// The `.mcp.json` of the session directory.
 pub fn mcp_json(setup: &SessionSetup, paths: &Paths) -> Value {
+    mcp_json_for(setup, paths, false)
+}
+
+/// The `.mcp.json` of the Chief's (`subagent` false) or a subagent's
+/// directory: a subagent's `optchat` server offers zoom and date only.
+pub fn mcp_json_for(setup: &SessionSetup, paths: &Paths, subagent: bool) -> Value {
     let mut servers = serde_json::Map::new();
+    let mut args = vec![
+        "mcp".to_owned(),
+        "--socket".to_owned(),
+        paths.tools_socket.to_string_lossy().into_owned(),
+    ];
+    if subagent {
+        args.extend(["--role".to_owned(), "subagent".to_owned()]);
+    }
     servers.insert(
         "optchat".into(),
-        json!({"type": "stdio", "command": setup.exe, "args": ["mcp", "--socket", paths.tools_socket.to_string_lossy()], "env": {}}),
+        json!({"type": "stdio", "command": setup.exe, "args": args, "env": {}}),
     );
     if let Some(cmux) = &setup.cmux_mcp {
         servers.insert(
@@ -195,6 +209,41 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     std::fs::set_permissions(&chief, std::fs::Permissions::from_mode(0o755))?;
     Ok(())
 }
+
+/// Writes every subagent's working directory (section 9): `.mcp.json`
+/// (zoom and date), the turn's project settings (no Task/Agent, no hooks,
+/// no auto-memory) with `OPTCHAT_SUBAGENT=1` in the tools' env (the `chief`
+/// launcher then refuses spawn and tell), and `text` (the subagent system
+/// prompt) as AGENTS.md on a harness without MCP. On a Claude harness the
+/// subagent preset carries it, or `set_claude_md` writes it per spawn.
+pub fn write_subagent(paths: &Paths, setup: &SessionSetup, text: &str) -> io::Result<()> {
+    let dir = &paths.subagent;
+    std::fs::create_dir_all(dir.join(".claude"))?;
+    let pretty = |v: &Value| format!("{}\n", serde_json::to_string_pretty(v).expect("json"));
+    write_if_changed(
+        &dir.join(".mcp.json"),
+        pretty(&mcp_json_for(setup, paths, true)).as_bytes(),
+    )?;
+    let mut sub = setup.clone();
+    sub.env.insert(SUBAGENT_ENV.to_owned(), "1".to_owned());
+    let settings = pretty(&settings_json(&sub, paths));
+    write_if_changed(
+        &dir.join(".claude").join("settings.json"),
+        settings.as_bytes(),
+    )?;
+    write_if_changed(
+        &dir.join(".claude").join("settings.local.json"),
+        settings.as_bytes(),
+    )?;
+    match setup.tools {
+        Tools::Mcp => remove_if_present(&dir.join("AGENTS.md")),
+        Tools::Cli(_) => write_if_changed(&dir.join("AGENTS.md"), text.as_bytes()),
+    }
+}
+
+/// Set in a subagent's tools' env: the `chief` launcher refuses spawn and
+/// tell there (section 9: subagents get zoom and date, not spawn).
+pub const SUBAGENT_ENV: &str = "OPTCHAT_SUBAGENT";
 
 /// Writes the session directory's CLAUDE.md (Some) or removes it (None).
 pub fn set_claude_md(session: &Path, text: Option<&str>) -> io::Result<()> {

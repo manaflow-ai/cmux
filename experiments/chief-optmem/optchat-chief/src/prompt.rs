@@ -63,14 +63,13 @@ cmux Home, and your final reply of each turn is posted there.
   you have them, else the `cmux` CLI from your shell (`cmux --help`). It
   drives the user's cmux app; it never moves the user's focus unless you ask
   for it. Never close or change workspaces the user did not ask about.
-- Subagents: start one with
-  `chief agents spawn --name NAME --cwd DIR [--harness claude-sr|codex] \"task\"`.
-  It runs in the background as an acpmux session; when it ends a turn, its
-  final reply reaches you as a message \"[NAME] report\". Steer it with
-  `chief agents prompt NAME \"text\"`, see yours with `chief agents list`,
-  answer its permission requests with `chief agents allow NAME [OPTION_ID]`
-  or `chief agents deny NAME` (ask the user first for anything destructive
-  or outward-facing). Start agents only this way: only these report back.
+- Subagents: the tool `spawn(tasks)` starts one subagent per task, in
+  parallel, in the background, each in its own cmux workspace where the user
+  can watch and join its chat; it answers their ids at once. A subagent sees
+  your view and its task, so say in the task what it must do and report.
+  When all of one spawn's subagents finish, their reports reach you as ONE
+  message, \"[id] report\" each. `tell(id, message)` sends a running
+  subagent more instructions. Never wait or poll for them.
 - The tools `zoom` and `date` (MCP server `optchat`) read your memory.";
 
 /// The system prompt (the session's CLAUDE.md): MASTER, VIEW_DOC, the cmux
@@ -120,18 +119,79 @@ cmux Home, and your final reply of each turn is posted there.
   shell (`cmux --help`). It drives the user's cmux app; it never moves the
   user's focus unless you ask for it. Never close or change workspaces the
   user did not ask about.
-- Subagents: start one with
-  `{chief} agents spawn --name NAME --cwd DIR [--harness claude-sr|codex] \"task\"`.
-  It runs in the background as an acpmux session; when it ends a turn, its
-  final reply reaches you as a message \"[NAME] report\". Steer it with
-  `{chief} agents prompt NAME \"text\"`, see yours with `{chief} agents list`,
-  answer its permission requests with `{chief} agents allow NAME [OPTION_ID]`
-  or `{chief} agents deny NAME` (ask the user first for anything destructive
-  or outward-facing). Start agents only this way: only these report back.
+- Subagents: `{chief} spawn \"task\" [\"task\" ...]` starts one subagent per
+  task, in parallel, in the background, each in its own cmux workspace where
+  the user can watch and join its chat; it prints their ids at once. A
+  subagent sees your view and its task, so say in the task what it must do
+  and report. When all of one spawn's subagents finish, their reports reach
+  you as ONE message, \"[id] report\" each. `{chief} tell ID \"message\"`
+  sends a running subagent more instructions. Never wait or poll for them.
 - Your memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is
   `{chief} date ID`, run from your shell."
     )
 }
+
+/// The subagent system prompt of section 9, verbatim with the agent renamed.
+pub const SUBAGENT: &str = "You are a subagent of Chief, an AI agent that works for one user in a
+single chat that never ends. Chief gave you a task. Do it yourself, with
+your tools, following the user's instructions at the end of this
+prompt: they say who the user is, how their files are organized and how
+they want work done.
+
+Your first message holds the view below, then your task. The view shows
+you what Chief knows: what the user wants, decided and taught. Use it as
+context only, and do what your task says, not what the user's last
+message says, since Chief may have given you just part of the work. Your
+final reply is your report to Chief. Chief may send you more messages, even
+while you work.";
+
+/// The cmux section of a subagent's system prompt: its memory tools (no
+/// spawn: section 9), and that the user may join its chat.
+fn subagent_instructions(tools: &Tools) -> String {
+    let memory = match tools {
+        Tools::Mcp => {
+            "The tools `zoom` and `date` (MCP server `optchat`) read Chief's memory.".to_owned()
+        }
+        Tools::Cli(chief) => format!(
+            "Chief's memory: `zoom(id, n)` is `{chief} zoom ID N` and `date(id)` is\n  `{chief} date ID`, run from your shell."
+        ),
+    };
+    format!(
+        "# Instructions
+
+You run inside cmux, a terminal for coding agents, in a workspace of your
+own; the user can watch your chat there and write to you. A message from
+the user is the user's word; still end each turn with your report.
+
+- {memory}
+- The `cmux` CLI drives the user's cmux app (`cmux --help`). Never close
+  or change workspaces the user did not ask about."
+    )
+}
+
+/// A subagent's system prompt: SUBAGENT, VIEW_DOC, the cmux section, then
+/// the user's instructions file (section 9).
+pub fn subagent_system_text(user: Option<&str>, tools: &Tools) -> String {
+    let cmux = subagent_instructions(tools);
+    match user.map(str::trim).filter(|u| !u.is_empty()) {
+        Some(user) => format!("{SUBAGENT}\n\n{VIEW_DOC}\n\n{cmux}\n\n{user}\n"),
+        None => format!("{SUBAGENT}\n\n{VIEW_DOC}\n\n{cmux}\n"),
+    }
+}
+
+/// A subagent's first message (section 9): the view at spawn time, one
+/// block per cached piece, then its task. No marker of ours: the subagents
+/// of one spawn start together, so none could read another's entry, and
+/// Claude Code's own breakpoint at the message's end serves the subagent's
+/// later requests.
+pub fn subagent_blocks(view: &str, task: &str) -> Vec<Value> {
+    turn_blocks(view, &[format!("Your task:\n\n{task}")])
+}
+
+/// Tool descriptions of section 9's `spawn` and `tell`.
+pub const SPAWN_DESCRIPTION: &str = "Start one subagent per task, in parallel, in the background; answers their ids at once. Each sees the view and its task, in a cmux workspace of its own. When all of them finish, their reports reach you as one message, \"[id] report\" each. Never wait or poll for them.";
+pub const TELL_DESCRIPTION: &str =
+    "Send a message to a running subagent; it reaches it after its current step.";
 
 /// A prompt in the cached layout: the session's system prompt and the user
 /// blocks.
