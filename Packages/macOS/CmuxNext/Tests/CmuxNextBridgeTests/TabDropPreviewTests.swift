@@ -5,8 +5,8 @@ import Testing
 @testable import CmuxNextBridge
 
 /// tab-dnd (Lawrence 2026-10-04): the drop performs exactly the previewed
-/// target; a stay changes nothing; a refusal shows its reason and never
-/// reverts silently; outside every window the preview is a new window.
+/// target; a stay changes nothing; a refusal commits nothing; outside
+/// every window the preview is a new window.
 struct TabDropPreviewTests {
     let strip = UUID()
     let frame = CGRect(x: 10, y: 20, width: 300, height: 200)
@@ -52,8 +52,7 @@ struct TabDropPreviewTests {
         }
     }
 
-    /// A target that cannot run says why in the preview, and the drop
-    /// carries the same reason.
+    /// A target that cannot run carries its refusal and commits nothing.
     @Test func aRefusedTargetCarriesItsReason() {
         let cases: [(TabDropKind, TabDragContext, TabDropRefusal)] = [
             (.newSplit(paneID: "pane-a", edge: .right), context(paneTabs: 1), .splitEmptiesPane),
@@ -78,7 +77,7 @@ struct TabDropPreviewTests {
     }
 
     /// A surface that refuses at a point (a sidebar row of another
-    /// machine) still previews there, with its own reason.
+    /// machine) is a refusal there, with its own reason.
     @Test func aSurfaceRefusalPreviewsWithItsReason() {
         let proposal = TabDropProposal(kind: .newWorkspace(groupID: nil, index: -1), highlightFrame: frame,
                                        refusedReason: "Tabs stay on their machine.")
