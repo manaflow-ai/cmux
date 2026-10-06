@@ -182,3 +182,84 @@ fn shutdown_daemon_keep_layout_requires_end_terminals() {
     let ping = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "ping"}));
     assert_eq!(ping["ok"], true);
 }
+
+/// A kept tab keeps its last known name and title across the handoff: the
+/// restarted owner has no surface behind it, so the tree reports the tab
+/// resource's name and the title its terminal had when it ended, not an
+/// empty tab a frontend can only show blank.
+#[test]
+fn shutdown_daemon_keep_layout_keeps_the_dead_tab_name_and_title_across_restart() {
+    let mut harness = RecoveryHarness::start("shutdown-keep-layout-title");
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "named",
+        }),
+    );
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2, "cmd": "run", "new_workspace": true, "name": "titled",
+            "argv": ["/bin/sh", "-c", "printf '\\033]2;kept title\\007'; exec cat"],
+        }),
+    );
+    let tab_of = |tree: &serde_json::Value, name: &str| {
+        tree["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|workspace| workspace["name"] == name)
+            .and_then(first_tab)
+            .cloned()
+            .unwrap_or_else(|| panic!("workspace {name} has no tab: {tree}"))
+    };
+    let tree = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-workspaces"}));
+    let named_surface = tab_of(&tree, "named")["surface"].as_u64().unwrap();
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "rename-surface", "surface": named_surface, "name": "kept name"}),
+    );
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let tree = request(&harness.socket, serde_json::json!({"id": 5, "cmd": "list-workspaces"}));
+        if tab_of(&tree, "titled")["title"] == "kept title"
+            && tab_of(&tree, "named")["name"] == "kept name"
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the live tabs never showed their name and title: {tree}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let identify = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "identify"}));
+    let accepted = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "shutdown-daemon",
+            "pid": identify["pid"],
+            "generation": identify["generation"],
+            "end_terminals": true,
+            "keep_layout": true,
+        }),
+    );
+    assert_eq!(accepted["accepted"], true);
+    let mut daemon = harness.child.take().unwrap();
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while daemon.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    wait_for_no_host_records(&harness.host_root());
+
+    harness.restart();
+    let tree = request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
+    let named = tab_of(&tree, "named");
+    let titled = tab_of(&tree, "titled");
+    for tab in [&named, &titled] {
+        assert_eq!(tab["dead"], true, "a kept tab came back live: {tab}");
+        assert!(tab["relaunch"]["cwd"].is_string(), "a kept tab has no relaunch record: {tab}");
+    }
+    assert_eq!(named["name"], "kept name", "the restored dead tab lost its name: {named}");
+    assert_eq!(titled["title"], "kept title", "the restored dead tab lost its title: {titled}");
+}
