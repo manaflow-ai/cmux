@@ -300,7 +300,16 @@ def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     next_workflow = workflow("cmux-next.yml")
-    assert next_workflow.count('CMUX_TUI_TREE_WAIT_SECONDS: "2700"') == 2
+    # Every step that waits for the same-tree cmux-tui (the gate's `wait` and
+    # each job's `fetch`) uses the full bounded wait, pull requests included.
+    waiting = [
+        step
+        for job in yaml.safe_load(next_workflow)["jobs"].values()
+        for step in job.get("steps", [])
+        if re.search(r"pin-cmux-tui\.sh (?:fetch|wait)\b", step.get("run", ""))
+    ]
+    assert len(waiting) >= 3
+    assert all(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS") == "2700" for step in waiting)
     assert "github.event_name == 'pull_request' && '0'" not in next_workflow
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin

@@ -566,7 +566,7 @@ host did not start; the message names why).
 | Field | Value |
 | --- | --- |
 | name | `client-hello` |
-| status | implemented (step 1) |
+| status | implemented (steps 1 and 2) |
 | since | capability `origin-claim-v1` |
 
 Fixes the role of a local control connection for request origin
@@ -582,11 +582,24 @@ Params:
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
-| `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; validated now, proven by peer verification later |
+| `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 
-Result: `object{connection_id:string}`, the daemon's id for this connection
-(the `relay_connection_id` of `origin.confirmation.issue`). Step 1 returns no
-nonce.
+Result: `object{connection_id:string, user_origin_allowed:bool, nonce?:string}`.
+`connection_id` is the daemon's id for this connection (the
+`relay_connection_id` of `origin.confirmation.issue`). `user_origin_allowed`
+says whether a request with origin `user` is accepted on this connection now:
+true only for role `main` that the daemon has verified as the cmux app (the
+app's code signature on a signed build) and that is not bound to an agent.
+`nonce` (64 hex digits) comes only for role `main` with an `install_id`; the
+very next line must then be step 2, `{cmd:"client-hello", install_id, proof}`
+(the install-key proof over the nonce, unsigned DEV builds), with result
+`object{verified:true, install_id:string, connection_id:string,
+user_origin_allowed:bool}`, or `client_hello.refused` for any wrong or missing
+proof. After step 2 the step 2 value of `user_origin_allowed` is the one that
+counts. A client sends origin `user` only when the last value is true; when the
+daemon refuses origin `user` (`origin.forbidden`, `apps.origin_forbidden`), the
+client shows the refusal and never sends the same request again with another
+origin. A daemon without this field allows no client to assume `user`.
 
 Errors (`error_code`; none changes state, and each closes the hello window):
 
@@ -595,6 +608,7 @@ Errors (`error_code`; none changes state, and each closes the hello window):
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
 | `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
+| `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 
 A `page_relay` connection derives origin `page` on every request and may not
 `subscribe` (`origin.forbidden`, `error_details {derived: "page"}`).
@@ -603,7 +617,7 @@ Example:
 
 ```json
 {"id":1,"cmd":"client-hello","role":"page_relay"}
-{"id":1,"ok":true,"data":{"connection_id":"42"}}
+{"id":1,"ok":true,"data":{"connection_id":"42","user_origin_allowed":false}}
 ```
 
 ### set-client-info

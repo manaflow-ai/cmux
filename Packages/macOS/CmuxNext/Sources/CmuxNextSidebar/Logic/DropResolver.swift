@@ -13,7 +13,9 @@ public nonisolated enum DropResolver {
     }
 
     public static func resolve(y: CGFloat, payload: DragPayload, base: SidebarLayout, sections: [SidebarSection], ungroupedFirst: Bool = false) -> DropTarget? {
-        let request = RustDropRequest(y: Double(y), payload: RustPayload(payload), rows: base.rows.map(RustRow.init), sections: sections.map(RustSection.init), ungroupedFirst: ungroupedFirst, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction))
+        let request = RustDropRequest(y: Double(y), payload: RustPayload(payload), rows: base.rows.map(RustRow.init), sections: sections.map(RustSection.init), ungroupedFirst: ungroupedFirst, groupEdgeFraction: Double(groupEdgeFraction), groupExitFraction: Double(groupExitFraction), sectionTopFraction: Double(sectionTopFraction),
+                                      workspaceOntoStart: Double(SidebarTunables.workspaceOntoStart.value),
+                                      workspaceOntoEnd: Double(SidebarTunables.workspaceOntoEnd.value))
         return RustSidebarClient.call("resolve", request, as: RustTarget.self)?.swiftValue
     }
 

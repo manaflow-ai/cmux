@@ -96,9 +96,9 @@ import Testing
             == .gestureRequired)
         #expect(await rig.send("session/set_config_option", ["sessionId": "s", "configId": "thinking", "value": true], ticket: await rig.ticket(Self.effort))
             == nil)
-        // A session that is not the pane's.
+        // A session that is not the pane's: refused as outside its scope, before the ticket counts.
         #expect(await rig.send("session/set_mode", ["sessionId": "s-foreign", "modeId": "default"], ticket: await rig.ticket(Self.mode))
-            == .gestureRequired)
+            == .sessionNotInPane)
         #expect(await rig.server.wait { ($0.first?.frames.count ?? 0) >= 3 })
         #expect(rig.server.peers.first?.frames.contains { $0.contains("cmuxGesture") } == false)
     }
