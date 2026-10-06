@@ -143,6 +143,9 @@ pub enum AgentEvent {
     /// Connected (again): every session, for reconciling children.
     Up(Vec<SessionSummary>),
     Down,
+    /// The acpmux daemon this host started or joined shut down (its socket
+    /// is gone): the host never starts another and stops.
+    Ended,
     SessionChanged(SessionSummary),
     Permission {
         session_id: String,
@@ -184,6 +187,17 @@ pub trait AgentPort: Send + Sync {
     /// session). A port without one refuses every Chief session.
     fn harness_catalog(&self) -> Result<Value, String> {
         Err("this acpmux port reports no harness catalog".into())
+    }
+
+    /// Answers a pending permission request of `session`
+    /// (`_acpmux/permission_respond`) with `option` (None: cancelled).
+    fn respond_permission(
+        &self,
+        _session: &str,
+        _permission: &str,
+        _option: Option<&str>,
+    ) -> Result<(), String> {
+        Err("answering permissions is not supported".into())
     }
     /// Whether the connected daemon installed `preset` with its `args`.
     fn preset_args(&self, _preset: &str) -> bool {
@@ -281,12 +295,11 @@ impl Acpmux {
                 "env": preset.env,
                 "description": "optchat-chief: an isolated Claude Code configuration",
             });
-            if !preset.args.is_empty() {
-                set["args"] = json!(preset.args);
-            }
-            if let Some(text) = &preset.system_prompt {
-                set["systemPrompt"] = json!(text);
-            }
+            // Always say both: acpmux merges a set into the preset it saved,
+            // and the last host's Claude args or system prompt (an engine
+            // switch on the same daemon) would stay and refuse a codex set.
+            set["args"] = if preset.args.is_empty() { Value::Null } else { json!(preset.args) };
+            set["systemPrompt"] = preset.system_prompt.as_ref().map_or(Value::Null, |text| json!(text));
             let result = loop {
                 let result =
                     client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));
@@ -317,10 +330,10 @@ impl Acpmux {
             match result {
                 Ok(_) => {
                     ready.insert(preset.name.clone());
-                    if set.get("args").is_some() {
+                    if set.get("args").is_some_and(|args| !args.is_null()) {
                         with_args.insert(preset.name.clone());
                     }
-                    if set.get("systemPrompt").is_some() {
+                    if set.get("systemPrompt").is_some_and(|text| !text.is_null()) {
                         with_prompt.insert(preset.name.clone());
                     }
                 }
@@ -366,10 +379,15 @@ impl Acpmux {
             .name("acpmux-link".into())
             .spawn(move || {
                 let mut delay = Duration::from_millis(500);
+                // The host starts the daemon only before its first link: once
+                // that daemon (or the one it joined) shuts down, the host's
+                // sessions ended with it, and it never starts another.
+                let mut linked = false;
                 loop {
                     let started = std::time::Instant::now();
-                    match this.connect_once(&sink, &*log) {
+                    match this.connect_once(&sink, &*log, !linked) {
                         Ok(closed) => {
+                            linked = true;
                             let _ = closed.recv();
                             log("acpmux connection closed");
                         }
@@ -388,6 +406,11 @@ impl Acpmux {
                         let _ = tx.send(TurnSignal::Lost);
                     }
                     sink(AgentEvent::Down);
+                    if linked && !crate::acpmux_daemon::reachable(&this.socket) {
+                        log("acpmux daemon ended; the host does not start another");
+                        sink(AgentEvent::Ended);
+                        return;
+                    }
                     if started.elapsed() > Duration::from_secs(30) {
                         delay = Duration::from_millis(500);
                     }
@@ -404,8 +427,11 @@ impl Acpmux {
         &self,
         sink: &Sink,
         log: &dyn Fn(&str),
+        may_start: bool,
     ) -> Result<std::sync::mpsc::Receiver<()>, String> {
-        crate::acpmux_daemon::ensure(&self.socket, log)?;
+        if may_start {
+            crate::acpmux_daemon::ensure(&self.socket, log)?;
+        }
         let (closed_tx, closed_rx) = channel();
         let turns = self.turns.clone();
         let route_sink = sink.clone();
@@ -670,6 +696,22 @@ impl AgentPort for Acpmux {
         self.client()?
             .request("_acpmux/harnesses", json!({}))
             .map_err(|e| format!("harnesses: {e}"))
+    }
+
+    fn respond_permission(
+        &self,
+        session: &str,
+        permission: &str,
+        option: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = json!({"sessionId": session, "permissionId": permission});
+        if let Some(option) = option {
+            params["optionId"] = json!(option);
+        }
+        self.client()?
+            .request("_acpmux/permission_respond", params)
+            .map(|_| ())
+            .map_err(|e| format!("permission_respond: {e}"))
     }
 
     fn preset_args(&self, preset: &str) -> bool {

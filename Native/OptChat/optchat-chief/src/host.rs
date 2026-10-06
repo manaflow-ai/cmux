@@ -93,13 +93,30 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    if family == Family::Claude {
+        // claude-sr: every turn of this Chief on one sticky subrouter account.
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+            codex_cache_key(home, "turn"),
+        );
+    }
     (isolate || family != Family::Other).then(|| Preset {
-        name: format!("optchat-chief-{}", crate::paths::home_id(home)),
+        name: turn_preset_name(home, family),
         harness: harness.to_owned(),
         env,
         args: Vec::new(),
         system_prompt: (family == Family::Claude).then(|| system_text.to_owned()),
     })
+}
+
+/// The turn preset's name: `optchat-chief-<home id>`, and
+/// `optchat-chief-codex-<home id>` for codex, so both can be installed and
+/// a turn can swap harness families (engine.rs).
+pub fn turn_preset_name(home: &std::path::Path, family: Family) -> String {
+    match family {
+        Family::Codex => format!("optchat-chief-codex-{}", crate::paths::home_id(home)),
+        _ => format!("optchat-chief-{}", crate::paths::home_id(home)),
+    }
 }
 
 /// The families of the turn and the compactor harness, from acpmux's own
@@ -282,10 +299,14 @@ fn start(
     crate::acpmux_daemon::set_child_env(pinned.clone());
     let instructions = crate::prompt::user_instructions(&paths.instructions);
     // One setting picks the harness of turns and compactor alike.
+    // engine.json's compactor fields apply at host start (engine.rs).
+    let engine_choice_file = crate::engine::load(&crate::engine::path(home));
     let (harness, compactor_harness) = harness_choice(
         env("OPTCHAT_CHIEF_HARNESS").as_deref(),
         env("MUX_HARNESS").as_deref(),
-        env("OPTCHAT_COMPACTOR_HARNESS").as_deref(),
+        env("OPTCHAT_COMPACTOR_HARNESS")
+            .or_else(|| engine_choice_file.compactor_harness.clone())
+            .as_deref(),
     );
     let engine_choice = env("OPTCHAT_CHIEF_ENGINE");
     // Section 9's subagents run on this harness (default the Chief's).
@@ -316,6 +337,8 @@ fn start(
     // command), never its name. Only the native engine with the API
     // compactor runs without acpmux.
     let uses_acpmux = !(engine_choice.as_deref() == Some("native") && route == CompactRoute::Api);
+    let mut families = BTreeMap::new();
+    let mut profiles_by_name: BTreeMap<String, String> = BTreeMap::new();
     // Claude only through acpmux's own Claude Code adapter (harness_gate):
     // each harness is found by kind and command, and a refused one leaves
     // the host up with each of its sessions refused in the chat.
@@ -332,6 +355,20 @@ fn start(
             }
             plan
         };
+        // Every admitted harness's family and profile, for a turn that
+        // swaps harness between turns (engine.rs); refused ones stay out.
+        for name in answer
+            .get("harnesses")
+            .and_then(serde_json::Value::as_object)
+            .into_iter()
+            .flat_map(|m| m.keys())
+        {
+            let p = crate::harness_gate::plan(&answer, name);
+            if p.admitted.is_ok() {
+                families.insert(name.clone(), p.family);
+                profiles_by_name.insert(name.clone(), p.profile.clone());
+            }
+        }
         let (turn, compactor, sub) = (
             plan(&harness, "turn"),
             plan(&compactor_harness, "compactor"),
@@ -357,6 +394,17 @@ fn start(
     };
     // The profiles the presets name (the session itself asks by its route).
     let [turn_profile, compactor_profile, sub_profile] = profiles;
+    // The first harness of a family (the default harness when it is one):
+    // the other family's turn preset names it.
+    let first_of = |f: Family| -> Option<String> {
+        if family == f {
+            return Some(harness.clone());
+        }
+        families
+            .iter()
+            .find(|(_, v)| **v == f)
+            .map(|(k, _)| k.clone())
+    };
     let claude = family == Family::Claude;
     // A Claude Code harness reads the optchat MCP server from the session
     // directory; acpmux gives any other harness no MCP server, so its memory
@@ -366,7 +414,6 @@ fn start(
     } else {
         crate::prompt::Tools::Cli(paths.bin.join("chief").display().to_string())
     };
-    let system_text = crate::prompt::system_text(instructions.as_deref(), &tools);
     let setup = SessionSetup {
         exe: exe.display().to_string(),
         cmux_mcp: env("CMUX_MCP_COMMAND"),
@@ -401,13 +448,34 @@ fn start(
     // a Claude harness the preset also carries each turn's system prompt
     // (the cached layout), with or without the isolation.
     let isolate = env("OPTCHAT_CHIEF_ISOLATE").as_deref() != Some("0");
-    let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &system_text);
+    // The Claude turn preset carries the Claude system text (MCP tools).
+    let claude_text =
+        crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
+    let mut preset = turn_preset(paths, home, &turn_profile, family, isolate, &claude_text);
     // A harness without the project settings' env (codex) reads its tools'
     // env from the acpmux daemon and the preset: the preset pins cmux.
     if let Some(preset) = preset.as_mut() {
-        preset.env.extend(pinned);
+        preset.env.extend(pinned.clone());
     }
-    let turn_preset_name = format!("optchat-chief-{}", crate::paths::home_id(home));
+    let claude_preset_name = turn_preset_name(home, Family::Claude);
+    // The other family's turn preset, for a swap between turns.
+    let other_family = if family == Family::Codex {
+        Family::Claude
+    } else {
+        Family::Codex
+    };
+    let other_preset = first_of(other_family)
+        .map(|h| profiles_by_name.get(&h).cloned().unwrap_or(h))
+        .and_then(|p| turn_preset(paths, home, &p, other_family, isolate, &claude_text))
+        .map(|mut p| {
+            p.env.extend(pinned.clone());
+            p
+        });
+    let claude_installed =
+        family == Family::Claude || (other_family == Family::Claude && other_preset.is_some());
+    let codex_preset = (family == Family::Codex
+        || (other_family == Family::Codex && other_preset.is_some()))
+    .then(|| turn_preset_name(home, Family::Codex));
     // Compactor sessions require their own presets and configuration, which
     // OPTCHAT_CHIEF_ISOLATE never turns off: without them, every node would
     // run the user's hooks, MCP servers and auto-memory on the chat's text.
@@ -435,8 +503,16 @@ fn start(
             BTreeMap::new()
         };
         env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
+        // Subagents' cmux calls reach the same app daemon as the Chief's.
+        env.extend(pinned.clone());
         if sub_family == Family::Codex {
             env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+        }
+        if sub_family == Family::Claude {
+            env.insert(
+                crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+                codex_cache_key(home, "sub"),
+            );
         }
         required.push(Preset {
             name: sub_preset_name.clone(),
@@ -445,6 +521,9 @@ fn start(
             args: Vec::new(),
             system_prompt: (sub_family == Family::Claude).then(|| sub_text.clone()),
         });
+    }
+    if let Some(other) = other_preset {
+        required.push(other);
     }
     let agents = Acpmux::new(acpmux_socket.clone(), preset, required);
     let first_link = Arc::new((Mutex::new(false), Condvar::new()));
@@ -495,6 +574,7 @@ fn start(
             // and has no refusal fallback model.
             let compactor_claude = compactor_family == Family::Claude;
             let compactor_model = env("OPTCHAT_COMPACTOR_MODEL")
+                .or_else(|| engine_choice_file.compactor_model.clone())
                 .or_else(|| compactor_claude.then(|| config.model.clone()));
             let compactor_effort = env("OPTCHAT_COMPACTOR_EFFORT");
             let port: Arc<dyn AgentPort> = agents.clone();
@@ -563,6 +643,39 @@ fn start(
         )
         .map_err(|e| format!("opening the memory: {e}"))?,
     );
+    // `optchat-chief settings` reaches the brain, which owns the settings.
+    let settings_tx = Mutex::new(tx.clone());
+    let control: crate::tools::Control = Arc::new(move |request: crate::tools::ControlRequest| {
+        use crate::tools::ControlRequest;
+        let tx = settings_tx.lock().expect("settings tx").clone();
+        let stopping = |_| "the host is stopping".to_owned();
+        let wait = Duration::from_secs(30);
+        let late = |_| "the host did not answer".to_owned();
+        match request {
+            ControlRequest::Set(key, value) => {
+                let (reply, answer) = channel();
+                tx.send(Input::Setting { key, value, reply })
+                    .map_err(stopping)?;
+                answer.recv_timeout(wait).map_err(late)?
+            }
+            ControlRequest::Show => {
+                let (reply, answer) = channel();
+                tx.send(Input::Settings { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| format!("{v:#}"))
+                    .map_err(late)
+            }
+            ControlRequest::SpawnPolicy => {
+                let (reply, answer) = channel();
+                tx.send(Input::SpawnPolicy { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(Option::unwrap_or_default)
+                    .map_err(late)
+            }
+        }
+    });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> =
         if env("OPTCHAT_SUBAGENT_WORKSPACES").as_deref() == Some("0") {
@@ -615,6 +728,7 @@ fn start(
         crate::tools::Served {
             memory: chat.clone(),
             orchestrator,
+            control: Some(control),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
@@ -694,9 +808,14 @@ fn start(
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
         turn_limit: (turn_limit > 0).then(|| Duration::from_secs(turn_limit * 60)),
         engine,
-        turn_preset: claude.then_some(turn_preset_name),
+        turn_preset: claude_installed.then_some(claude_preset_name),
         chief_id: crate::paths::home_id(home),
-        system_text,
+        system_text: claude_text,
+        engine_file: Some(crate::engine::path(home)),
+        families,
+        codex_preset,
+        settings_file: paths.root.join("settings.json"),
+        trace_dir: Some(paths.root.join("traces")),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

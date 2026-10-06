@@ -597,8 +597,16 @@ fn human_view<'a>(plan: &RequestPlan, result: &'a Value) -> std::borrow::Cow<'a,
                 })
                 .collect(),
         )),
+        Some(rows) if is_closed_list(plan) => std::borrow::Cow::Owned(closed_view::summarize(rows)),
         _ => std::borrow::Cow::Borrowed(result),
     }
+}
+
+fn is_closed_list(plan: &RequestPlan) -> bool {
+    matches!(
+        &plan.operation,
+        WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::ClosedList)
+    )
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -972,6 +980,7 @@ pub(super) fn resolve_socket_with_env(
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
 
+mod closed_view;
 mod hints;
 pub(super) use hints::connect_failure;
 

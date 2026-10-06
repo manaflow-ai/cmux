@@ -623,6 +623,11 @@ fn the_compactor_has_its_own_isolated_configuration() {
     assert_ne!(paths.compactor_config, paths.claude_config);
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_CLAUDE_MDS"], "1");
     assert_eq!(preset.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"], "1");
+    // Every slot on one sticky subrouter account (nodes share cached context).
+    assert_eq!(
+        preset.env["SUBROUTER_SESSION_KEY"],
+        format!("optchat-{}-compact", optchat_chief::paths::home_id(&home))
+    );
     let settings = compactor_settings();
     let deny: Vec<&str> = settings["permissions"]["deny"]
         .as_array()

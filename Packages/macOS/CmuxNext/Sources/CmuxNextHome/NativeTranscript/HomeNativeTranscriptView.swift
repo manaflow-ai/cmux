@@ -104,6 +104,21 @@ public final class HomeNativeTranscriptView: NSView {
     public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
+    /// A click on the header's name pill (the Chief's settings sidebar).
+    public var onNamePill: () -> Void {
+        get { transcript.onNamePill }
+        set { transcript.onNamePill = newValue }
+    }
+
+    /// The header avatar's text; nil shows the conversation's initials.
+    public var avatarText: String? {
+        get { transcript.avatarText }
+        set { transcript.avatarText = newValue }
+    }
+
+    /// The name pill's VoiceOver help.
+    public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
+
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }

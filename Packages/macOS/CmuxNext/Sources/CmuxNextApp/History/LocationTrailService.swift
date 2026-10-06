@@ -88,7 +88,12 @@ final class LocationTrailService {
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         // Under a top page the workspace's focus is not where the user is.
         guard services.windows.active === controller, controller.shownTopPage == nil, let location = location(of: state, in: controller) else { return }
-        if trail.record(location, at: now()) { changed() }
+        if trail.record(location, at: now(), scope: stepScope) { changed() }
+    }
+
+    /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).
+    var stepScope: HistoryStepScope {
+        services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
     func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
@@ -131,7 +136,12 @@ final class LocationTrailService {
     enum Direction { case back, forward, last }
 
     /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
-    var scope: HistoryScope { services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default }
+    /// With workspace steps (the default) a step is a workspace or top page,
+    /// so Back and Forward walk the window's trail; `surface` stays the page's own list.
+    var scope: HistoryScope {
+        let configured = services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default
+        return stepScope == .workspaces && configured != .surface ? .window : configured
+    }
 
     /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
     /// With the `surface` scope the focused surface walks its own list (a browser page's back and
