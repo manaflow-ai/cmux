@@ -11,8 +11,11 @@ export default [
     id: "tabs.claim-other-workspace",
     members: ["reference-b:BrowserUser.claimTab", "reference-b:BrowserUser.openTabs"],
     appOnly: true,
-    // A browser tab the user has open in another workspace: listed with
-    // tabs.list({ all: true }), claimed with tabs.use(id), then driven.
+    // A browser tab the user has open in another workspace. A session acts
+    // in its own workspace: tabs.list({ all: true }) does not list a user's
+    // tab of another workspace, and tabs.use(id) refuses it (a person must
+    // grant such a tab, and cmux has no such grant yet). The user's tab of
+    // the session's own workspace is claimed by tabs.attach.
     custom: {
       async cmux(ctx) {
         const url = `${ctx.origins.primary}/diff/lab.html?claim=${Date.now()}`;
@@ -20,16 +23,20 @@ export default [
         const wsRef = (ws.out.match(/workspace:\d+|[0-9A-F]{8}-[0-9A-F-]{27}/i) || [])[0];
         if (!wsRef) return { error: `new-workspace printed no id: ${ws.out.trim()} ${ws.err.trim()}`.slice(0, 300) };
         try {
-          await ctx.cli(["new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
-          const r = await ctx.repl(ctx.wrap({ path: null, code: `let row;
-for (let i = 0; i < 50 && !row; i++) { row = (await tabs.list({ all: true })).find((t) => t.url === ${JSON.stringify(url)}); if (!row) await sleep(100); }
-const own = (await tabs.list()).some((t) => t.url === ${JSON.stringify(url)});
-const p = await tabs.use(row.id);
-await p.locator("#counter").click();
-return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, count: await p.locator("#counter").innerText() };` }));
+          const made = await ctx.cli(["--json", "--id-format", "uuids", "new-surface", "--type", "browser", "--workspace", wsRef, "--url", url, "--focus", "false"]);
+          let id = null;
+          try {
+            id = JSON.parse(made.out).surface_id ?? null;
+          } catch {}
+          if (!id) return { error: `new-surface printed no surface id: ${made.out.trim()} ${made.err.trim()}`.slice(0, 300) };
+          const r = await ctx.repl(ctx.wrap({ path: null, code: `const mine = (t) => t.id === ${JSON.stringify(id)} || t.url === ${JSON.stringify(url)};
+const listedAll = (await tabs.list({ all: true })).some(mine);
+const inOwnList = (await tabs.list()).some(mine);
+const used = await E(() => tabs.use(${JSON.stringify(id)}));
+return { listedAll, inOwnList, useRefused: !!used.error && /in another workspace/.test(used.error) };` }));
           return r.value ?? r;
         } finally {
-          await ctx.cli(["workspace-action", "--action", "close", "--workspace", wsRef]);
+          await ctx.cli(["workspace", "close", "--workspace", wsRef, "--force"]);
         }
       },
       async "reference-b"({ c, origins }) {
@@ -40,7 +47,13 @@ return { listedAll: !!row, inOwnList: own, otherWorkspace: !!row.workspace, coun
     },
     na: { "reference-a": "Reference A has no user-tab claim; attachBrowserTab is covered by tabs.attach" },
     compare: ["listedAll", "count"],
-    expect: { listedAll: true, inOwnList: false, otherWorkspace: true, count: "Count 1" },
+    better: {
+      "reference-b": {
+        reason: "a session stays inside its workspace: a user's tab of another workspace is neither listed nor attachable without a person's grant, where reference B lets an agent claim any user tab",
+        check: (c) => c.listedAll === false && c.inOwnList === false && c.useRefused === true,
+      },
+    },
+    expect: { listedAll: false, inOwnList: false, useRefused: true },
   },
   {
     id: "tabs.legacy-socket-refused",
