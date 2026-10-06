@@ -418,3 +418,36 @@ test("a read cut at the page-read budget never ends inside a value the session m
     await servers.close();
   }
 });
+
+// A link's URL is shortened for the snapshot (an off-site link's host
+// summary, a cross-origin URL). Shortening before the reply leaves the page
+// would cut a secret in the URL before native masking sees it whole, and
+// hand on its prefix; it happens after masking instead.
+test("snapshot: a shortened link URL never shows a prefix of a value the session masks", async () => {
+  const servers = await startFixtureServers();
+  const SECRET = "Zq9Wv7KjQ3xP8mLt";
+  try {
+    await withLoggedRepl(async (run) => {
+      await run(`secrets.set("k", ${JSON.stringify(SECRET)}, { domains: ["localhost"] });
+        await page.goto(${JSON.stringify(servers.origins.primary + "/")});
+        await page.evaluate((secret) => {
+          // The off-site summary ("host/first-segment") is cut at 48
+          // characters, 7 into the secret; the cross-origin URL at 300, 8
+          // into it.
+          const summary = "https://e.example/" + "a".repeat(30) + secret + "/more";
+          const long = "https://evil.example/" + "a".repeat(270) + secret + "b".repeat(50);
+          document.body.innerHTML = '<a id="s">Summary</a> <a id="l">Long</a>';
+          document.getElementById("s").href = summary;
+          document.getElementById("l").href = long;
+        }, ${JSON.stringify(SECRET)});`);
+      for (const opts of [{}, { urls: true }]) {
+        const r = await run(`const s = await snapshot(${JSON.stringify(opts)}); console.log("@@" + JSON.stringify(String(s.tree || s)));`);
+        const tree = JSON.parse(r.value);
+        assert.match(tree, /\[url=e\.example\/a/, `the link URLs are not in the snapshot: ${tree}`);
+        assert.equal(tree.includes(SECRET.slice(0, 4)), false, `${JSON.stringify(opts)}: the snapshot shows the secret's prefix: ${tree}`);
+      }
+    });
+  } finally {
+    await servers.close();
+  }
+});
