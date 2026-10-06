@@ -1,4 +1,6 @@
 import AppKit
+import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTerminal
@@ -55,10 +57,19 @@ enum DebugTimings {
 
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
             markLaunch("first_terminal_surface_created")
+        }
+    }
+
+    /// Marks `reveal.<region>` when each launch region shows (its data
+    /// landed, or the reveal deadline passed).
+    static func markReveal(_ reveal: LaunchReveal) {
+        for region in LaunchRegion.allCases {
+            reveal.whenReady(region) { markLaunch("reveal.\(region.rawValue)") }
         }
     }
 
