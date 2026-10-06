@@ -141,7 +141,7 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
             let choice = apply_flags(load(&file), flags)?;
             save(&file, &choice).map_err(|e| format!("{}: {e}", file.display()))?;
             Ok(format!(
-                "engine set: {}\nTurns use it from the next turn; the compactor fields apply at the next host start.",
+                "engine set: {}\nTurns use it from the next turn; the compactor fields apply at the next host start.\n",
                 serde_json::to_string(&choice).expect("json")
             ))
         }

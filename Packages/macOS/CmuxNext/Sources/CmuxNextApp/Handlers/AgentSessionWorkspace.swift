@@ -38,10 +38,13 @@ enum AgentSessionWorkspace {
         let logger = daemon.logger
         let task: ActionWork = Task { @MainActor in
             do {
-                let created = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
+                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
                     try await connection.createTerminal(in: workspace, cwd: cwd)
                 }
-                guard let surface = created.surface, let pane = await mirroredPane(containing: surface, in: daemon.store) else {
+                // The workspace's first pane once the store mirrors it, found
+                // by the key chosen here (as CloudHandlers finds its anchor).
+                guard let pane = await mirroredPane(of: key, in: daemon.store) else {
+                    logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
                 let tab = services.agentTabs.openLinked(session: session, in: pane.id, of: daemon.store)
@@ -50,6 +53,7 @@ enum AgentSessionWorkspace {
                     window.state.selection.select(tab, in: pane.id)
                 }
                 if let controller = services.paneController(for: pane) { controller.apply(controller.snapshot()) }
+                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
@@ -59,13 +63,12 @@ enum AgentSessionWorkspace {
         services.registry.track(task)
     }
 
-    /// The pane holding `surface` once the store mirrors it (10 s at most),
-    /// as `CloudHandlers.mirroredAnchor` waits for its anchor.
-    @MainActor private static func mirroredPane(containing surface: SurfaceID, in store: DaemonStore) async -> PaneModel? {
-        if let pane = store.pane(containing: surface) { return pane }
+    /// The first pane of workspace `key` once the store mirrors it (10 s at most).
+    @MainActor private static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
+        if let pane = firstPane(of: key, in: store) { return pane }
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitForPane(containing: surface, in: store) }
+            group.addTask { await waitForPane(of: key, in: store) }
             group.addTask {
                 // wakeup-allow: one-shot ten-second daemon mirror deadline
                 try? await Task.sleep(for: .seconds(10))
@@ -74,11 +77,15 @@ enum AgentSessionWorkspace {
             defer { group.cancelAll() }
             return await group.next() ?? false
         }
-        return mirrored ? store.pane(containing: surface) : nil
+        return mirrored ? firstPane(of: key, in: store) : nil
     }
 
-    @MainActor private static func waitForPane(containing surface: SurfaceID, in store: DaemonStore) async -> Bool {
-        for await ready in Observations({ store.pane(containing: surface) != nil }) where ready { return true }
+    @MainActor private static func firstPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneModel? {
+        store.workspaces.first { $0.key == key }?.screens.first?.panes.first
+    }
+
+    @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
+        for await ready in Observations({ firstPane(of: key, in: store) != nil }) where ready { return true }
         return false
     }
 }
