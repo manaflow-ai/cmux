@@ -204,8 +204,8 @@ class PathRoutingStructure(unittest.TestCase):
         route = jobs["path_route"]
         for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
             self.assertIn(output, route["outputs"])
-        self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
-        self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
+        classify = next(step for step in route["steps"] if step.get("id") == "route")
+        self.assertIn("scripts/ci/cmux_next_route.py", classify["run"])
         self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
         self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
         self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
@@ -288,7 +288,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("git", preflight["steps"][0]["run"])
         self.assertIn("ls-remote", preflight["steps"][0]["run"])
         self.assertIn("current", preflight["outputs"])
-        for job_id in ("macos-placement", "swift-test", "daemon-test", "generated-files", "release-compile", "cmux-scheme-compile"):
+        for job_id in ("swift-test", "daemon-test", "generated-files", "release-compile", "cmux-scheme-compile"):
             job = jobs[job_id]
             needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
             with self.subTest(job=job_id):
