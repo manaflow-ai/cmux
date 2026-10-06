@@ -700,14 +700,16 @@ class GitHub:
         return self.request("GET", f"/actions/runs/{run_id}")
 
     def owned_reruns(self, count: int) -> list[tuple[int, int]]:
-        """(run id, attempt) of unfinished CI re-runs whose owned jobs go back to the minis (owned_rerun()): a
-        re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
+        """(run id, attempt) of unfinished CI and cmux-next re-runs whose owned jobs go back to the minis
+        (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for status in ("queued", "in_progress"):
-            data = self.request("GET", f"/actions/workflows/ci.yml/runs?status={status}&per_page={count}")
-            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
-                      if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
+        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+            name = workflow.rsplit("/", 1)[-1]
+            for status in ("queued", "in_progress"):
+                data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
+                found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                          if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
