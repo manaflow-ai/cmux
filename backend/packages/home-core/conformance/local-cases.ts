@@ -145,4 +145,18 @@ export const localCases = (c: Corpus): void => {
   }
   cards.advance(10_000)
   c.op(cards, "loop guard: a fifth agent text after work cards is refused", MUX, "t9", send("t9", parts("again")), "agent_budget")
+  // link_preview parts (cmux-conversation link_preview.rs): the shape rules, and a commit with every field.
+  const links = new CoreHost()
+  const image = { hash: "f".repeat(64), mime_type: "image/webp", byte_count: 512_000 }
+  const link = (over: Record<string, unknown>) => ({ type: "link_preview", url: "https://example.com/a", ...over })
+  c.op(links, "link preview: a non-http scheme", ALICE, "l0", send("l0", [link({ url: "javascript:alert(1)" })]), "invalid_parts")
+  c.op(links, "link preview: user info in the authority", ALICE, "l0", send("l0", [link({ url: "https://user@example.com" })]), "invalid_parts")
+  c.op(links, "link preview: an empty host", ALICE, "l0", send("l0", [link({ url: "https:///a" })]), "invalid_parts")
+  c.op(links, "link preview: a URL over 2048 bytes", ALICE, "l0", send("l0", [link({ url: `https://example.com/${"é".repeat(1015)}` })]), "invalid_parts")
+  c.op(links, "link preview: a 301-character title", ALICE, "l0", send("l0", [link({ title: "x".repeat(301) })]), "invalid_parts")
+  c.op(links, "link preview: a site with a control character", ALICE, "l0", send("l0", [link({ site: "a\tb" })]), "invalid_parts")
+  c.op(links, "link preview: a PNG image", ALICE, "l0", send("l0", [link({ image: { ...image, mime_type: "image/png" } })]), "invalid_parts")
+  c.op(links, "link preview: an image over 512000 bytes", ALICE, "l0", send("l0", [link({ image: { ...image, byte_count: 512_001 } })]), "invalid_parts")
+  c.op(links, "link preview: every field", ALICE, "l1", send("l1", [text("look"), link({ url: "HTTPS://Example.com/a?b#c", title: "é".repeat(300), site: "example.com", image })]), "commit")
+  c.op(links, "link preview: only the URL", ALICE, "l2", send("l2", [link({})]), "commit")
 }

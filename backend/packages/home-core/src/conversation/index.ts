@@ -102,6 +102,7 @@ export {
   type MetaResult,
   type QuotaResult
 } from "./attachments.ts"
+export { cleanLinkPreviewPart, LINK_PREVIEW_LIMITS, validLinkUrl } from "./link-preview.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
 export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
 export { TYPING_MAX_ON, TYPING_REFRESH_MS, TYPING_WINDOW_MS, typingGate, type TypingDecision, type TypingMemo } from "./typing.ts"

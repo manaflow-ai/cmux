@@ -436,11 +436,18 @@ export class ConversationDO extends OwnerDO<Head> {
     return { ok: true, state: r.state, object_key: r.record.object_key, ...(kept ? { derived: { hash: kept.hash, mime_type: kept.mime_type, byte_count: kept.byte_count } } : {}) }
   }
 
-  /** Part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise. */
+  /**
+   * Part `partIndex` of a message `actor` can see, when that part holds `hash`; undefined otherwise.
+   * A link preview's image is served as an attachment of its own record (no name, no derived image).
+   */
   private attachmentPartAt(state: Head, me: { joined_seq?: number }, messageId: string, partIndex: number, hash: string): conversation.AttachmentPart | undefined {
     const msg = this.boundEngine!.rows.get<conversation.Message>(conversation.TABLE_MSG, messageId)?.row
     if (!msg || msg.retracted_at !== undefined || msg.seq <= this.floor(state, me)) return undefined
     const part = msg.parts[partIndex]
+    if (part?.type === "link_preview" && part.image?.hash === hash) {
+      const { mime_type, byte_count } = part.image
+      return { type: "attachment", hash, name: `link-preview.${mime_type === "image/webp" ? "webp" : "jpg"}`, mime_type, byte_count }
+    }
     return part?.type === "attachment" && part.hash === hash ? part : undefined
   }
 

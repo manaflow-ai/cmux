@@ -85,6 +85,20 @@ export interface AttachmentPart {
   readonly preview?: DerivedImage
 }
 
+/**
+ * A link with the preview its sender fetched (link-preview.ts); receivers render only from it.
+ * `image` names an ordinary attachment record (JPEG or WebP, at most 512 KB) the sender uploaded
+ * to this conversation; a cloud owner checks it like an attachment part's hash. Swift
+ * `ConversationLinkPreview` in snake_case.
+ */
+export interface LinkPreviewPart {
+  readonly type: "link_preview"
+  readonly url: string
+  readonly title?: string
+  readonly site?: string
+  readonly image?: DerivedImage
+}
+
 /** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
 export interface DerivedImage {
   readonly hash: string
@@ -95,6 +109,7 @@ export interface DerivedImage {
 export type Part =
   | { readonly type: "text"; readonly text: string; readonly runs?: ReadonlyArray<TextRun> }
   | AttachmentPart
+  | LinkPreviewPart
   | {
       readonly type: "work"
       readonly session: string

@@ -43,10 +43,10 @@ export type SearchResult = { readonly ok: true; readonly hits: ReadonlyArray<Sea
 /** One code point to its lower case (may be more than one code point, for example "İ"). */
 const fold = (ch: string) => ch.toLowerCase()
 
-/** Text of a message for matching and snippets (text parts joined by one space). */
+/** Text of a message for matching and snippets (text parts and link preview titles joined by one space). */
 export const messageText = (message: Message): string =>
   message.parts
-    .flatMap((part) => (part.type === "text" ? [part.text] : []))
+    .flatMap((part) => (part.type === "text" ? [part.text] : part.type === "link_preview" && part.title !== undefined ? [part.title] : []))
     .join(" ")
     .replace(/\s+/g, " ")
     .trim()

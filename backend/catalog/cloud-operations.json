@@ -3010,6 +3010,36 @@
         }
       }
     },
+    "HomeLinkPreviewImage": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+    },
     "HomeMessage": {
       "kind": "object",
       "fields": {
@@ -3255,6 +3285,54 @@
               "type": {
                 "kind": "ref",
                 "name": "HomeAttachmentPreview"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "link_preview"
+                ]
+              }
+            },
+            "url": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 2048
+              }
+            },
+            "title": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 300
+              }
+            },
+            "site": {
+              "required": false,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 253
+              }
+            },
+            "image": {
+              "required": false,
+              "type": {
+                "kind": "ref",
+                "name": "HomeLinkPreviewImage"
               }
             }
           }
@@ -21137,6 +21215,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -21252,6 +21357,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -21916,6 +22056,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -22031,6 +22198,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -23136,6 +23338,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -23251,6 +23480,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -23997,6 +24261,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -24112,6 +24403,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -41145,6 +41471,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -41260,6 +41613,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           }
@@ -41675,6 +42063,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -41790,6 +42205,41 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                  },
+                  "site": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 253
+                  },
+                  "image": {
+                    "$ref": "#/$defs/HomeLinkPreviewImage"
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
