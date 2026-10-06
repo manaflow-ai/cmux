@@ -94,6 +94,13 @@ pub fn turn_preset(
             codex_cache_key(home, "turn"),
         );
     }
+    if family == Family::Claude {
+        // claude-sr: every turn of this Chief on one sticky subrouter account.
+        env.insert(
+            crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+            codex_cache_key(home, "turn"),
+        );
+    }
     (isolate || family != Family::Other).then(|| Preset {
         name: turn_preset_name(home, family),
         harness: harness.to_owned(),
@@ -371,6 +378,12 @@ fn start(
         env.insert(session_dir::SUBAGENT_ENV.to_owned(), "1".to_owned());
         if sub_family == Family::Codex {
             env.insert(CODEX_CACHE_KEY_ENV.to_owned(), codex_cache_key(home, "sub"));
+        }
+        if sub_family == Family::Claude {
+            env.insert(
+                crate::compactor::SUBROUTER_SESSION_KEY_ENV.to_owned(),
+                codex_cache_key(home, "sub"),
+            );
         }
         required.push(Preset {
             name: sub_preset_name.clone(),

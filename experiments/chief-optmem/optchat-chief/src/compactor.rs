@@ -894,6 +894,12 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         "CLAUDE_CONFIG_DIR".to_owned(),
         paths.compactor_config.display().to_string(),
     );
+    // One sticky subrouter account for every node of this Chief, so nodes
+    // read each other's cached context (claude-sr; harmless elsewhere).
+    env.insert(
+        SUBROUTER_SESSION_KEY_ENV.to_owned(),
+        codex_cache_key(home, "compact"),
+    );
     for key in [
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
@@ -948,6 +954,12 @@ pub fn compactor_spec(
 /// The env the cmux codex fork reads its `prompt_cache_key` from (in
 /// place of the thread id, which is new for every acpmux session).
 pub const CODEX_CACHE_KEY_ENV: &str = "CODEX_PROMPT_CACHE_KEY";
+
+/// `sr claude proxy` sends this as `X-Subrouter-Session` (subrouter PR 511):
+/// the subrouter keeps every process with one key on one sticky account, so
+/// fresh per-turn Claude Code processes of one Chief share its prompt cache.
+/// Earlier `sr` builds ignore it.
+pub const SUBROUTER_SESSION_KEY_ENV: &str = "SUBROUTER_SESSION_KEY";
 
 /// The Chief's codex `prompt_cache_key` for `role` (`turn`, `compact`):
 /// `optchat-<home id>-<role>`. One key per prefix family, so every turn
