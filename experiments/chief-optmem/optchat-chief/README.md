@@ -87,6 +87,10 @@ optchat-chief browse [--mux-home DIR] [--out FILE]          the whole memory as 
 optchat-chief import [--mux-home DIR] FILE                  JSON lines {"text", "kind"?, "date"?}, default note, date RFC 3339 (host stopped)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR]
                                                            Claude Code transcripts as messages (host stopped)
+optchat-chief memory export --text DIR [--mux-home DIR]    the memory as JSONL day files (read-only; host may run)
+optchat-chief memory import [--mux-home DIR] DIR           an old JSONL home or an export into an empty memory (host stopped)
+optchat-chief memory search [--mux-home DIR] [--limit N] WORDS  messages and summaries holding every word (FTS5)
+optchat-chief memory stats [--mux-home DIR]                counts, schema, migration record, backup status
 ```
 
 Inside a turn the Chief runs `chief agents ...` (a launcher in
@@ -138,16 +142,24 @@ so import into an empty memory to keep the history in time order.
 | `OPTCHAT_COMPACTOR_EFFORT` | `medium` on a Claude or codex harness, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (section 4.2 runs the compactor at medium) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_CHIEF_TURN_LIMIT_MIN` | `180` | a turn longer than this is stopped and says so (`0`: no limit) |
+| `OPTCHAT_BACKUP_REMOTE` | `optchat/settings.json` `backup.remote`, else on with `gh auth` except tagged dev homes | `on`/`off`: push the text export to `manaflow-ai/chief-memory-<home id>` after each turn (see State and storage) |
+| `OPTCHAT_BACKUP_URL` | the per-Chief GitHub repository | push to this git remote instead (no `gh` needed) |
 
 ## Files
 
 ```
 $MUX_HOME/state/host.lock         kernel lock shared with mux/host ("<pid>\n<start ms>\nflock\n")
-$MUX_HOME/optchat/chat/           the OptChat memory: main/YYYY-MM-DD.jsonl, tree/YYYY-MM-DD.jsonl, lock;
-                                  a git repository, committed after every turn (section 10)
+$MUX_HOME/optchat/memory.sqlite3  the OptChat memory (log, tree, host state, FTS5 indexes), WAL; see State and storage
+$MUX_HOME/optchat/chat/           the chat's single-writer lock and the memory's text export: main/YYYY-MM-DD.jsonl,
+                                  tree/YYYY-MM-DD.jsonl (.export.json: the export's watermark); a git repository,
+                                  committed after every turn (section 10) and pushed to the backup repository
+$MUX_HOME/optchat/memory-jsonl-backup-<stamp>/  the old JSONL files of a migrated home, copied before the import
+$MUX_HOME/optchat/backup.json     the last backup outcome (ok, held with its text, retrying, off)
+$MUX_HOME/optchat/backup-allow.txt  message ids or summary names whose possible secret the user allowed
+$MUX_HOME/optchat/settings.json   per-Chief settings: {"backup": {"remote": true|false}}
 $MUX_HOME/optchat/AGENTS.md       the user's own instructions, the end of the system prompt (read at host start)
 $MUX_HOME/optchat/memory.html     `optchat-chief browse` output
-$MUX_HOME/optchat/host.json       outbox, logged seq, pending turn, children
+$MUX_HOME/optchat/host.json.imported  the old host state, moved into memory.sqlite3 at the first start
 $MUX_HOME/optchat/tools.sock      the live memory for `optchat-chief mcp`
 $MUX_HOME/optchat/session/        every turn's cwd: CLAUDE.md (Claude harness, old layout only) or AGENTS.md
                                   (any other harness), .mcp.json, .claude/settings*.json
@@ -169,8 +181,9 @@ $TMPDIR/optchat-compact-<home id>/slot-<k>/  the compactor sessions' working dir
                                   preset its node's (emptied when the node ends)
 ```
 
-`$MUX_HOME/optchat/` is mode 0700 and the log, tree and host.json are 0600:
-the memory keeps everything the user pasted.
+`$MUX_HOME/optchat/` is mode 0700 and memory.sqlite3 (with its -wal and
+-shm) and the export's day files are 0600: the memory keeps everything the
+user pasted.
 
 The system prompt (and the acpmux session's `CLAUDE.md`) is the spec's MASTER
 and VIEW_DOC (agent renamed "Chief"), a short cmux section, then
@@ -194,6 +207,131 @@ byte-identical across turns. The request the model gets is not fully ours:
 - Claude Code's own system prompt still comes first, with its date and
   environment lines, so the cached prefix changes at least once a day.
   Machine-wide managed settings still apply.
+
+## State and storage
+
+Decision 2026-10-06: the memory is ONE SQLite file per Chief home,
+`$MUX_HOME/optchat/memory.sqlite3`, and the JSONL day files the memory was
+stored in before are a plain-text export rebuilt from it, for reading, `rg`
+and backup.
+
+**Owner.** The brain host is the only writer. It keeps its single-writer
+locks (`$MUX_HOME/state/host.lock` and the chat's `lock` socket) and writes
+through one connection, which the chat's mutex serializes (the brain thread,
+turn workers and compactor workers take turns on it; no second writer
+connection exists). Readers open read-only connections and work while the
+host runs: the persister's export, `optchat-chief memory export|search|stats`,
+and the app's debug view when it reads the file.
+
+**File.** WAL, `synchronous=FULL`, `fullfsync=ON` and
+`checkpoint_fullfsync=ON` (F_FULLFSYNC on Apple platforms, where a plain
+fsync stops at the drive's cache), so a commit is on the disk when it
+returns, as each fsynced line was; `busy_timeout` 10 s;
+`journal_size_limit` 64 MiB; prepared statements cached per connection.
+Mode 0600 (SQLite gives -wal and -shm the same mode).
+
+**Tables** (`optchat-host/src/db/schema.rs`, `schema_version` plus one
+migration per version, each in its own transaction):
+
+| table | what |
+| --- | --- |
+| `messages(id INTEGER PRIMARY KEY, kind, date, day, text, conv_msg UNIQUE, attachments)` | the log; `id` dense 0..T; `day` is the export's day file; `conv_msg` is `<conversation>#<seq>` of a human message, so the same message is never logged twice; `attachments` a JSON array (unused until images land) |
+| `nodes(level, idx, bytes, day, text, PRIMARY KEY(level, idx))` | the tree; the rowid is the storage order the export keeps; `nodes_size(level, idx, bytes)` covers what the start reads |
+| `state(key PRIMARY KEY, value)` | the host state, one JSON value per `HostState` field (`host/<field>`: read cursor, pending turn with the acpmux session id, outbox, orphans, children, ...), each turn session's fold position (`fold/<session id>`: the last event seq in the log), the migration record (`memory/migration`) |
+| `messages_fts`, `nodes_fts` | FTS5 over both texts, external content (the text is stored once), kept by insert triggers |
+
+**Atomicity.** Each of these is ONE transaction, which closes the crash
+windows the audits found:
+
+- A turn's messages, their bookkeeping (the read cursor, each child's report
+  marked) and the pending turn with its reply key (`Brain::log_items`, also
+  for messages delivered between tool calls). Before, the pending turn was
+  saved, the messages appended one fsync each, then the key saved; a restart
+  had to infer which reached the log from its length.
+- A fetch of a turn's acpmux events: the folded talk, tool and echo entries
+  and the session's new fold position (`turn::append_folded`). Before, the
+  entries were appended and the position reached host.json later through the
+  brain, so a crash between them folded the same steps again at the next
+  start (stale `after`). The session's position is written when the turn
+  creates it, before its prompt starts, so a host that never heard the
+  session's id still finds and folds it.
+- A compactor node (or a batch of free nodes) and its completion: the row
+  commits before the core counts the node built.
+
+Restart recovery needs no harness session files: the pending turn and the
+fold positions say where each turn session stands, and the session's acpmux
+events after the stored seq are folded (any ACP harness). A crash before a
+commit leaves nothing of that transaction, so its messages are caught up
+again from the conversation and answered normally; one after it finds them
+logged and the pending turn on record (the user hears the turn stopped).
+
+**Traces** stay JSONL (`optchat/traces/`, the trace branch's format), not in
+the memory file: they are a log of what happened, written often, never
+read back by the host, and need no fsync.
+
+**Export.** `optchat_host::db::export_text` writes `main/<day>.jsonl`
+(`{i, kind, text, size, date}`) and `tree/<day>.jsonl` (`{l, i, text,
+size}`) from one snapshot: each day file holds that day's messages in id
+order and its nodes in storage order, so the export of a migrated home is
+byte-identical to its old files (tested on the fixture). A day file whose
+bytes did not change is not rewritten, so git sees no change. The persister
+keeps `chat/` in step after every turn (`Exporter`: a full export the first
+time, then only the rows stored since, by the watermark in `.export.json`),
+commits it, and pushes it. `memory import` takes either layout (the old
+store's files or an export) into an empty memory.
+
+**Backup** (decision 2026-10-06). After the commit, the export's history is
+pushed to a private `manaflow-ai/chief-memory-<home id>` repository, which
+`gh repo create --private` makes on the first push; never forced, so a
+remote with other history fails the push and stays as it is. Before each
+push the lines added since the last pushed commit are scanned (gitleaks when
+it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS, Slack,
+Stripe, Google and npm tokens, private keys). A hit holds the backup:
+nothing is pushed, `optchat/backup.json` says `(backup held: possible secret
+in message N)`, a `backup_held` trace event is written, host.log says how to
+release it (the message id or summary name on a line of
+`optchat/backup-allow.txt`). A failed push is retried by the persister
+thread after 30 s, doubling to 30 min; a turn never waits on it. On by
+default when `gh auth status` succeeds, except for tagged dev homes
+(`.../tags/<tag>`), which would each make their own repository; set
+`OPTCHAT_BACKUP_REMOTE` or `settings.json` to choose.
+
+**Migration.** On the first start with an old home (day files in `chat/`,
+an empty database), the host copies them into
+`memory-jsonl-backup-<stamp>/`, imports them in one transaction (torn,
+invalid, duplicate and out-of-range lines reported and skipped, ids checked
+to be 0..T), renders every stored row again and compares count and hash
+with what it read, and records `memory/migration` in the same transaction.
+A crash before the commit leaves the database empty and the next start does
+it again; a recorded migration or a non-empty database never imports again.
+`host.json` moves into `state` the same way (renamed `host.json.imported`).
+The old files stay in `chat/` as the start of the export, so its git
+history goes on.
+
+**Resource use.** No index lives in memory: a message or node is read by
+primary key. The start reads the largest id and the node sizes (covering
+index, no text); it is still O(T), because the core folds the view again
+from message 0 and keeps every built node's size in a map (`Memory::load`,
+unchanged: optchat-core stays sans-I/O).
+
+Measured with `optchat-host/tests/bench.rs` on a Blacksmith Testbox (Linux
+6.6, AMD EPYC, 32 vCPU, page cache warm; its fsync costs 0.2 ms, much less
+than F_FULLFSYNC on a Mac), synthetic homes with every node built (about 2T
+nodes), each number from a fresh process, append = 200 short messages one by
+one:
+
+| messages | store | open | RSS after open | peak RSS | append p50 / p99 | disk |
+| --- | --- | --- | --- | --- | --- | --- |
+| 10k | JSONL | 75 ms | 7.5 MB | 10.8 MB | 0.21 / 0.85 ms | 6.4 MB |
+| 10k | SQLite | 71 ms | 7.6 MB | 8.7 MB | 0.22 / 1.79 ms | 13.2 MB db |
+| 100k | JSONL | 852 ms | 22.3 MB | 86.4 MB | 0.22 / 0.81 ms | 63 MB |
+| 100k | SQLite | 809 ms | 14.7 MB | 17.9 MB | 0.24 / 1.85 ms | 94 MB db |
+| 1M | JSONL | 8.97 s | 215 MB | 849 MB | 0.21 / 0.82 ms | 637 MB |
+| 1M | SQLite | 8.00 s | 111 MB | 156 MB | 0.18 / 1.75 ms | 898 MB db |
+
+The migration (first open) took 0.35 s, 4.5 s and 48 s at 10k, 100k and 1M.
+The database is 1.4x the JSONL it came from (FTS and indexes), and a
+migrated home also keeps the export (1x) and the backup copy (1x).
 
 ## Harnesses and cache layout
 
@@ -621,4 +759,15 @@ native engine;
 `tests/harness.rs` covers the harness switch, the Claude turn layout (preset system prompt, one marker, no CLAUDE.md, the 4-breakpoint rerun, the old layout), the codex turn layout and AGENTS.md, both usage shapes (also when the answer follows `turn_end`), `chief zoom`/`date`, and the `cmux.chief` tags;
 `tests/acpmux_wire.rs` (preset args, `systemPrompt` and their feature detection, session tags included) and `tests/daemon_wire.rs` run the real clients against
 fake servers on Unix sockets; `tests/lock.rs` runs the binary against a held
-lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory.
+lock; `tests/mcp.rs` runs `optchat-chief mcp` against a live test memory;
+`tests/crash.rs` aborts a child process (`OPTCHAT_FAULT=<point>[#n]`) at
+each transaction boundary of logging a message and folding a turn and
+checks that a fresh brain logs each message and step exactly once, and that
+an old host.json moves into the database once; `tests/backup.rs` pushes to a
+local bare repository (holds on a secret, retries offline, never forces).
+In optchat-host, `tests/migrate.rs` migrates `tests/fixtures/old-home`
+(written by the line store at 07a17e8a78d) and checks the view, the counts,
+the kept files, the byte-identical export and a crash during the migration;
+`tests/sqlite.rs` covers search, the incremental export, a reader during
+writes and crashes inside an append and a node write; `tests/bench.rs` is
+the ignored benchmark above.
