@@ -18,6 +18,7 @@ export const HEADER_ACTIONS = {
   pin: "palette.toggleTabPin",
   moveRight: "moveSurfaceToPaneRight",
   newWorkspace: "palette.moveTabToNewWorkspace",
+  newWindow: "tab.moveToNewWindow",
   close: "closeTab",
 } as const;
 
