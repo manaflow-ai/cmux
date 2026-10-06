@@ -21,6 +21,7 @@ def executable(path: Path, text: str) -> None:
 def run_case(
     root: Path,
     *,
+    args: tuple[str, ...] = ("--print", "hello"),
     disabled: bool = False,
     managed_global: bool = False,
     stale_cached_extension: bool = False,
@@ -65,7 +66,7 @@ def run_case(
     }
     if disabled:
         environment["CMUX_PI_HOOKS_DISABLED"] = "1"
-    subprocess.run([str(WRAPPER), "--print", "hello"], env=environment, check=True)
+    subprocess.run([str(WRAPPER), *args], env=environment, check=True)
     return {
         "args": log.read_text(encoding="utf-8").splitlines(),
         "extension_exists": (root / "tmp/cmux-pi-extensions/surface-test/cmux-session.ts").exists(),
@@ -74,6 +75,18 @@ def run_case(
 
 
 def main() -> int:
+    for command in ("install", "remove", "uninstall", "update", "list", "config", "auth", "mcp"):
+        with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-command-") as directory:
+            args = (command, "--help")
+            result = run_case(Path(directory), args=args)
+            if result["args"] != list(args) or result["extension_exists"]:
+                raise AssertionError(f"Pi subcommand was changed by extension injection: {result}")
+
+    with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-prompt-") as directory:
+        prompted = run_case(Path(directory), args=("--print", "update"))
+        if "-e" not in prompted["args"] or prompted["args"][-2:] != ["--print", "update"]:
+            raise AssertionError(f"Pi prompt matching a subcommand lost extension injection: {prompted}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-pi-wrapper-") as directory:
         root = Path(directory)
         injected = run_case(root)
