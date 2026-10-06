@@ -20,7 +20,8 @@ and render-server field animation, blurred header and native scrolling.
     HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
     owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
-    on: DEV by default, NIGHTLY by Debug Settings opt-in, never Release or RC).
+    on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
+    frame, never Release or RC).
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
@@ -83,10 +84,11 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 02519e9
-(02519e9 adds the light link card (#E9E9EB, `Fixture.lightAppearance` from the theme),
-the outgoing-only LinkPresentation fallback (wired: on-screen cards, late answers fill
-the card), media fling paging inside the draw budget and recent emoji (`RecentEmoji`,
+that are wip checkpoints. Current pins (2026-10-06): every file at 85684b4
+(85684b4 builds with Xcode 26.6 and 27 and keeps ScrollPrefetcher on the engine
+clock; 02519e9 adds the light link card (#E9E9EB, `Fixture.lightAppearance` from the theme),
+the outgoing-only LinkPresentation fallback (wired: `outgoingLinkOnScreen`,
+`consider` on scroll, late answers fill the card), media fling paging inside the draw budget and recent emoji (`RecentEmoji`,
 carried in Cmux/PaneInteractions.swift); earlier in this pin 89a1c5b, 2a0805d, 93cf61f,
 bcfffae, 0fffbd2 and 48db8a7: long messages
 collapse above 3 screens ("Show all N lines", EN and JA from upstream), header glass
