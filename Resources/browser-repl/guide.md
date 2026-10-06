@@ -69,7 +69,8 @@ at once.
   `allowedDomains(["example.com", "*.example.org"], { lock })` (a wildcard
   over a public suffix, such as `*.com` or `*.co.uk`, is refused;
   `example.com` also allows `www.example.com`, `=example.com` only the
-  exact host, as `sites.browserAuth` needs on such a host),
+  exact host, as `sites.browserAuth` needs on such a host, with the
+  page's port: `=https://example.com:443`),
   `prohibitedDomains([...])` and `blockIPAddresses(true)` limit navigations,
   new tabs, `fetch` (every redirect), site tools and the subresources of
   tabs this session opened. A tab this session opened never loads a blocked page (the

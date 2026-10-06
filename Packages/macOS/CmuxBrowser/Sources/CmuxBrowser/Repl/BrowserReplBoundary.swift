@@ -320,9 +320,11 @@ final class BrowserReplBoundary: @unchecked Sendable {
     }
 
     /// The domains of the values the sign-in sheet fills into a page of
-    /// `origin` (`auth.request`): its exact host, on https (on a loopback
-    /// host, http too), never a wildcard over its site, so a sibling host
-    /// of the same site cannot receive them. A two-label host takes the
+    /// `origin` (`auth.request`): its exact host and port (the scheme's
+    /// default when it names none), on https (on a loopback host, http
+    /// too), never a wildcard over its site, so a sibling host of the same
+    /// site, or another service of the same host on another port, cannot
+    /// receive them. A two-label host takes the
     /// exact-host form (`=https://example.com`), which leaves out its www
     /// host in the matcher, the content rules and the frame checks, so the
     /// policy must name it so too. Refused unless the policy
@@ -336,7 +338,11 @@ final class BrowserReplBoundary: @unchecked Sendable {
         // A loopback host is matched on http and https without a scheme
         // (``BrowserReplDomainPattern/loadsOnlySecurely``); any other only
         // on https.
-        let exact = (host.split(separator: ".").count == 2 ? "=" : "") + (BrowserReplHostName.isLoopback(host) ? host : "https://\(host)")
+        // The page's effective port too (its scheme's default when the
+        // origin names none), so another service on the same host, on
+        // another port, never receives them.
+        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
+        let exact = (host.split(separator: ".").count == 2 ? "=" : "") + (BrowserReplHostName.isLoopback(host) ? host : "https://\(host)") + ":\(port)"
         guard let domain = try? BrowserReplDomainPattern.parse(exact, title: "auth.request", publicSuffixes: publicSuffixes) else {
             return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no host a domain policy can name"))
         }

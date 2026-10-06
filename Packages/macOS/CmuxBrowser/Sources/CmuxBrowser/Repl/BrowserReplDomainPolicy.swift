@@ -292,7 +292,11 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         }
         if let slash = text.firstIndex(of: "/") { text = String(text[..<slash]) }
         var port: String?
-        if !text.hasPrefix("["), let colon = text.lastIndex(of: ":") {
+        // An IPv6 host is in brackets, with its port after them (`[::1]:3000`).
+        let portColon = text.hasPrefix("[")
+            ? text.lastIndex(of: "]").flatMap { close in text.index(after: close) < text.endIndex && text[text.index(after: close)] == ":" ? text.index(after: close) : nil }
+            : text.lastIndex(of: ":")
+        if let colon = portColon {
             let tail = String(text[text.index(after: colon)...])
             if tail == "*" || (!tail.isEmpty && tail.allSatisfy(\.isNumber)) {
                 port = tail == "*" ? nil : tail

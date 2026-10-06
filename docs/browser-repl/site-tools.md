@@ -347,11 +347,14 @@ requested password only into a password input) in the tab's origin and that
 all are in one frame, marks them with a random attribute, and calls the
 driver's `auth.request`. It asks only in a tab the session opened
 (`tabs.open`), under a domain policy that keeps the session's tabs on the
-page's exact host with https (`session.allowedDomains(["https://accounts.example.com"])`
-for a sign-in on `accounts.example.com`; a loopback host also on http). A
+page's exact host and port with https (`session.allowedDomains(["https://accounts.example.com:443"])`
+for a sign-in on `accounts.example.com`, `:8443` for one on that port; a
+loopback host also on http, `localhost:3000`). A policy without the port
+is not enough, since it lets the host's other ports load: a value typed
+for `:8443` would reach a service on `:9443` (decided 2026-10-06, r25). A
 wildcard over the site, such as `*.example.com`, is not enough: a sibling
 host of the same site could receive the values. On a two-label host the
-policy names it in the exact-host form, `session.allowedDomains(["=https://example.com"])`,
+policy names it in the exact-host form, `session.allowedDomains(["=https://example.com:443"])`,
 since `https://example.com` also lets `www.example.com` load; the
 credential's domain takes that form too, so the native matcher, the
 content rules and the frame checks leave out the www host (decided
