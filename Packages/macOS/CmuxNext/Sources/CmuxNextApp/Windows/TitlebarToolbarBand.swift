@@ -129,7 +129,7 @@ final class TitlebarBandButton: NSButton {
     var menuProvider: (() -> NSMenu?)?
 
     override func rightMouseDown(with event: NSEvent) {
-        guard let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
+        guard isEnabled, let menu = menuProvider?() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
