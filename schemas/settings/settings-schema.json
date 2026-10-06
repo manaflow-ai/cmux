@@ -7695,6 +7695,49 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showCounts",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "tabs",
+        "count",
+        "number"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "sidebar",
+        "showCounts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showCounts",
+        "text" : "Show Tab Counts"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -11504,7 +11547,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "0c482f6c6f3e1556481cda6fe01e19be0d842956ceefd18b9c9a96be507044ff",
+  "schema_hash" : "12b31adf69f7c164cbdfc0523c8532c65397d10550c0ffc58f178da31b3afd34",
   "sections" : [
     {
       "id" : "general",
