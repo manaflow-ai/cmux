@@ -7,7 +7,7 @@ pub(super) fn handle(mux: &Mux, client: u64, cmd: Command) -> anyhow::Result<Val
     let result = dispatch(mux, client, cmd);
     if result.is_ok() {
         // A person's browser input is user activity for the Cloud VM idle pause.
-        super::activity::note_person_input(mux, client);
+        activity::note_person_input(mux, client);
     }
     result
 }
