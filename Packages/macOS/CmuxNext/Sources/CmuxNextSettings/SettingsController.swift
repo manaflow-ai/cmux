@@ -63,7 +63,7 @@ public final class SettingsController {
     }
 
     /// Everything a load depends on; an unchanged input skips the apply.
-    private nonisolated struct LoadInputs: Equatable, Sendable {
+    fileprivate nonisolated struct LoadInputs: Equatable, Sendable {
         let source: String
         let managed: ManagedPreferences
         let team: TeamPolicyLayer
