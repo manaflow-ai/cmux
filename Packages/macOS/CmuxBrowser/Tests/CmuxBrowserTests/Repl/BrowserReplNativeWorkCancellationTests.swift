@@ -74,6 +74,26 @@ struct BrowserReplNativeWorkCancellationTests {
         #expect(error.code == "cancelled", "\(error)")
     }
 
+    /// One group can hold every secret the store takes; cancellation is
+    /// checked between its entries too, and what was loaded before it
+    /// stopped is masked.
+    @Test("secrets.load stops between the entries of one group once cancelled, masking what it loaded")
+    func secretsLoadStopsWithinAGroup() throws {
+        let store = BrowserReplSecretStore()
+        var group: [String: Any] = [:]
+        for index in 0..<200 { group[String(format: "k%03d", index)] = "value-\(index)-s3cr3t" }
+        var checks = 0
+        // The start and the group pass; the next check is cancelled.
+        let cancelled = { () -> Bool in
+            checks += 1
+            return checks > 3
+        }
+        #expect(throws: CancellationError.self) { try store.load(["example.com": group], isCancelled: cancelled) }
+        let loaded = store.describe().count
+        #expect(loaded >= 1 && loaded < 200, "\(loaded) of 200 secrets loaded")
+        #expect(store.redact("value-0-s3cr3t") == "<secret:k000>")
+    }
+
     /// A secrets file holds at most 256 values of 4 KiB with their domain
     /// patterns; a larger file is refused before it is parsed, so parsing
     /// (which nothing can stop midway) stays short.
