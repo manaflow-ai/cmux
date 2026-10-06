@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSitesEnv } from "./harness.mjs";
+import { zip } from "./mock-editors.mjs";
 
 const env = await createSitesEnv();
 test.after(() => env.close());
@@ -140,4 +141,63 @@ test("a decoy Share label never shows a shared file as private", async () => {
     doc.shared = false;
     doc.decoyShare = null;
   }
+});
+
+// Crafted exports (a shared file's owner controls what Google exports):
+// the xlsx/pptx reader bounds the ZIP it unzips (site-tools.md, "Editing
+// Google files"): 10,000 entries, 32 MiB per entry, 64 MiB in all, and
+// an entry never decompresses past its declared size.
+const MiB = 1024 * 1024;
+const WORKBOOK = [
+  ["xl/workbook.xml", '<workbook xmlns:r="r"><sheets><sheet name="A" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+  ["xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>'],
+];
+async function cellsFailure(exportBody) {
+  const id = env.state.editors.add({ kind: "spreadsheets", title: "crafted", shared: true, sheets: [{ name: "A", gid: "0", cells: new Map() }], exportBody });
+  const url = `https://docs.google.com/spreadsheets/d/${id}/edit`;
+  return s.value(`sites.googleSheets.cells(${JSON.stringify(url)}).then((r) => ({ ok: r }), (e) => ({ code: e.code, message: e.message }))`);
+}
+
+test("googleSheets.cells refuses an entry that inflates past 32 MiB (a high-ratio export)", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(40 * MiB, 0x20)]]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /xl\/worksheets\/sheet1\.xml.*33554432 bytes/);
+});
+
+test("googleSheets.cells stops an entry at its declared size (a lying header)", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", Buffer.alloc(20 * MiB, 0x20), { size: 100 }]]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /past its declared size of 100 bytes/);
+});
+
+test("googleSheets.cells refuses an entry shorter than its declared size", async () => {
+  const r = await cellsFailure(zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", "<worksheet/>", { size: 5000 }]]));
+  assert.equal(r.code, "unexpected", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /declares 5000 bytes but holds 12/);
+});
+
+test("googleSheets.cells stops when the entries together inflate past 64 MiB", async () => {
+  const sheets = [1, 2, 3].map((n) => [`xl/worksheets/sheet${n}.xml`, Buffer.alloc(30 * MiB, 0x20)]);
+  const r = await cellsFailure(zip([...WORKBOOK, ...sheets]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /67108864 bytes/);
+});
+
+test("googleSheets.cells refuses an export of more than 10,000 entries", async () => {
+  const many = Array.from({ length: 10001 }, (_, n) => [`x/${n}`, ""]);
+  const r = await cellsFailure(zip([...WORKBOOK, ...many]));
+  assert.equal(r.code, "limit", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /10003 entries.*10000/);
+});
+
+test("googleSheets.cells refuses offsets outside the archive", async () => {
+  const bytes = zip([...WORKBOOK, ["xl/worksheets/sheet1.xml", "<worksheet/>"]]);
+  // The last central record's local header offset, pointed past the end.
+  const cd = bytes.readUInt32LE(bytes.length - 22 + 16);
+  let p = cd;
+  for (let n = 0; n < 2; n++) p += 46 + bytes.readUInt16LE(p + 28) + bytes.readUInt16LE(p + 30) + bytes.readUInt16LE(p + 32);
+  bytes.writeUInt32LE(bytes.length + 1000, p + 42);
+  const r = await cellsFailure(bytes);
+  assert.equal(r.code, "unexpected", JSON.stringify(r).slice(0, 300));
+  assert.match(r.message, /not a valid zip file/);
 });
