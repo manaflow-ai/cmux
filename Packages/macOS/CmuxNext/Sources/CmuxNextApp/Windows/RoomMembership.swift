@@ -30,10 +30,10 @@ struct RoomMembership: Equatable, Sendable {
     }
 
     /// Whether Delete Space on `room` closes `workspace`
-    /// (SPACE-DELETE-CLOSES-ITS-WORKSPACES). Today a delete keeps every
-    /// workspace open.
+    /// (SPACE-DELETE-CLOSES-ITS-WORKSPACES): no other room shows it. The
+    /// daemon applies the same rule (`room_archive::closing_keys`).
     func closes(_ workspace: Workspace, deleting room: ProfileID) -> Bool {
-        false
+        room != .defaultProfile && rooms(of: workspace) == [room]
     }
 
     /// Pins `workspace` to `room` (Move Workspace to Room), replacing any
