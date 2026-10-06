@@ -147,6 +147,12 @@ pub struct OutboxEntry {
     /// Not sent before this time (ms since the epoch); set with `rate_retried`.
     #[serde(default)]
     pub not_before: Option<u64>,
+    /// Sent to the owner at least once: its key's content is fixed (never coalesced).
+    #[serde(default)]
+    pub attempted: bool,
+    /// `agent_rate` refusals so far; the backoff grows with them (G11).
+    #[serde(default)]
+    pub rate_attempts: u32,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -555,6 +561,8 @@ mod tests {
             },
             rate_retried: false,
             not_before: None,
+            attempted: false,
+            rate_attempts: 0,
         });
         file.save(&state).unwrap();
         assert_eq!(file.load(), state);
