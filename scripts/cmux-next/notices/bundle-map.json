@@ -62,6 +62,11 @@
       "notices": ["first-party", "section:rust-cmux-diff-sidecar", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
     },
     {
+      "path": "Contents/Resources/bin/optchat-chief",
+      "what": "the Home Chief brain host (Native/OptChat/optchat-chief with optchat-core, optchat-host and cmux-tui's cmux-sdk, cmux-chief, cmux-conversation); cmux-next nightly only",
+      "notices": ["first-party", "section:rust-optchat-chief", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Resources/bin/ghostty",
       "what": "Ghostty CLI helper (Zig); the Zig package notices follow in S5",
       "notices": ["section:manual-ghostty", "zig-std", "section:manual-rust-and-zig-standard-libraries"]

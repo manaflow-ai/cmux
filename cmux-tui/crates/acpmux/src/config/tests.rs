@@ -255,13 +255,13 @@ fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
         "claude-sr".into(),
         prof(HarnessKind::ClaudeStdio, &[old.to_str().unwrap(), "claude", "proxy"]),
     );
-    let mut claude = prof(HarnessKind::Acp, &["/opt/bin/claude-acp"]);
+    let mut claude = prof(HarnessKind::ClaudeStdio, &["/opt/bin/claude"]);
     claude.fallback = Some("claude-sr".into());
     cfg.harnesses.insert("claude".into(), claude);
     verify_launchers_with(&mut cfg, Some("http://router.example:31415".into()));
     let routed = &cfg.harnesses["claude-sr"];
-    assert_eq!(routed.kind, HarnessKind::Acp);
-    assert_eq!(routed.argv, vec!["/opt/bin/claude-acp".to_owned()]);
+    assert_eq!(routed.kind, HarnessKind::ClaudeStdio);
+    assert_eq!(routed.argv, vec!["/opt/bin/claude".to_owned()]);
     assert_eq!(routed.env["ANTHROPIC_BASE_URL"], "http://router.example:31415");
     assert_eq!(routed.env["ANTHROPIC_CUSTOM_HEADERS"], "X-Subrouter-Agent: claude");
     assert!(routed.env.contains_key("ANTHROPIC_AUTH_TOKEN"));
@@ -270,6 +270,87 @@ fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
     // A direct Claude still falls over to the routed profile.
     assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_failing_sr_never_becomes_an_acp_adapter_under_the_claude_sr_name() {
+    // Lawrence's laptop on 2026-10-05: `claude` was the claude-acp ACP
+    // adapter (from ~/.acpx) and `sr claude proxy --version` failed, so
+    // claude-sr became claude-acp. claude-sr is acpmux's own Claude Code
+    // adapter or nothing: the launcher is marked unavailable instead.
+    let dir = std::env::temp_dir().join(format!("acpmux-route-acp-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let broken = dir.join("sr-broken");
+    write_executable(
+        &broken,
+        "#!/bin/sh\necho 'subrouter: prepare shared Claude proxy history: file exists' >&2\nexit 0\n",
+    );
+    let mut cfg = Config::default();
+    cfg.harnesses.insert(
+        "claude-sr".into(),
+        prof(HarnessKind::ClaudeStdio, &[broken.to_str().unwrap(), "claude", "proxy"]),
+    );
+    let mut claude = prof(HarnessKind::Acp, &["/opt/bin/claude-acp"]);
+    claude.fallback = Some("claude-sr".into());
+    cfg.harnesses.insert("claude".into(), claude);
+    verify_launchers_with(&mut cfg, Some("http://router.example:31415".into()));
+    let kept = &cfg.harnesses["claude-sr"];
+    assert_eq!(kept.kind, HarnessKind::ClaudeStdio);
+    assert_eq!(kept.argv[1..], ["claude".to_owned(), "proxy".to_owned()]);
+    assert!(cfg.unavailable.get("claude-sr").unwrap().contains("prepare shared"));
+    assert_eq!(cfg.harnesses["claude"].fallback, None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn on_path(found: &'static [&'static str]) -> impl Fn(&str) -> Option<String> {
+    move |bin: &str| found.contains(&bin).then(|| format!("/u/bin/{bin}"))
+}
+
+const ACPX: &str = r#"{"agents": {
+    "claude": {"argv": ["/u/.local/share/cmux-acp/current/bin/claude-acp"]},
+    "claude-sr": {"argv": ["/u/.local/share/cmux-acp/current/bin/claude-acp"]},
+    "codex": {"argv": ["/u/.local/share/cmux-acp/current/bin/codex-acp"]}
+}}"#;
+
+#[test]
+fn acpx_never_takes_the_reserved_claude_names_from_acpmux_s_adapter() {
+    let found = discover_harnesses_from(Some(ACPX), &on_path(&["claude", "sr", "codex-acp"]));
+    assert_eq!(found["claude"].kind, HarnessKind::ClaudeStdio);
+    assert_eq!(found["claude"].argv, vec!["/u/bin/claude".to_owned()]);
+    assert_eq!(found["claude-sr"].kind, HarnessKind::ClaudeStdio);
+    assert_eq!(
+        found["claude-sr"].argv,
+        vec!["/u/bin/sr".to_owned(), "claude".into(), "proxy".into()]
+    );
+    // Any other name keeps its ~/.acpx entry.
+    assert_eq!(found["codex"].kind, HarnessKind::Acp);
+    assert_eq!(found["codex"].argv[0], "/u/.local/share/cmux-acp/current/bin/codex-acp");
+    // Without the binary on PATH the ~/.acpx entry stays (kind acp).
+    let found = discover_harnesses_from(Some(ACPX), &on_path(&[]));
+    assert_eq!(found["claude"].kind, HarnessKind::Acp);
+}
+
+#[test]
+fn explicit_acpmux_config_wins_over_acpx_and_path() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::Acp, &["/opt/mine/claude-acp"]));
+    cfg.join_discovered(discover_harnesses_from(Some(ACPX), &on_path(&["claude", "sr"])));
+    assert_eq!(cfg.harnesses["claude"].argv, vec!["/opt/mine/claude-acp".to_owned()]);
+    assert!(!cfg.discovered.contains("claude"));
+    assert_eq!(cfg.harnesses["claude-sr"].kind, HarnessKind::ClaudeStdio);
+}
+
+#[test]
+fn the_pool_never_falls_back_onto_an_acp_claude() {
+    let mut cfg = Config::default();
+    cfg.harnesses.insert("claude".into(), prof(HarnessKind::Acp, &["/opt/mine/claude-acp"]));
+    cfg.join_discovered(discover_harnesses_from(None, &on_path(&["sr"])));
+    assert_eq!(cfg.harnesses["claude-sr"].fallback, None);
+    // With acpmux's own adapter as `claude`, the pool falls back to it.
+    let mut cfg = Config::default();
+    cfg.join_discovered(discover_harnesses_from(None, &on_path(&["claude", "sr"])));
+    assert_eq!(cfg.harnesses["claude-sr"].fallback.as_deref(), Some("claude"));
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
 }
 
 #[test]

@@ -58,7 +58,7 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let stream = match cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived) {
         Ok(stream) => stream,
         Err(error) => {
-            eprintln!("cannot connect to session socket {}: {error}", socket.display());
+            eprintln!("{}", connect_failure(&socket, &error));
             return 3;
         }
     };
@@ -420,6 +420,9 @@ fn run_response(
                         localize_operation_error(plan, &mut error);
                     }
                     key_report.annotate(&mut error, global.output);
+                    if hints::settles_mutation(&error) {
+                        key_report.succeeded();
+                    }
                     return print_operation_error(&error, global.output);
                 }
                 let result = response.result.expect("validated result");
@@ -504,7 +507,7 @@ fn run_response(
                 return 1;
             }
             _ => {
-                eprintln!("protocol error: unexpected envelope type");
+                eprintln!("protocol error: {}", hints::wrong_protocol());
                 return 3;
             }
         }
@@ -532,6 +535,7 @@ pub(super) fn read_envelope(
                 }
                 continue;
             }
+            Err(error) if hints::is_no_answer(&error) => return Err(hints::no_answer().into()),
             Err(error) => return Err(format!("transport error: {error}")),
         }
         if bytes.len() > RESPONSE_LIMIT {
@@ -868,53 +872,6 @@ fn flatten_human_object(
     }
 }
 
-/// Visible placeholder for characters a terminal could interpret as part of
-/// a control or escape sequence. Remote-supplied strings (browser titles,
-/// terminal titles set by programs, workspace and notification names) flow
-/// into human output and must render as inert text.
-const CONTROL_PLACEHOLDER: char = '\u{fffd}';
-
-/// C0 controls, DEL, C1 controls, and the Unicode line and paragraph
-/// separators. Written raw, any of these can alter terminal state or break
-/// the line structure of human output. Callers decide which whitespace
-/// controls keep a meaning before falling through to this check.
-fn is_terminal_control(ch: char) -> bool {
-    matches!(ch, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
-}
-
-/// Sanitize a single-line human cell. CR and LF keep the visible `\n` escape
-/// so multi-line values stay on one table row; every other control character,
-/// including TAB, becomes a placeholder so the cell-width padding stays
-/// correct. Width math must always use the sanitized string.
-fn sanitize_human_cell(value: &str) -> String {
-    let mut sanitized = String::with_capacity(value.len());
-    for ch in value.chars() {
-        match ch {
-            '\r' | '\n' => sanitized.push_str("\\n"),
-            ch if is_terminal_control(ch) => sanitized.push(CONTROL_PLACEHOLDER),
-            ch => sanitized.push(ch),
-        }
-    }
-    sanitized
-}
-
-/// Sanitize multi-line human text (top-level strings, error messages). LF and
-/// TAB keep their meaning, CRLF collapses to LF, and a lone CR becomes a
-/// placeholder because it can rewrite the current line.
-fn sanitize_human_block(value: &str) -> String {
-    let mut sanitized = String::with_capacity(value.len());
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
-        match ch {
-            '\n' | '\t' => sanitized.push(ch),
-            '\r' if chars.peek() == Some(&'\n') => {}
-            ch if is_terminal_control(ch) => sanitized.push(CONTROL_PLACEHOLDER),
-            ch => sanitized.push(ch),
-        }
-    }
-    sanitized
-}
-
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
@@ -993,6 +950,11 @@ pub(super) fn resolve_socket_with_env(
     }
     Ok((cmux_tui_core::server::try_default_socket_path("main")?, true))
 }
+
+mod hints;
+mod sanitize;
+pub(super) use hints::connect_failure;
+use sanitize::{sanitize_human_block, sanitize_human_cell};
 
 #[cfg(test)]
 mod tests;

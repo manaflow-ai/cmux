@@ -112,7 +112,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// the user asked for (a check, a held install) always shows. A found
     /// or staged update is no card: the Settings row's control shows it
     /// (``settingsBadgeTitle(preferences:)``).
-    public func card(preferences: UpdatePreferences, minuteOfDay: Int) -> UpdateCard? {
+    public var card: UpdateCard? {
         switch phase {
         case .hidden, .available:
             return nil

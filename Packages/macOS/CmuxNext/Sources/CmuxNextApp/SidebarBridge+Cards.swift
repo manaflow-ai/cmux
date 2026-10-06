@@ -67,16 +67,16 @@ enum SidebarCardFeed {
                 PageDescriptor.changelogTryItActions.contains(id) ? [SidebarCard.Button(id: id, title: UpdaterService.announcementActionTitle)] : nil
             } ?? []
             cards.append(SidebarCard(id: announcementPrefix + item.id, title: item.title, detail: item.detail, buttons: buttons,
-                                     dismissible: true, alwaysVisible: false, accent: false))
+                                     dismissible: true, alwaysVisible: false))
         }
         if let text = updater.whatsNewCardText {
             cards.append(SidebarCard(id: whatsNewCardID, title: text.title, detail: text.detail,
-                                     dismissible: true, alwaysVisible: true, accent: false))
+                                     dismissible: true, alwaysVisible: true))
         }
         if let text = updater.testFeedCardText {
             cards.append(SidebarCard(id: testFeedCardID, title: text.title, detail: text.detail,
                                      buttons: [SidebarCard.Button(id: "use-real-feed", title: text.useRealFeed)],
-                                     dismissible: false, alwaysVisible: true, accent: false))
+                                     dismissible: false, alwaysVisible: true))
         }
         return cards
     }

@@ -4912,7 +4912,7 @@
         "key" : "h",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneLeft",
@@ -4955,7 +4955,7 @@
         "key" : "l",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneRight",
@@ -4998,7 +4998,7 @@
         "key" : "k",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneUp",
@@ -5041,7 +5041,7 @@
         "key" : "j",
         "modifiers" : [
           "ctrl",
-          "cmd"
+          "shift"
         ]
       },
       "id" : "resizePaneDown",
@@ -5066,7 +5066,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "h",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5098,7 +5109,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "l",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5130,7 +5152,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "k",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -5162,7 +5195,18 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "j",
+              "modifiers" : [
+                "ctrl",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
       "default_shortcut" : {
@@ -7524,6 +7568,29 @@
       },
       "title" : "Attach Files…",
       "title_key" : "action.home.attachFiles",
+      "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action home-save-flight-recording",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.saveFlightRecording",
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Save Last 10 Seconds",
+      "title_key" : "action.home.saveFlightRecording",
       "title_table" : "HomeActions"
     },
     {
@@ -22471,7 +22538,33 @@
       "title_table" : "ServerActions"
     },
     {
-      "cli" : "devOnly",
+      "cli" : "ownerVerb",
+      "cli_name" : "action server-add-server",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "server.addServer",
+      "mcp" : "ownerVerb",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "title" : "Add Server…",
+      "title_key" : "action.server.addServer",
+      "title_table" : "ServerActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "action server-show-panel",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -22483,7 +22576,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "server.showPanel",
-      "mcp" : "devOnly",
+      "mcp" : "guiOnly",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",
@@ -22520,32 +22613,6 @@
       },
       "title" : "Server Health",
       "title_key" : "action.server.showHealth",
-      "title_table" : "ServerActions"
-    },
-    {
-      "cli" : "devOnly",
-      "cli_name" : "action server-add-server",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "server.addServer",
-      "mcp" : "devOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "title" : "Add Server…",
-      "title_key" : "action.server.addServer",
       "title_table" : "ServerActions"
     },
     {

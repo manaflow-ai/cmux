@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ad7fd59bf66aed778659ffea168171c41efda35944b67f77f3a9f40de3905f09. */
+/* cmux-tui mux protocol 12, IR 40f91ac6df3f10ede1f880563d9d2c8be05cc48f9b344127b8a6468521b23564. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "ad7fd59bf66aed778659ffea168171c41efda35944b67f77f3a9f40de3905f09" as const;
+export const SDK_IR_SHA256 = "40f91ac6df3f10ede1f880563d9d2c8be05cc48f9b344127b8a6468521b23564" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -610,6 +610,26 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
+    ]
+  },
+  "conversation-attachment-read": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. variant original (default), poster or preview; length at most 4 MiB. The hash must be referenced by a message of the conversation or uploaded there by the caller. Rejects: attachment_rejected (unknown_attachment, no_poster, no_preview). See spec/commands.md."
+    ]
+  },
+  "conversation-attachment-upload": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "local-attachments-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only; the caller's principal must be a participant of conversation. op begin(conversation, sha256, byte_count, mime_type, name, width?, height?, duration_ms?, poster?|preview?) | chunk(upload, piece, offset, data base64 <= 4 MiB decoded) | commit(upload) | cancel(upload). Cloud attachment allow list and limits (100 MB per file). Rejects: attachment_rejected. See spec/commands.md."
     ]
   },
   "conversation-bind": {
@@ -2540,6 +2560,24 @@ export const COMMAND_METADATA = {
       "surface filtering occurs before the bounded mailbox."
     ]
   },
+  "subscribe-activity": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "fields": {},
+    "stream": {
+      "event_names": [
+        "activity-changed"
+      ],
+      "kind": "subscribe",
+      "ordering": "Registration response with the current snapshot, then activity-changed after each change, at most one per second (leading edge plus one trailing event); no replay. Closing the connection ends the subscription.",
+      "terminal_event": null
+    },
+    "constraints": [
+      "Trusted local (Unix socket) connections only. The Cloud VM agent uses it to report activity for the idle pause (plans/cmux-next/cloud-automation.md 27).",
+      "At most 16 subscribers."
+    ]
+  },
   "swap-pane": {
     "authority": "control",
     "since": 6,
@@ -2849,6 +2887,14 @@ export const COMMAND_METADATA = {
   }
 } as const;
 export const EVENT_METADATA = {
+  "activity-changed": {
+    "since": 12,
+    "capability": "vm-activity-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "agent-changed": {
     "since": 11,
     "capability": null,
@@ -3396,6 +3442,65 @@ export interface CommandSchema {
   readonly result: TypeSchema;
 }
 export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "ActivitySnapshot": {
+    "additional_properties": false,
+    "constraints": [
+      "attached_clients counts attached connections whose set-client-info kind is tui, web, mac or frontend (a person's client); automation connections never count.",
+      "live_agents counts agents whose state is working or blocked.",
+      "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
+      "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+      "Times and counts only: no content and no surface ids."
+    ],
+    "fields": {
+      "attached_clients": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "last_agent_action_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "last_user_input_at_ms": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "live_agents": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ActivitySubscribeResult": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "AgentRecord": {
     "additional_properties": false,
     "fields": {
@@ -4474,12 +4579,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "preview": {
-        "description": "type work.",
+        "description": "type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}.",
         "nullable": false,
         "presence": "optional",
         "type": {
-          "kind": "scalar",
-          "name": "string"
+          "kind": "ref",
+          "name": "JsonValue"
         }
       },
       "runs": {
@@ -4522,7 +4627,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "type": {
-        "description": "Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties.",
+        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -12930,6 +13035,394 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "conversation-attachment-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "length": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "variant": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "eof": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "hash": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mime_type": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "conversation-attachment-upload": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "byte_count": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "conversation": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "data": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "duration_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "height": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "mime_type": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "offset": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "op": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "piece": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "poster": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "preview": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "sha256": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "width": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "needs": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "received": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "stored": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "additional_properties": false,
+            "fields": {
+              "byte_count": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "uint64"
+                }
+              },
+              "hash": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "mime_type": {
+                "nullable": false,
+                "presence": "required",
+                "type": {
+                  "kind": "scalar",
+                  "name": "string"
+                }
+              },
+              "poster": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              },
+              "preview": {
+                "default": null,
+                "nullable": true,
+                "presence": "optional",
+                "type": {
+                  "additional_properties": false,
+                  "fields": {
+                    "byte_count": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "uint64"
+                      }
+                    },
+                    "hash": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    },
+                    "mime_type": {
+                      "nullable": false,
+                      "presence": "required",
+                      "type": {
+                        "kind": "scalar",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "kind": "object"
+                }
+              }
+            },
+            "kind": "object"
+          }
+        },
+        "upload": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
   "conversation-bind": {
     "request": {
       "additional_properties": false,
@@ -20603,6 +21096,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "subscribe-activity": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ActivitySubscribeResult"
+    }
+  },
   "swap-pane": {
     "request": {
       "additional_properties": false,
@@ -21708,6 +22212,28 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   }
 };
 export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "activity-changed": {
+    "additional_properties": false,
+    "fields": {
+      "activity": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ActivitySnapshot"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "activity-changed"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "agent-changed": {
     "additional_properties": false,
     "fields": {

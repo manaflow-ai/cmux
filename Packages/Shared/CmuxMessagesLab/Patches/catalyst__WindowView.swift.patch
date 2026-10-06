@@ -1,0 +1,99 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
+@@ -240,7 +240,10 @@
+         let anchor = visibleAnchor()
+         layoutFrames()
+         compose.layoutIfNeeded()
+-        if widthChanged || Metrics.current.width != bounds.width {
++        // cmux: per view (several Home tabs): rows follow this view's width,
++        // not the process-wide `Metrics.current`.
++        if widthChanged || rowsWidth != bounds.width {
++            rowsWidth = bounds.width
+             Metrics.current = Metrics(width: bounds.width)
+             let st = store.state
+             let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: clock()), width: bounds.width)
+@@ -253,9 +256,12 @@
+         restore(anchor)
+     }
+ 
++    /// cmux: the width this view's rows were derived for.
++    private var rowsWidth: CGFloat = 0
+     private func initialRows() {
+         let st = store.state
+-        let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: 0))
++        rowsWidth = bounds.width
++        let rows = RowBuilder.rows(st, messages: st.conversation.messages, now: store.date(at: 0), width: bounds.width)
+         model.set(rows, at: 0, ghosts: false)
+         _ = layout.rebaseIfNeeded(force: true)
+         layout.invalidateLayout()
+@@ -452,7 +458,7 @@
+         let msgs = state.conversation.messages
+         let now = store.date(at: t)
+         guard let from = dirtyFrom(action, state, old), from > 0, from < msgs.count else {
+-            return RowBuilder.rows(state, messages: msgs, now: now)
++            return RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width)
+         }
+         let firstID = Substring(msgs[from].id)
+         let live = model.rows.filter { !$0.ghost }
+@@ -468,7 +474,7 @@
+             i -= 1
+         }
+         var rows = live[..<cut].map(\.spec)
+-        rows += RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: rows.last?.kind)
++        rows += RowBuilder.rows(state, messages: msgs, now: now, range: from..<msgs.count, previousRow: rows.last?.kind, width: bounds.width)
+         return rows
+     }
+ 
+@@ -485,6 +491,7 @@
+             if let m = msgs.last, let r = m.replyTo, let i = index(r.messageId) { idx.append(i) }
+         case .typing: idx.append(max(0, msgs.count - 1))
+         case let .status(id, _): if let i = index(id) { idx.append(i) }
++        case let .cmuxSetAttachment(id, _): if let i = index(id) { idx.append(i) }  // cmux
+         case let .react(ref, _, _):
+             guard let i = index(ref.messageId) else { return nil }
+             idx.append(i)
+@@ -521,14 +528,14 @@
+                     || owner(rows[rows.count - 1 - i].spec.key).map({ ids.contains($0) }) == true { i += 1 }
+             return i
+         }
+-        func derive(_ r: Range<Int>) -> [RowSpec] { RowBuilder.rows(state, messages: msgs, now: now, range: r) }
++        func derive(_ r: Range<Int>) -> [RowSpec] { RowBuilder.rows(state, messages: msgs, now: now, range: r, width: bounds.width) }
+         let prepared = preparedRows.flatMap { p in
+-            p.start == state.windowStart && p.count == msgs.count && (p.rows.first?.width ?? Metrics.current.width) == Metrics.current.width ? p.rows : nil
++            p.start == state.windowStart && p.count == msgs.count && (p.rows.first?.width ?? bounds.width) == bounds.width ? p.rows : nil
+         }
+         preparedRows = nil
+         switch action {
+         case .replaceWindow:
+-            return (rows.count, prepared ?? RowBuilder.rows(state, messages: msgs, now: now), 0, [])
++            return (rows.count, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, width: bounds.width), 0, [])
+         case let .prependPage(page):
+             guard msgs.count > page.count else { return nil }
+             let head = prepared ?? derive(0..<(page.count + 1)).filter { $0.key != "typing" }
+@@ -538,7 +545,7 @@
+             guard n > page.count else { return nil }
+             let drop = countTail([Substring(msgs[n - page.count - 1].id)])
+             let above = rows.count - drop - 1 >= 0 ? rows[rows.count - drop - 1].spec.kind : nil
+-            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above))
++            return (0, [], drop, prepared ?? RowBuilder.rows(state, messages: msgs, now: now, range: (n - page.count - 1)..<n, previousRow: above, width: bounds.width))
+         case let .evict(top, bottom):
+             let o = old.conversation.messages
+             var headIDs = Set(o.prefix(top).map { Substring($0.id) })
+@@ -548,7 +555,7 @@
+             let head = top > 0 ? derive(0..<1).filter { $0.key != "typing" } : []
+             let dropTail = bottom > 0 ? countTail(tailIDs) : 0
+             let above = rows.count - dropTail - 1 >= 0 ? rows[rows.count - dropTail - 1].spec.kind : nil
+-            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above) : []
++            let tail = bottom > 0 ? RowBuilder.rows(state, messages: msgs, now: now, range: (msgs.count - 1)..<msgs.count, previousRow: above, width: bounds.width) : []
+             return (top > 0 ? countHead(headIDs) : 0, head, dropTail, tail)
+         default:
+             return nil
+@@ -998,7 +1005,7 @@
+             return
+         }
+         let msgs = [rm] + s.conversation.messages.filter { $0.replyTo == root }
+-        let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true)
++        let rows = RowBuilder.rows(s, messages: msgs, now: store.date(at: t), threadMode: true, width: bounds.width)
+         let opening = threadLayer.isHidden || threadClosing > 0
+         threadLayer.isHidden = false
+         guard rows != threadSpecs || opening else { return }

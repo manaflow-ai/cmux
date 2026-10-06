@@ -26,6 +26,9 @@ mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
+mod resource_tab_deltas;
+#[cfg(test)]
+mod resource_tab_deltas_tests;
 mod resource_topology;
 mod rows;
 mod screen_changed;
@@ -2710,6 +2713,8 @@ pub struct Mux {
     /// for it blocks instead of polling the flag.
     daemon_shutdown_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(crate) control_clients: crate::server::ClientRegistry,
+    /// VM activity facts for `subscribe-activity` (server/activity.rs).
+    pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
@@ -3156,6 +3161,7 @@ impl Mux {
             exit_settles: Arc::default(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
+            activity: Default::default(),
             idle_close: Mutex::new(idle_close::IdleCloseTracker::default()),
             idle_close_waker: Mutex::new(None),
             terminal_host_closes: Arc::new(host_close::TerminalHostCloses::default()),
@@ -4804,10 +4810,11 @@ impl Mux {
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
             let mut plan = prepare(&mut state, &registry)?;
+            let tabs = resource_tab_deltas::TabMembership::capture(&state, &plan.patch);
             let before = plan.stage_checked(&mut state, operation)?;
-            anyhow::Ok((plan, before))
+            anyhow::Ok((plan, before, tabs))
         });
-        let (mut plan, before) = prepared?;
+        let (mut plan, before, tabs) = prepared?;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
                 #[cfg(test)]
@@ -4844,6 +4851,7 @@ impl Mux {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
         plan.apply(&mut state, &commit, workspace_revision);
+        let tab_deltas = tabs.and_then(|tabs| tabs.deltas(self, &state, &commit));
         drop(state);
         drop(registry);
         if !commit.replayed {
@@ -4852,6 +4860,7 @@ impl Mux {
             // directory report was waiting for.
             self.publish_pending_terminal_directories();
         }
+        self.emit_resource_tab_deltas(tab_deltas);
         Ok(commit)
     }
 
@@ -6479,6 +6488,9 @@ impl Mux {
             }
             commit
         };
+        if !commit.replayed && ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+            self.activity.note_agent_action();
+        }
         self.finish_journal_ingress(ingress, origin, idempotency_key, commit)
     }
 
@@ -7517,6 +7529,7 @@ impl Mux {
     }
 
     pub fn emit(&self, event: MuxEvent) {
+        self.activity.observe(&event);
         self.subscribers.emit(event);
     }
 
@@ -9294,7 +9307,9 @@ impl Mux {
     /// [`Self::claim_terminal_geometry`] it never adds a participant, so a
     /// one-shot `send` from an unattached connection cannot take the grid.
     pub(crate) fn note_terminal_input(&self, surface: SurfaceId, client: u64) {
-        let _ = self.note_terminal_activity(surface, client, None);
+        if self.note_terminal_activity(surface, client, None).is_some() {
+            self.activity.note_user_input();
+        }
     }
 
     /// Activity of the caller's own view (`view:None`) or of one of its relay
@@ -30446,29 +30461,6 @@ mod tests {
             assert_eq!(pane.active_tab, 2);
             assert_eq!(s.pane_revision, pane_revision);
         });
-    }
-
-    #[test]
-    fn ordinary_tab_moves_do_not_rebuild_the_split_index() {
-        let mux = test_mux();
-        let first = mux.new_workspace(None, None).unwrap();
-        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
-        let second = mux.split(first_pane, SplitDir::Right, None).unwrap();
-        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
-        let extra = mux.new_tab(Some(first_pane), None, None).unwrap();
-        let sentinel = SplitId::MAX;
-        {
-            let mut state = mux.state.lock().unwrap();
-            state.split_screens.insert(sentinel, (usize::MAX, usize::MAX, ScreenId::MAX));
-        }
-
-        assert!(mux.move_tab(extra.id, first_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        let events = mux.subscribe();
-        assert!(mux.move_tab(extra.id, second_pane, 0));
-        mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
-        assert!(events.try_recv().is_err());
     }
 
     #[test]

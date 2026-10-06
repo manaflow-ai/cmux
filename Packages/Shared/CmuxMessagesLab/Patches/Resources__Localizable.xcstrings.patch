@@ -1,0 +1,1460 @@
+--- a/Sources/MessagesLabHome/Resources/Localizable.xcstrings
++++ b/Sources/MessagesLabHome/Resources/Localizable.xcstrings
+@@ -24,13 +24,13 @@
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "iMessage"
++            "value": "Message"
+           }
+         },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+-            "value": "iMessage"
++            "value": "メッセージ"
+           }
+         }
+       }
+@@ -480,27 +480,183 @@
+     "menu.tapbackDetails": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "تفاصيل التفاعلات…"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detalji reakcija…"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detaljer om reaktioner…"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tapback-Details …"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapback Details…"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detalles de las reacciones…"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Détails des réactions…"
+           }
+         },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Dettagli reazioni…"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバックの詳細…"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ព័ត៌មានលម្អិតអំពីប្រតិកម្ម…"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "탭백 세부사항…"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detaljer om reaksjoner…"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Szczegóły reakcji…"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Detalhes das reações…"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Сведения о реакциях…"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "รายละเอียดการแสดงความรู้สึก…"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tepki Ayrıntıları…"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Відомості про реакції…"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Chi tiết phản ứng…"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回应详细信息…"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回應詳細資訊…"
++          }
+         }
+       }
+     },
+     "menu.attachSticker": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "إرفاق ملصق…"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Priloži naljepnicu…"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Vedhæft mærkat…"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Sticker anhängen …"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Attach Sticker…"
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Adjuntar sticker…"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Joindre un autocollant…"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Allega adesivo…"
+           }
+         },
+         "ja": {
+@@ -508,159 +664,1257 @@
+             "state": "translated",
+             "value": "ステッカーを添付…"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ភ្ជាប់ស្ទីកឃ័រ…"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "스티커 첨부…"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Legg ved klistremerke…"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Załącz naklejkę…"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Anexar figurinha…"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Прикрепить стикер…"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "แนบสติกเกอร์…"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Çıkartma Ekle…"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Прикріпити наліпку…"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Đính kèm nhãn dán…"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "附加贴纸…"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "附加貼圖…"
++          }
+         }
+       }
+     },
+     "menu.share": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "مشاركة…"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Podijeli…"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Del…"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Teilen …"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Share…"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Compartir…"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Partager…"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Condividi…"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "共有…"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ចែករំលែក…"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "공유…"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Del…"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Udostępnij…"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Compartilhar…"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Поделиться…"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "แชร์…"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Paylaş…"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Поширити…"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Chia sẻ…"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "共享…"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "分享…"
++          }
+         }
+       }
+     },
+     "menu.delete": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "حذف…"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Izbriši…"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Slet…"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Löschen …"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete…"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Eliminar…"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Supprimer…"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Elimina…"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "削除…"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "លុប…"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "삭제…"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Slett…"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Usuń…"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Apagar…"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Удалить…"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ลบ…"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Sil…"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Видалити…"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Xóa…"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "删除…"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "刪除…"
++          }
+         }
+       }
+     },
+     "menu.replyEllipsis": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "رد…"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Odgovori…"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Svar…"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Antworten…"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Reply…"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Responder…"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Répondre…"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Rispondi…"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "返信…"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ឆ្លើយតប…"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "답장…"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Svar…"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Odpowiedz…"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Responder…"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ответить…"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ตอบกลับ…"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Yanıtla…"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Відповісти…"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Trả lời…"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回复…"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回覆…"
++          }
+         }
+       }
+     },
+     "tapback.details.title": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "التفاعلات"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reakcije"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reaktioner"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tapbacks"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Tapbacks"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reacciones"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Réactions"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reazioni"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバック"
++          }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ប្រតិកម្ម"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "탭백"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reaksjoner"
+           }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reakcje"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Reações"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Реакции"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "การแสดงความรู้สึก"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tepkiler"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Реакції"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Phản ứng"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回应"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "回應"
++          }
+         }
+       }
+     },
+     "tapback.details.none": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "لا توجد تفاعلات"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nema reakcija"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ingen reaktioner"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Keine Tapbacks"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "No Tapbacks"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "No hay reacciones"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Aucune réaction"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nessuna reazione"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "タップバックなし"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "គ្មានប្រតិកម្ម"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "탭백 없음"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ingen reaksjoner"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Brak reakcji"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Nenhuma reação"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Нет реакций"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ไม่มีการแสดงความรู้สึก"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tepki Yok"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Немає реакцій"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Không có phản ứng"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "无回应"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "沒有回應"
++          }
+         }
+       }
+     },
+     "delete.confirm.title": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "هل تريد حذف هذه الرسالة؟"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Izbrisati ovu poruku?"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Vil du slette denne besked?"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Diese Nachricht löschen?"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete this message?"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "¿Eliminar este mensaje?"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Supprimer ce message ?"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Eliminare questo messaggio?"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "このメッセージを削除しますか?"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "លុបសារនេះ?"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "이 메시지를 삭제하겠습니까?"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Vil du slette denne meldingen?"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Usunąć tę wiadomość?"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Apagar esta mensagem?"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Удалить это сообщение?"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ลบข้อความนี้หรือไม่"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Bu mesaj silinsin mi?"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Видалити це повідомлення?"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Xóa tin nhắn này?"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "删除此信息？"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "要刪除此訊息嗎？"
++          }
+         }
+       }
+     },
+     "delete.confirm.info": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "سيتم حذفها من جهاز Mac هذا."
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Bit će izbrisana s ovog Maca."
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Den slettes fra denne Mac."
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Sie wird von diesem Mac gelöscht."
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "It is deleted from this Mac."
++          }
++        },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Se eliminará de este Mac."
+           }
+         },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Il sera supprimé de ce Mac."
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Verrà eliminato da questo Mac."
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "このMacから削除されます。"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "វានឹងត្រូវលុបចេញពី Mac នេះ។"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "이 Mac에서 삭제됩니다."
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Den slettes fra denne Macen."
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Zostanie usunięta z tego Maca."
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Ela será apagada deste Mac."
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Оно будет удалено с этого Mac."
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ข้อความจะถูกลบออกจาก Mac เครื่องนี้"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Bu Mac'ten silinir."
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Його буде видалено з цього Mac."
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Tin nhắn sẽ bị xóa khỏi máy Mac này."
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "它将从这台 Mac 上删除。"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "它將從這部 Mac 上刪除。"
++          }
+         }
+       }
+     },
+     "delete.confirm.button": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "حذف"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Izbriši"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Slet"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Löschen"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Delete"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Eliminar"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Supprimer"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Elimina"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "削除"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "លុប"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "삭제"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Slett"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Usuń"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Apagar"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Удалить"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ลบ"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Sil"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Видалити"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Xóa"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "删除"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "刪除"
++          }
+         }
+       }
+     },
+     "delete.confirm.cancel": {
+       "extractionState": "manual",
+       "localizations": {
++        "ar": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "إلغاء"
++          }
++        },
++        "bs": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Otkaži"
++          }
++        },
++        "da": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Annuller"
++          }
++        },
++        "de": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Abbrechen"
++          }
++        },
+         "en": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "Cancel"
+           }
+         },
++        "es": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Cancelar"
++          }
++        },
++        "fr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Annuler"
++          }
++        },
++        "it": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Annulla"
++          }
++        },
+         "ja": {
+           "stringUnit": {
+             "state": "translated",
+             "value": "キャンセル"
+           }
++        },
++        "km": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "បោះបង់"
++          }
++        },
++        "ko": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "취소"
++          }
++        },
++        "nb": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Avbryt"
++          }
++        },
++        "pl": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Anuluj"
++          }
++        },
++        "pt-BR": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Cancelar"
++          }
++        },
++        "ru": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Отменить"
++          }
++        },
++        "th": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "ยกเลิก"
++          }
++        },
++        "tr": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Vazgeç"
++          }
++        },
++        "uk": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Скасувати"
++          }
++        },
++        "vi": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "Hủy"
++          }
++        },
++        "zh-Hans": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "取消"
++          }
++        },
++        "zh-Hant": {
++          "stringUnit": {
++            "state": "needs_review",
++            "value": "取消"
++          }
+         }
+       }
+     }

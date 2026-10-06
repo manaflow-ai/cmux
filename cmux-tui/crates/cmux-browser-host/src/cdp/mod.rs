@@ -6,9 +6,11 @@
 
 mod browser_pages;
 mod capture;
+mod closed_roots;
 mod connection;
 mod cookies;
 mod cors;
+mod downloads;
 mod driver;
 mod evaluate;
 mod fetch;

@@ -17,13 +17,13 @@ public nonisolated enum UnreadState: Hashable, Sendable {
     }
 }
 
-/// The strongest tab type represented by a workspace row.
+/// What a workspace row shows: the kind of its selected tab.
 public nonisolated enum SidebarWorkspaceKind: String, Codable, Hashable, Sendable {
-    /// A workspace with an adopted Claude or Codex harness tab.
+    /// An agent: an agent chat, a Home conversation or an agent terminal.
     case harness
-    /// A workspace whose tabs are terminals or remote terminals.
+    /// A terminal or remote terminal.
     case terminal
-    /// A workspace containing a browser tab and no harness tab.
+    /// A browser page.
     case browser
 
     /// The leading symbol shown when the workspace has no custom icon.
@@ -58,11 +58,15 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Live status from the agent or hook `set_status`. It takes precedence
     /// over ``subtitle`` in the row's secondary line.
     public var status: String?
-    /// Set only when the user chose an icon or color. When nil, the row uses
-    /// ``SidebarWorkspaceKind.symbol`` so every row keeps a type glyph.
+    /// Set only when the user chose an icon or color. When nil, the row draws
+    /// ``kindBrand``'s mark, else ``SidebarWorkspaceKind.iconName``, so every
+    /// row keeps a type glyph.
     public var icon: WorkspaceIcon?
-    /// The leading type represented by the workspace's tabs.
+    /// The kind of the workspace's selected tab.
     public var kind: SidebarWorkspaceKind
+    /// The brand id (CmuxAgentBrands) of the agent in the selected tab, whose
+    /// mark is the row's type glyph; nil for other tabs and unknown agents.
+    public var kindBrand: String?
     public var unread: UnreadState
     /// The row's status indicator: the merged status of the workspace's
     /// tabs and its own status entries (`StatusStack`), drawn by the
@@ -90,6 +94,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         status: String? = nil,
         icon: WorkspaceIcon? = nil,
         kind: SidebarWorkspaceKind = .terminal,
+        kindBrand: String? = nil,
         unread: UnreadState = .none,
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
@@ -105,6 +110,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.status = status
         self.icon = icon
         self.kind = kind
+        self.kindBrand = kindBrand
         self.unread = unread
         self.activity = activity
         self.activityStyle = activityStyle

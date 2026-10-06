@@ -46,6 +46,10 @@ export const PublicJwk = Schema.Struct({
   y: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43))
 }).annotate({ identifier: "PublicJwk", description: "ES256 (P-256) public key of an install." })
 
+/** What a paired server says it is (`optchat-chief-brain`: it runs a user's Chief); lowercase words joined by hyphens. */
+export const ServerCapability = Schema.String.check(Schema.isPattern(/^[a-z0-9][a-z0-9-]{0,39}$/)).annotate({ identifier: "ServerCapability" })
+export const ServerCapabilities = Schema.Array(ServerCapability).check(Schema.isMaxLength(8))
+
 export const Install = Schema.Struct({
   id: InstallId,
   device: DeviceId,
@@ -63,7 +67,9 @@ export const Install = Schema.Struct({
   /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
   sso_team: Schema.optionalKey(TeamId),
   /** A VM install (kind vm, made at bind): the one Cloud machine it speaks for. */
-  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/)))
+  bound_machine: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^vm_[a-z0-9]{20}$/))),
+  /** A paired server's capabilities from its pairing request (server.md 6.2). */
+  capabilities: Schema.optionalKey(ServerCapabilities)
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({

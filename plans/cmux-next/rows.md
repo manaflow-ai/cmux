@@ -303,7 +303,7 @@ the row axis; the app step builds on 6553984ff79 or later.
 - Z1. The divider between two rows follows the pointer: under G2 fill mode it trades height
   between the two rows; in scroll mode it changes the upper row only. The release sends one
   `SetRowHeights` for the column.
-- Z2. Resize Pane Up/Down (Ctrl-Cmd-Up/Down or Ctrl-Cmd-K/J) at a row boundary changes the row height by the same
+- Z2. Resize Pane Up/Down (Ctrl-Shift-K/J or Ctrl-Cmd-Up/Down) at a row boundary changes the row height by the same
   step as a column edge.
 - Z3. Equalize Splits (Ctrl-Shift-Cmd-=) also equalizes the focused column's rows when they fit
   (sum at most 1000); otherwise only the splits.
