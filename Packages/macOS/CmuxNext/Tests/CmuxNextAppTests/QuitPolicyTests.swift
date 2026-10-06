@@ -7,8 +7,9 @@ import Testing
 
 /// Quit and the local terminals (user decision 2026-09-30): the terminals
 /// run in cmux-tui and outlive the app, so an interactive quit asks whether
-/// to keep them; scripted quits, power off and a remembered choice never
-/// wait on the sheet; incognito windows fold their close confirmation in.
+/// to keep them only while one runs a program (#17501); scripted quits,
+/// power off and a remembered choice never wait on the sheet; incognito
+/// windows fold their close confirmation in; a quit asks at most once.
 @MainActor
 struct QuitPolicyTests {
     static let busy = QuitFacts(
@@ -31,11 +32,17 @@ struct QuitPolicyTests {
         #expect(!prompt.remoteSessions)
     }
 
-    @Test func idleShellsStillAsk() {
-        guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .ask, facts: Self.idle) else {
-            Issue.record("expected the sheet"); return
-        }
-        #expect(prompt.terminals == 2 && prompt.runningPrograms == 0 && prompt.busiest.isEmpty)
+    /// Idle shells keep running and reattach: nothing to ask (#17501).
+    @Test func idleShellsQuitWithoutAsking() {
+        #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: Self.idle) == .quit(.keep))
+    }
+
+    /// After "Save changes before quitting?" the quit asks nothing more.
+    @Test func theUnsavedQuestionIsTheOnlyQuestion() {
+        var facts = Self.busy
+        facts.incognitoPrograms = ["npm"]
+        #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: facts, alreadyAsked: true) == .quit(.keep))
+        #expect(QuitPolicy.decide(.interactive, behavior: .endKeepLayout, facts: facts, alreadyAsked: true) == .quit(.endKeepLayout))
     }
 
     @Test func noLocalTerminalsQuitsWithoutAsking() {
