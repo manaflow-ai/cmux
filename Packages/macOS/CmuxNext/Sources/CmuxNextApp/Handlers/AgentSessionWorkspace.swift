@@ -44,13 +44,18 @@ enum AgentSessionWorkspace {
                 guard let surface = created.surface, let pane = await mirroredPane(containing: surface, in: daemon.store) else {
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
-                let tab = services.agentTabs.openLinked(session: session, in: pane.id, of: daemon.store)
+                // A store conversation tab on the session (agent-session-tabs-v1); its page refuses
+                // a session the daemon does not have, as a cmux://session link does.
+                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true)
+                let tab = try await pending.value().key
                 // Selected wherever the workspace is shown later, never shown now.
                 for window in services.windows.controllers {
                     window.state.selection.select(tab, in: pane.id)
                 }
                 if let controller = services.paneController(for: pane) { controller.apply(controller.snapshot()) }
                 return nil
+            } catch let refusal as AgentTabRefusal {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
