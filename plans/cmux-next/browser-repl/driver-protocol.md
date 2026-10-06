@@ -98,6 +98,41 @@ entries, which only the person (user origin) reads, as `tab.info
 unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
 events named `host.policyLog` are dropped: only the host writes that log.
 
+cmux-next shared headless browser, clipboard (item 19): Copy, Cut and Paste
+never use the browser's clipboard (the system's, or the X11 one of a headful
+browser on Xvfb). The driver records the shortcut's `keydown` (a prevented
+one runs no command), then sends the page a `copy`, `cut` or `paste` event
+with a `DataTransfer` in the focused frame and does the default action
+itself: the selection's text to the tab's clipboard, a cut's deletion, a
+paste's `text/plain` through `Input.insertText` (trusted `input`). These
+clipboard events are untrusted (`isTrusted` false), as the agent's paste is by
+design. A Copy or Cut the page has not finished within 5 s fails with
+`timeout` and its late result is dropped; the tab's web content process is
+not ended, because no clipboard outside the tab can be written (an
+intentional cmux-next difference from WebKit). Page script never reaches
+the browser's clipboard either: the page clipboard guard
+(`js/page-clipboard.js`, through the page-world binding `__cmuxPageClipboard`,
+which it removes before any page script runs) is installed at document start
+in every frame, script-made `about:blank` frames included, so the page's
+`navigator.clipboard` and `execCommand("copy" | "cut")` write the tab's
+clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
+`clipboard-write`, sanitized or not) in every store, for a document or world
+the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
+with a copy, cut or paste editing command.
+
+cmux-next shared browser, file choosers (items 10/11): a headless browser
+intercepts the file choosers of every tab (no person can see an Open panel),
+so D2 applies to all of them. A headful browser (`CMUX_BROWSER_HOST_HEADLESS=0`,
+for example on Xvfb, which a person may use) intercepts only the tabs a
+session created or drives, from the session's first call on the tab until
+the last session leaves it; a person's own tab keeps the browser's Open
+panel and is never cancelled. Interception is turned on after a tab's or
+frame's setup has resumed it, so a chooser the page opens in the first
+moments of a new document (before that call lands) can still reach the
+browser's own panel (headless: none is shown; headful: the person's panel).
+A popup of a session's tab on a headful browser intercepts from the first
+session call on it.
+
 cmux-next shared headless browser, `session.configure` (item 4d): the user
 agent and extra headers are set per tab before its first request (a popup
 starts with its opener's) on the tabs the session created and did not keep;

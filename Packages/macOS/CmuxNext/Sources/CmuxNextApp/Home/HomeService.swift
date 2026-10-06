@@ -61,6 +61,19 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter,
                                                                    cache: HomeCache.standard(owner: chief.home.session))
     @ObservationIgnored var cloudLink: Task<Void, Never>?
+    /// Team members and Chiefs for the Home page's New Message and New Chief.
+    @ObservationIgnored private(set) lazy var directory = HomeDirectory(
+        call: { [weak self] path, body in
+            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body)
+        },
+        me: { [weak self] in
+            guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
+            return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
+        })
+    /// A conversation the Home page selects once the inbox lists it (a new
+    /// Chief's main conversation, a DM opened from the CLI).
+    var pendingSelection: ConversationID?
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
@@ -113,6 +126,12 @@ final class HomeService {
                 reloadList(connection)
                 // Home opened before the owner answered: start the host now.
                 if homeWasOpened { homeDidOpen() }
+                // The Chief tab may wait on this owner (a local Chief with history
+                // takes it back from a placed chief): check it again now.
+                if let local = services.machines.local.connection,
+                   services.machines.local.supports(DaemonCapabilities.shared.workspaceKind) {
+                    ensureHomeWorkspace(local)
+                }
                 for session in sessions.values {
                     session.load(from: connection) { [weak self, weak session] in
                         guard let self, let session else { return }

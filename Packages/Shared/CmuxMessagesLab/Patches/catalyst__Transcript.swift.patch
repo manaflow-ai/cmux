@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -405,8 +405,7 @@
+@@ -406,8 +406,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -10,7 +10,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -420,11 +419,11 @@
+@@ -421,11 +420,11 @@
              let d = CALayer()
              d.actions = noActions
              // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
@@ -24,7 +24,16 @@
              hi.cornerRadius = 3.25
              hi.opacity = 0
              hi.name = "hi"
-@@ -491,7 +490,11 @@
+@@ -463,7 +462,7 @@
+             guard let spec else { return nil }
+             switch spec.kind {
+             case let .part(p): return p.text?.text ?? p.part.plainText
+-            case let .separator(b, r): return b + " " + r
++            case let .separator(b, r): return b.isEmpty ? r : b + " " + r  // cmux: a notice row has no bold part
+             case let .receipt(b, r): return b + " " + r
+             case let .label(text, _, _): return text
+             default: return nil
+@@ -492,7 +491,11 @@
              }
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
@@ -37,7 +46,7 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -623,15 +626,36 @@
+@@ -631,15 +634,36 @@
          fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
          fillMask.frame = body
          fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)

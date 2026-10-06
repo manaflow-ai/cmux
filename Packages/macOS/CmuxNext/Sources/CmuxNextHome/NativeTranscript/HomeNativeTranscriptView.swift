@@ -66,7 +66,7 @@ public final class HomeNativeTranscriptView: NSView {
         addSubview(transcript)
         addSubview(firstRun)
         noticeLabel.isHidden = true
-        noticeLabel.font = .systemFont(ofSize: 11)
+        noticeLabel.font = Typography.caption
         noticeLabel.alignment = .center
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
@@ -81,6 +81,7 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        followTextSize()
         applyTheme()
         updateFirstRun()
     }
@@ -126,6 +127,21 @@ public final class HomeNativeTranscriptView: NSView {
         window?.makeFirstResponder(primaryInput) ?? false
     }
 
+    /// The live interface scale applies to the native first-run chrome. The
+    /// MessagesLab transcript owns its own text and field metrics.
+    private func followTextSize() {
+        withObservationTracking {
+            applyTextScale(Typography.userScale)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    func applyTextScale(_ scale: CGFloat) {
+        firstRun.applyScale(scale)
+        needsLayout = true
+    }
+
     public override func layout() {
         super.layout()
         // Showing the tab again re-attaches the same views: nothing to do
@@ -147,8 +163,18 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
     }
 
+    /// A notice about the conversation itself (Home's merge notice): a row of
+    /// the transcript, under the newest message; nil removes it.
+    public func showConversationNotice(_ text: String?) {
+        guard transcript.notice != text else { return }
+        transcript.notice = text
+        if let text {
+            NSAccessibility.post(element: transcript, notification: .announcementRequested, userInfo: [.announcement: text])
+        }
+    }
+
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
-    func showNotice(_ text: String?) {
+    public func showNotice(_ text: String?) {
         guard text != notice else { return }
         notice = text
         noticeLabel.stringValue = text ?? ""

@@ -20,7 +20,8 @@ and render-server field animation, blurred header and native scrolling.
     HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
     owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
-    on: DEV by default, NIGHTLY by Debug Settings opt-in, never Release or RC).
+    on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
+    frame, never Release or RC).
   - Not vendored (MessagesLab test drivers or app shell): App, Host, Bench,
     SelfTest, FlashCheck, AttachCheck, ResolutionAudit, LiveRecord,
     tools/diff-harness, PagedSource, Pager.
@@ -62,6 +63,7 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
+| Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | styled runs (an agent's Markdown) break lines with the fonts they draw with; `code` runs draw monospaced |
 | Layout | below 434 pt (Messages' window minimum; a Home pane has no per-content minimum and can be 80 pt) the text column keeps its 434 pt share of the width instead of the measured rule reaching 0 pt |
@@ -83,14 +85,21 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at 48db8a7
-(89a1c5b, 2a0805d, 93cf61f, bcfffae, 0fffbd2 and 48db8a7 as one pin: long messages
+that are wip checkpoints. Current pins (2026-10-06): every file at 0e4eb90
+(0e4eb90: Messages' own caret layer in the field and the typing-dot phase; 2ba9f72 moves rows with one container spring on the transcript's sublayer transform,
+rows add only their difference (`--no-container-motion` for A/B); 995b723's cheaper
+flight recorder (the cmux edits re-applied: policy, optional window, log folder);
+85684b4 builds with Xcode 26.6 and 27 and keeps ScrollPrefetcher on the engine
+clock; 02519e9 adds the light link card (#E9E9EB, `Fixture.lightAppearance` from the theme),
+the outgoing-only LinkPresentation fallback (wired: `outgoingLinkOnScreen`,
+`consider` on scroll, late answers fill the card), media fling paging inside the draw budget and recent emoji (`RecentEmoji`,
+carried in Cmux/PaneInteractions.swift); earlier in this pin 89a1c5b, 2a0805d, 93cf61f,
+bcfffae, 0fffbd2 and 48db8a7: long messages
 collapse above 3 screens ("Show all N lines", EN and JA from upstream), header glass
 and scroll indicator timing measured from Messages, resize anchoring like Messages, the
 grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
-track click, compose hover only over the field; bcfffae's LinkPresentation
-fallback is not wired: Home never sets `isOnScreen`, so it never runs) except SwipeReply at 0c8147b
+track click, compose hover only over the field) except SwipeReply at 0c8147b
 (not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.

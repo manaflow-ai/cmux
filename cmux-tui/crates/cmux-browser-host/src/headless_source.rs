@@ -79,9 +79,15 @@ impl HeadlessSource {
             }),
         )?;
         driver.save_downloads_in(browser.downloads_dir())?;
+        // Headless: no person can see an Open panel, every tab intercepts.
+        driver.intercept_all_choosers(options.headless);
         // Chromium opens a start tab; it is no session's tab, so sessions
-        // start with none (headless Chromium keeps running without tabs).
-        if let Ok(Value::Array(tabs)) = driver.call("tabs.list", &json!({})) {
+        // start with none (headless Chromium keeps running without tabs). A
+        // headful browser keeps it: its window is the person's, and new tabs
+        // need a window to open in ("Failed to open a new tab" without one).
+        let start_tabs =
+            if options.headless { driver.call("tabs.list", &json!({})).ok() } else { None };
+        if let Some(Value::Array(tabs)) = start_tabs {
             for tab in tabs {
                 if let Some(target) = tab["targetId"].as_str() {
                     let _ = driver.call("tabs.close", &json!({"targetId": target}));
@@ -161,6 +167,10 @@ impl HeadlessSource {
             .entry(target.to_owned())
             .or_default()
             .insert(session);
+        // Headful: a tab a session drives intercepts its file choosers. On
+        // every call: the first (tabs.open) can come before the driver
+        // knows the tab; the driver does nothing once it is on.
+        self.driver.set_tab_choosers(target, true);
         let changed = self
             .filters
             .lock()
@@ -243,7 +253,16 @@ impl HeadlessSource {
                         "cancelled"
                     }
                     "download" => "dropped",
-                    _ => "cancelled",
+                    // filechooser: the page sees the browser's cancel.
+                    _ => {
+                        let chooser =
+                            event.payload.get("chooserId").cloned().unwrap_or(Value::Null);
+                        let _ = self.driver.call(
+                            "filechooser.respond",
+                            &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+                        );
+                        "cancelled"
+                    }
                 };
                 let url = self.tab_url(target.as_str().unwrap_or(""));
                 let entry = unrouted_entry(&event, action, &url);
@@ -422,6 +441,26 @@ impl TabSource for SharedHeadless {
                 }
                 self.0.routes().dialog_answered(dialog);
             }
+            // Copy, Cut and Paste run only in tabs a session created
+            // (driver-protocol.md), refused before a key reaches the page.
+            "input.key"
+                if crate::cdp::clipboard::shortcut(call.method, call.params).is_some()
+                    && !self.0.routes().is_creator(call.session, call.target_id) =>
+            {
+                return Err(DriverError::new(
+                    crate::protocol::ErrorCode::Unsupported,
+                    "Copy, Cut and Paste run only in tabs a session created; refused in a user's tab",
+                ));
+            }
+            // Only the session a file chooser went to answers it.
+            "filechooser.respond" => {
+                let chooser = call.params["chooserId"].as_str().unwrap_or("");
+                let owner = self.0.routes().chooser_owner(chooser);
+                if owner.is_some_and(|owner| owner != call.session) {
+                    return Err(DriverError::not_found(format!("No file chooser {chooser}")));
+                }
+                self.0.routes().chooser_answered(chooser);
+            }
             _ => {}
         }
         // A dialog or chooser the page opens during this call is the caller's.
@@ -471,7 +510,22 @@ impl TabSource for SharedHeadless {
 
     fn session_ended(&self, session: u64) {
         self.0.configure_ended(session);
-        self.0.routes().session_ended(session);
+        // Its open dialogs are dismissed (beforeunload: the page stays) and
+        // its file choosers cancelled (driver-protocol.md: when the session
+        // leaves the tab).
+        let left = self.0.routes().session_ended(session);
+        for (target, dialog) in left.dialogs {
+            let _ = self.0.driver.call(
+                "dialog.respond",
+                &json!({"targetId": target, "dialogId": dialog, "accept": false}),
+            );
+        }
+        for (target, chooser) in left.choosers {
+            let _ = self.0.driver.call(
+                "filechooser.respond",
+                &json!({"targetId": target, "chooserId": chooser, "cancel": true}),
+            );
+        }
         // The last session left these tabs: release what was left pressed.
         let left: Vec<String> = {
             let mut driven = self.0.driven.lock().unwrap_or_else(PoisonError::into_inner);
@@ -486,6 +540,8 @@ impl TabSource for SharedHeadless {
         };
         for target in left {
             let _ = self.0.driver.release_held_input(&target);
+            // Headful: the person's Open panel again.
+            self.0.driver.set_tab_choosers(&target, false);
         }
         let removed = self
             .0

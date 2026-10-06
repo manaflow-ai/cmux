@@ -8,9 +8,9 @@
 //! setup threads, never while the state lock is held.
 
 use super::connection::{CdpConnection, CdpEvent};
+use super::dispatch::Dispatch;
 use super::state::{AGENT_WORLD, FollowUp, State, TabState};
 use crate::driver::{Driver, EventSink};
-use crate::protocol::DriverEvent;
 use crate::protocol::{DriverError, ErrorCode, timeout_of};
 use serde_json::{Value, json};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak, mpsc};
@@ -32,7 +32,7 @@ pub(super) struct Inner {
     pub(super) agent_source: Arc<str>,
     /// Driver events go to the sink from a dispatcher thread, in order, so a
     /// sink that answers an event with a driver call cannot block the reader.
-    events: Mutex<mpsc::Sender<DriverEvent>>,
+    pub(super) events: Mutex<mpsc::Sender<Dispatch>>,
     state: Mutex<State>,
     pub(super) changed: Condvar,
     /// The request filter (`set_request_filter`), shared with the worker
@@ -54,6 +54,14 @@ pub(super) struct Inner {
     /// Browser contexts this driver created (proxy stores); every other tab
     /// is in the default context, which `Storage.*` names by omission.
     pub(super) proxy_contexts: Mutex<std::collections::HashSet<String>>,
+    /// A browser the driver owns (headless, or headful on Xvfb) has no
+    /// person's UI: it intercepts every file chooser (`choosers.rs`) and
+    /// runs Copy, Cut and Paste on the tab's clipboard (`clipboard.rs`). An
+    /// app's CEF tab keeps the app's Open panel and clipboard.
+    pub(super) owns_browser: bool,
+    /// Every tab intercepts its file choosers (headless); false: only the
+    /// tabs a session drives (headful, `choosers.rs`).
+    pub(super) intercept_all: std::sync::atomic::AtomicBool,
 }
 
 /// The protocol's hidden-tab size (driver-protocol.md: 1280x800).
@@ -68,7 +76,8 @@ impl CdpDriver {
         agent_source: impl Into<Arc<str>>,
         events: EventSink,
     ) -> Result<CdpDriver, DriverError> {
-        let inner = Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT))?;
+        let inner =
+            Inner::start(conn.clone(), agent_source.into(), events, Some(HIDDEN_VIEWPORT), true)?;
         Self::set_up_browser(&inner, &conn)?;
         Ok(CdpDriver { inner })
     }
@@ -93,7 +102,7 @@ impl CdpDriver {
             .and_then(Value::as_str)
             .map(str::to_owned)
             .ok_or_else(|| DriverError::invalid("Target.getTargetInfo returned no targetId"))?;
-        let inner = Inner::start(conn, agent_source.into(), events, None)?;
+        let inner = Inner::start(conn, agent_source.into(), events, None, false)?;
         // The page is already attached: the relay is its session.
         inner.handle_event(CdpEvent {
             session_id: None,
@@ -110,16 +119,9 @@ impl Inner {
         agent_source: Arc<str>,
         events: EventSink,
         hidden_viewport: Option<(i64, i64)>,
+        owns_browser: bool,
     ) -> Result<Arc<Inner>, DriverError> {
-        let (event_tx, event_rx) = mpsc::channel::<DriverEvent>();
-        std::thread::Builder::new()
-            .name("cmux-browser-host-cdp-events".into())
-            .spawn(move || {
-                for event in event_rx {
-                    events(event);
-                }
-            })
-            .map_err(|e| DriverError::closed(format!("could not start the event thread: {e}")))?;
+        let event_tx = super::dispatch::start(events)?;
         let request_filter = Arc::new(Mutex::new(None));
         let cors: Arc<Mutex<super::cors::Cors>> = Arc::default();
         let paused =
@@ -137,6 +139,8 @@ impl Inner {
             shells: Mutex::default(),
             default_ua: std::sync::OnceLock::new(),
             proxy_contexts: Mutex::default(),
+            owns_browser,
+            intercept_all: std::sync::atomic::AtomicBool::new(true),
         });
         let weak: Weak<Inner> = Arc::downgrade(&inner);
         conn.set_event_handler(Arc::new(move |event| {
@@ -158,6 +162,7 @@ impl Inner {
 
 impl CdpDriver {
     fn set_up_browser(inner: &Arc<Inner>, conn: &Arc<CdpConnection>) -> Result<(), DriverError> {
+        super::clipboard::deny_clipboard_permissions(conn, None)?;
         conn.call(None, "Target.setDiscoverTargets", json!({"discover": true}), INTERNAL_TIMEOUT)?;
         conn.call(
             None,
@@ -245,6 +250,7 @@ impl CdpDriver {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(context.clone());
+        super::clipboard::deny_clipboard_permissions(&self.inner.conn, Some(&context))?;
         Ok(context)
     }
 
@@ -317,8 +323,15 @@ impl Driver for CdpDriver {
             "frame.contentFrames" => inner.content_frames(params),
             "frame.ownerBox" => inner.owner_box(params),
             "frame.focused" => inner.focused_frame(params),
-            "input.mouse" => inner.mouse(params),
-            "input.key" => inner.key(params),
+            "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
+            "input.key" => match super::clipboard::shortcut(method, params) {
+                Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
+                _ => inner.with_chooser_events(method, params, || inner.key(params)),
+            },
+            "clipboard.read" if inner.owns_browser => inner.clipboard_read(params),
+            "clipboard.write" if inner.owns_browser => inner.clipboard_write(params),
+            "input.setFiles" => inner.set_files(params),
+            "filechooser.respond" => inner.chooser_respond(params),
             "input.insertText" => inner.insert_text(params),
             "tab.screenshot" => inner.screenshot(params),
             "tab.pdf" => inner.pdf(params),
@@ -395,7 +408,7 @@ impl Inner {
         if !applied.events.is_empty() {
             let events = self.events.lock().unwrap_or_else(PoisonError::into_inner);
             for event in applied.events {
-                let _ = events.send(event);
+                let _ = events.send(Dispatch::Event(event));
             }
         }
         for follow_up in applied.follow_ups {
@@ -437,13 +450,19 @@ impl Inner {
                     INTERNAL_TIMEOUT,
                 );
             }
+            FollowUp::DismissDialog { dialog_id } => {
+                let _ = self.dialog_respond(&json!({"dialogId": dialog_id, "accept": false}));
+            }
+            FollowUp::ChooserOpened { target_id, chooser_id } => {
+                self.send_chooser_opened(&target_id, &chooser_id);
+            }
             FollowUp::DisableDom { session_id } => {
                 let _ =
                     self.conn.call(Some(&session_id), "DOM.disable", json!({}), INTERNAL_TIMEOUT);
             }
-            FollowUp::SetUpFrame { target_id: _, session_id } => {
+            FollowUp::SetUpFrame { target_id, session_id } => {
                 // Failures leave the frame unreachable; it must still run.
-                if self.set_up_frame(&session_id).is_err() {
+                if self.set_up_frame(&target_id, &session_id).is_err() {
                     let _ = self.conn.call(
                         Some(&session_id),
                         "Runtime.runIfWaitingForDebugger",
@@ -498,6 +517,7 @@ impl Inner {
             ]
             .into_iter()
             .chain(agent.into_iter().flatten())
+            .chain(self.guard_steps(!shell))
             // Request and response events (page.on("request"), ...).
             .chain([("Network.enable", json!({}))])
             // A popup's opener's session.configure options, before its first request.
@@ -510,6 +530,9 @@ impl Inner {
             .collect(),
             SETUP_TIMEOUT,
         );
+        if !shell {
+            self.intercept_choosers_on(target_id, session_id);
+        }
         if let Some(Ok(tree)) = results.get(1) {
             let frame = &tree["frameTree"]["frame"];
             let mut state = self.lock();
@@ -534,7 +557,7 @@ impl Inner {
         })
     }
 
-    fn set_up_frame(&self, session_id: &str) -> Result<(), DriverError> {
+    fn set_up_frame(&self, target_id: &str, session_id: &str) -> Result<(), DriverError> {
         let auto_attach =
             json!({"autoAttach": true, "waitForDebuggerOnStart": true, "flatten": true});
         let results = self.conn.call_batch(
@@ -551,11 +574,13 @@ impl Inner {
                 ("Target.setAutoAttach", auto_attach),
             ]
             .into_iter()
+            .chain(self.guard_steps(true))
             .chain(self.fetch_enable_step())
             .chain([("Runtime.runIfWaitingForDebugger", json!({}))])
             .collect(),
             SETUP_TIMEOUT,
         );
+        self.intercept_choosers_on(target_id, session_id);
         results.into_iter().find_map(Result::err).map_or(Ok(()), Err)
     }
 
@@ -853,6 +878,9 @@ impl Inner {
             ));
         }
         let args = params.get("params").cloned().unwrap_or_else(|| json!({}));
+        if let Some(refused) = super::clipboard::raw_refusal(method, &args) {
+            return Err(refused);
+        }
         self.send_until(&session, method, args, Instant::now() + timeout_of(params))
     }
 }

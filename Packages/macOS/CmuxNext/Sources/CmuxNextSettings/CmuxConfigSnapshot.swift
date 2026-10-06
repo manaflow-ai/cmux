@@ -10,6 +10,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var root: JSONValue
     /// `appearance.density`, when present and valid.
     public var density: String?
+    /// `app.uiScale`, the app-wide chrome and first-party page scale.
+    public var uiScale: Double = UIScaleSetting().fallback
     /// `appearance.metrics.<name>` in points.
     public var metrics: [String: Double]
     /// Shortcut bindings by action ID: `shortcuts.bindings.<id>` merged with
@@ -181,15 +183,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
-        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
-        snapshot.browserShowBookmarksBar = showBar
-        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
-        let (keepLocation, keepLocationDiagnostic) = HomeKeepLocationSetting.parse(root)
-        snapshot.homeKeepLocation = keepLocation
-        if let keepLocationDiagnostic { snapshot.diagnostics.append(keepLocationDiagnostic) }
-        let (preview, previewDiagnostic) = Self.parsePreviewFeatures(root)
-        snapshot.previewFeatures = preview
-        if let previewDiagnostic { snapshot.diagnostics.append(previewDiagnostic) }
+        snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
+        snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
+        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
@@ -287,6 +283,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
         snapshot.terminalFontSize = fontSize
         if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
+
+        snapshot.uiScale = UIScaleSetting().parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {

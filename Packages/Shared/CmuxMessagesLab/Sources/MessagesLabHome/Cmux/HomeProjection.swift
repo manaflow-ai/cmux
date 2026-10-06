@@ -25,6 +25,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let controller: ChatController
     /// False while the owner is unreachable (H17: Send and tapbacks off).
     var isSendEnabled = true
+    /// The host's notice, MessagesLab's system row under the newest message (nil: none).
+    var notice: String? {
+        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(notice)) } }
+    }
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -160,8 +164,18 @@ final class HomeProjection: @preconcurrency ChatIntents {
         self.hasOlder = hasOlder
         controller.install(conv, windowStart: w.start, total: w.total)
         controller.store.linkPreviews = linkPreviews
+        if let previews = linkPreviews?.previews {
+            // MessagesLab 85684b4: the LinkPresentation fallback runs only for an OUTGOING card on
+            // screen (a link I sent); a late answer fills the card.
+            previews.isOnScreen = { [weak self] url in self?.controller.demo?.outgoingLinkOnScreen(url) ?? false }
+            previews.onLateMetadata = { [weak self] url, meta in
+                guard let self, !self.stopped else { return }
+                self.controller.dispatch(.linkMetadata(url: url, title: meta.title, site: meta.site, image: meta.image))
+            }
+        }
         applyHeader()
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
@@ -388,6 +402,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func react(_ ref: PartRef, _ kind: Reaction.Kind) {
         guard isSendEnabled, let item = shown.first(where: { HomeMapping.id($0, aliases: aliases) == ref.messageId }),
               let message = item.messageID else { return }
+        if case let .emoji(e) = kind { RecentEmoji.use(e) }  // MessagesLab 02519e9: recent emoji lead the menu and strip
         // A split text (Messages' link rule) is one HomeStore part.
         let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, summary: shownSummary).owners)
         let intent = HomeIntent(op: .addReaction(message: message, conversation: conversation,
@@ -406,6 +421,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     func scrolled() {
         video.place()
+        if let previews = linkPreviews?.previews {
+            // My link cards that scrolled in with no title (also from HomeStore): a cached title, else the fallback.
+            if let urls = controller.demo?.visibleUntitledOutgoingLinks(), !urls.isEmpty { previews.consider(urls) }
+            previews.visibilityChanged()
+        }
         askForOlderIfNeeded()
         reportReadIfNeeded()
     }

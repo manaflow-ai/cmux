@@ -77,6 +77,17 @@ differences, not regressions:
   `owner-options-survive-another-session` is not emitted (the third session
   cannot read the owner's tab).
 
+A golden's `backends` section overrides values for one backend only, where
+that engine differs from classic on purpose (`backends.<backend>.reasons`
+names why):
+
+- 19-clipboard `late-copy` on host-headless: the late Copy fails with
+  `timeout` and its result is dropped, but the tab's web content process is
+  not ended (`endedWebContent: false`, `crashed: false`). host-headless runs
+  Copy, Cut and Paste on the tab's clipboard, never on the browser's, so a
+  late Copy cannot reach a clipboard outside the tab; WebKit ends the process
+  because its late Copy would write the system clipboard.
+
 ## Commands
 
 ```sh
