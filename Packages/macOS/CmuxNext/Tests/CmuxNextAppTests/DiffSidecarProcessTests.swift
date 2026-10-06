@@ -60,9 +60,9 @@ struct DiffSidecarProcessTests {
     /// startup limit's to judge. Run 37509955149 timed out a child that had
     /// not yet run its first line, because the request deadline began at launch.
     @Test func theRequestDeadlineStartsAtTheReadyMarker() async throws {
-        let sidecar = try Self.script("sleep 2.5\n\(Self.marker)\ncat > /dev/null\nprintf 'ok'")
+        let sidecar = try Self.script("sleep 1.5\n\(Self.marker)\ncat > /dev/null\nprintf 'ok'")
         var limits = Self.fast
-        limits.request = .seconds(2)
+        limits.request = .seconds(1)
         let reply = try await DiffSidecarProcess.run(executable: sidecar, arguments: [], request: Data("{}".utf8), limits: limits)
         #expect(String(decoding: reply, as: UTF8.self) == "ok")
     }
