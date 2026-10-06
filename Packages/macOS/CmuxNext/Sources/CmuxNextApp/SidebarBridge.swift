@@ -53,7 +53,13 @@ final class SidebarBridge {
         container.sidebarView.itemMenuProvider = { [weak self] id in self?.itemMenu(id) }
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
-        container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host)
+        let recents = services.agentRecents.map { feed in
+            AgentRecentsSection(feed: feed) { [weak services] id in
+                guard let services else { return }
+                try? DeepLinkNavigator(services: services).open(DeepLink(.session(id, turn: nil)), background: false)
+            }
+        }
+        container.sidebarView.appSections = SidebarAppSections(registry: services.apps.registry, host: services.apps.host, recents: recents)
         // Return or Escape in the inline rename field gives the keyboard
         // back to the focused content (plans/cmux-next/focus.md R8).
         container.sidebarView.onRenameEnded = { [weak state] byKeyboard in

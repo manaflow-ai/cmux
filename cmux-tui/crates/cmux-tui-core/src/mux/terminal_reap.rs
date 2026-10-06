@@ -27,7 +27,7 @@ pub const DEFAULT_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(30);
 pub const MAX_TERMINAL_REAP_GRACE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 const TERMINAL_REAP_MUTATION_ORIGIN: &str = "cmux-tui-terminal-reap";
-const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
+pub(super) const END_TERMINALS_MUTATION_ORIGIN: &str = "cmux-tui-end-terminals";
 
 /// Result of one reap attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -910,6 +910,22 @@ mod tests {
         assert_eq!(lifecycle(&mux, &placed_id), TerminalLifecycle::Tombstoned);
         assert_eq!(lifecycle(&mux, &detached_id), TerminalLifecycle::Tombstoned);
         assert_eq!(mux.terminal_host_closes.pending(), 0);
+    }
+
+    #[test]
+    fn end_all_terminals_keeps_emptied_workspaces() {
+        let mux = Mux::new_for_test("terminal-end-all-layout", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("first".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("second".into()), Some((80, 24))).unwrap();
+
+        mux.end_all_terminals().unwrap();
+
+        mux.with_state(|state| {
+            assert_eq!(state.workspaces.len(), 2);
+            assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
+        });
+        assert_eq!(lifecycle(&mux, &host_id(&mux, &first)), TerminalLifecycle::Tombstoned);
+        assert_eq!(lifecycle(&mux, &host_id(&mux, &second)), TerminalLifecycle::Tombstoned);
     }
 
     #[test]
