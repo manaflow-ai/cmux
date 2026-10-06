@@ -252,6 +252,7 @@ impl Driver for CdpDriver {
             "net.fetch.done" => inner.net_fetch_done(params),
             "dialog.respond" => inner.dialog_respond(params),
             "download.path" => inner.download_path(params),
+            "download.cancel" => inner.download_cancel(params),
             "cookies.get" => inner.cookies_get(params),
             "cookies.set" => inner.cookies_set(params),
             "cookies.clear" => inner.cookies_clear(params),

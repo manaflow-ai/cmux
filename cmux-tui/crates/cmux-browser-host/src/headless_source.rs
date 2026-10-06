@@ -37,6 +37,8 @@ pub struct HeadlessSource {
     next_subscriber: AtomicU64,
     leases: Mutex<LeaseTable>,
     filters: Mutex<HashMap<u64, SessionFilter>>,
+    /// Which session gets each event (item 4c).
+    routes: Mutex<crate::headless_routes::Routes>,
     // Last: the browser stops after the driver let go of it.
     _browser: HeadlessChromium,
 }
@@ -57,11 +59,16 @@ impl HeadlessSource {
         let browser = HeadlessChromium::launch(options)
             .map_err(|e| DriverError::closed(format!("engine_unavailable: headless: {e}")))?;
         let subscribers: Subscribers = Arc::default();
-        let sinks = subscribers.clone();
+        let me: Arc<std::sync::OnceLock<Weak<HeadlessSource>>> = Arc::default();
+        let sink_me = me.clone();
         let driver = CdpDriver::attach_browser(
             browser.connection().clone(),
             agent_source,
-            Arc::new(move |event: DriverEvent| publish(&sinks, event)),
+            Arc::new(move |event: DriverEvent| {
+                if let Some(source) = sink_me.get().and_then(Weak::upgrade) {
+                    source.publish(event);
+                }
+            }),
         )?;
         driver.save_downloads_in(browser.downloads_dir())?;
         // Chromium opens a start tab; it is no session's tab, so sessions
@@ -73,15 +80,18 @@ impl HeadlessSource {
                 }
             }
         }
-        Ok(Arc::new(HeadlessSource {
+        let source = Arc::new(HeadlessSource {
             driver,
             profile: profile.to_owned(),
             subscribers,
             next_subscriber: AtomicU64::new(1),
             leases: Mutex::default(),
             filters: Mutex::default(),
+            routes: Mutex::default(),
             _browser: browser,
-        }))
+        });
+        let _ = me.set(Arc::downgrade(&source));
+        Ok(source)
     }
 
     /// True while a session is attached or a tab (a kept one) is open: the
@@ -146,15 +156,51 @@ impl HeadlessSource {
     }
 }
 
-fn publish(subscribers: &Subscribers, event: DriverEvent) {
-    let sinks: Vec<EventSink> = subscribers
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .iter()
-        .map(|(_, sink)| sink.clone())
-        .collect();
-    for sink in sinks {
-        sink(event.clone());
+impl HeadlessSource {
+    fn routes(&self) -> std::sync::MutexGuard<'_, crate::headless_routes::Routes> {
+        self.routes.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Delivers a driver event (on the driver's event thread, which may call
+    /// the driver): to one session, to every session, or, when no session
+    /// takes a dialog or download, the host answers it and logs it (D2).
+    fn publish(&self, event: DriverEvent) {
+        use crate::headless_routes::{Route, unrouted_entry};
+        let sinks: Vec<(u64, EventSink)> =
+            self.subscribers.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let attached = |session: u64| sinks.iter().any(|(s, _)| *s == session);
+        let route = self.routes().route(&event, &attached);
+        match route {
+            Route::Everyone => sinks.iter().for_each(|(_, sink)| sink(event.clone())),
+            Route::Session(session) => {
+                sinks
+                    .iter()
+                    .filter(|(s, _)| *s == session)
+                    .for_each(|(_, sink)| sink(event.clone()));
+            }
+            Route::Unrouted(kind) => {
+                let target = event.payload.get("targetId").cloned().unwrap_or(Value::Null);
+                let action = match kind {
+                    // beforeunload too: the page stays.
+                    "dialog" => {
+                        let dialog = event.payload.get("dialogId").cloned().unwrap_or(Value::Null);
+                        let _ = self.driver.call(
+                            "dialog.respond",
+                            &json!({"targetId": target, "dialogId": dialog, "accept": false}),
+                        );
+                        "dismissed"
+                    }
+                    "download" if event.name == "download.started" => {
+                        let id = event.payload.get("downloadId").cloned().unwrap_or(Value::Null);
+                        let _ = self.driver.call("download.cancel", &json!({"downloadId": id}));
+                        "cancelled"
+                    }
+                    "download" => "dropped",
+                    _ => "cancelled",
+                };
+                self.routes().log_unrouted(unrouted_entry(&event, action));
+            }
+        }
     }
 }
 
@@ -237,7 +283,12 @@ impl TabSource for SharedHeadless {
     }
 
     fn opened(&self, session: u64, target_id: &str) {
+        self.0.routes().created(session, target_id);
         self.0.drive(session, target_id);
+    }
+
+    fn kept(&self, session: u64, target_id: &str) {
+        self.0.routes().kept(session, target_id);
     }
 
     fn session_call(
@@ -257,15 +308,40 @@ impl TabSource for SharedHeadless {
 
     fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
         self.0.drive(call.session, call.target_id);
-        let mut params = call.params.clone();
-        if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
-            params["fetchId"] = json!(fetch_id(call.session, id));
+        match call.method {
+            // The events this session has a handler for in the tab (routing).
+            "tab.handleEvents" => {
+                let events = call.params["events"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect();
+                self.0.routes().handle_events(call.session, call.target_id, events);
+                return Ok(Reply::Value(Value::Null));
+            }
+            // Only the session a dialog went to answers it.
+            "dialog.respond" => {
+                let dialog = call.params["dialogId"].as_str().unwrap_or("");
+                let owner = self.0.routes().dialog_owner(dialog);
+                if owner.is_some_and(|owner| owner != call.session) {
+                    return Err(DriverError::not_found(format!("No dialog {dialog}")));
+                }
+                self.0.routes().dialog_answered(dialog);
+            }
+            _ => {}
         }
-        if call.raw {
-            // Script values keep the page's key order (a9 raw_value).
-            return self.0.driver.call_reply_announced(call.method, &params, &mut || {});
+        // A dialog or chooser the page opens during this call is the caller's.
+        let reads = call.observe.is_some() || call.method == "tab.info";
+        if !reads {
+            self.0.routes().call_started(call.session, call.target_id);
         }
-        self.0.driver.call(call.method, &params).map(Reply::Value)
+        let result = self.dispatch(call);
+        if !reads {
+            self.0.routes().call_ended(call.session, call.target_id);
+        }
+        result
     }
 
     fn set_request_filter(
@@ -291,6 +367,7 @@ impl TabSource for SharedHeadless {
     }
 
     fn session_ended(&self, session: u64) {
+        self.0.routes().session_ended(session);
         let removed = self
             .0
             .filters
@@ -305,6 +382,20 @@ impl TabSource for SharedHeadless {
 
     fn capabilities(&self, _engine: &str) -> Vec<&'static str> {
         self.0.driver.capabilities()
+    }
+}
+
+impl SharedHeadless {
+    fn dispatch(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
+        let mut params = call.params.clone();
+        if let Some(id) = params.get("fetchId").and_then(Value::as_str) {
+            params["fetchId"] = json!(fetch_id(call.session, id));
+        }
+        if call.raw {
+            // Script values keep the page's key order (a9 raw_value).
+            return self.0.driver.call_reply_announced(call.method, &params, &mut || {});
+        }
+        self.0.driver.call(call.method, &params).map(Reply::Value)
     }
 }
 
