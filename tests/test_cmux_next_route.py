@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,10 +65,20 @@ class GraphGenerator(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("ci_target_graph", ROOT / "scripts/cmux-next/ci-target-graph.py")
         generator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(generator)
-        with tempfile.TemporaryDirectory() as directory:
+        # Inside the checkout: reads are repository paths.
+        with tempfile.TemporaryDirectory(dir=ROOT) as directory:
             source = Path(directory) / "CertTests.swift"
-            source.write_text('let pem = "MIIC' + "A/b" * 300 + '"\nlet plan = "plans/cmux-next/actions.md"\n', encoding="utf-8")
-            self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
+            source.write_text('let pem = "MIIC' + "A" * 300 + '/b"\nlet plan = "plans/cmux-next/actions.md"\n', encoding="utf-8")
+            real_exists = Path.exists
+
+            def exists(path, *args, **kwargs):
+                # Python 3.13 (the minis) raises here; 3.14 returns False.
+                if any(len(part) > 255 for part in path.parts):
+                    raise OSError(63, "File name too long", str(path))
+                return real_exists(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "exists", exists):
+                self.assertEqual(generator.literal_reads(Path(directory)), ["plans/cmux-next/actions.md"])
 
 
 class PullRequestTiers(unittest.TestCase):
