@@ -189,6 +189,52 @@ struct BrowserReplSessionLifecycleTests {
         #expect(next?.lines.map(\.text) == ["[]"], "\(String(describing: next?.lines.map(\.text)))")
     }
 
+    /// r17 native#2: a cell that times out while it awaits a promise
+    /// something else settles later (a page event, a value another cell
+    /// provides) is over; when that promise settles during a later cell,
+    /// the old cell's code resumes, but it does no native work (fs, driver
+    /// calls), in its own body or in an async function it awaits.
+    @Test("A timed-out cell that resumes later is refused native work")
+    func resumedTimedOutCellIsRefusedNativeWork() async throws {
+        let driver = RecordingReplDriver()
+        let session = makeSession(driver: driver, bundle: try browserReplRepositoryBundle())
+        defer { session.close() }
+        let hung = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: """
+                await new Promise((r) => { globalThis.resume = r; });
+                const results = [];
+                try { fs.writeFileSync(os.tmpdir() + "/stale.txt", "x"); results.push("fs ran"); } catch (e) { results.push("fs " + e.code); }
+                async function helper() {
+                  await new Promise((r) => { globalThis.resumeHelper = r; });
+                  try { await tabs.list(); return "driver ran"; } catch (e) { return "driver " + e.code; }
+                }
+                results.push(await helper());
+                globalThis.outcome = results;
+                """,
+                timeout: .milliseconds(200)
+            )
+        }
+        #expect(hung?.error?.contains("timed out") == true)
+        let callsBefore = driver.calls.filter { $0 == "tabs.list" }.count
+        let next = await browserReplWithDeadline(seconds: 30) {
+            await session.evaluate(
+                code: """
+                resume();
+                for (let i = 0; i < 400 && !globalThis.resumeHelper; i++) await new Promise((r) => setTimeout(r, 5));
+                resumeHelper();
+                for (let i = 0; i < 400 && !globalThis.outcome; i++) await new Promise((r) => setTimeout(r, 5));
+                console.log(JSON.stringify(globalThis.outcome));
+                console.log(fs.existsSync(os.tmpdir() + "/stale.txt"));
+                """,
+                timeout: .seconds(10)
+            )
+        }
+        #expect(next?.error == nil, "\(String(describing: next?.error))")
+        #expect(next?.lines.map(\.text) == [#"["fs cancelled","driver cancelled"]"#, "false"], "\(String(describing: next?.lines.map(\.text)))")
+        #expect(driver.calls.filter { $0 == "tabs.list" }.count == callsBefore, "the resumed cell reached the driver")
+    }
+
     @Test("close() cancels in-flight driver calls and the evaluation returns")
     func closeCancelsInFlightDriverCalls() async {
         let driver = GatedReplDriver()

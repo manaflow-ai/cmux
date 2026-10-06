@@ -457,6 +457,76 @@ test("handled events: after a dropped update removing the last listener, the emp
   assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
 });
 
+// r17 native#2: a cancelled (timed-out) cell is over. Its suspended code
+// can resume when something settles a promise it awaited, and a page
+// listener it registered can fire later; neither does host work then.
+function cancelFixture() {
+  const ops = [];
+  const listeners = new Map();
+  const host = {
+    workDir: "/work",
+    tmpdir: "/work/tmp",
+    homedir: "/home",
+    sessionId: "cancel-test",
+    setTimeout,
+    clearTimeout,
+    now: Date.now,
+    print: () => {},
+    console: { error: () => {} },
+    fsOp: (op) => (ops.push(op), op === "exists" ? false : null),
+  };
+  const driver = {
+    call: async (method) => (ops.push(method), method === "tabs.list" ? [] : null),
+    on: (event, handler) => {
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(handler);
+      return () => {};
+    },
+    capabilities: () => [],
+  };
+  const repl = ns.replHost.createBrowserRepl({ host, driver });
+  const emit = (event, payload) => (listeners.get(event) || []).forEach((h) => h(payload));
+  return { repl, ops, emit };
+}
+
+test("cancel: a cancelled cell that resumes later is refused host work", async () => {
+  const { repl, ops } = cancelFixture();
+  const hung = repl.evaluate(
+    "await new Promise((r) => { globalThis.resumeCell = r; }); try { fs.writeFileSync('late.txt', 'x'); globalThis.lateOutcome = 'wrote'; } catch (e) { globalThis.lateOutcome = e.code; }",
+    { id: 1 },
+  );
+  for (let turn = 0; turn < 100 && !globalThis.resumeCell; turn++) await new Promise((r) => setImmediate(r));
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  globalThis.resumeCell();
+  for (let turn = 0; turn < 100 && globalThis.lateOutcome === undefined; turn++) await new Promise((r) => setImmediate(r));
+  const outcome = globalThis.lateOutcome;
+  delete globalThis.resumeCell;
+  delete globalThis.lateOutcome;
+  assert.equal(outcome, "cancelled");
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), []);
+});
+
+test("cancel: a page listener a cancelled cell registered never runs later", async () => {
+  const { repl, ops, emit } = cancelFixture();
+  const hung = repl.evaluate("page.on('console', () => fs.writeFileSync('late.txt', 'x')); globalThis.listening = true; await new Promise(() => {})", { id: 1 });
+  for (let turn = 0; turn < 100 && !globalThis.listening; turn++) await new Promise((r) => setImmediate(r));
+  delete globalThis.listening;
+  assert.equal(repl.cancel("timed out", 1), true);
+  await hung;
+  const targetId = [...repl.session.pages.keys()][0];
+  assert.ok(targetId, "the cell made no page");
+  emit("console", { targetId, type: "log", text: "late", args: [] });
+  for (let turn = 0; turn < 20; turn++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), []);
+  // A listener a later cell registers on that page still runs.
+  const ok = await repl.evaluate("page.on('console', () => fs.writeFileSync('ok.txt', 'x'))", { id: 2 });
+  assert.equal(ok.ok, true, ok.error);
+  emit("console", { targetId, type: "log", text: "again", args: [] });
+  for (let turn = 0; turn < 20; turn++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(ops.filter((op) => op === "writeFile"), ["writeFile"]);
+});
+
 test("cancel: a function a cancelled cell defined still prints when a later cell calls it", async () => {
   const printed = [];
   const host = { setTimeout, clearTimeout, now: Date.now };
