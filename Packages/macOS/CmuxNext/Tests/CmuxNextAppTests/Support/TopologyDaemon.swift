@@ -99,9 +99,9 @@ nonisolated final class TopologyDaemon: Sendable {
     final class State: Sendable {
         let tree: Mutex<Tree>
 
-        init(emptyWorkspace: Bool) {
+        init(emptyWorkspace: Bool, firstTabs: [Int] = [11, 12]) {
             let screens: [Screen] = emptyWorkspace ? [] : [
-                Screen(id: 2, layout: .leaf(3), panes: [Pane(id: 3, tabs: [11, 12])]),
+                Screen(id: 2, layout: .leaf(3), panes: [Pane(id: 3, tabs: firstTabs)]),
             ]
             tree = Mutex(Tree(workspaces: [Workspace(id: 1, key: TopologyDaemon.firstKey, screens: screens)]))
         }
@@ -117,8 +117,12 @@ nonisolated final class TopologyDaemon: Sendable {
     let commands = CommandLog()
 
     /// `extraCapabilities` are advertised besides the required ones.
-    init(extraCapabilities: [String] = [], emptyWorkspace: Bool = false) throws {
-        state = State(emptyWorkspace: emptyWorkspace)
+    /// `cascadesLastTab`: like cmux-tui (LAST-TAB-CLOSES-WORKSPACE), a
+    /// `close-surface` of a workspace's last tab closes the workspace in the
+    /// same change. `firstTabs`: the first workspace's tabs.
+    init(extraCapabilities: [String] = [], emptyWorkspace: Bool = false, cascadesLastTab: Bool = false,
+         firstTabs: [Int] = [11, 12]) throws {
+        state = State(emptyWorkspace: emptyWorkspace, firstTabs: firstTabs)
         let state = state, commands = commands
         let handle: @Sendable ([String: JSONValue]) -> [String] = { request in
             let id = request["id"]?.doubleValue.map { Int($0) } ?? 0
@@ -181,6 +185,8 @@ nonisolated final class TopologyDaemon: Sendable {
                 let closed = state.tree.withLock { tree -> Bool in
                     guard let (w, s, p) = tree.locate(surface: surface) else { return false }
                     tree.workspaces[w].screens[s].panes[p].tabs.removeAll { $0 == surface }
+                    let emptied = tree.workspaces[w].screens.allSatisfy { $0.panes.allSatisfy(\.tabs.isEmpty) }
+                    if cascadesLastTab, emptied { tree.workspaces.remove(at: w) }
                     tree.revision += 1
                     return true
                 }

@@ -51,7 +51,6 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let statusKind: String
         public let busy: Bool
         public let buttons: [Button]
-        public let unsupported: String?
         public let linked: [Linked]
         public let note: String?
         public let outcome: Notice?
@@ -65,12 +64,10 @@ public struct AccountsPageState: Encodable, Equatable, Sendable {
         public let rows: [Row]
     }
 
-    public let intro: String
     public let refresh: String
     public let refreshing: Bool
-    /// The sign-in banner when cmux is signed out: its text and button.
-    public let signIn: Confirm?
-    public let problem: String?
+    /// The Sign In to cmux button's title when cmux is signed out.
+    public let signIn: String?
     public let removeTitle: String
     public let groups: [Group]
 }
@@ -116,9 +113,8 @@ extension AccountsModel {
     /// The screen as the Settings page draws it.
     public var pageState: AccountsPageState {
         AccountsPageState(
-            intro: AccountsStrings.intro, refresh: AccountsStrings.refresh, refreshing: isRefreshing,
-            signIn: isSignedInToCmux ? nil : .init(text: AccountsStrings.cmuxSignedOut, confirm: AccountsStrings.signInToCmux, cancel: ""),
-            problem: isSignedInToCmux ? codeRouterProblem.map(AccountsStrings.codeRouterUnavailable) : nil,
+            refresh: AccountsStrings.refresh, refreshing: isRefreshing,
+            signIn: isSignedInToCmux ? nil : AccountsStrings.signInToCmux,
             removeTitle: AccountsStrings.remove,
             groups: AIProvider.Group.allCases.compactMap { group in
                 let rows = rows(in: group)
@@ -165,9 +161,8 @@ extension AccountsModel {
                 buttons.append(.init(id: "deleteKey", title: AccountsStrings.deleteSavedKey, disabled: false, help: nil, destructive: false))
             }
         }
-        if row.isLinkable {
-            buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy || !row.canConnect,
-                                 help: isSignedInToCmux ? nil : AccountsStrings.cmuxSignedOut, destructive: false))
+        if row.canConnect || row.phase == .connecting {
+            buttons.append(.init(id: "connect", title: AccountsStrings.connect, disabled: row.isBusy, help: nil, destructive: false))
         }
         let outcome: AccountsPageState.Notice? = switch row.outcome {
         case .connected: .init(kind: "success", text: AccountsStrings.connected)
@@ -179,7 +174,6 @@ extension AccountsModel {
             provider: provider.rawValue, name: provider.displayName, detail: Self.detail(row),
             status: AccountsStrings.status(row), statusKind: Self.statusKind(row), busy: row.isBusy && row.phase != .detecting,
             buttons: buttons,
-            unsupported: !row.isLinkable && !provider.isLocalServer ? AccountsStrings.unsupported : nil,
             linked: row.linked.map { account in
                 .init(id: account.id, label: account.label, state: account.state, healthy: account.isHealthy,
                       busy: row.phase == .removing(accountID: account.id))

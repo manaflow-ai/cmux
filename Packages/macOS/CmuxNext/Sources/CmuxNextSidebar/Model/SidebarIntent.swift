@@ -19,7 +19,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Move a group within its section. `index` excludes the group itself.
     case reorderGroup(GroupID, index: Int)
     /// Create a group holding the given workspaces. The UI mints the id.
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID])
+    /// The group forms where `anchor` is (a row dropped onto another forms
+    /// it at the target row), else at the first workspace in tree order.
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil)
     case renameGroup(GroupID, String)
     case setGroupColor(GroupID, GroupColor)
     /// Dissolve a group, leaving its workspaces in place.
@@ -51,8 +53,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Run an item of a pinned section (a built-in's action, a pinned
     /// workspace). plans/cmux-next/sidebar-sections.md
     case activateItem(LayoutItemID, opensWorkspace: Bool = false)
-    /// Run an item's trailing control (`SidebarItemInfo.accessory`).
-    case activateItemAccessory(LayoutItemID)
+    /// The footer's update pill: install the staged update and relaunch
+    /// (`SidebarModel.updatePill`).
+    case installUpdate
     /// Change the section layout; the App sends it to the workspace store.
     case layout(SidebarLayoutOp)
     /// Collapse or expand a titled section (client view state).

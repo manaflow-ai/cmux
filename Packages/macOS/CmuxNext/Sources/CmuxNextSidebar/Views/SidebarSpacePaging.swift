@@ -146,6 +146,8 @@ import QuartzCore
     private func makePage(_ sections: [SidebarSection]) -> SpacePageView {
         let model = SidebarModel(sections: sections)
         model.showWorkspaceTabs = host.model.showWorkspaceTabs
+        model.collapsedWorkspaces = host.model.collapsedWorkspaces
+        model.showCounts = host.model.showCounts
         model.activeWorkspaceID = host.model.activeWorkspaceID
         let list = SidebarListView(model: model)
         let container = SpacePageView(frame: page.frame)

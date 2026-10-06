@@ -23,13 +23,15 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
         case cancel
     }
 
-    /// The policy for `url`: the page's own origin is always allowed and never reaches `hook`;
-    /// `hook` decides every other navigation; without a hook, only a link the user clicked in the
-    /// main frame opens outside, and everything else (an automatic redirect, a frame) is cancelled.
+    /// The policy for `url`: the page's own origin never reaches `hook`; the main frame stays on
+    /// the page's own document (``PageDescriptor/isEntryDocument(_:)``), and a frame inside it may
+    /// load any document of the origin. `hook` decides every other navigation; without a hook, only
+    /// a link the user clicked in the main frame opens outside, and everything else (an automatic
+    /// redirect, a frame) is cancelled.
     public static func policy(for url: URL?, page: PageDescriptor, userClicked: Bool, mainFrame: Bool,
                               hook: ((PageNavigation) -> Policy)?) -> Policy {
         guard let url else { return .cancel }
-        if page.owns(url) { return .allow }
+        if page.owns(url) { return !mainFrame || page.isEntryDocument(url) ? .allow : .cancel }
         let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame)
         if let hook { return hook(navigation) }
         return userClicked && mainFrame && url.scheme?.lowercased() != "about" ? .openExternal : .cancel

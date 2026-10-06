@@ -138,19 +138,21 @@ export function MenuSeparator() {
 export interface SubmenuProps {
   label: ReactNode;
   className?: string;
+  /** Extra classes on the nested popup, so it matches its parent menu's surface. */
+  popupClassName?: string;
   disabled?: boolean;
   children: ReactNode;
 }
 
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). */
-export function Submenu({ label, className, disabled, children }: SubmenuProps) {
+export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
   return (
     <BaseMenu.SubmenuRoot>
       <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start">
+      <MenuPopup side="inline-end" align="start" className={popupClassName}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>

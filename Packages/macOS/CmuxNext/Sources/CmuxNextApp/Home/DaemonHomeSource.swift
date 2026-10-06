@@ -21,9 +21,16 @@ nonisolated final class DaemonHomeSource: HomeSource {
 
     /// The local user: the only `me` of the local owner.
     let me: Participant
+    /// Fetched attachment variants, one file per hash and variant.
+    let attachmentCache: URL
+    /// Most bytes `attachmentCache` keeps; least recently used files go first.
+    let attachmentCacheLimit: Int
 
-    init(me: Participant) {
+    init(me: Participant, attachmentCache: URL = DaemonHomeSource.defaultAttachmentCache,
+         attachmentCacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) {
         self.me = me
+        self.attachmentCache = attachmentCache
+        self.attachmentCacheLimit = attachmentCacheLimit
     }
 
     // MARK: Fed by HomeService (main actor)
@@ -83,7 +90,7 @@ nonisolated final class DaemonHomeSource: HomeSource {
         return stream
     }
 
-    private func requireConnection() throws -> DaemonConnection {
+    func requireConnection() throws -> DaemonConnection {
         guard let connection = state.withLock({ $0.connection }) else { throw HomeRejection.ownerUnreachable }
         return connection
     }
@@ -145,13 +152,15 @@ nonisolated final class DaemonHomeSource: HomeSource {
 
     /// The owner's refusals as `HomeRejection`: a reject is final, a lost
     /// connection leaves the outcome open (the store resends the same key).
-    private static func mapped<T>(_ body: () async throws -> T) async throws -> T {
+    static func mapped<T>(_ body: () async throws -> T) async throws -> T {
         do {
             return try await body()
         } catch let rejection as HomeRejection {
             throw rejection
-        } catch DaemonError.command(_, let message, let code, _, _) where code == "conversation_rejected" {
+        } catch DaemonError.command(_, let message, let code, _, _)
+                    where code == "conversation_rejected" || code == "attachment_rejected" {
             throw HomeRejection.invalid(message)
+
         } catch DaemonError.notConnected {
             throw HomeRejection.ownerUnreachable
         } catch {

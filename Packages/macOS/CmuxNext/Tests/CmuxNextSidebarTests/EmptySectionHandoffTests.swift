@@ -57,7 +57,7 @@ import Testing
         sidebar.layoutSubtreeIfNeeded()
         let list = sidebar.list
         list.reload(animated: false)
-        let pill = list.decorations.pillLayer
+        let pill = sidebar.highlight.view.pillLayer
         #expect(pill.opacity == 1)
 
         model.sections[0].nodes = []

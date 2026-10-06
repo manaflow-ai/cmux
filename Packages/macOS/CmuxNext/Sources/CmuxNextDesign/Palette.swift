@@ -91,6 +91,9 @@ public struct Palette {
     /// The one saturated call to action (the update circle): the theme's
     /// ANSI blue.
     public static var highlight: NSColor { color(\.highlight, dynamic: PaletteDynamic.highlight) }
+    /// Whether `highlight` is the theme's own accent (its ANSI blue), not
+    /// Ghostty's default palette standing in for a theme that names none.
+    public static var hasThemeAccent: Bool { (ThemeContext.active ?? ThemeScope.app.tokens).hasThemeAccent }
     /// Glyphs on `highlight`.
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 

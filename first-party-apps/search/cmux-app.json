@@ -7,7 +7,7 @@
   "description": "Find anything in cmux and open it: workspaces, terminals and their text, browser tabs and history, items from other apps, and files.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": "assets/icon.svg",
   "categories": ["sidebar", "productivity"],
   "keywords": ["search", "find", "grep", "scrollback", "history"],

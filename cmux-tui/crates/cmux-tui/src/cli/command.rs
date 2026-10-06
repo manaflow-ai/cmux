@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::BOOLEAN_FLAGS;
+use flags::{BOOLEAN_FLAGS, usage};
 
 mod browser;
 #[cfg(test)]
@@ -193,6 +193,7 @@ struct Tokens {
 pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandPlan, UsageError> {
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
+    flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
     let scope = tokens
         .words
         .first()
@@ -291,10 +292,8 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             } else if let Some(value) = inline {
                 Some(value)
             } else {
-                let value = args
-                    .get(index + 1)
-                    .cloned()
-                    .ok_or_else(|| UsageError::new(format!("--{name} needs a value")))?;
+                let value =
+                    args.get(index + 1).cloned().ok_or_else(|| flags::missing_value(name))?;
                 index += 1;
                 Some(value)
             };
@@ -858,6 +857,7 @@ fn parse_tab_strings(
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
             request(ResourceOperation::TabGet, selectors, flags, Map::new())
@@ -1263,8 +1263,7 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             "--reply is not available on a machine: replies would type into a terminal across the link",
         ));
     }
-    let _ = flags.take("window");
-    let _ = flags.take("id-format");
+    let _ = (flags.take("window"), flags.take("id-format"));
     let workspace = flags.take("workspace");
     if let Some(workspace) = &workspace
         && workspace != "current"
@@ -1403,6 +1402,7 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             };
             let terminal =
                 flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+            terminal.iter().try_for_each(|id| validate_prefixed_id("terminal", "term", id))?;
             let mut ingress = cmux_tui_core::agent_hook_journal_ingress(
                 &source,
                 &native_event,
@@ -2758,10 +2758,6 @@ pub(super) fn random_prefixed(prefix: &str) -> Result<String, UsageError> {
 
 fn strs(values: &[String]) -> Vec<&str> {
     values.iter().map(String::as_str).collect()
-}
-
-fn usage<T>(what: &str) -> Result<T, UsageError> {
-    Err(UsageError::new(format!("unknown or incomplete {what}; use --help")))
 }
 
 pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {

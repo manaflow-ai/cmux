@@ -225,6 +225,18 @@ export async function main(argv = process.argv): Promise<number> {
       const v = await installApi.read("cloud.machine.connect_info", { machine: created.id });
       return { value: v, detail: `host ${v.host} epoch ${v.epoch} state ${v.state} services ${v.services} daemon ${JSON.stringify(v.daemon)}` };
     });
+    await R.step("activity capability reported (agent subscribed to vm-activity-v1)", async () => {
+      // The bind carries no `activity`; the first report after the watcher connects does, and the
+      // daemon change reaches connect_info. Test-side wait, bounded.
+      const t0 = Date.now();
+      let caps: string[] = [];
+      while (Date.now() - t0 < 30_000) {
+        caps = ((await installApi.read("cloud.machine.connect_info", { machine: created.id })).daemon?.capabilities ?? []) as string[];
+        if (caps.includes("activity")) return { value: null, detail: `daemon capabilities ${JSON.stringify(caps)}` };
+        await sleep(2_000);
+      }
+      throw new Error(`no activity capability after 30 s: ${JSON.stringify(caps)}`);
+    });
     await R.step("link_token", async () => {
       const v = await installApi.op("cloud.machine.link_token", { host: bound.host, services: ["daemon"] });
       return { value: v, detail: `expires_at ${v.expires_at} epoch ${v.epoch} services ${v.services}` };

@@ -231,7 +231,10 @@ struct KeyOwnershipMatrixTests {
                     !$0.requires.isEmpty && !registry.canPerform($0.id)
                         && $0.requires.rawValue.nonzeroBitCount > top.requires.rawValue.nonzeroBitCount
                 }
-                let expected: KeyOwner = !blocked && KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
+                // A default that yields to a focused terminal (Ctrl-_ is readline undo) is the terminal's key there.
+                let yields = KeyBindingDefaults.yieldsToTerminal.contains(top.id)
+                    && !KeyBindingDefaults.notTerminal.evaluate(services.keyRouter.keyContext(for: surface.focus, facts: KeyRouter.Facts()))
+                let expected: KeyOwner = !blocked && !yields && KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
                     ? .action(top.id) : .surface
                 checked += 1
                 let owner = Self.owner(services, event, surface)

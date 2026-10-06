@@ -95,22 +95,15 @@ extension TabStripView {
         startAnimating()
     }
 
+    /// Every tab in the row draws its subtle separator in the gap after its
+    /// pill, whatever is selected or hovered, across the pinned and group
+    /// edges, and after the last tab (the line between it and +). Only a tab
+    /// out of the row draws none: the lifted, dragged tab and a member
+    /// collapsed into its group chip.
     func updateSeparators() {
-        let slots = result.slots.filter { $0.width > 0.5 || !$0.isCollapsed }
-        let selected = model.selectedID
-        func emphasized(_ slot: TabLayoutSlot) -> Bool {
-            let id = slot.id
-            return id == selected || id == hoveredID || id == drag?.id || id == Self.placeholderID || slot.isGroupChip || slot.isCollapsed
-        }
-        for (index, slot) in slots.enumerated() {
+        for slot in result.slots {
             guard let cell = cells[slot.id] else { continue }
-            guard index + 1 < slots.count else {
-                cell.showsSeparator = false
-                continue
-            }
-            let next = slots[index + 1]
-            cell.showsSeparator = !emphasized(slot) && !emphasized(next) && slot.isPinned == next.isPinned
-                && slot.groupID == next.groupID
+            cell.showsSeparator = slot.id != drag?.id && !slot.isCollapsed
         }
     }
 

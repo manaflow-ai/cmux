@@ -12,6 +12,10 @@ public final class AgentPaneModel {
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
+    /// The page drew its first frame after the handshake (`pane.painted`), the
+    /// first that shows what it is. Until then its pane keeps what it showed.
+    public internal(set) var hasPainted = false
+    @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can
     /// keep it with the tab.
@@ -45,6 +49,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onImportAndSync: (() -> Void)?
     /// Runs an action advertised by the host's omnibar.
     @ObservationIgnored public var onAppAction: ((String) -> Void)?
+    /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
+    @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -80,6 +86,7 @@ public final class AgentPaneModel {
     @ObservationIgnored private let allowsTabConversion: Bool
     /// The host's acpmux socket for this pane (in the app the page never holds one).
     @ObservationIgnored public let transport: AgentPaneTransport
+    @ObservationIgnored public let shell = AgentPaneShell() // shell mode: shell.run, shell.read, shell.stop
     /// The last handshake's connection, until the page opens it: used once, so the LocalApp
     /// token is never kept beyond one handshake.
     @ObservationIgnored private var pendingConnection: AcpmuxConnection?
@@ -174,7 +181,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: break
         default:
             if !userTouched { touchedBy = String(String(describing: request).prefix { $0 != "(" }) }
@@ -207,6 +214,7 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
+                handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
@@ -237,6 +245,9 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
+        case .painted:
+            markPainted()
+            return AgentPaneReply.success()
         case .openTab(let kind, let text, let cwd, let search, let run):
             guard newTab != nil || allowsTabConversion, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(AgentPaneOpenTab(kind: kind, text: text, cwd: cwd, search: search, run: run))
@@ -247,6 +258,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .touched:
             return AgentPaneReply.success()
+        case .shellRun, .shellRead, .shellStop: return await respondToShell(request)
         case .rememberNewTab(let agent):
             guard let onRememberNewTab else { return Self.unsupported("newTab.remember") }
             onRememberNewTab(agent)
@@ -277,6 +289,7 @@ public final class AgentPaneModel {
             guard let onImportAndSync else { return Self.unsupported("onboarding.importAndSync") }
             onImportAndSync()
             return AgentPaneReply.success()
+        case .paneAction, .tabState: return respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -290,8 +303,15 @@ public final class AgentPaneModel {
             onDictation(command)
             return AgentPaneReply.success()
         case .openFile(let path, let target):
-            guard let onOpenFile, let url = AgentPaneFileOpen.resolve(path),
-                  target == .editor || AgentPaneFileOpen.showsInTab(url), await onOpenFile(url, target) else {
+            guard let onOpenFile else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
+            }
+            let url: URL
+            switch checkedFileOpen(path, target: target) {
+            case .success(let checked): url = checked
+            case .failure(let refusal): return Self.transportFailure(refusal)
+            }
+            guard await onOpenFile(url, target) else {
                 return AgentPaneReply.failure(code: "open_failed", message: Self.openFileFailedMessage)
             }
             return AgentPaneReply.success()
@@ -368,16 +388,5 @@ public final class AgentPaneModel {
         guard checkpointAvailable != available else { return }
         checkpointAvailable = available
         onCheckpointAvailability?(available)
-    }
-}
-
-extension AgentPaneModel {
-    /// The page's reply for a failed git read: the failure's code, origin,
-    /// details and retryable under the localized text.
-    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
-        return AgentPaneReply.failure(
-            code: failure.code, message: gitFailedMessage, details: details,
-            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

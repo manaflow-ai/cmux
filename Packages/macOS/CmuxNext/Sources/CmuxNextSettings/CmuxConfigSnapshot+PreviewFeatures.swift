@@ -13,3 +13,11 @@ extension CmuxConfigSnapshot {
         return (on, nil)
     }
 }
+
+extension CmuxConfigSnapshot {
+    /// Stores one setting's parsed value and keeps its diagnostic.
+    mutating func take<Value>(_ parsed: (Value, SettingsDiagnostic?), _ keyPath: WritableKeyPath<Self, Value>) {
+        self[keyPath: keyPath] = parsed.0
+        if let diagnostic = parsed.1 { diagnostics.append(diagnostic) }
+    }
+}

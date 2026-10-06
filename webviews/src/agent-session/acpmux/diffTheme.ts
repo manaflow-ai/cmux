@@ -3,6 +3,7 @@
 // Colors come from the pane's theme variables (applyAgentTheme), which inherit into
 // Pierre's shadow roots; the dark values below are the fallbacks.
 import { registerCustomTheme } from "@pierre/diffs";
+import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "../../scrollers";
 
 export const AGENT_DIFF_THEME = "cmux-agent-dark";
 export const AGENT_DIFF_THEME_LIGHT = "cmux-agent-light";
@@ -181,7 +182,7 @@ export const diffUnsafeCSS = /* css */ `
 [data-acpmux-current] { box-shadow: inset 2px 0 0 var(--agent-accent, ${c.fg}); }
 [data-expand-button], [data-separator-content] { color: ${c.muted}; }
 [data-separator-content] { font-size: 12px; padding: 0 9px; }
-`;
+${PIERRE_DIFFS_SCROLLER_CSS}`;
 
 /// Injected into the tree's shadow root: 13px system font, 29px rows, a quiet selection.
 export const treeUnsafeCSS = /* css */ `
@@ -203,4 +204,4 @@ export const treeUnsafeCSS = /* css */ `
 }
 [data-type="item"][data-item-focused="true"]::before { display: none; }
 [data-item-section="decoration"] { font-size: 12px; }
-`;
+${PIERRE_TREES_SCROLLER_CSS}`;

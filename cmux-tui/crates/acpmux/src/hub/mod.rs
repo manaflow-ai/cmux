@@ -365,9 +365,9 @@ impl Hub {
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
         });
-        hub.refresh_web_modes(
-            &hub.config.try_read().map(|c| c.web_asking_modes.clone()).unwrap_or_default(),
-        );
+        if let Ok(c) = hub.config.try_read() {
+            hub.refresh_web_modes(&c);
+        }
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();

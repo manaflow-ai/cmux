@@ -16,12 +16,6 @@ enum AccountsStrings {
         }
     }
 
-    static var intro: String {
-        text("accounts.intro", "cmux checks this Mac for sign-ins and keys. It shows plan names and shortened account labels, never full emails or secret values.")
-    }
-    static var cmuxSignedOut: String {
-        text("accounts.cmuxSignedOut", "Sign in to cmux to connect accounts to CodeRouter, so cmux agents and Cloud machines can use them.")
-    }
     static var signInToCmux: String { text("accounts.action.signInCmux", "Sign In to cmux") }
     static var refresh: String { text("accounts.action.refresh", "Refresh") }
 
@@ -70,9 +64,6 @@ enum AccountsStrings {
     static var connectShort: String { confirmConnect }
     static var connected: String { text("accounts.outcome.connected", "Connected to CodeRouter") }
     static var removed: String { text("accounts.outcome.removed", "Removed from CodeRouter") }
-    static func codeRouterUnavailable(_ detail: String) -> String {
-        String(format: text("accounts.error.codeRouterUnavailable", "CodeRouter accounts are unavailable: %@"), detail)
-    }
 
     // Paste sheet
     static func pasteKeyTitle(_ provider: String) -> String {

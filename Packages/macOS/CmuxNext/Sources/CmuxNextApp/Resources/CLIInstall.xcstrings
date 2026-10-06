@@ -1,6 +1,268 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "cli.button.installAsCmuxNext" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install as cmux-next"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "التثبيت باسم cmux-next"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instaliraj kao cmux-next"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer som cmux-next"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als cmux-next installieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar como cmux-next"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer en tant que cmux-next"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installa come cmux-next"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next としてインストール"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំឡើងជា cmux-next"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next로 설치"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer som cmux-next"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstaluj jako cmux-next"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar como cmux-next"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить как cmux-next"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้งเป็น cmux-next"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-next olarak yükle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установити як cmux-next"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cài đặt dưới tên cmux-next"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装为 cmux-next"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安裝為 cmux-next"
+          }
+        }
+      }
+    },
+    "cli.button.replace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Replace"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استبدال"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamijeni"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erstat"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ersetzen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reemplazar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remplacer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sostituisci"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "置き換える"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជំនួស"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "대체"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Erstatt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zastąp"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Substituir"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заменить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แทนที่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Değiştir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Замінити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thay thế"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "替换"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取代"
+          }
+        }
+      }
+    },
     "cli.error.bundledCLIMissing" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -390,6 +652,399 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "%@ 的符號連結未指向內建的 cmux CLI。"
+          }
+        }
+      }
+    },
+    "cli.error.occupiedChoices" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To make this app's CLI the cmux command, choose Replace or run `cmux settings install-cli-in-path --replace`. To keep both, install it as %@, which never shadows the other one."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لجعل واجهة سطر أوامر هذا التطبيق هي أمر cmux، اختر استبدال أو شغّل `cmux settings install-cli-in-path --replace`. للاحتفاظ بالاثنين، ثبّتها باسم %@، الذي لا يحجب الآخر أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Da CLI ove aplikacije postane naredba cmux, odaberite Zamijeni ili pokrenite `cmux settings install-cli-in-path --replace`. Da zadržite oba, instalirajte ga kao %@, koji nikad ne zaklanja drugi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vælg Erstat eller kør `cmux settings install-cli-in-path --replace` for at gøre denne apps CLI til cmux-kommandoen. Installer den som %@ for at beholde begge; den skygger aldrig for den anden."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Damit die CLI dieser App der Befehl cmux wird, wähle „Ersetzen“ oder führe `cmux settings install-cli-in-path --replace` aus. Um beide zu behalten, installiere sie als %@; das verdeckt die andere nie."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para que la CLI de esta app sea el comando cmux, elige Reemplazar o ejecuta `cmux settings install-cli-in-path --replace`. Para conservar ambas, instálala como %@, que nunca oculta la otra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour que la CLI de cette app devienne la commande cmux, choisissez Remplacer ou exécutez `cmux settings install-cli-in-path --replace`. Pour garder les deux, installez-la en tant que %@, qui ne masque jamais l'autre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per rendere la CLI di questa app il comando cmux, scegli Sostituisci o esegui `cmux settings install-cli-in-path --replace`. Per tenerle entrambe, installala come %@, che non nasconde mai l'altra."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このアプリの CLI を cmux コマンドにするには、「置き換える」を選ぶか `cmux settings install-cli-in-path --replace` を実行してください。両方を残すには %@ としてインストールしてください。もう一方を隠すことはありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដើម្បីធ្វើឱ្យ CLI របស់កម្មវិធីនេះជាពាក្យបញ្ជា cmux សូមជ្រើស ជំនួស ឬដំណើរការ `cmux settings install-cli-in-path --replace`។ ដើម្បីរក្សាទុកទាំងពីរ សូមដំឡើងវាជា %@ ដែលមិនដែលបិទបាំងមួយទៀតឡើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 앱의 CLI를 cmux 명령으로 쓰려면 대체를 선택하거나 `cmux settings install-cli-in-path --replace`를 실행하세요. 둘 다 유지하려면 %@로 설치하세요. 다른 CLI를 가리지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg Erstatt eller kjør `cmux settings install-cli-in-path --replace` for å gjøre dette programmets CLI til cmux-kommandoen. Installer det som %@ for å beholde begge; det skygger aldri for det andre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aby CLI tej aplikacji było poleceniem cmux, wybierz Zastąp lub uruchom `cmux settings install-cli-in-path --replace`. Aby zachować oba, zainstaluj je jako %@, które nigdy nie przesłania drugiego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para tornar a CLI deste app o comando cmux, escolha Substituir ou execute `cmux settings install-cli-in-path --replace`. Para manter as duas, instale-a como %@, que nunca encobre a outra."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чтобы CLI этого приложения стал командой cmux, выберите «Заменить» или выполните `cmux settings install-cli-in-path --replace`. Чтобы оставить оба, установите его как %@ — он никогда не перекрывает другой."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หากต้องการให้ CLI ของแอปนี้เป็นคำสั่ง cmux ให้เลือก แทนที่ หรือเรียกใช้ `cmux settings install-cli-in-path --replace` หากต้องการเก็บทั้งสองไว้ ให้ติดตั้งเป็น %@ ซึ่งจะไม่บังอีกตัวหนึ่ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu uygulamanın CLI'ını cmux komutu yapmak için Değiştir'i seçin veya `cmux settings install-cli-in-path --replace` komutunu çalıştırın. İkisini de tutmak için %@ olarak yükleyin; diğerini asla gölgelemez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Щоб CLI цього застосунку став командою cmux, виберіть «Замінити» або виконайте `cmux settings install-cli-in-path --replace`. Щоб залишити обидва, установіть його як %@ — він ніколи не перекриває інший."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Để CLI của ứng dụng này là lệnh cmux, hãy chọn Thay thế hoặc chạy `cmux settings install-cli-in-path --replace`. Để giữ cả hai, hãy cài nó dưới tên %@, không bao giờ che khuất cái kia."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要让此应用的 CLI 成为 cmux 命令，请选择“替换”或运行 `cmux settings install-cli-in-path --replace`。要同时保留两者，请将其安装为 %@，它不会遮蔽另一个。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "若要讓此 App 的 CLI 成為 cmux 指令，請選擇「取代」或執行 `cmux settings install-cli-in-path --replace`。若要同時保留兩者，請將其安裝為 %@，它不會遮蔽另一個。"
+          }
+        }
+      }
+    },
+    "cli.error.occupiedFile" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ is a file this app did not install, so it was left alone."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ملف لم يثبته هذا التطبيق، لذا تُرك كما هو."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ je datoteka koju ova aplikacija nije instalirala, pa je ostavljena netaknuta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ er en fil, som denne app ikke har installeret, så den blev ikke ændret."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ ist eine Datei, die diese App nicht installiert hat, und wurde daher nicht verändert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ es un archivo que esta app no instaló, así que no se modificó."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ est un fichier que cette app n'a pas installé ; il n'a donc pas été modifié."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ è un file che questa app non ha installato, quindi non è stato modificato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ はこのアプリがインストールしたファイルではないため、変更しませんでした。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ គឺជាឯកសារដែលកម្មវិធីនេះមិនបានដំឡើង ដូច្នេះវាមិនត្រូវបានប៉ះពាល់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@은(는) 이 앱이 설치하지 않은 파일이라 그대로 두었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ er en fil dette programmet ikke installerte, så den ble ikke endret."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ to plik, którego ta aplikacja nie zainstalowała, więc pozostawiono go bez zmian."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ é um arquivo que este app não instalou, então não foi alterado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — файл, который это приложение не устанавливало, поэтому он не изменён."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ เป็นไฟล์ที่แอปนี้ไม่ได้ติดตั้ง จึงไม่ได้เปลี่ยนแปลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ bu uygulamanın yüklemediği bir dosya olduğu için olduğu gibi bırakıldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ — файл, який цей застосунок не встановлював, тому його не змінено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ là tệp mà ứng dụng này không cài, nên được giữ nguyên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 不是此应用安装的文件，因此未作改动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 不是此 App 安裝的檔案，因此未變更。"
+          }
+        }
+      }
+    },
+    "cli.error.occupiedLink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ links to another app's CLI (%2$@), so it was left alone."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ يرتبط بواجهة سطر أوامر تطبيق آخر (%2$@)، لذا تُرك كما هو."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ vodi na CLI druge aplikacije (%2$@), pa je ostavljen netaknut."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ peger på en anden apps CLI (%2$@), så den blev ikke ændret."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ verweist auf die CLI einer anderen App (%2$@) und wurde daher nicht verändert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ enlaza a la CLI de otra app (%2$@), así que no se modificó."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ pointe vers la CLI d'une autre app (%2$@) ; il n'a donc pas été modifié."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ punta alla CLI di un'altra app (%2$@), quindi non è stato modificato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ は別のアプリの CLI (%2$@) へのリンクのため、変更しませんでした。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ភ្ជាប់ទៅ CLI របស់កម្មវិធីផ្សេង (%2$@) ដូច្នេះវាមិនត្រូវបានប៉ះពាល់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@은(는) 다른 앱의 CLI(%2$@)에 연결되어 있어 그대로 두었습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ peker på et annet programs CLI (%2$@), så den ble ikke endret."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ wskazuje na CLI innej aplikacji (%2$@), więc pozostawiono je bez zmian."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ aponta para a CLI de outro app (%2$@), então não foi alterado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ссылается на CLI другого приложения (%2$@), поэтому он не изменён."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ ลิงก์ไปยัง CLI ของแอปอื่น (%2$@) จึงไม่ได้เปลี่ยนแปลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ başka bir uygulamanın CLI'ına (%2$@) bağlı olduğu için olduğu gibi bırakıldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ посилається на CLI іншого застосунку (%2$@), тому його не змінено."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ liên kết tới CLI của ứng dụng khác (%2$@), nên được giữ nguyên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 链接到另一个应用的 CLI（%2$@），因此未作改动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 連結到另一個 App 的 CLI（%2$@），因此未變更。"
           }
         }
       }
@@ -918,6 +1573,268 @@
         }
       }
     },
+    "cli.install.replacedFile" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It replaced the file that was at %@."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقد استبدل الملف الذي كان في %@."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamijenio je datoteku koja je bila na %@."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det erstattede filen, der lå i %@."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dabei wurde die Datei unter %@ ersetzt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reemplazó el archivo que estaba en %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il a remplacé le fichier qui se trouvait à %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ha sostituito il file che si trovava in %@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ にあったファイルを置き換えました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វាបានជំនួសឯកសារដែលនៅ %@។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에 있던 파일을 대체했습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den erstattet filen som lå i %@."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zastąpiono plik, który był w %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Substituiu o arquivo que estava em %@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заменён файл, находившийся в %@."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แทนที่ไฟล์ที่อยู่ที่ %@ แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ konumundaki dosyanın yerini aldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Замінено файл, що був у %@."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã thay thế tệp ở %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已替换位于 %@ 的文件。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已取代位於 %@ 的檔案。"
+          }
+        }
+      }
+    },
+    "cli.install.replacedLink" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "It replaced the previous link to %@."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لقد استبدل الرابط السابق إلى %@."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zamijenio je prethodnu vezu na %@."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det erstattede det tidligere link til %@."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dabei wurde der vorherige Link auf %@ ersetzt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reemplazó el enlace anterior a %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il a remplacé le lien précédent vers %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ha sostituito il collegamento precedente a %@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "以前の %@ へのリンクを置き換えました。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វាបានជំនួសតំណមុនទៅ %@។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이전의 %@ 링크를 대체했습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den erstattet den forrige lenken til %@."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zastąpiono poprzednie dowiązanie do %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Substituiu o link anterior para %@."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Заменена предыдущая ссылка на %@."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แทนที่ลิงก์เดิมที่ชี้ไปยัง %@ แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ hedefine giden önceki bağlantının yerini aldı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Замінено попереднє посилання на %@."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã thay thế liên kết trước đó tới %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已替换之前指向 %@ 的链接。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已取代先前指向 %@ 的連結。"
+          }
+        }
+      }
+    },
     "cli.install.symlinkCreated" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1307,6 +2224,137 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "cmux CLI 已安裝"
+          }
+        }
+      }
+    },
+    "cli.occupied.title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Another cmux CLI Is Installed"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم تثبيت واجهة سطر أوامر cmux أخرى"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instaliran je drugi cmux CLI"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et andet cmux CLI er installeret"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine andere cmux-CLI ist installiert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hay otra CLI de cmux instalada"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une autre CLI cmux est installée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "È installata un'altra CLI di cmux"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "別の cmux CLI がインストールされています"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI cmux ផ្សេងទៀតត្រូវបានដំឡើង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 cmux CLI가 설치되어 있습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et annet cmux CLI er installert"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano inne CLI cmux"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Outra CLI do cmux está instalada"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен другой CLI cmux"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "มี cmux CLI อื่นติดตั้งอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Başka bir cmux CLI yüklü"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлено інший CLI cmux"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài một CLI cmux khác"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装另一个 cmux CLI"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安裝另一個 cmux CLI"
           }
         }
       }
@@ -1962,6 +3010,137 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "cmux CLI 已解除安裝"
+          }
+        }
+      }
+    },
+    "common.cancel" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إلغاء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otkaži"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuller"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abbrechen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annuler"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Annulla"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャンセル"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បោះបង់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "취소"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Avbryt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Anuluj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancelar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Отменить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ยกเลิก"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vazgeç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скасувати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hủy"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消"
           }
         }
       }

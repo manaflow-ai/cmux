@@ -102,7 +102,7 @@ describe("the pane's earlier renderer gaps", () => {
 
 describe("links", () => {
   test("a web link keeps its href; a script link draws as text", () => {
-    expect(html("[site](https://example.com)")).toContain('href="https://example.com"');
+    expect(html("[site](https://example.com)")).toContain('href="https://example.com/"');
     const unsafe = html("[run](javascript:alert(1))");
     expect(unsafe).not.toContain("<a");
     expect(unsafe).toContain("run");

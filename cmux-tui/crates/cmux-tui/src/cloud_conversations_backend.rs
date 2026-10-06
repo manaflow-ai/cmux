@@ -194,7 +194,7 @@ pub(crate) fn install(mux: &Arc<Mux>) {
         }
         Err(error) => crate::client_log::stderr_log!(
             "startup",
-            "cmux-tui: cloud conversations unavailable: {error}"
+            "{BIN}: cloud conversations unavailable: {error}"
         ),
     }
 }

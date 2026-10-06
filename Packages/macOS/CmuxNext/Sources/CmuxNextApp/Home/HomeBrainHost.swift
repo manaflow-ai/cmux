@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import Foundation
 import os
@@ -8,10 +9,20 @@ import os
 /// and listens on nothing. It outlives the app; its own pid lock keeps one
 /// instance per mux home, so starting it again is harmless.
 ///
-/// Phase A: the host is the TypeScript `mux` executable named by
-/// `CMUX_NEXT_MUX_HOST` (a `bun build --compile` binary of `mux/`); without it
-/// Home works and the mux simply does not answer. Tagged builds use
-/// `~/.cmux/mux/tags/<tag>` so a test never touches the real mux memory.
+/// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
+/// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
+/// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
+/// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
+/// chief-done.md check 7: every Chief turn follows OptChat). The bundled
+/// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
+/// DevTools channel rule); Release and RC never bundle or start it: Home
+/// works and the Chief does not answer. Both keep the
+/// `host --daemon-socket --mux-home` contract and one lock per mux home.
+/// The mux home is the Chief home (`ChiefHome`): one per account, shared by
+/// every build, so the memory is one history; isolated launches (agent
+/// preflights, tests) get their own. The host lock keeps one host per home:
+/// a second build's launch exits at once and its Home shows the running
+/// host's conversation, which lives in the Chief home's own owner.
 nonisolated struct HomeBrainHost: Sendable {
     let executable: URL
     let muxHome: URL
@@ -20,23 +31,41 @@ nonisolated struct HomeBrainHost: Sendable {
     let controlSocket: String
     let acpmux: AcpmuxEnvironment?
 
-    static func resolve(daemonSocket: String, controlSocket: String, tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
-                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> HomeBrainHost? {
-        guard let path = environment["CMUX_NEXT_MUX_HOST"], !path.isEmpty, FileManager.default.isExecutableFile(atPath: path) else {
+    /// The OptChat Chief's file name in the app's Contents/Resources/bin.
+    static let bundledChiefName = "optchat-chief"
+
+    /// DEV (a Debug compile) and NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`)
+    /// start the bundled Chief; Release and RC do not (NIGHTLY compiles as
+    /// Release, so the bundle id decides, as for DevTools).
+    static func bundledChiefAllowed(bundleID: String?, isDebugBuild: Bool) -> Bool {
+        DevTools.isAvailable(bundleID: bundleID, isDebugBuild: isDebugBuild)
+    }
+
+    static func resolve(daemonSocket: String, controlSocket: String, home: ChiefHome,
+                        environment: [String: String] = ProcessInfo.processInfo.environment,
+                        bundledBinDirectory: URL? = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true),
+                        bundledChiefAllowed: Bool = HomeBrainHost.bundledChiefAllowed(bundleID: Bundle.main.bundleIdentifier,
+                                                                                      isDebugBuild: DevTools.isDebugBuild)) -> HomeBrainHost? {
+        let override = environment["CMUX_NEXT_MUX_HOST"].flatMap { $0.isEmpty ? nil : $0 }
+        let bundled = bundledChiefAllowed ? bundledBinDirectory?.appendingPathComponent(bundledChiefName).path : nil
+        guard let path = [override, bundled].compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
             return nil
         }
-        let base = userHome.appendingPathComponent(".cmux/mux", isDirectory: true)
-        let home: URL
-        if let custom = environment["CMUX_NEXT_MUX_HOME"], !custom.isEmpty {
-            home = URL(fileURLWithPath: custom, isDirectory: true)
-        } else if let tag, !tag.isEmpty {
-            home = base.appendingPathComponent("tags/\(tag)", isDirectory: true)
-        } else {
-            home = base
-        }
-        let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home, daemonSocket: daemonSocket, controlSocket: controlSocket,
-                             acpmux: AcpmuxEnvironment.resolve(tag: tag, bundledBinDirectory: bin, environment: environment))
+        // The Chief's turns and subagents run on the Chief home's acpmux, never
+        // a tag's: a host started later by another build finds the sessions
+        // its state names.
+        var acpmuxEnvironment = environment
+        acpmuxEnvironment["ACPMUX_HOME"] = home.acpmuxHome.path
+        acpmuxEnvironment.removeValue(forKey: "ACPMUX_SOCKET")
+        return HomeBrainHost(executable: URL(fileURLWithPath: path), muxHome: home.muxHome, daemonSocket: daemonSocket, controlSocket: controlSocket,
+                             acpmux: AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bundledBinDirectory, environment: acpmuxEnvironment))
+    }
+
+    /// The Chief home's mux home (`ChiefHome`), the same for every build of
+    /// one account; the engine bar, sidebar and files read it.
+    static func muxHome(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment,
+                        userHome: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        ChiefHome.resolve(tag: tag, environment: environment, userHome: userHome).muxHome
     }
 
     var arguments: [String] {
@@ -47,13 +76,18 @@ nonisolated struct HomeBrainHost: Sendable {
     var childEnvironment: [String: String] {
         var variables: [String: String] = [
             "PATH": Self.searchPath(home: FileManager.default.homeDirectoryForCurrentUser),
-            "CMUX_SOCKET_PATH": controlSocket,
+            // Constant links to the app that last opened Home (ChiefAppLinks):
+            // the host outlives the app that started it.
+            "CMUX_SOCKET_PATH": ChiefAppLinks.controlLink(ChiefHome(root: muxHome, isolated: false)).path,
+            "CMUX_APP_DAEMON_SOCKET": ChiefAppLinks.daemonLink(ChiefHome(root: muxHome, isolated: false)).path,
             "MUX_AGENT_TOKEN_FILE": tokenFile.path,
             "HOME": FileManager.default.homeDirectoryForCurrentUser.path,
             "MUX_HOST_LOG": muxHome.appendingPathComponent("host.log").path,
             // The host's chief create request must equal the app's (the owner
             // refuses a different request under the same key).
             "MUX_USER_NAME": HomeChiefName.localUserName,
+            // ...and its title (HomeChiefName.createRequest, localized).
+            "MUX_CHIEF_TITLE": HomeStrings.chiefName,
         ]
         if let acpmux {
             variables.merge(acpmux.childEnvironment) { $1 }

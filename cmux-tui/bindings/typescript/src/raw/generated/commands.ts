@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326. */
+/* cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e. */
 
 
 import type * as T from "./types.js";
@@ -430,6 +430,64 @@ export type ConversationAgentTokenResult = {
 };
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentReadRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-read";
+  "conversation": string;
+  "hash": string;
+  "length"?: (bigint) | null;
+  "offset"?: (bigint) | null;
+  "variant"?: (string) | null;
+}
+export type ConversationAttachmentReadResult = {
+  "byte_count": bigint;
+  "data": string;
+  "eof": boolean;
+  "hash": string;
+  "mime_type": string;
+  "offset": bigint;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationAttachmentUploadRequest extends CmuxRequestBase {
+  cmd: "conversation-attachment-upload";
+  "byte_count"?: (bigint) | null;
+  "conversation"?: (string) | null;
+  "data"?: (string) | null;
+  "duration_ms"?: (bigint) | null;
+  "height"?: (number) | null;
+  "mime_type"?: (string) | null;
+  "name"?: (string) | null;
+  "offset"?: (bigint) | null;
+  "op": string;
+  "piece"?: (string) | null;
+  "poster"?: (T.JsonValue) | null;
+  "preview"?: (T.JsonValue) | null;
+  "sha256"?: (string) | null;
+  "upload"?: (string) | null;
+  "width"?: (number) | null;
+}
+export type ConversationAttachmentUploadResult = {
+  "needs"?: (Array<string>) | null;
+  "received"?: (bigint) | null;
+  "stored"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+  "poster"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+  "preview"?: ({
+  "byte_count": bigint;
+  "hash": string;
+  "mime_type": string;
+}) | null;
+}) | null;
+  "upload"?: (string) | null;
+};
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationBindRequest extends CmuxRequestBase {
   cmd: "conversation-bind";
   "participant": string;
@@ -461,6 +519,18 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
 }
 export type ConversationHistoryResult = {
   "messages": Array<T.ConversationMessage>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationImportRequest extends CmuxRequestBase {
+  cmd: "conversation-import";
+  "conversation": string;
+  "messages": Array<T.ConversationImportMessage>;
+}
+export type ConversationImportResult = {
+  "conversation": T.ConversationSummary;
+  "imported": Array<bigint>;
+  "skipped": bigint;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -1957,6 +2027,12 @@ export interface SubscribeRequest extends CmuxRequestBase {
 }
 export type SubscribeResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface SubscribeActivityRequest extends CmuxRequestBase {
+  cmd: "subscribe-activity";
+}
+export type SubscribeActivityResult = T.ActivitySubscribeResult;
+
 /** Protocol v6; authority: control. */
 export interface SwapPaneRequest extends CmuxRequestBase {
   cmd: "swap-pane";
@@ -2258,9 +2334,12 @@ export type CmuxRequest =
   | CloudSessionSetRequest
   | CloudSessionStatusRequest
   | ConversationAgentTokenRequest
+  | ConversationAttachmentReadRequest
+  | ConversationAttachmentUploadRequest
   | ConversationBindRequest
   | ConversationCreateRequest
   | ConversationHistoryRequest
+  | ConversationImportRequest
   | ConversationListRequest
   | ConversationOpRequest
   | ConversationSearchRequest
@@ -2413,6 +2492,7 @@ export type CmuxRequest =
   | SnapshotRequestRequest
   | SplitRequest
   | SubscribeRequest
+  | SubscribeActivityRequest
   | SwapPaneRequest
   | TerminalClipboardReplyRequest
   | TerminalClipboardSubscribeRequest
@@ -2797,6 +2877,22 @@ export interface CmuxCommandDefinitionMap {
     capability: "local-conversations-v1";
     stream: null;
   };
+  "conversation-attachment-read": {
+    request: ConversationAttachmentReadRequest;
+    result: ConversationAttachmentReadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-attachments-v1";
+    stream: null;
+  };
+  "conversation-attachment-upload": {
+    request: ConversationAttachmentUploadRequest;
+    result: ConversationAttachmentUploadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-attachments-v1";
+    stream: null;
+  };
   "conversation-bind": {
     request: ConversationBindRequest;
     result: ConversationBindResult;
@@ -2816,6 +2912,14 @@ export interface CmuxCommandDefinitionMap {
   "conversation-history": {
     request: ConversationHistoryRequest;
     result: ConversationHistoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-import": {
+    request: ConversationImportRequest;
+    result: ConversationImportResult;
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
@@ -4035,6 +4139,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 5;
     capability: null;
+    stream: "subscribe";
+  };
+  "subscribe-activity": {
+    request: SubscribeActivityRequest;
+    result: SubscribeActivityResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "vm-activity-v1";
     stream: "subscribe";
   };
   "swap-pane": {

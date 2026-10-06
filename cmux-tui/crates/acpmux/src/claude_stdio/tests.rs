@@ -216,3 +216,25 @@ async fn a_text_block_keeps_its_cache_control_and_drops_other_fields() {
     assert_eq!(content[0], json!({"type": "text", "text": "prefix", "cache_control": marker}));
     assert_eq!(content[1], json!({"type": "text", "text": "step"}));
 }
+
+#[tokio::test]
+async fn an_image_block_reaches_claude_as_a_base64_image_before_the_text() {
+    // The Chief's turn sends a pasted image as an ACP image block next to
+    // the message text (chief-done.md item 12).
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(
+        10,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [
+            {"type": "image", "mimeType": "image/jpeg", "data": "QUJD"},
+            {"type": "text", "text": "what does this say?"},
+        ]}),
+    );
+    let Outbound::Lines(lines) = t.outbound(&req).await else { panic!() };
+    let content = lines[0]["message"]["content"].as_array().unwrap();
+    assert_eq!(
+        content[0],
+        json!({"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "QUJD"}})
+    );
+    assert_eq!(content[1], json!({"type": "text", "text": "what does this say?"}));
+}

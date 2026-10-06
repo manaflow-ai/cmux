@@ -176,7 +176,7 @@ pub(crate) fn tab_changed_delta(
 }
 
 /// The `kind` tab delta (tab-added, tab-changed) of a placed `surface`.
-fn tab_delta(
+pub(crate) fn tab_delta(
     state: &State,
     decorations: &TreeDecorations,
     kind: TreeDeltaKind,

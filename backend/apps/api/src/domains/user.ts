@@ -5,7 +5,7 @@ import { admit, decodeParams, InstallRegisterServerParams, reject } from "./comm
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
 import { user as homeUser } from "@cmux/home-core"
 import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
-import { CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
+import { chiefActive, CHIEF_OPS, reduceChief, type ChiefsState } from "./user-chief.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -95,10 +95,7 @@ export const installActive = (state: UserState, p: Principal) => {
 export const userPathAllowed = (state: UserState, p: Principal) => installActive(state, p) && (p.install === undefined || state.installs[p.install]?.kind !== "vm")
 
 /** True for an unarchived chief of this user. */
-export const chiefActive = (state: UserState, agent: string): boolean => {
-  const c = (state as { chiefs?: Readonly<Record<string, { owner_user: string; archived_at: string | null }>> }).chiefs?.[agent]
-  return c !== undefined && c.archived_at === null && state.user !== null && state.user !== undefined && c.owner_user === state.user.id
-}
+export { chiefActive }
 
 /**
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
@@ -227,7 +224,8 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           created_at: ctx.now,
           revoked_at: null,
           ...(v.bound_team ? { bound_team: v.bound_team } : {}),
-          ...(v.bound_machine ? { bound_machine: v.bound_machine } : {})
+          ...(v.bound_machine ? { bound_machine: v.bound_machine } : {}),
+          ...(v.capabilities?.length ? { capabilities: [...v.capabilities] } : {})
         }
         return {
           ok: true,

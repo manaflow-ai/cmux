@@ -16,8 +16,16 @@ public final class SidebarModel {
     /// Multi-selection (Cmd/Shift-click). Always contains `activeWorkspaceID`
     /// when that is set.
     public var selection: Set<WorkspaceID> = []
-    /// The workspace shown in the window.
-    public var activeWorkspaceID: WorkspaceID?
+    /// The window's one sidebar selection (SIDEBAR-SELECTION-ONE-MODEL): a
+    /// top-section item while the window shows its page, else the shown
+    /// workspace. The App derives it from the window state; the one
+    /// highlight, stepping and numbering read it.
+    public var selectedItem: SidebarItem?
+    /// The workspace shown in the window: the selection when it is a workspace.
+    public var activeWorkspaceID: WorkspaceID? {
+        get { if case .workspace(let id)? = selectedItem { id } else { nil } }
+        set { selectedItem = newValue.map(SidebarItem.workspace) }
+    }
     /// Profiles in order (the bar at the bottom center). The bar hides
     /// while there is at most one.
     public var profiles: [SidebarProfile] = []
@@ -39,10 +47,17 @@ public final class SidebarModel {
     public var filterText = ""
     /// The card stack above the bottom band (R114): update, what's new, announcements.
     public var cards: [SidebarCard] = []
+    /// The footer's update pill (SIDEBAR-FOOTER-MINIMAL): set by the App only
+    /// while an update is staged or installing; nil shows nothing.
+    public var updatePill: SidebarUpdatePill?
     /// A card's click, button or dismiss.
     @ObservationIgnored public var onCardAction: ((String, SidebarCardAction) -> Void)?
     /// Whether each workspace expands to show its intra-workspace tabs.
     public var showWorkspaceTabs = false
+    /// The workspaces whose disclosure hid their tabs: window view state.
+    public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// Workspace rows show their tab count (`sidebar.showCounts`).
+    public var showCounts = false
     /// Machine sections list loose workspaces before groups (a daemon-backed
     /// sidebar: cmux-tui keeps no slot for one after a group), so a drag
     /// never offers a slot past the first group.
@@ -139,7 +154,7 @@ public final class SidebarModel {
             dropClosed(Set(ids))
         case let .switchProfile(id):
             activeProfileID = id
-        case .activateItem, .activateItemAccessory:
+        case .activateItem, .installUpdate:
             break
         case let .layout(op):
             if case .success(let next) = SidebarLayoutReducer.reduce(layout, op) { layout = next }
@@ -230,6 +245,27 @@ public final class SidebarModel {
         guard let position = KeyboardReorder.target(moving: ids, direction: direction, in: sections) else { return false }
         send(.reorder(ids, to: position))
         return true
+    }
+
+    /// The `sidebar.*` settings that shape the workspace list.
+    func applyListPreferences(_ preferences: SidebarSectionsPreferences) {
+        showWorkspaceTabs = preferences.showWorkspaceTabs
+        showCounts = preferences.showCounts
+    }
+
+    /// The disclosure on a workspace row: hide its listed tabs, or list them again.
+    public func toggleWorkspaceTabs(_ id: WorkspaceID) {
+        if collapsedWorkspaces.remove(id) == nil { collapsedWorkspaces.insert(id) }
+    }
+
+    /// The list layout's options that come from the model.
+    func listOptions() -> SidebarLayoutOptions {
+        var o = SidebarLayoutOptions()
+        o.filterMatches = filterMatches
+        o.showWorkspaceTabs = showWorkspaceTabs
+        o.collapsedWorkspaces = collapsedWorkspaces
+        o.showCounts = showCounts
+        return o
     }
 
     // MARK: Presentation

@@ -1,7 +1,7 @@
 {
   "name": "@cmux-first-party/codemirror",
   "private": true,
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "description": "Web pane bundle dependencies of the cmux/codemirror app.",
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",

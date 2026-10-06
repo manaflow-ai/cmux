@@ -756,16 +756,14 @@ mark {
 }
 
 .accounts-header {
-  justify-content: space-between;
+  justify-content: flex-end;
   margin-bottom: 8px;
 }
 
-.accounts-intro {
-  flex: 1;
-  white-space: normal;
+.accounts-sign-in {
+  margin-right: auto;
 }
 
-.accounts-banner,
 .accounts-form {
   display: flex;
   flex-direction: column;
@@ -773,12 +771,6 @@ mark {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
-}
-
-.accounts-banner {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
 }
 
 .accounts-mark {

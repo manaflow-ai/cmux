@@ -21,7 +21,8 @@ import Testing
         let shown = SidebarLayoutReducer.reduce(.defaults, .itemAdd(LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter")),
                                                                      section: SidebarLayoutDocument.topSectionID, index: 99))
         #expect((try? shown.get())?.sections(in: .top, room: nil).flatMap(\.items).map(\.id.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter"])
-        #expect(bottom == ["itm_settings", "itm_account"])
+        // SIDEBAR-FOOTER-MINIMAL: the footer is the avatar, then the gear.
+        #expect(bottom == ["itm_account", "itm_settings"])
     }
 
     @Test func aWindowShowsTheSectionsInTheSidebarAtTheLeadingEdge() async throws {

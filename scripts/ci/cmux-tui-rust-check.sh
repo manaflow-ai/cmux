@@ -2,7 +2,10 @@
 # cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
 #     --arg MODE [--arg TEST_FILTER]
-# MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER], or all [FILTER].
+# MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER], or all [FILTER];
+# rd-host: clippy and tests of cmux-tui/crates/cmux-rd-host (its own workspace, so the
+# modes above never build it) on macOS, including its VideoToolbox path, without x264
+# (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
 # The fleet may run cargo through cmux-ci (coordinator, 2026-10-04); a developer
 # Mac never runs it (the laptop and the minis by hand stay off limits), so
 # outside a step (CMUX_CI_STEP_KEY) it refuses. The target dir is the step's
@@ -18,7 +21,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|rd-host) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host [TEST_FILTER]" >&2; exit 2 ;; esac
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -53,6 +56,15 @@ rustup component list --installed
 toolchain_cargo="$(rustup which cargo)" || { echo "error: rustup which cargo failed" >&2; exit 3; }
 export PATH="$(dirname "$toolchain_cargo"):$PATH"
 echo "cargo: $toolchain_cargo"
+if [[ "$mode" == rd-host ]]; then
+  # Its own workspace and lockfile, so its own target dir.
+  export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
+  cd "$root/cmux-tui/crates/cmux-rd-host"
+  cargo fmt --check
+  cargo clippy --locked --all-targets --no-default-features --features bench -- -D warnings
+  cargo test --locked --no-default-features --features bench ${filter:+"$filter"}
+  exit 0
+fi
 if [[ "$mode" == fmt || "$mode" == all ]]; then
   cargo fmt --all --check
 fi
