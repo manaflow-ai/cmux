@@ -91,4 +91,23 @@ public struct BrowserReplSessionDownloads: Sendable {
     public mutating func remove(_ id: String) -> String? {
         entries.removeValue(forKey: id)?.sessionID
     }
+
+    /// Forgets the downloads that went to `sessionID`, which is leaving the
+    /// tab, and returns their ids. They end with the session: the caller
+    /// cancels each and removes its partial file. A session's download never
+    /// outlives it, so it never finishes with no session and goes to the
+    /// user's download location or save panel instead.
+    public mutating func sessionLeft(_ sessionID: String) -> [String] {
+        let ids = entries.filter { $0.value.sessionID == sessionID }.map(\.key).sorted()
+        for id in ids { entries[id] = nil }
+        return ids
+    }
+
+    /// Forgets every download (the tab's last session left, or it closed)
+    /// and returns their ids, which the caller cancels as ``sessionLeft(_:)``'s.
+    public mutating func removeAll() -> [String] {
+        let ids = entries.keys.sorted()
+        entries.removeAll()
+        return ids
+    }
 }

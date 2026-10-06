@@ -554,7 +554,11 @@ rest. Measurements: [performance.md](performance.md).
   and the session's domain policy allows every address the download came
   through (redirects included, also one after the download started, and
   judged again under the policy then when it finishes; a local file only
-  from the session's own directories). A
+  from the session's own directories). A download that went to a session
+  ends with it: when the session leaves the tab (it ends, is reset, or the
+  tab moves to a workspace where it may not drive it) a download of it
+  still running is cancelled and its file removed, also in a tab it kept,
+  and never goes on to the user's download location or save panel. A
   file the user downloads in their tab, or one the page starts by itself,
   keeps the user's download location and never reaches a session, and
   neither does one another session's call started. When several sessions drive one tab,

@@ -611,6 +611,9 @@ final class BrowserReplTabAttachment {
         // unhandled ones are; no other session may answer them.
         for dialog in dialogs.removeAll(ownedBy: sessionID) { dialog.respond(false, nil) }
         for chooser in fileChoosers.removeAll(ownedBy: sessionID) { chooser.respond(nil) }
+        // Its unfinished downloads end with it: cancelled, their partial
+        // files removed, never handed to the user's download location.
+        panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.sessionLeft(sessionID))
         sinks.removeValue(forKey: sessionID)
         // The session's agent stops loading into the tab's documents; what
         // it left in loaded ones stays in its world, which no later session
@@ -728,6 +731,7 @@ final class BrowserReplTabAttachment {
 
     /// Releases held dialogs and choosers and removes page instrumentation.
     func detachAll() {
+        panel?.downloadDelegate?.discardSessionDownloads(sessionDownloads.removeAll())
         sinks.removeAll()
         ownership = BrowserReplTabOwnership()
         syncClipboardOwner()

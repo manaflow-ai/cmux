@@ -8474,7 +8474,18 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     /// Tracks active downloads keyed by WKDownload identity.
     private var activeDownloads: [ObjectIdentifier: DownloadState] = [:]
     private var suggestedFilenameOverrides: [ObjectIdentifier: String] = [:]
+    /// Running downloads by id, so a REPL session that leaves can cancel its own.
+    private var runningDownloads: [String: RunningDownload] = [:]
+    /// Downloads of a REPL session that ended with it
+    /// (``discardSessionDownloads(_:)``): removed when WebKit ends them,
+    /// never saved for the user.
+    private var discardedDownloadIDs: Set<String> = []
     private let activeDownloadsLock = NSLock()
+
+    private final class RunningDownload {
+        weak var download: WKDownload?
+        init(_ download: WKDownload) { self.download = download }
+    }
     var onDownloadStarted: ((String, String) -> Void)?
     var onDownloadReadyToSave: ((String, String) -> Void)?
     var onDownloadSaved: ((String, URL, Bool, String) -> Void)?
@@ -8501,7 +8512,29 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
     private func storeState(_ state: DownloadState, for download: WKDownload) {
         activeDownloadsLock.lock()
         activeDownloads[ObjectIdentifier(download)] = state
+        runningDownloads[state.downloadID] = RunningDownload(download)
         activeDownloadsLock.unlock()
+    }
+
+    /// Ends the downloads `ids`, which went to a REPL session that is leaving
+    /// the tab (``BrowserReplSessionDownloads/sessionLeft(_:)``): each still
+    /// running is cancelled, and its file, partial or whole, is removed when
+    /// WebKit ends it. A session's download never goes on to the user's
+    /// download location or save panel once its session is gone.
+    func discardSessionDownloads(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        activeDownloadsLock.lock()
+        discardedDownloadIDs.formUnion(ids)
+        let downloads = ids.compactMap { runningDownloads[$0]?.download }
+        activeDownloadsLock.unlock()
+        for download in downloads { download.cancel(nil) }
+    }
+
+    /// Whether download `id` ended with its REPL session; forgets it.
+    private func takeDiscarded(_ id: String) -> Bool {
+        activeDownloadsLock.lock()
+        defer { activeDownloadsLock.unlock() }
+        return discardedDownloadIDs.remove(id) != nil
     }
 
     func setSuggestedFilenameOverride(_ suggestedFilename: String?, for download: WKDownload) {
@@ -8529,6 +8562,7 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         activeDownloadsLock.lock()
         let state = activeDownloads.removeValue(forKey: ObjectIdentifier(download))
         suggestedFilenameOverrides.removeValue(forKey: ObjectIdentifier(download))
+        if let state { runningDownloads.removeValue(forKey: state.downloadID) }
         activeDownloadsLock.unlock()
         return state
     }
@@ -8698,6 +8732,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
             }.value
             let suggestedFilename = filenameResolver.suggestedFilename(suggestedFilename: info.suggestedFilename, response: nil, sourceURL: info.sourceURL, imageType: imageType)
 
+            // A REPL session's download that ended with the session: the
+            // file is removed, never saved for the user.
+            if self.takeDiscarded(info.downloadID) {
+                try? FileManager.default.removeItem(at: info.tempURL)
+                self.onDownloadCancelled?(suggestedFilename, true, info.downloadID)
+                return
+            }
             if let attachment = self.replAttachment?(), attachment.keepsDownloadInTemporaryDirectory(id: info.downloadID) {
                 // `download.path()` reads the file where WebKit wrote it; the
                 // session, not a save panel, decides where it goes next. Every
@@ -8754,6 +8795,13 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate, BrowserSuggestedFil
         if let info = removeState(for: download) {
             try? FileManager.default.removeItem(at: info.tempURL)
             downloadID = info.downloadID
+            if takeDiscarded(info.downloadID) {
+                // Cancelled because its REPL session left the tab.
+                notifyOnMain { [weak self] in
+                    self?.onDownloadCancelled?(info.suggestedFilename, true, info.downloadID)
+                }
+                return
+            }
         } else {
             downloadID = nil
         }
