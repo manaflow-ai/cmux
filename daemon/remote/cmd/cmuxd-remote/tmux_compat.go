@@ -1600,6 +1600,11 @@ func tmuxShellCommandText(positional []string, cwd string) string {
 	}
 	var pieces []string
 	if cwd != "" {
+		// The shell never expands ~ inside single quotes, and a relative path
+		// would resolve against the new pane instead of the tmux caller.
+		if resolved := tmuxNormalizePath(cwd); resolved != "" {
+			cwd = resolved
+		}
 		pieces = append(pieces, "cd -- "+tmuxShellQuote(cwd))
 	}
 	if cmd != "" {
@@ -1869,6 +1874,28 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 	newPaneId, _ := created["pane_id"].(string)
 
+	// Command-bearing split parameters are denied through the remote relay. A
+	// plain remote split remains supported; command-carrying splits fail closed.
+	// Type the command before persisting layout state, so a failed delivery
+	// closes the pane without leaving a dead surface id in the store.
+	if commandText != "" {
+		if _, err := rc.call("surface.send_text", map[string]any{
+			"workspace_id": targetWs,
+			"surface_id":   surfaceId,
+			"text":         commandText,
+		}); err != nil {
+			// The command never reached the shell, so the split did not take
+			// effect; close the pane instead of leaving an idle surface.
+			if _, rollbackErr := rc.call("surface.close", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+			}); rollbackErr != nil {
+				return fmt.Errorf("type the pane command: %w (rollback failed: %v)", err, rollbackErr)
+			}
+			return fmt.Errorf("type the pane command: %w", err)
+		}
+	}
+
 	if err := withLockedTmuxCompatStore(func(store *tmuxCompatStore) error {
 		store.LastSplitSurface[targetWs] = surfaceId
 		if _, ok := store.MainVerticalLayouts[targetWs]; ok {
@@ -1896,26 +1923,6 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		"workspace_id": targetWs,
 		"orientation":  "vertical",
 	})
-
-	// Command-bearing split parameters are denied through the remote relay. A
-	// plain remote split remains supported; command-carrying splits fail closed.
-	if commandText != "" {
-		if _, err := rc.call("surface.send_text", map[string]any{
-			"workspace_id": targetWs,
-			"surface_id":   surfaceId,
-			"text":         commandText,
-		}); err != nil {
-			// The command never reached the shell, so the split did not take
-			// effect; close the pane instead of leaving an idle surface.
-			if _, rollbackErr := rc.call("surface.close", map[string]any{
-				"workspace_id": targetWs,
-				"surface_id":   surfaceId,
-			}); rollbackErr != nil {
-				return fmt.Errorf("type the pane command: %w (rollback failed: %v)", err, rollbackErr)
-			}
-			return fmt.Errorf("type the pane command: %w", err)
-		}
-	}
 
 	if p.hasFlag("-P") {
 		ctx, err := tmuxFormatContext(rc, targetWs, newPaneId, surfaceId)

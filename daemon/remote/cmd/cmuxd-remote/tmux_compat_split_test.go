@@ -202,6 +202,51 @@ func TestTmuxSplitWindowClosesPaneWhenCommandDeliveryFails(t *testing.T) {
 	}
 }
 
+func TestTmuxSplitWindowLeavesNoLayoutStateWhenCommandDeliveryFails(t *testing.T) {
+	tmuxSplitEnv(t)
+	t.Setenv("HOME", t.TempDir())
+	recorder := startSplitRecorderWith(t, false, true)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	var splitErr error
+	_ = captureStdout(t, func() {
+		splitErr = dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d", "echo", "hello"})
+	})
+	if splitErr == nil {
+		t.Fatal("a split whose command never reached the shell must fail")
+	}
+	store, err := loadTmuxCompatStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	if len(store.LastSplitSurface) != 0 || len(store.MainVerticalLayouts) != 0 {
+		t.Fatalf("a rolled-back split left layout state for a closed pane: %+v", store)
+	}
+}
+
+func TestTmuxSplitWindowTypesExpandedWorkingDirectory(t *testing.T) {
+	tmuxSplitEnv(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	recorder := startSplitRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	_ = captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "split-window", []string{"-v", "-d", "-c", "~/proj", "echo", "hi"}); err != nil {
+			t.Fatalf("split-window: %v", err)
+		}
+	})
+
+	typed, ok := recorder.request("surface.send_text")
+	if !ok {
+		t.Fatal("expected the pane command to be typed")
+	}
+	want := "cd -- '" + home + "/proj' && echo hi\r"
+	if typed["text"] != want {
+		t.Fatalf("typed text = %q, want %q (single quotes block ~ expansion, so the path must be resolved first)", typed["text"], want)
+	}
+}
+
 func TestTmuxSplitWindowForwardsCommandForOrdinarySplit(t *testing.T) {
 	tmuxSplitEnv(t)
 	recorder := startSplitRecorder(t)
