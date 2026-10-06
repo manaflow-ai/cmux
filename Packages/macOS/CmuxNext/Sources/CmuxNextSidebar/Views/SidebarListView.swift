@@ -259,10 +259,13 @@ final class SidebarListView: NSView {
         })
     }
     func activePillFrame(in layout: SidebarLayout) -> NSRect? {
-        guard let active = model.activeWorkspaceID,
-              !suppressed.contains(.workspace(active)),
-              let row = layout.row(for: .workspace(active)) else { return nil }
-        return frame(for: row)
+        guard let active = model.activeWorkspaceID, !suppressed.contains(.workspace(active)) else { return nil }
+        if let row = layout.row(for: .workspace(active)) { return frame(for: row) }
+        // A workspace in a collapsed group: the group's header stands for it.
+        let group = model.sections.lazy.flatMap(\.nodes).compactMap { node -> GroupID? in
+            if case let .group(group) = node, group.isCollapsed, group.workspaces.contains(where: { $0.id == active }) { group.id } else { nil }
+        }.first
+        return group.flatMap { layout.row(for: .group($0)) }.map(frame(for:))
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
         view.isHovered = hoveredKey == row.key && drag == nil
@@ -292,6 +295,15 @@ final class SidebarListView: NSView {
         let clipHeight = enclosingScrollView?.contentView.bounds.height ?? 0
         let height = max(displayed.totalHeight, clipHeight)
         if frame.height != height { setFrameSize(NSSize(width: frame.width, height: height)) }
+    }
+    /// Exactly as wide as the visible clip, and as tall as the rows or the
+    /// clip, whichever is taller, on every clip resize too (nxdog56: a clip
+    /// that shrank after the rows were laid out kept the old height, so an
+    /// empty list showed a scroll bar and scrolled).
+    func fitToClip() {
+        guard let clip = enclosingScrollView?.contentView else { return }
+        if frame.width != clip.bounds.width { setFrameSize(NSSize(width: clip.bounds.width, height: frame.height)) }
+        updateDocumentHeight()
     }
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width

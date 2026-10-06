@@ -26,12 +26,13 @@ fn dir(tag: &str) -> PathBuf {
 fn config(d: &Path) -> Value {
     let profile = |family: &str| json!({"argv": ["python3", FAKE], "family": family});
     json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}, "fcodex": profile("codex"), "fopencode": profile("opencode")},
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}, "fcodex": profile("codex"), "fclaude": profile("claude")},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
-        // A local typo: "agent" is Codex's non-asking default.
-        "webAskingModes": {"codex": ["agent"]},
+        // A local typo: "agent" is Codex's non-asking default, and Codex is
+        // a refused family; "acceptEdits" is Claude's, which never asks.
+        "webAskingModes": {"codex": ["agent"], "claude": ["acceptEdits"]},
     })
 }
 
@@ -86,9 +87,15 @@ async fn a_config_entry_for_a_non_asking_mode_is_ignored() {
     let d = dir("cfg");
     let hub = hub(&d);
     let mut web = Client::new(&hub, Origin::Web);
-    let s = web.call("session/new", new_params(&d, "fcodex")).await;
+    // Codex is refused for the Web whatever the config says.
+    let r = web.call("session/new", new_params(&d, "fcodex")).await;
+    assert!(
+        r["error"]["message"].as_str().unwrap_or_default().contains("no reviewed asking mode"),
+        "{r}"
+    );
+    let s = web.call("session/new", new_params(&d, "fclaude")).await;
     let s = s["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{s}")).to_owned();
-    let r = web.call("session/set_mode", json!({"sessionId": s, "modeId": "agent"})).await;
+    let r = web.call("session/set_mode", json!({"sessionId": s, "modeId": "acceptEdits"})).await;
     assert!(
         r["error"]["message"]
             .as_str()
@@ -144,11 +151,15 @@ fn the_daemon_logs_the_merged_table_once_and_warns_about_the_ignored_entry() {
     let text = lines.join("\n");
     let tables = lines.iter().filter(|l| l.contains("web asking modes:")).count();
     assert_eq!(tables, 1, "the merged table is logged once at start: {text}");
-    assert!(text.contains("codex=[read-only]"), "{text}");
-    assert!(
-        lines.iter().any(|l| l.contains("webAskingModes: ignoring") && l.contains("agent")),
-        "the ignored entry is warned about: {text}"
-    );
+    assert!(text.contains("claude=[default,plan]"), "{text}");
+    assert!(text.contains("refused=[codex,opencode]"), "{text}");
+    assert!(!text.contains("codex=["), "{text}");
+    for mode in ["agent", "acceptEdits"] {
+        assert!(
+            lines.iter().any(|l| l.contains("webAskingModes: ignoring") && l.contains(mode)),
+            "the ignored entry {mode} is warned about: {text}"
+        );
+    }
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -159,18 +170,18 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::new(&hub, Origin::Local);
     let mut app = Client::new(&hub, Origin::LocalApp);
-    // A Web opencode session starts in plan.
-    let s = web.call("session/new", new_params(&d, "fopencode")).await;
+    // A Web Claude session starts in default.
+    let s = web.call("session/new", new_params(&d, "fclaude")).await;
     let s = s["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{s}")).to_owned();
     assert!(web.prompt(&s, "hello").await.get("error").is_none());
-    // The harness switches itself from plan to build.
-    assert!(local.prompt(&s, "set-mode: build").await.get("error").is_none());
+    // The harness switches itself from default to bypassPermissions.
+    assert!(local.prompt(&s, "set-mode: bypassPermissions").await.get("error").is_none());
     let info = local.call("_acpmux/info", json!({"sessionId": s})).await;
-    assert_eq!(info["result"]["modes"]["currentModeId"], json!("build"), "{info}");
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("bypassPermissions"), "{info}");
     // Web control ends at once, with a typed error.
     for (m, p) in [
         ("session/prompt", json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}]})),
-        ("session/set_mode", json!({"sessionId": s, "modeId": "plan"})),
+        ("session/set_mode", json!({"sessionId": s, "modeId": "default"})),
         ("session/set_config_option", json!({"sessionId": s, "configId": "model", "value": "m2"})),
         (
             "_acpmux/permission_respond",
@@ -187,7 +198,7 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
             json!("remote.mode_left_asking_table"),
             "{m}: {r}"
         );
-        assert_eq!(r["error"]["data"]["mode"], json!("build"), "{m}: {r}");
+        assert_eq!(r["error"]["data"]["mode"], json!("bypassPermissions"), "{m}: {r}");
     }
     // Web reads stay.
     for (m, p) in [
@@ -201,14 +212,14 @@ async fn web_control_ends_when_the_harness_leaves_the_asking_table_by_itself() {
     // The unix socket and the local app keep full control.
     assert!(local.prompt(&s, "still mine").await.get("error").is_none());
     assert!(app.prompt(&s, "mine too").await.get("error").is_none());
-    // The harness going back to plan by itself does not restore Web control.
-    assert!(local.prompt(&s, "set-mode: plan").await.get("error").is_none());
+    // The harness going back to default by itself does not restore Web control.
+    assert!(local.prompt(&s, "set-mode: default").await.get("error").is_none());
     let r = web.prompt(&s, "back?").await;
     assert_eq!(r["error"]["data"]["reason"], json!("remote.mode_left_asking_table"), "{r}");
     // The local user setting an asking mode does.
     assert!(
         local
-            .call("session/set_mode", json!({"sessionId": s, "modeId": "plan"}))
+            .call("session/set_mode", json!({"sessionId": s, "modeId": "default"}))
             .await
             .get("error")
             .is_none()

@@ -12,8 +12,12 @@ public nonisolated struct PairingCandidate: Sendable, Equatable {
     public var region: String?
     public var words: [String]
     public var teams: [ServerTeam]
+    /// The server declared the `optchat-chief-brain` capability: the
+    /// approver offers to run the user's Chief there.
+    public var isChiefBrain: Bool
 
-    public init(code: String, name: String, os: String, version: String, region: String?, words: [String], teams: [ServerTeam]) {
+    public init(code: String, name: String, os: String, version: String, region: String?, words: [String], teams: [ServerTeam],
+                isChiefBrain: Bool = false) {
         self.code = code
         self.name = name
         self.os = os
@@ -21,6 +25,7 @@ public nonisolated struct PairingCandidate: Sendable, Equatable {
         self.region = region
         self.words = words
         self.teams = teams
+        self.isChiefBrain = isChiefBrain
     }
 }
 
