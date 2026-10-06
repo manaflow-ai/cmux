@@ -207,7 +207,7 @@ import Testing
         let view = HomeNativeTranscriptView(conversation: id, me: me)
         #expect(view.menu == nil)
         #expect(view.header.menu == nil)
-        #expect(view.header.name.action == nil, "the name pill opens nothing")
+        #expect(view.header.name.action == nil, "the name opens nothing")
         var ops: [HomeOp] = []
         view.controller.onIntent = { ops.append($0.op) }
         view.controller.sendHosted(text: "hi", from: .zero)

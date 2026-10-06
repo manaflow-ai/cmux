@@ -529,6 +529,21 @@ has no runtime CDN dependency.
 
 ---
 
+<!-- notices-section: manual-agent-pane-math-assets -->
+## Agent Pane Math Assets
+
+The cmux-next agent pane bundles KaTeX and its fonts (inlined into
+`Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/`) to
+typeset TeX in agent replies with no runtime CDN dependency.
+
+### KaTeX
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2013-2020 Khan Academy and other contributors
+- **Source:** https://github.com/KaTeX/KaTeX/releases/tag/v0.16.25
+
+---
+
 <!-- notices-section: manual-code-editor-assets -->
 ## Code Editor Assets
 
