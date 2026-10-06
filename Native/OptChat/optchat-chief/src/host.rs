@@ -631,7 +631,6 @@ fn start(
         chief_id: crate::paths::home_id(home),
         system_text,
         settings_file: paths.root.join("settings.json"),
-        trace_dir: Some(paths.root.join("traces")),
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.

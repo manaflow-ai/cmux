@@ -95,6 +95,10 @@ pub struct SubRecord {
     /// The task's first characters (the workspace title).
     #[serde(default)]
     pub title: String,
+    /// Started under the `ask` floor: its approvals go to a person in the
+    /// Chief chat, and while it runs every spawn asks too.
+    #[serde(default)]
+    pub ask: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

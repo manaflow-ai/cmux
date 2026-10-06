@@ -190,9 +190,6 @@ pub struct Settings {
     pub system_text: String,
     /// The per-Chief settings file (`chief_settings`), read at start.
     pub settings_file: PathBuf,
-    /// The monitoring trace's directory, where approvals are recorded
-    /// (None: not recorded).
-    pub trace_dir: Option<PathBuf>,
 }
 
 /// How long a turn waits for the compactor before it tells the conversation

@@ -55,6 +55,13 @@ impl Brain {
                     self.turn_permission(session_id, permission_id, request);
                     return;
                 }
+                // A section 9 subagent spawned under the ask floor.
+                if let Some(id) = self.state.sub_by_session(&session_id)
+                    && self.state.sub(&id).is_some_and(|(_, s)| s.ask)
+                {
+                    self.child_permission(&session_id, &id, permission_id, request);
+                    return;
+                }
                 // A child can ask before its session_changed reached us.
                 let known = self.sessions.get(&session_id).cloned();
                 let session = match known {
@@ -82,7 +89,7 @@ impl Brain {
                     == Some(crate::approval::ASK);
                 if self.is_child(&session) && ask {
                     // Spawned under the ask floor: a person answers.
-                    self.child_permission(&session, permission_id, request);
+                    self.child_permission(&session.session_id, &session.name, permission_id, request);
                 } else if self.is_child(&session) {
                     let text = permission_text(&session.name, &request);
                     self.queue(text, Source::Note);

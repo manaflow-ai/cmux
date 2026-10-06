@@ -39,6 +39,9 @@ impl Brain {
             .collect();
         self.state.next_subagent = first + tasks.len() as u64;
         let spawn = format!("s{first}");
+        // The same floor as `chief agents spawn` (README "Remote-origin
+        // messages"): its subagents ask, and their approvals reach a person.
+        let floor = self.spawn_policy().map(str::to_owned);
         let record = SpawnRecord {
             subs: ids
                 .iter()
@@ -47,6 +50,7 @@ impl Brain {
                     id: id.clone(),
                     title: crate::workspaces::name(id, task),
                     run_ms: now_ms(),
+                    ask: floor.is_some(),
                     ..SubRecord::default()
                 })
                 .collect(),
@@ -57,7 +61,7 @@ impl Brain {
         self.state.spawns.insert(spawn.clone(), record);
         self.save();
         (self.log)(&format!("spawn {spawn}: {}", ids.join(", ")));
-        Ok(SpawnPlan { spawn, ids })
+        Ok(SpawnPlan { spawn, ids, floor })
     }
 
     pub(super) fn sub_started(&mut self, id: &str, session_id: String) {

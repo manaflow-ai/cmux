@@ -64,17 +64,18 @@ impl Brain {
     /// never answered by the Chief itself.
     pub(super) fn child_permission(
         &mut self,
-        child: &cmux_chief::acp::SessionSummary,
+        session_id: &str,
+        name: &str,
         permission_id: String,
         request: Value,
     ) {
-        let key = format!("approval:{}:{}", child.session_id, permission_id);
+        let key = format!("approval:{session_id}:{permission_id}");
         let pending = Pending {
-            session_id: child.session_id.clone(),
+            session_id: session_id.to_owned(),
             permission_id,
             tool: tool_name(&request),
             request,
-            child: Some(child.name.clone()),
+            child: Some(name.to_owned()),
         };
         self.ask_person(pending, &key);
     }
@@ -95,7 +96,14 @@ impl Brain {
     /// floor stays `ask` while one is (anything it spawns asks too).
     pub(super) fn ask_child_live(&self) -> bool {
         use cmux_chief::acp::SessionStatus;
-        self.sessions.values().any(|s| {
+        let subagent = self.state.spawns.values().any(|spawn| {
+            spawn
+                .subs
+                .iter()
+                .any(|s| s.ask && s.status == crate::state::SubStatus::Running)
+        });
+        subagent
+            || self.sessions.values().any(|s| {
             s.tags.get(crate::approval::POLICY_TAG).map(String::as_str)
                 == Some(crate::approval::ASK)
                 && !matches!(
@@ -167,8 +175,11 @@ impl Brain {
                 Err(e) => format!(" (not delivered: {e})"),
             }
         ));
-        if let Some(dir) = &self.settings.trace_dir {
-            let fields = json!({
+        // The monitoring trace (`trace.rs`): who approved what, from which
+        // device.
+        self.trace.emit(
+            "approval",
+            json!({
                 "turn": self.state.turn.as_ref().map(|t| t.key.clone()),
                 "session": pending.session_id,
                 "permission": pending.permission_id,
@@ -179,10 +190,7 @@ impl Brain {
                 "approver": approver,
                 "install": install,
                 "delivered": result.is_ok(),
-            });
-            if let Err(e) = crate::approval::record(dir, fields) {
-                (self.log)(&format!("recording an approval in the trace: {e}"));
-            }
-        }
+            }),
+        );
     }
 }

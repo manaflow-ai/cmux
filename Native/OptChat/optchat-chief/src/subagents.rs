@@ -54,6 +54,10 @@ pub const PROMPT_PREFIX: &str = "optchat-";
 pub struct SpawnPlan {
     pub spawn: String,
     pub ids: Vec<String>,
+    /// The policy floor (`Brain::spawn_policy`): `ask` while the Chief
+    /// works for a paired device or an `ask` child is live; it wins over
+    /// the subagent policy, and the session is tagged `optchat.policy=ask`.
+    pub floor: Option<String>,
 }
 
 /// How subagent sessions start.
@@ -134,7 +138,14 @@ impl Spawner {
     }
 
     /// Starts subagent `id`'s session and first prompt, then its workspace.
-    fn start_one(&self, spawn: &str, id: &str, task: &str, view: &str) -> Result<(), String> {
+    fn start_one(
+        &self,
+        spawn: &str,
+        id: &str,
+        task: &str,
+        view: &str,
+        floor: Option<&str>,
+    ) -> Result<(), String> {
         let began = Instant::now();
         let s = &self.settings;
         // Claude only through acpmux's own Claude Code adapter (harness_gate).
@@ -147,11 +158,20 @@ impl Spawner {
             name: format!("{}-{id}", s.prefix),
             cwd: s.cwd.clone(),
             harness: admitted.profile.clone(),
-            policy: s.policy.clone(),
+            policy: floor.unwrap_or(&s.policy).to_owned(),
             model: s.model.clone(),
             effort: None,
             preset: s.preset.clone(),
-            tags: tags(&s.parent, spawn, id),
+            tags: {
+                let mut tags = tags(&s.parent, spawn, id);
+                if floor.is_some() {
+                    tags.insert(
+                        crate::approval::POLICY_TAG.to_owned(),
+                        crate::approval::ASK.to_owned(),
+                    );
+                }
+                tags
+            },
         };
         let session = self.agents.new_session(&spec)?;
         let admitted = crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -271,7 +291,7 @@ impl Orchestrator for Spawner {
         }
         let mut started = Vec::new();
         for (id, task) in plan.ids.iter().zip(&tasks) {
-            match self.start_one(&plan.spawn, id, task, &view) {
+            match self.start_one(&plan.spawn, id, task, &view, plan.floor.as_deref()) {
                 Ok(()) => started.push(id.clone()),
                 Err(e) => {
                     (self.log)(&format!("subagent {id} did not start: {e}"));

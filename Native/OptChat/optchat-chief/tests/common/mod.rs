@@ -589,7 +589,6 @@ pub fn settings(dir: &Path) -> Settings {
         chief_id: "h0me".into(),
         system_text: optchat_chief::prompt::claude_md(None),
         settings_file: dir.join("settings.json"),
-        trace_dir: Some(dir.join("traces")),
     }
 }
 

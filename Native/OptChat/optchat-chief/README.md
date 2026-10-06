@@ -635,7 +635,10 @@ the turn wins until it ends.
   names the child), and `chief agents allow|deny` refuses to answer them. A
   child name that exists without `ask` is not reused by such a spawn.
   `remote.autoApprove`, set from the Mac, removes the floor; it cannot be
-  turned on while an `ask` child is live.
+  turned on while an `ask` child is live. The host-served section 9
+  `spawn` takes the same floor (`Brain::spawn_policy` at registration): its
+  subagents start with `ask` and the tag, and their requests are asked in
+  the Chief chat with their id (`a<N>`).
 - The native engine cannot ask the chat yet: in such a turn it refuses its
   bash and editor tools and says so to the model.
 - Codex harnesses run `chief zoom` and `chief date` as shell commands, so on
@@ -661,16 +664,24 @@ Policy analysis (the relay rules of this repository's CLAUDE.md):
   effect happens without an approval the user sees in the Chief chat, with
   the command or input shown. Only the owner's own person reaches a turn at
   all; a second account never does.
-- Residual risks. An approval is full authority for the shown call: an
+- Residual risk: the paired device approves its own requests. Any person
+  the gate admits answers the approvals, and that includes the device that
+  started the turn. So `ask` stops a prompt injection (content the turn
+  reads cannot approve anything) and makes every local effect visible, but
+  it does not stop a stolen or compromised paired phone: its holder can
+  approve its own turn's requests until the device is revoked. Revocation
+  removes it from the relay (new streams refused after 24 hours offline, all
+  closed after 72 hours or at once on `host.revoke`).
+- Residual risk: `remote.autoApprove` is only as protected as the user's
+  files. The host refuses to turn it on during remote-origin work, but any
+  local process of the user, and any approve-all local turn, can write
+  `optchat/settings.json` directly (the host reads it at its next start).
+  With it on, remote-origin turns are as powerful as local ones; it is off
+  by default.
+- Residual risk: an approval is full authority for the shown call. An
   approved command can start a background process that outlives the turn,
-  start an acpmux session directly with another policy (outside `chief
-  agents`), or edit
-  `settings.json` by hand (read at the next host start). A stolen or
-  compromised paired device can approve its own turn's requests until it is
-  revoked; revocation removes it from the relay (new streams refused after
-  24 hours offline, all closed after 72 hours or at once on `host.revoke`).
-  With `remote.autoApprove` on, remote-origin turns are as powerful as local
-  ones; it is off by default and only the Mac turns it on.
+  or start an acpmux session directly with another policy (outside `chief
+  agents` and `spawn`).
 - Access to unowned objects. The gate opens nothing: the relay already
   scopes every id to conversations that list the install, and the Chief
   answers and asks only in the conversation the message came from.

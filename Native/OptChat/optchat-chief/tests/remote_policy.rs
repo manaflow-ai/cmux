@@ -40,6 +40,9 @@ fn harness(script: Script) -> Harness {
         ..Owner::default()
     }));
     let mut h = Harness::in_dir(dir, script, owner);
+    let traces = h.dir.path().join("traces");
+    h.brain
+        .set_trace(optchat_chief::trace::Trace::open(&traces, false).unwrap());
     h.connect();
     h
 }

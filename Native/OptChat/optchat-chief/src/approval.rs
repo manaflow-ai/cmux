@@ -6,11 +6,7 @@
 //! conversation sends. Every answer goes to the trace with the approving
 //! device.
 
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
-
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// Tools that only read the OptChat memory: allowed without asking.
 pub const MEMORY_TOOLS: [&str; 2] = ["mcp__optchat__zoom", "mcp__optchat__date"];
@@ -114,27 +110,4 @@ pub fn question(pending: &Pending) -> String {
             pending.tool
         ),
     }
-}
-
-/// Appends one `approval` event to the trace in `dir`
-/// (`traces/YYYY-MM-DD.jsonl`, the monitoring trace's layout:
-/// `{"ts", "ev", ...}`, 0600). A failed write is reported, never fatal.
-pub fn record(dir: &Path, fields: Value) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)?;
-    let now = chrono::Local::now();
-    let mut line = json!({"ts": now.timestamp_millis(), "ev": "approval"});
-    if let (Some(line), Value::Object(fields)) = (line.as_object_mut(), fields) {
-        line.extend(fields);
-    }
-    let path = dir.join(format!("{}.jsonl", now.format("%Y-%m-%d")));
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(format!("{line}\n").as_bytes())
 }
