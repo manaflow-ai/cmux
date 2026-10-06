@@ -86,6 +86,9 @@ pub struct TabState {
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
     pub crashed: bool,
+    /// A screenshot or PDF of the tab is in flight (`capture.rs`): the next
+    /// one waits for it.
+    pub capturing: bool,
     pub open_dialogs: usize,
     /// File choosers opened whose `filechooser.opened` is not sent yet (the
     /// driver resolves the input's agent handle first): input calls wait
@@ -158,6 +161,7 @@ impl TabState {
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
+            capturing: false,
             open_dialogs: 0,
             pending_choosers: 0,
             choosers_on: false,
