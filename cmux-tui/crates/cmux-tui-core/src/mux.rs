@@ -26,6 +26,9 @@ mod presentation;
 mod public_projections;
 mod registry_viewport;
 mod resource_content;
+mod resource_tab_deltas;
+#[cfg(test)]
+mod resource_tab_deltas_tests;
 mod resource_topology;
 mod rows;
 mod screen_changed;
@@ -4807,10 +4810,12 @@ impl Mux {
         // see a tab's new session path only once that commit succeeds.
         let (prepared, session_paths) = crate::event_bus::defer_session_paths(|| {
             let mut plan = prepare(&mut state, &registry)?;
+            // Before the state step: v1 clients get the tab changes as deltas.
+            let tabs = resource_tab_deltas::TabMembership::capture(&state, &plan.patch);
             let before = plan.stage_checked(&mut state, operation)?;
-            anyhow::Ok((plan, before))
+            anyhow::Ok((plan, before, tabs))
         });
-        let (mut plan, before) = prepared?;
+        let (mut plan, before, tabs) = prepared?;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
             .and_then(|()| {
                 #[cfg(test)]
@@ -4847,6 +4852,8 @@ impl Mux {
             self.subscribers.publish_deferred_session_paths(session_paths);
         }
         plan.apply(&mut state, &commit, workspace_revision);
+        let tab_deltas =
+            tabs.filter(|_| !commit.replayed).and_then(|tabs| tabs.deltas(self, &state));
         drop(state);
         drop(registry);
         if !commit.replayed {
@@ -4854,6 +4861,9 @@ impl Mux {
             // A commit can create the resource row that a shell's first
             // directory report was waiting for.
             self.publish_pending_terminal_directories();
+        }
+        if let Some(tab_deltas) = tab_deltas {
+            self.emit_resource_tab_deltas(tab_deltas);
         }
         Ok(commit)
     }
@@ -30476,8 +30486,16 @@ mod tests {
         let events = mux.subscribe();
         assert!(mux.move_tab(extra.id, second_pane, 0));
         mux.with_state(|state| assert!(state.split_screens.contains_key(&sentinel)));
-        assert!(matches!(events.recv().unwrap(), MuxEvent::TreeChanged));
-        assert!(events.try_recv().is_err());
+        // The adopted tab's tab-changed, then one tree-changed.
+        let received = events.try_iter().collect::<Vec<_>>();
+        assert!(received.iter().any(|event| matches!(event, MuxEvent::TreeDelta(TreeDelta {
+            kind: TreeDeltaKind::TabChanged, surface, pane, ..
+        }) if *surface == Some(extra.id) && *pane == Some(second_pane))));
+        assert!(matches!(received.last(), Some(MuxEvent::TreeChanged)));
+        assert_eq!(
+            received.iter().filter(|event| matches!(event, MuxEvent::TreeChanged)).count(),
+            1
+        );
     }
 
     #[test]
