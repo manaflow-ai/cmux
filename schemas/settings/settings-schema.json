@@ -3813,10 +3813,6 @@
         "key" : "settings.group.densityMotion",
         "text" : "Density and Motion"
       },
-      "help" : {
-        "key" : "settings.appearance.uiScale.help",
-        "text" : "Scale cmux chrome and built-in pages together. Terminal text keeps its own size."
-      },
       "kept_on_reset_all" : false,
       "key" : "app.uiScale",
       "keywords" : [

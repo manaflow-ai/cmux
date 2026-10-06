@@ -929,7 +929,7 @@
 			<key>pfm_default</key>
 			<integer>1</integer>
 			<key>pfm_description</key>
-			<string>Scale cmux chrome and built-in pages together. Terminal text keeps its own size.</string>
+			<string></string>
 			<key>pfm_name</key>
 			<string>app.uiScale</string>
 			<key>pfm_range_max</key>

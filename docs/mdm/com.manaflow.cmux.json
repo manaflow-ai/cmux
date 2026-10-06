@@ -40,7 +40,7 @@
     },
     "app.uiScale" : {
       "default" : 1,
-      "description" : "Scale cmux chrome and built-in pages together. Terminal text keeps its own size.",
+      "description" : "",
       "maximum" : 1.5,
       "minimum" : 0.85,
       "title" : "Interface Scale",
