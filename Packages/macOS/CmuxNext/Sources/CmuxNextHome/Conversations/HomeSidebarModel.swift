@@ -1,34 +1,6 @@
 public import CmuxHomeCore
 public import Foundation
 
-/// Which conversations are pinned (the Home sidebar's grid). Client side,
-/// per account, until the daemon's cloud proxy forwards `inbox.pin`
-/// (home-cloud-proxy.md 8; the local owner refuses pins too): `pinned` is
-/// the user's order; Chiefs and owner-pinned conversations are pinned by
-/// default unless the user unpinned them (`unpinned`).
-public struct HomePins: Hashable, Sendable, Codable {
-    public var pinned: [ConversationID]
-    public var unpinned: Set<ConversationID>
-
-    public init(pinned: [ConversationID] = [], unpinned: Set<ConversationID> = []) {
-        self.pinned = pinned
-        self.unpinned = unpinned
-    }
-
-    public func isPinned(_ row: InboxRow) -> Bool {
-        if pinned.contains(row.id) { return true }
-        if unpinned.contains(row.id) { return false }
-        return row.kind == .chief || row.isPinned
-    }
-
-    /// Pins `row` (at the end of the user's order) or unpins it.
-    public mutating func setPinned(_ on: Bool, _ row: InboxRow) {
-        pinned.removeAll { $0 == row.id }
-        unpinned.remove(row.id)
-        if on { pinned.append(row.id) } else if row.kind == .chief || row.isPinned { unpinned.insert(row.id) }
-    }
-}
-
 /// One avatar circle: initials over a muted gradient picked from a stable seed.
 public struct HomeAvatar: Hashable, Sendable {
     public var initials: String
@@ -71,8 +43,57 @@ public struct HomeSidebarModel: Hashable, Sendable {
 
     public init(rows: [InboxRow], pins: HomePins, me: ParticipantID?, query: String = "", contacts: [HomeContact] = [],
                 now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) {
-        pinned = []
-        self.rows = []
-        people = []
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shown = needle.isEmpty ? rows : rows.filter { $0.matches(needle, me: me) }
+        let order = Dictionary(pins.pinned.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        // User pins in their order, then default pins (Chiefs, owner pins) in inbox order.
+        let pinnedRows = shown.filter { pins.isPinned($0) }.enumerated()
+            .sorted { (order[$0.element.id] ?? Int.max, $0.offset) < (order[$1.element.id] ?? Int.max, $1.offset) }.map(\.element)
+        let rest = shown.filter { !pins.isPinned($0) }.sorted { a, b in
+            a.timestamp != b.timestamp ? a.timestamp > b.timestamp : a.id.rawValue < b.id.rawValue
+        }
+        let item = { (row: InboxRow, pinned: Bool) in
+            HomeSidebarItem(row: row, pinned: pinned, me: me, now: now, calendar: calendar, locale: locale)
+        }
+        pinned = needle.isEmpty ? pinnedRows.map { item($0, true) } : []
+        self.rows = (needle.isEmpty ? rest : pinnedRows + rest).map { item($0, pins.isPinned($0)) }
+        guard !needle.isEmpty else { people = []; return }
+        // People the user has no DM with yet, by name.
+        let dmPeers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
+        people = contacts.filter { !dmPeers.contains($0.id) && $0.name.localizedStandardContains(needle) }
+    }
+}
+
+extension HomeSidebarItem {
+    init(row: InboxRow, pinned: Bool, me: ParticipantID?, now: Date, calendar: Calendar, locale: Locale) {
+        let others = row.summary.participants.filter { $0.id != me }
+        let preview = row.homePreview(me: me)
+        let time = row.timestamp.homeListTime(now: now, calendar: calendar, locale: locale)
+        let title = row.title.isEmpty ? HomeConversationStrings.untitled : row.title
+        self.init(
+            id: row.id, title: title,
+            avatars: others.prefix(row.kind == .group ? 3 : 1).map { HomeAvatar(initials: $0.initials, seed: $0.id.rawValue) },
+            isGroup: row.kind == .group, badge: row.kind == .group ? others.first?.initials : nil,
+            preview: preview.text, isReply: preview.isReply, time: time, unread: row.unread > 0, unreadCount: row.unread,
+            mentions: row.mentions, isPinned: pinned, isChief: row.kind == .chief,
+            accessibilityLabel: Self.accessibility(title: title, row: row, preview: preview.text, time: time))
+    }
+
+    /// The title, unread and mention state, the time, then the preview.
+    static func accessibility(title: String, row: InboxRow, preview: String, time: String) -> String {
+        var parts = [title]
+        if row.unread > 0 { parts.append(HomeConversationStrings.unread(row.unread)) }
+        if row.mentions > 0 { parts.append(HomeConversationStrings.mentioned) }
+        if !time.isEmpty { parts.append(time) }
+        if !preview.isEmpty { parts.append(preview) }
+        return parts.joined(separator: ", ")
+    }
+}
+
+extension InboxRow {
+    /// A search match: the title, a member's name or the preview.
+    func matches(_ needle: String, me: ParticipantID?) -> Bool {
+        title.localizedStandardContains(needle) || preview.localizedStandardContains(needle)
+            || summary.participants.contains { $0.id != me && $0.displayName.localizedStandardContains(needle) }
     }
 }

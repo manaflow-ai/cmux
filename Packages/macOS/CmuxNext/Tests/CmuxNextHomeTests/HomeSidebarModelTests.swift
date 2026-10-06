@@ -77,13 +77,13 @@ import Testing
         pins.setPinned(false, rows[0])
         let model = Self.model(rows, pins: pins)
         #expect(model.pinned.map(\.id.rawValue) == ["conv_aziz", "conv_lucas"])
-        #expect(model.rows.map(\.id.rawValue) == ["conv_group", "conv_chief", "conv_old"])
+        #expect(model.rows.map(\.id.rawValue) == ["conv_chief", "conv_group", "conv_old"], "an unpinned Chief takes its place by time")
         #expect(pins.unpinned == [ConversationID("conv_chief")])
     }
 
     @Test func timesReadLikeMessages() {
         let times = Dictionary(uniqueKeysWithValues: Self.model(Self.rows).rows.map { ($0.id.rawValue, $0.time) })
-        #expect(times["conv_lucas"] == "9:55 PM")
+        #expect(times["conv_lucas"] == "9:55\u{202F}PM", "the locale's own time (a narrow space before PM)")
         #expect(times["conv_group"] == "Yesterday")
         #expect(times["conv_aziz"] == "Saturday")
         #expect(times["conv_old"] == "9/26/26")
@@ -119,5 +119,6 @@ import Testing
         #expect(model.rows.map(\.id.rawValue) == ["conv_group", "conv_aziz"], "a member's name matches too")
         #expect(model.people.map(\.name) == ["Zoe Azizi"], "Aziz already has a DM")
         #expect(Self.model(Self.rows, query: "good luck").rows.map(\.id.rawValue) == ["conv_lucas"], "previews match")
+        #expect(Self.model(Self.rows, query: "me").rows.isEmpty, "my own name matches nothing")
     }
 }
