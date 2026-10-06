@@ -229,8 +229,10 @@
       // extra To), the subject of a new message, the whole body (not its
       // start: a page script or another session could keep the drafted
       // opening and add to it) and, for a reply, the thread and its messages.
+      // The account alone, read again as the last step before Send.
+      const composeAccount = (page, msg) => S.shared.google.observeAccount(t, "gmail.send", page, msg.uid);
       async function observeCompose(page, box, msg) {
-        const out = await S.shared.google.observeAccount(t, "gmail.send", page, msg.uid);
+        const out = await composeAccount(page, msg);
         const held = await readHeader(page, !!msg.threadId);
         if (held) {
           const outside = (held.other || []).map((e) => `${e} (outside the To, Cc and Bcc rows)`);
@@ -261,7 +263,7 @@
             const box = await openReply(page, msg.replyAll);
             await box.click();
             await page.keyboard.insertText(msg.body);
-            return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page) });
+            return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page), account: () => composeAccount(page, msg) });
           });
         }
         const q = new URLSearchParams({ view: "cm", fs: "1", tf: "1" });
@@ -272,7 +274,7 @@
           t.assertSignedIn("gmail.send", page, SIGN_IN);
           const box = page.locator('div[role="textbox"][aria-label="Message Body"], div[role="textbox"][g_editable="true"]').first();
           await box.waitFor({ timeout: 30000 });
-          return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page) });
+          return c.write(() => observeCompose(page, box, msg), (press) => clickSend(page, msg, press), { submit: sendButton(page), account: () => composeAccount(page, msg) });
         });
       }
 

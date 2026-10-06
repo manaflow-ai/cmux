@@ -80,9 +80,12 @@ rules neither reference enforces together:
    the pointer is on it, every field is read back and compared again, and
    the press is sent bound to that element (the driver's press check); a
    pinned element that left the document fails with `target_mismatch`, a
-   change fails as at the first read-back, and nothing is pressed. The
-   remaining window is between that second read-back and the press, which
-   no site API closes: none binds a click to an account. Keyboard
+   change fails as at the first read-back, and nothing is pressed. Gmail,
+   LinkedIn and X then read the account once more as the last step before
+   the press (`{ account }` in the commit), so a switch while the rest is
+   read back fails with `account_mismatch`. The remaining window is
+   between that last account read and the press, which no site API
+   closes: none binds a click to an account. Keyboard
    and menu writes (Sheets' paste and Delete, Slides' notes, Drive's trash) are
    checked once, before their first input. Slack's
    `chat.postMessage` checks the member again in the same page call

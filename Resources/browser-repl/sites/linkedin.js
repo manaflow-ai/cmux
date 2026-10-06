@@ -150,21 +150,23 @@
                   // The member this composer page posts as, read in that
                   // page (its own session cookie), and the whole text it
                   // holds, right before Post: the profile can switch
-                  // accounts while the composer loads. A switch between the
-                  // read and the click is the remaining window (LinkedIn
-                  // has no post bound to a member).
+                  // accounts while the composer loads. The member is read
+                  // once more as the last read before the click; a switch
+                  // between that read and the click is the remaining window
+                  // (LinkedIn has no post bound to a member).
+                  const memberNow = async () => {
+                    const r = await t.readBack(page, voyager, { path: "/voyager/api/me" });
+                    const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
+                    return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}) };
+                  };
                   return c.write(
-                    async () => {
-                      const r = await t.readBack(page, voyager, { path: "/voyager/api/me" });
-                      const now = r && r.status >= 200 && r.status < 300 && r.json ? viewer(r.json) : null;
-                      return { ...(now && now.publicIdentifier ? { account: now.publicIdentifier } : {}), ...(now && now.id ? { memberId: now.id } : {}), text: await t.composerText(box) };
-                    },
+                    async () => ({ ...(await memberNow()), text: await t.composerText(box) }),
                     async (press) => {
                       await press();
                       await t.waitIn(page, () => !document.querySelector('div[role="dialog"] div[role="textbox"]'), undefined, { signIn: SIGN_IN, name: "linkedin", timeout: 30000, what: "LinkedIn to publish the post" });
                       return { status: "posted" };
                     },
-                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first() },
+                    { submit: page.locator('div[role="dialog"] button.share-actions__primary-action, div[role="dialog"] button:has-text("Post")').first(), account: memberNow },
                   );
                 }),
             };
