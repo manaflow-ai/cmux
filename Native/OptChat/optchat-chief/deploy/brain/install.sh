@@ -68,6 +68,7 @@ render() { # label log args-xml env-xml
 SOCK="$BRAIN/daemon/cmux.sock"
 render "$P.daemon" "$BRAIN/logs/daemon.log" \
   "$(xml_args "$BRAIN/bin/cmux-tui" --headless --socket "$SOCK")" ""
+# The acpmux agent is the daemon's only supervisor; the host waits for it (OPTCHAT_ACPMUX_SUPERVISED=1).
 render "$P.acpmux" "$BRAIN/logs/acpmux.log" \
   "$(xml_args "$BRAIN/bin/acpmux" daemon run)" \
   "$(xml_env ACPMUX_HOME "$BRAIN/acpmux")"
@@ -75,7 +76,8 @@ render "$P.host" "$BRAIN/mux/host.log" \
   "$(xml_args "$BRAIN/bin/optchat-chief" host --conversation-source cloud \
       --cloud-install "$BRAIN/cloud/install.json" --daemon-socket "$SOCK" --mux-home "$BRAIN/mux")" \
   "$(xml_env MUX_HOME "$BRAIN/mux" ACPMUX_HOME "$BRAIN/acpmux" ACPMUX_SOCKET "$BRAIN/acpmux/acpmux.sock" \
-      ACPMUX_BIN "$BRAIN/bin/acpmux" MUX_HARNESS claude-sr CMUX_DAEMON_SOCKET "$SOCK")"
+      ACPMUX_BIN "$BRAIN/bin/acpmux" MUX_HARNESS claude-sr CMUX_DAEMON_SOCKET "$SOCK" \
+      OPTCHAT_ACPMUX_SUPERVISED 1)"
 
 ((START)) || { echo "not started (--no-start)"; exit 0; }
 domain="gui/$(id -u)"
