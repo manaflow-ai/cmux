@@ -28,6 +28,7 @@ pub(super) enum CommandPlan {
     RawCommand(super::raw::RawCommandPlan),
     AgentMessage(Box<super::agent_message::MessagePlan>),
     AgentInbox(super::agent_message::InboxPlan),
+    AgentList(super::agent_list::AgentListPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -1606,17 +1607,23 @@ fn parse_agent(
             }))
         }
         ["list"] => {
-            let mut params = Map::new();
-            if let Some(terminal) = flags.take("terminal") {
-                validate_prefixed_id("terminal", "term", &terminal)?;
-                params.insert("terminal_id".into(), Value::String(terminal));
-            }
-            if let Some(state) = flags.take("state") {
+            let terminal = flags.take("terminal");
+            let state = flags.take("state");
+            if let Some(state) = &state {
                 validate_one_of(
                     "--state",
-                    &state,
+                    state,
                     &["working", "blocked", "idle", "done", "unknown"],
                 )?;
+            }
+            // Without a terminal, the list also has the acpmux sessions.
+            let Some(terminal) = terminal else {
+                return Ok(CommandPlan::AgentList(super::agent_list::AgentListPlan { state }));
+            };
+            validate_prefixed_id("terminal", "term", &terminal)?;
+            let mut params = Map::new();
+            params.insert("terminal_id".into(), Value::String(terminal));
+            if let Some(state) = state {
                 params.insert("state".into(), Value::String(state));
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
@@ -4612,6 +4619,22 @@ mod tests {
                 super::super::Surface::CmuxTui
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn bare_agent_list_also_lists_acpmux_sessions() {
+        let plan =
+            parse(&strings(&["agent", "list", "--state", "idle"]), super::super::Surface::CmuxTui)
+                .unwrap();
+        assert!(matches!(
+            plan,
+            CommandPlan::AgentList(super::super::agent_list::AgentListPlan { state: Some(ref state) })
+                if state == "idle"
+        ));
+        assert!(
+            parse(&strings(&["agent", "list", "--state", "busy"]), super::super::Surface::CmuxTui)
+                .is_err()
         );
     }
 
