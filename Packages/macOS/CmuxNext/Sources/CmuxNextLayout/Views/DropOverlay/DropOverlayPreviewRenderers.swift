@@ -66,7 +66,7 @@ final class TabGhostRenderer: DropOverlayRenderer {
     init(material: OverlayMaterial?) {
         pill = OverlaySurfaceView(material: material)
         view.layer?.addSublayer(tint)
-        icon.image = NSImage(systemSymbolName: "plus.rectangle.on.rectangle", accessibilityDescription: nil)
+        icon.image = DropOverlayGlyph.image(.workspaceNew)
         label.font = Typography.bodyEmphasized
         label.lineBreakMode = .byTruncatingTail
         let stack = NSStackView(views: [icon, label])
