@@ -66,8 +66,10 @@ import Testing
         try cache.save(snapshot)
         let store = HomeStore(source: MockHomeSource(options: .immediate), cache: cache, cacheWriteDelay: .zero)
         store.start()
-        #expect(texts(store, Self.austin).allSatisfy { $0 == "stale copy" })
-        await waitUntil { store.isOnline && !self.texts(store, Self.austin).contains("stale copy") }
+        #expect(!texts(store, Self.austin).isEmpty && texts(store, Self.austin).allSatisfy { $0 == "stale copy" })
+        // The view opens the conversation; the owner's page replaces the copy.
+        store.beginOpen(Self.austin)
+        await waitUntil { store.isOnline && !self.texts(store, Self.austin).isEmpty && !self.texts(store, Self.austin).contains("stale copy") }
         #expect(!texts(store, Self.austin).contains("stale copy"))
         #expect(try #require(cache.load()).windows[Self.austin]?.contains { $0.parts == [.text("stale copy")] } == false,
                 "the cache follows the owner")

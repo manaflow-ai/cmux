@@ -5,9 +5,9 @@ import Foundation
 /// writes the Chief home's through the store, never its database file.
 protocol ChiefMemoryTool: Sendable {
     /// `memory export --text DIR`: the memory as JSONL day files (main/, tree/).
-    func exportText(muxHome: URL, to directory: URL) throws
+    nonisolated func exportText(muxHome: URL, to directory: URL) throws
     /// `memory import DIR`: JSONL day files into an empty memory (host stopped).
-    func importText(muxHome: URL, from directory: URL) throws
+    nonisolated func importText(muxHome: URL, from directory: URL) throws
 }
 
 /// The `optchat-chief` this build bundles (Contents/Resources/bin).

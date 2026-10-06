@@ -126,7 +126,7 @@ extension HomeService {
         // have shows nothing: a build's own Chief from before the Chief home.
         let dangling = workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { tab in
             tab.kind == .conversation
-                && tab.snapshot.conversation.map { $0.owner == "local" && !known.contains($0.conversation) } == true
+                && tab.snapshot.conversation.map { ref in ref.owner == "local" && ref.conversation.map { !known.contains($0) } == true } == true
         }
         if !dangling.isEmpty {
             try await connection.closeTabs(dangling.map(\.surface), endTerminals: false)
