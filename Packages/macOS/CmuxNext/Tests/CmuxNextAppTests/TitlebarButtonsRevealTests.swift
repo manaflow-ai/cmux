@@ -22,21 +22,21 @@ import Testing
         try body(root)
     }
 
-    @Test func hoverModeHidesHistoryButtonsUntilTheRowIsHovered() throws {
+    @Test func hoverModeKeepsHistoryButtonsVisible() throws {
         try withSettings(.hover) { root in
             let band = root.toolbarBand
             let frames = (band.backButton.frame, band.forwardButton.frame)
-            #expect(band.backButton.alphaValue == 0)
-            #expect(band.forwardButton.alphaValue == 0)
+            #expect(band.backButton.alphaValue == 1)
+            #expect(band.forwardButton.alphaValue == 1)
             #expect(root.trafficLightsGlass.alphaValue == 0)
             #expect(band.sidebarToggle.alphaValue == 1, "the sidebar toggle never fades")
             root.titlebarReveal.setPointerInside(true)
             #expect(band.backButton.alphaValue == 1)
             #expect(band.forwardButton.alphaValue == 1)
-            #expect(root.trafficLightsGlass.alphaValue == 1)
+            #expect(root.trafficLightsGlass.alphaValue == 0)
             #expect((band.backButton.frame, band.forwardButton.frame) == frames, "the buttons fade in place")
             root.titlebarReveal.setPointerInside(false)
-            #expect(band.backButton.alphaValue == 0)
+            #expect(band.backButton.alphaValue == 1)
             #expect(band.sidebarToggle.alphaValue == 1)
         }
     }
