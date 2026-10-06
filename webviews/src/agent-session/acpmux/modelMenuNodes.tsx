@@ -4,6 +4,7 @@
 import type React from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { Combo } from "./ComposerPickers";
+import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import type { Translate } from "./i18n";
 import {
@@ -42,7 +43,13 @@ export function pickerData(props: ModelPickerProps) {
   const provider = taxonomy.providers.find((candidate) => candidate.name === model?.provider);
   const family = provider?.families.find((candidate) => candidate.name === model?.family);
   const effortName = (id?: string) => props.efforts.find((choice) => choice.id === id)?.name ?? id;
-  const comboEffort = (combo: Combo) => combo.effort && (combo.effortName ?? effortName(combo.effort));
+  // A recent at the agent's default reasoning names only its model.
+  const comboEffort = (combo: Combo) =>
+    combo.effort && !isDefaultChoice({ id: combo.effort, name: combo.effortName })
+      ? (combo.effortName ?? effortName(combo.effort))
+      : undefined;
+  // The catalog's default model, which the taxonomy leaves out of its providers.
+  const defaultChoice = entry?.models.find((candidate) => isDefaultChoice(candidate));
   // Other harnesses are offered only as a new chat, and only when the pane can start one.
   const harnesses = props.catalog.filter((harness) => harness.id === props.harness || props.onHarness);
   const land = (landing: Landing | undefined) => {
@@ -58,6 +65,7 @@ export function pickerData(props: ModelPickerProps) {
     family,
     harnesses,
     harnessName: entry?.name ?? props.harness ?? "",
+    defaultChoice,
     effortName,
     comboEffort,
     isCurrentCombo: (combo: Combo) =>
@@ -250,25 +258,47 @@ export function menuNodes(
       children: families(provider),
     };
   };
+  /// The agent's own default model: the model it resolves to with a "Default" hint, else
+  /// "Default". Picking it keeps the session's effort.
+  const defaultRow = (section?: string): MenuNode | undefined => {
+    const choice = data.defaultChoice;
+    if (!choice) return undefined;
+    return {
+      key: `model:${choice.id}`,
+      label: props.resolvedDefault ?? t("picker.default"),
+      detail: props.resolvedDefault ? t("picker.default") : undefined,
+      section,
+      checked: choice.id === props.model,
+      run: () => props.onLand(choice.id),
+    };
+  };
   return {
     modelRow,
+    defaultRow,
     familyModels,
     currentFamily,
     familyRow,
     providerRow,
     /// The layer above models: providers when the harness serves several, else the one provider's families.
+    /// The agent's default model, when it has one, sits with them, nearest the best row.
     upperLayer(section = true): MenuNode[] {
       const providers = data.taxonomy.providers;
-      if (providers.length === 1) return families(providers[0]!, section ? t("picker.family") : undefined);
-      return folded(
-        t,
-        "providers",
-        data.rankProviders(providers),
-        (provider) => providerRow(provider, section ? t("picker.provider") : undefined),
-        order,
-        expanded,
-        expand,
-      );
+      const title = section ? t(providers.length === 1 ? "picker.family" : "picker.provider") : undefined;
+      const rows =
+        providers.length === 1
+          ? families(providers[0]!, title)
+          : folded(
+              t,
+              "providers",
+              data.rankProviders(providers),
+              (provider) => providerRow(provider, title),
+              order,
+              expanded,
+              expand,
+            );
+      const fallback = defaultRow(title);
+      if (!fallback) return rows;
+      return order === "bestLast" ? [...rows, fallback] : [fallback, ...rows];
     },
     /// One row naming the harness; its submenu lists the catalog's harnesses, others as a new chat.
     harnessRow(): MenuNode | undefined {

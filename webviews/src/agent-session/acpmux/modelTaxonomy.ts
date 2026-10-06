@@ -2,6 +2,7 @@
 // belongs to, which model a provider or family lands on, and the order a level lists them in.
 // Pure functions over the current harness's catalog and the viewer's recents; no React.
 import type { Combo } from "./ComposerPickers";
+import { isDefaultChoice } from "./defaultChoice";
 
 export type CatalogModel = { id: string; name?: string };
 
@@ -72,12 +73,14 @@ export function newestFirst(a: TaxModel, b: TaxModel): number {
 }
 
 /// The current harness's catalog as providers of families of models, each in catalog order of first appearance.
+/// The agent's default ("default") is left out.
 export function buildTaxonomy(models: CatalogModel[], harnessName: string): Taxonomy {
   const providers: TaxProvider[] = [];
   const byId = new Map<string, TaxModel>();
   const all: TaxModel[] = [];
   models.forEach((model, order) => {
-    if (byId.has(model.id)) return;
+    // The agent's own default is no provider's model; the picker offers it as its own row.
+    if (byId.has(model.id) || isDefaultChoice(model)) return;
     const { provider, family } = classify(model, harnessName);
     const entry: TaxModel = {
       id: model.id,
