@@ -35,6 +35,11 @@ matches, so a toolchain bump stops until its text is reviewed.
 FreeType: the macos slice links FreeType, so hand-written.md's `FreeType` section holds the
 FreeType License credit; `ios_notices.py check-macos` (source-archive CI, with the license
 tree) fails when it does not name the FreeType version of the pinned tree (`FREETYPE_YEARS`).
+The collected tree also carries FreeType's docs/FTL.TXT and the BDF, PCF and fthash.c terms
+(pinned-licenses/MANIFEST.json `supplements`: collect-ghostty-licenses.py ships each text only
+when the fetched package has exactly those bytes, and stops on a FreeType with another hash).
+The gzip module's zlib copy and ft-hb.c are not compiled (system zlib, no HarfBuzz), so
+their terms do not ship; the note in MANIFEST.json gives the symbol evidence.
 
 musl: GhosttyNextKit's Termio inlines Zig's `std.math.cbrt` (ported from musl), so the
 app binary (`Contents/MacOS/cmux`) and the iOS pane carry musl's COPYRIGHT (hand-written
