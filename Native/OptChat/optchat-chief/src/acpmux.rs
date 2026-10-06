@@ -298,8 +298,15 @@ impl Acpmux {
             // Always say both: acpmux merges a set into the preset it saved,
             // and the last host's Claude args or system prompt (an engine
             // switch on the same daemon) would stay and refuse a codex set.
-            set["args"] = if preset.args.is_empty() { Value::Null } else { json!(preset.args) };
-            set["systemPrompt"] = preset.system_prompt.as_ref().map_or(Value::Null, |text| json!(text));
+            set["args"] = if preset.args.is_empty() {
+                Value::Null
+            } else {
+                json!(preset.args)
+            };
+            set["systemPrompt"] = preset
+                .system_prompt
+                .as_ref()
+                .map_or(Value::Null, |text| json!(text));
             let result = loop {
                 let result =
                     client.request("_acpmux/presets", json!({"name": preset.name, "set": set}));

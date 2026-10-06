@@ -9,7 +9,7 @@ extension ChiefMigration {
     /// An old Chief: its memory through the store's export when it has the
     /// SQLite store (`memory.sqlite3`), else its JSONL day files; its host
     /// cursor from the store's state table or `host.json`.
-    nonisolated static func readSource(_ old: Old, tool: (any ChiefMemoryTool)? = nil, scratch: URL? = nil) -> ChiefMigrationSource? {
+    nonisolated static func readSource(_ old: Old, tool: (any ChiefMemoryTool)? = nil, scratch: URL? = nil) async -> ChiefMigrationSource? {
         let optchat = old.muxHome.appendingPathComponent("optchat", isDirectory: true)
         let database = optchat.appendingPathComponent("memory.sqlite3")
         var textDir = optchat.appendingPathComponent("chat", isDirectory: true)
@@ -18,13 +18,13 @@ extension ChiefMigration {
         if FileManager.default.fileExists(atPath: database.path) {
             guard let tool, let scratch else { return nil }
             let exported = scratch.appendingPathComponent("export-\(old.tag)", isDirectory: true)
-            do { try tool.exportText(muxHome: old.muxHome, to: exported) } catch { return nil }
+            do { try await tool.exportText(muxHome: old.muxHome, to: exported) } catch { return nil }
             textDir = exported
             let state = Dictionary(uniqueKeysWithValues: (readStoreRows(database, "SELECT key, value FROM state WHERE key LIKE 'host/%'") ?? [])
                 .compactMap { row in row.count == 2 ? (row[0], row[1]) : nil })
             hostConversation = state["host/conversation"].flatMap { try? JSONSerialization.jsonObject(with: Data($0.utf8), options: .fragmentsAllowed) as? String }
             loggedSeq = state["host/logged_seq"].flatMap { UInt64($0) } ?? 0
-        } else if let data = try? Data(contentsOf: optchat.appendingPathComponent("host.json")),
+        } else if let data = try? Data(contentsOf: optchat.appendingPathComponent("host.json")), // concurrency-allow: only ChiefMigration.run (@concurrent) reads sources, off the main actor
                   let state = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             hostConversation = state["conversation"] as? String
             loggedSeq = (state["logged_seq"] as? NSNumber)?.uint64Value ?? 0
@@ -41,6 +41,7 @@ extension ChiefMigration {
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: main.path)) ?? []).filter { $0.hasSuffix(".jsonl") }
         var entries: [ChiefMigrationSource.LogEntry] = []
         for name in names {
+            // concurrency-allow: only ChiefMigration.run (@concurrent) and tests read old logs, off the main actor
             guard let text = try? String(contentsOf: main.appendingPathComponent(name), encoding: .utf8) else { continue }
             for line in text.split(separator: "\n") {
                 guard let object = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],

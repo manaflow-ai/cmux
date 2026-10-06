@@ -1467,11 +1467,12 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
-    # Waits up to 45 minutes for the artifacts workflow to publish this tree.
-    timeout-minutes: 55
+    # Never waits for the tip's tree: it takes the newest published one.
+    timeout-minutes: 15
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
       key: ${{ steps.resolve.outputs.key }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1479,24 +1480,32 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: false
+          # The resolver searches the last CMUX_TUI_TREE_SEARCH_COMMITS commits.
+          fetch-depth: 64
 
       # The fast arm64 build bundles its own compiled client instead.
-      # The nightly ships the daemon built from its own cmux-tui tree, as every
-      # tagged build does (scripts/cmux-next/pin-cmux-tui.sh --help): the commit
-      # that published this tree, whose attested manifest the sign job installs.
+      # The nightly ships the daemon of the newest commit (within the last
+      # CMUX_TUI_TREE_SEARCH_COMMITS) whose cmux-tui tree IS published, verified
+      # by its publishing commit's manifest sha256; the sign job installs that
+      # commit's attested manifest. It never waits for the tip's own tree:
+      # cmux-tui-artifacts.yml lets a running build finish and a newer push
+      # replaces only the pending run, so under steady pushes the tip's tree may
+      # never publish (run 37464320457 failed after 45 min waiting for it).
       - name: Resolve cmux-tui client commit
         id: resolve
         if: needs.decide.outputs.fast_build != 'true'
         env:
-          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          CMUX_TUI_TREE_SEARCH_COMMITS: "50"
         run: |
           set -euo pipefail
-          cmux_tui_key="$(scripts/cmux-next/pin-cmux-tui.sh key)"
-          cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
-          echo "cmux-tui tree $cmux_tui_key: commit $cmux_tui_commit"
-          echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
-          echo "key=$cmux_tui_key" >> "$GITHUB_OUTPUT"
+          # Prints commit=, key=, source_commit=, tip_key= and behind= lines and
+          # writes the tree and commit to the step summary.
+          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"
+          printf '%s\n' "$resolved"
+          grep -Eq '^commit=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Eq '^source_commit=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Eq '^key=[0-9a-f]{40}$' <<<"$resolved"
+          printf '%s\n' "$resolved" >> "$GITHUB_OUTPUT"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
