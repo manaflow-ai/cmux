@@ -621,7 +621,10 @@ final class LongTextStore: @unchecked Sendable {
     /// The row size of a message's long text part: folded (LongTextFold) or full.
     func size(_ text: String, width: CGFloat, message id: ID) -> CGSize {
         let l = layout(text, width: width)
-        return LongTextFold.isFolded(id, l) ? LongTextFold.size(l) : l.size
+        if LongTextFold.isFolded(id, l) { return LongTextFold.size(l) }
+        // Expanded: the "Show less" band follows the last line.
+        if LongTextFold.isFoldable(l) { return CGSize(width: l.size.width, height: l.size.height + LongTextFold.bandHeight) }
+        return l.size
     }
 
     func layout(_ text: String, width: CGFloat) -> LongTextLayout {
@@ -765,11 +768,12 @@ enum LongTextFold {
     }
     private static let lock = NSLock()
     private static var expanded = Set<ID>()
+    /// Session only: expanded messages are not stored (they fold again at launch).
     static func expand(_ id: ID) { lock.lock(); expanded.insert(id); lock.unlock() }
+    static func collapse(_ id: ID) { lock.lock(); expanded.remove(id); lock.unlock() }
+    static func isFoldable(_ l: LongTextLayout) -> Bool { enabled && l.index.ready && l.estimatedLines > maxLines }
     static func isExpanded(_ id: ID) -> Bool { lock.lock(); defer { lock.unlock() }; return expanded.contains(id) }
-    static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool {
-        enabled && l.index.ready && l.estimatedLines > maxLines && !isExpanded(id)
-    }
+    static func isFolded(_ id: ID, _ l: LongTextLayout) -> Bool { isFoldable(l) && !isExpanded(id) }
     static func size(_ l: LongTextLayout) -> CGSize {
         CGSize(width: l.column + 2 * Fixture.bubblePadX,
                height: CGFloat(headLines + tailLines) * Fixture.lineHeight + bandHeight + 2 * Fixture.bubblePadY)
@@ -777,4 +781,5 @@ enum LongTextFold {
     static func label(_ n: Int) -> String {
         String(format: String(localized: "longtext.showAll", defaultValue: "Show all %lld lines"), n)
     }
+    static var lessLabel: String { String(localized: "longtext.showLess", defaultValue: "Show less") }
 }

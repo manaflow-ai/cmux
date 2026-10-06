@@ -83,8 +83,10 @@ A patch that no longer applies stops the sync; fix that file by hand, then
 
 Partial roll-ins: a vendor.tsv row with a third column takes that file from
 its own MessagesLab commit (the pin stays for the rest), for upstream commits
-that are wip checkpoints. Current pins (2026-10-06): every file at bcfffae
-(89a1c5b, 2a0805d, 93cf61f and bcfffae as one pin: resize anchoring like Messages, the
+that are wip checkpoints. Current pins (2026-10-06): every file at 48db8a7
+(89a1c5b, 2a0805d, 93cf61f, bcfffae, 0fffbd2 and 48db8a7 as one pin: long messages
+collapse above 3 screens ("Show all N lines", EN and JA from upstream), header glass
+and scroll indicator timing measured from Messages, resize anchoring like Messages, the
 grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
 track click, compose hover only over the field; bcfffae's LinkPresentation

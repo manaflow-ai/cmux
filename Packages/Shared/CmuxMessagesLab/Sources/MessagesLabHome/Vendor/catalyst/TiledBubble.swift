@@ -148,13 +148,16 @@ final class TiledBody {
     /// Folded (LongTextFold): head and tail lines in clipped regions, the band between.
     let headClip = CALayer(), tailClip = CALayer(), band = CALayer()
     private(set) var folded = false
+    /// Expanded foldable message: the "Show less" band after the last line.
+    private(set) var lessBand = false
     /// The "Show all N lines" band in cell coordinates (zero when not folded).
     private(set) var bandRect: CGRect = .zero
     private var bandKey = ""
 
     init() {
         for l in [container, shape, headClip, tailClip, band] { l.actions = TiledBody.noActions }
-        container.masksToBounds = false
+        // The container is the row (tiles never reach past it); it clips during an expansion.
+        container.masksToBounds = true
         headClip.masksToBounds = true
         tailClip.masksToBounds = true
         container.addSublayer(headClip)
@@ -228,11 +231,18 @@ final class TiledBody {
 
     private func configureFold(_ p: PartRow, layout: LongTextLayout, scale s: CGFloat) {
         folded = LongTextFold.isFolded(p.ref.messageId, layout)
+        lessBand = !folded && LongTextFold.isFoldable(layout)
         headClip.isHidden = !folded
         tailClip.isHidden = !folded
-        band.isHidden = !folded
-        guard folded else { bandRect = .zero; return }
+        band.isHidden = !folded && !lessBand
         let lh = Fixture.lineHeight, textTop = body.minY + Fixture.bubblePadY
+        if lessBand {
+            bandRect = CGRect(x: body.minX, y: textTop + CGFloat(layout.totalLines) * lh, width: body.width, height: LongTextFold.bandHeight)
+            band.frame = bandRect
+            drawBand(LongTextFold.lessLabel, p, scale: s)
+            return
+        }
+        guard folded else { bandRect = .zero; return }
         let headH = CGFloat(LongTextFold.headLines) * lh, tailH = CGFloat(LongTextFold.tailLines) * lh
         // Clips reach 4 pt past their line slots (descenders), never into the other region's text.
         headClip.frame = CGRect(x: body.minX, y: body.minY, width: body.width, height: textTop + headH + 4 - body.minY)
@@ -240,7 +250,11 @@ final class TiledBody {
         tailClip.frame = CGRect(x: body.minX, y: tailTop - 4, width: body.width, height: body.maxY - (tailTop - 4))
         bandRect = CGRect(x: body.minX, y: textTop + headH, width: body.width, height: LongTextFold.bandHeight)
         band.frame = bandRect
-        let label = LongTextFold.label(layout.index.hardLines)
+        drawBand(LongTextFold.label(layout.index.hardLines), p, scale: s)
+    }
+
+    private func drawBand(_ label: String, _ p: PartRow, scale s: CGFloat) {
+        let lh = Fixture.lineHeight
         let key = "\(label)|\(p.outgoing)|\(body.width)|\(s)|\(Fixture.paletteGeneration)"
         guard key != bandKey else { return }
         bandKey = key

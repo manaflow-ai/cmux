@@ -1252,6 +1252,118 @@ final class ThreadBackdrop {
 // MARK: Long text heights (LongText.swift, shared/LONG-MESSAGES.md)
 
 extension MessagesWindowView {
+    /// A click on a long message's band: "Show all N lines" expands it, "Show less" folds it
+    /// again (true: handled).
+    func longTextBandHit(_ p: CGPoint) -> Bool {
+        for case let cell as RowCell in collection.visibleCells {
+            guard let t = cell.tiled, t.folded || t.lessBand, let spec = cell.spec, case let .part(row) = spec.kind else { continue }
+            let r = cell.convert(t.bandRect, to: self)
+            guard r.insetBy(dx: 0, dy: -4).contains(p) else { continue }
+            setLongTextFolded(!t.folded, id: row.ref.messageId, key: spec.key)
+            return true
+        }
+        return false
+    }
+
+    func expandLongText(_ id: ID, key: String) { setLongTextFolded(false, id: id, key: key) }
+    func collapseLongText(_ id: ID, key: String) { setLongTextFolded(true, id: id, key: key) }
+
+    /// Fold or expand a long message in place, with the band as the anchor (0 pt):
+    /// - expand: the 41st line takes the "Show all" band's window position; the bubble's
+    ///   bottom and the rows below slide down one viewport with the `scroll.bottom` spring,
+    ///   then a hold covers the rest of the distance (off screen, below);
+    /// - fold: the last line keeps its window position (the "Show less" band was under it);
+    ///   the head, the band and the rows above come down from one viewport above.
+    /// Rows below stay laid out during the slide (recycler overscan), never vanish.
+    func setLongTextFolded(_ fold: Bool, id: ID, key: String) {
+        guard let i0 = model.index[key], case let .part(p0) = model.rows[i0].spec.kind, case let .text(t, _) = p0.part else { return }
+        let width = model.rows[i0].spec.width, lh = Fixture.lineHeight, pad = Fixture.bubblePadY
+        let l = LongTextStore.shared.layout(t, width: width)
+        let head = pad + CGFloat(LongTextFold.headLines) * lh
+        let oldAnchor = fold ? pad + CGFloat(l.totalLines) * lh : head
+        let newAnchor = fold ? pad + CGFloat(LongTextFold.headLines + LongTextFold.tailLines) * lh + LongTextFold.bandHeight : head
+        let oldOffset = collection.contentOffset.y
+        let oldTop = layout.contentTop(i0), oldBody = model.rows[i0].spec.height
+        var before: [String: CGFloat] = [:]
+        for case let c as RowCell in collection.visibleCells {
+            if let k = c.spec?.key { before[k] = c.convert(c.bounds, to: self).minY }
+        }
+        if fold { LongTextFold.collapse(id) } else { LongTextFold.expand(id) }
+        let size = LongTextStore.shared.size(t, width: width, message: id)
+        let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
+            guard r.spec.key == key, case var .part(p) = r.spec.kind else { return r.spec }
+            var s = r.spec
+            p.size = size
+            s.kind = .part(p)
+            s.height = size.height
+            return s
+        }
+        let delta = size.height - oldBody                // > 0 expand, < 0 fold
+        let travel = cvHeight, shown = min(abs(delta), travel), hidden = abs(delta) - shown
+        let el = Springs.scrollToBottom
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let recycler = collection as? RowRecycler
+        let overscan = delta > 0 ? abs(delta) + travel : 0
+        if let recycler, overscan > recycler.overscanBottom { recycler.overscanBottom = overscan }
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, let r = self.collection as? RowRecycler, r.overscanBottom == overscan, overscan > 0 else { return }
+            r.overscanBottom = 0
+        }
+        model.set(rows, at: clock(), ghosts: false)
+        let rebase = layout.rebaseIfNeeded()
+        layout.invalidateLayout()
+        guard let i = model.index[key] else { CATransaction.commit(); return }
+        let newOffset = oldOffset + rebase + (layout.contentTop(i) + newAnchor) - (oldTop + oldAnchor + rebase)
+        collection.contentInset.top = -minOffset
+        setOffset(min(max(newOffset, minOffset), pinnedOffset))
+        // At the very bottom the transcript cannot scroll past its end: the rest of the
+        // anchor shift (a fold: the "Show less" band height) slides with the spring instead.
+        let residual = newOffset - collection.contentOffset.y
+        collection.setNeedsLayout(); collection.layoutIfNeeded()
+        refreshVisibleCells()
+        let begin = Animate.now(layer)
+        /// Presented value starts at model - d: the spring covers the visible part; for an
+        /// expansion a hold covers the far part at the end (off screen below).
+        func slide(_ l: CALayer, _ kp: String, _ model: CGFloat, by d: CGFloat, hold: CGFloat) {
+            if hold != 0 {
+                let h = CABasicAnimation(keyPath: kp)
+                h.isAdditive = true
+                h.fromValue = -Double(hold); h.toValue = -Double(hold)
+                h.beginTime = begin; h.duration = el.settleTime; h.fillMode = .backwards
+                l.add(h, forKey: "fold.hold." + kp)
+            }
+            Animate.scalar(l, kp, from: Double(model - d), to: Double(model), el, begin: begin)
+        }
+        for case let c as RowCell in collection.visibleCells {
+            guard let k = c.spec?.key, let idx = model.index[k] else { continue }
+            if abs(residual) > 0.01 { slide(c.layer, "position.y", c.layer.position.y, by: residual, hold: 0) }
+            if k == key, let tb = c.tiled {
+                for l in [tb.shape, tb.container] {
+                    if delta > 0 {
+                        slide(l, "bounds.size.height", l.bounds.height, by: shown, hold: hidden)
+                        slide(l, "position.y", l.position.y, by: shown / 2, hold: hidden / 2)
+                    } else {
+                        slide(l, "bounds.size.height", l.bounds.height, by: -shown, hold: 0)
+                        slide(l, "position.y", l.position.y, by: shown / 2, hold: 0)
+                    }
+                }
+                if delta < 0 { for l in [tb.headClip, tb.band] { slide(l, "position.y", l.position.y, by: shown, hold: 0) } }
+                continue
+            }
+            if delta > 0, idx > i, let old = before[k] {
+                // Below the message: from its old window position down.
+                let d = c.convert(c.bounds, to: self).minY - old
+                if d > 0.5 { slide(c.layer, "position.y", c.layer.position.y, by: min(d, travel), hold: max(0, d - travel)) }
+            } else if delta < 0, idx < i {
+                // Above the message: in from one viewport above.
+                slide(c.layer, "position.y", c.layer.position.y, by: shown, hold: 0)
+            }
+        }
+        updateThumb()
+        CATransaction.commit()
+        userScrolled()
+    }
+
     /// Measured line counts replace estimates in long text rows, without animation.
     /// Pinned stays pinned. Scrolled up, the text under the top of the viewport keeps its
     /// window position: inside a long row the anchor is a text position (block start byte
@@ -1275,7 +1387,7 @@ extension MessagesWindowView {
         let rows: [RowSpec] = model.rows.filter { !$0.ghost }.map { r in
             guard case var .part(p) = r.spec.kind, case let .text(t, _) = p.part, p.text == nil,
                   let lin = LongTextStore.shared.lineage(t), lineages.contains(lin) else { return r.spec }
-            let size = LongTextStore.shared.size(t, width: r.spec.width)
+            let size = LongTextStore.shared.size(t, width: r.spec.width, message: p.ref.messageId)
             guard size != p.size else { return r.spec }
             changed = true
             var s = r.spec

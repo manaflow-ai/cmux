@@ -294,18 +294,41 @@ final class SequenceScroller: NSScroller {
     /// 0.5 pt dark (27) edge, its right side 2 pt from the window's right edge, no track.
     override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
     /// Own visibility: AppKit's overlay fade does not reach an overridden `drawKnob`, so
-    /// the knob stayed drawn at rest. Shown on `reveal()`, faded out after a pause.
+    /// the knob stayed drawn at rest. Shown on `reveal()` (every user scroll movement), faded
+    /// out after a pause. Timing fitted to Messages (scrollbar-scroll-fade reference, thumb
+    /// level per frame): fade-in 0.24 s, cubic-bezier (0.3, 1, 0.6, 1) (rms 0.005), starting
+    /// 0.054 s after the wheel event (ours' first movement comes about that late, so no extra
+    /// delay); fade-out starts 0.72 s after the last wheel event and is linear, 0.092 s.
+    /// Messages animates a wheel step 0.09 s longer than ours; scroll pacing is out of the
+    /// parity bar, so the hold counts from ours' last movement (about the event time).
     private var shown = false
-    private var hideTimer: Timer?
-    static let holdTime: TimeInterval = 0.9, fadeTime: TimeInterval = 0.3
+    private var hideTimer: Timer?, showTimer: Timer?
+    static let showDelay: TimeInterval = 0, fadeInTime: TimeInterval = 0.24
+    static let holdTime: TimeInterval = 0.72, fadeTime: TimeInterval = 0.092
     func reveal() {
         hideTimer?.invalidate()
-        if !shown { shown = true; alphaValue = 1; needsDisplay = true }
-        if alphaValue < 1 { alphaValue = 1 }
+        if !shown {
+            shown = true
+            alphaValue = 0
+            needsDisplay = true
+            showTimer?.invalidate()
+            showTimer = Timer.scheduledTimer(withTimeInterval: Self.showDelay, repeats: false) { [weak self] _ in
+                guard let self, self.shown else { return }
+                NSAnimationContext.runAnimationGroup { c in
+                    c.duration = Self.fadeInTime
+                    c.timingFunction = CAMediaTimingFunction(controlPoints: 0.3, 1, 0.6, 1)
+                    self.animator().alphaValue = 1
+                }
+            }
+        } else if showTimer?.isValid != true, alphaValue < 1 {
+            // Scrolling again during the fade-out: back to full at once.
+            alphaValue = 1
+        }
         hideTimer = Timer.scheduledTimer(withTimeInterval: Self.holdTime, repeats: false) { [weak self] _ in
             guard let self, !self.dragging else { return }
             NSAnimationContext.runAnimationGroup({ c in
                 c.duration = Self.fadeTime
+                c.timingFunction = CAMediaTimingFunction(name: .linear)
                 self.animator().alphaValue = 0
             }, completionHandler: { [weak self] in
                 guard let self, self.alphaValue == 0 else { return }
