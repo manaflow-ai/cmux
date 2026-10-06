@@ -37,7 +37,8 @@ public final class BrowserReplPublicSuffixList: Sendable {
         var trimmed = name.trimmingCharacters(in: .whitespaces)
         while trimmed.hasPrefix(".") { trimmed.removeFirst() }
         let normalized = BrowserReplHostName.normalize(trimmed)
-        guard !normalized.isEmpty, !BrowserReplHostName.isIPAddress(normalized) else { return false }
+        guard !normalized.isEmpty, !BrowserReplHostName.isOverlong(normalized),
+              !BrowserReplHostName.isIPAddress(normalized) else { return false }
         return lookup(normalized)
     }
 
@@ -56,7 +57,9 @@ public final class BrowserReplPublicSuffixList: Sendable {
         var name = host.trimmingCharacters(in: .whitespaces)
         while name.hasPrefix(".") { name.removeFirst() }
         let normalized = BrowserReplHostName.normalize(name)
-        guard !normalized.isEmpty, !BrowserReplHostName.isIPAddress(normalized) else { return normalized }
+        // An overlong host is no host name: its own site, not walked.
+        guard !normalized.isEmpty, !BrowserReplHostName.isOverlong(normalized),
+              !BrowserReplHostName.isIPAddress(normalized) else { return normalized }
         let labels = normalized.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard labels.count > 1, !labels.contains(where: \.isEmpty) else { return normalized }
         // The longest public suffix wins: walk from the longest parent.
