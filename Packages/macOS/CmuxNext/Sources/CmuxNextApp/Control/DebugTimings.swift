@@ -1,5 +1,5 @@
 import AppKit
-import enum CmuxNextAgentPane.AgentPaneLaunchTimings
+import class CmuxNextAgentPane.AgentPaneLaunchTimings
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
@@ -57,7 +57,7 @@ enum DebugTimings {
 
     static func install() {
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
-        AgentPaneLaunchTimings.install { markLaunch($0) }
+        AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }

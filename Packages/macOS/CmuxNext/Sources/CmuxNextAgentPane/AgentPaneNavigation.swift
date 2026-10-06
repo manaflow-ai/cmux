@@ -26,7 +26,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        AgentPaneLaunchTimings.mark("agent_pane.page_loaded")
+        AgentPaneLaunchTimings.shared.mark("agent_pane.page_loaded")
         view?.applyTheme()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()

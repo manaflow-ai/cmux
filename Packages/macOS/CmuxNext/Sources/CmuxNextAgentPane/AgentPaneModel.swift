@@ -182,7 +182,7 @@ public final class AgentPaneModel {
         }
         switch request {
         case .ready, .reconnect:
-            if request == .ready { AgentPaneLaunchTimings.mark("agent_pane.handshake_start") }
+            if request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_start") }
             setCheckpointAvailable(false)
             do {
                 var handshake = request == .ready
@@ -217,7 +217,7 @@ public final class AgentPaneModel {
                 // The connection stays here; the reply never encodes it.
                 pendingConnection = handshake.connection
                 handshake.connection = nil
-                if request == .ready { AgentPaneLaunchTimings.mark("agent_pane.handshake_end") }
+                if request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_end") }
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
