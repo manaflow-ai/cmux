@@ -80,6 +80,10 @@ fn serve() -> u16 {
                         .to_owned(),
                     "/confirm" => "<!doctype html><title>Confirm</title><button id=c onclick=\"document.getElementById('r').textContent = String(confirm('go?'))\">Ask</button><p id=r>none</p>".to_owned(),
                     "/second" => "<!doctype html><title>Second</title><p>second</p>".to_owned(),
+                    "/held" => "<!doctype html><title>Held</title><p id=log></p><script>\
+                         for (const t of ['keyup', 'mouseup']) addEventListener(t, (e) => { \
+                           document.getElementById('log').textContent += t + ' ' + (t === 'mouseup' ? e.button : e.key) + ' ' + e.isTrusted + ';'; }, true);</script>"
+                        .to_owned(),
                     "/script.js" => "window.__loaded = true;".to_owned(),
                     "/scripted" => "<!doctype html><html><head><title>Scripted</title><script src=\"/script.js\"></script></head><body><p>second</p><script>window.__inline = 1;</script></body></html>".to_owned(),
                     "/fields" => "<!doctype html><title>Fields</title>\
@@ -1076,4 +1080,76 @@ fn only_the_person_reads_the_hosts_unrouted_log() {
     let reader = open("reader", "cli");
     let info = reader.call("tab.info", &json!({"targetId": target})).unwrap();
     assert!(info.get("unroutedEvents").is_none(), "an agent read the host log: {info}");
+}
+
+/// driver-protocol.md "Sessions and tabs": when the LAST session leaves a
+/// tab, the keys and mouse buttons the sessions left pressed are released
+/// (key-ups last pressed first, then button-ups at the last mouse
+/// position), as trusted events; not while another session still drives it.
+#[test]
+#[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME; run explicitly with --ignored"]
+fn held_input_is_released_when_the_last_session_leaves() {
+    use cmux_browser_host::headless_source::{HeadlessBrowsers, HeadlessSession, HeadlessSource};
+    let binary = std::env::var_os("CMUX_BROWSER_HOST_TEST_CHROME")
+        .filter(|value| !value.is_empty())
+        .expect("CMUX_BROWSER_HOST_TEST_CHROME must name a Chromium binary");
+    let port = serve();
+    let source =
+        HeadlessSource::launch(&HeadlessOptions::new(binary.into()), Arc::from(AGENT), "agent")
+            .expect("launch the shared browser");
+    let browsers: HeadlessBrowsers = Arc::default();
+    let open = |name: &str| {
+        let lease = cmux_browser_host::lease::LeaseCaller {
+            session: name.into(),
+            actor: "t".into(),
+            on_behalf_of: None,
+            origin: "cli".into(),
+            label: String::new(),
+            implicit_session: false,
+            engine: "headless".into(),
+        };
+        HeadlessSession::new(source.clone(), &browsers, Arc::from(AGENT), Arc::new(|_| {}), lease)
+            .unwrap()
+    };
+    let read = |session: &HeadlessSession, target: &str| -> String {
+        session
+            .call(
+                "frame.evaluate",
+                &json!({"targetId": target, "world": "agent",
+                    "source": "() => document.getElementById('log').textContent"}),
+            )
+            .unwrap()
+            .as_str()
+            .unwrap_or("")
+            .to_owned()
+    };
+    let a = open("a");
+    let target = a
+        .call("tabs.open", &json!({"url": format!("http://127.0.0.1:{port}/held")}))
+        .unwrap()["targetId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    a.call("tab.keep", &json!({"targetId": target})).unwrap();
+    for (key, code) in [("Shift", "ShiftLeft"), ("A", "KeyA")] {
+        a.call(
+            "input.key",
+            &json!({"targetId": target, "type": "down", "key": key, "code": code}),
+        )
+        .unwrap();
+    }
+    a.call("input.mouse", &json!({"targetId": target, "type": "move", "x": 5, "y": 5})).unwrap();
+    a.call("input.mouse", &json!({"targetId": target, "type": "down", "button": "left"}))
+        .unwrap();
+    // b drives the tab too (a read): a's end releases nothing yet.
+    let b = open("b");
+    b.call("tab.info", &json!({"targetId": target})).unwrap();
+    a.end_session();
+    drop(a);
+    assert_eq!(read(&b, &target), "", "released while b still drives the tab");
+    b.end_session();
+    drop(b);
+    let c = open("c");
+    let log = read(&c, &target);
+    assert_eq!(log, "keyup A true;keyup Shift true;mouseup 0 true;", "{log}");
 }
