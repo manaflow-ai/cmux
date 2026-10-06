@@ -238,6 +238,8 @@ class Launch:
 RUN_TAGS = []
 # --focus: the realistic profile's focused pane at quit ("agent" or "terminal").
 SEED_FOCUS = "agent"
+# --chat-pane: with --focus terminal, the chat's pane (first or last).
+SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
 
@@ -335,9 +337,10 @@ def seed_realistic(tag, scratch, timeout):
             print(f"  {tag}: the app never listed a tab in project-01", file=sys.stderr)
         steps = [("palette.goToTab", {"kind": "tab", "id": focus_tab}), ("splitRight", None)]
         if SEED_FOCUS == "terminal":
-            # A launch focuses the screen's first pane: the chat goes in the
-            # last one, so the focused pane at launch is a terminal.
-            steps.append(("palette.goToTab", lambda: {"kind": "tab", "id": project_panes(app)[-1]["tabs"][0]["id"]}))
+            # The chat goes in the last pane, or with "first" in the first
+            # one, which a launch that ignores the saved focus would pick.
+            index = 0 if SEED_CHAT_PANE == "first" else -1
+            steps.append(("palette.goToTab", lambda: {"kind": "tab", "id": project_panes(app)[index]["tabs"][0]["id"]}))
         steps.append(("palette.newAgentChat", None))
         agent = True
         for action, target in steps:
@@ -374,7 +377,7 @@ def seed_realistic(tag, scratch, timeout):
     finally:
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
-        out.write(f"agent focus={SEED_FOCUS}\n" if agent else f"terminals focus={SEED_FOCUS}\n")
+        out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
 
 
 def seeded_agent(tag):
@@ -383,6 +386,10 @@ def seeded_agent(tag):
             return marker.read().startswith("agent")
     except OSError:
         return False
+
+
+def seed_layout():
+    return SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
 
 
 def seeded_focus(tag):
@@ -409,7 +416,7 @@ def one_run(tag, mode, timeout, profile=None):
     any_of = profile != "realistic"
     if profile == "empty":
         reset_state(tag)
-    elif profile == "realistic" and seeded_focus(tag) != SEED_FOCUS:
+    elif profile == "realistic" and seeded_focus(tag) != seed_layout():
         seed_realistic(tag, scratch, timeout)
     if profile == "realistic" and not seeded_agent(tag):
         final = [FINAL_MARK]
@@ -556,6 +563,8 @@ def main():
                              "(default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
+    parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
+                        help="realistic with --focus terminal: the chat's pane; first puts the focused terminal after it")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
@@ -565,9 +574,10 @@ def main():
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
     HANG_THRESHOLD_MS = args.hangs
     SEED_FOCUS = args.focus
+    SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
         args.tag.append(app_tag(path))
