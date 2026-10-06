@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import { JSDOM } from "jsdom";
 
 const viewerDir = join(import.meta.dir, "../../Resources/markdown-viewer");
@@ -65,8 +66,8 @@ export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markd
   const body = Array.from(dom.window.document.querySelectorAll("script"))
     .map((script) => `${script.textContent ?? ""}\n;if (typeof hljs !== "undefined") { win.hljs = hljs; }\n`)
     .join("\n");
-  // oxlint-disable-next-line no-implied-eval -- runs the shell's scripts inside the fake window.
-  new Function("win", `with (win) {\n${body}\n}`)(win);
+  // The scripts resolve free names through the jsdom window, as they do in the page.
+  runInNewContext(`with (win) {\n${body}\n}`, { win });
   const window = win as unknown as { __cmuxRenderMarkdown(md: string): void };
   return {
     dom,
