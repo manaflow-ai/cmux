@@ -202,11 +202,13 @@ struct SidebarFooterMenuButton: View {
         menu.addSidebarFooterSeparator()
         SidebarHelpMenuItems.addMaintenance(to: menu, browserDataImportCoordinator: browserDataImportCoordinator)
 
+        let isProStatusKnownForUpgrade = flow.map {
+            !$0.isWorkingOnAuth && ($0.currentIdentity == nil || $0.isProStatusKnown)
+        } ?? true
         let offersUpgrade = SidebarFooterPresentationPolicy.isUpgradeVisible(
-            featureFlagEnabled: flow?.isProUpgradeAvailable
-                ?? CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
+            featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
             isProActive: flow?.isProActive == true,
-            isProStatusKnown: identity == nil || flow?.isProStatusKnown == true
+            isProStatusKnown: isProStatusKnownForUpgrade
         )
         if offersUpgrade {
             menu.addSidebarFooterSeparator()

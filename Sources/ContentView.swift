@@ -15395,6 +15395,11 @@ struct SidebarFooterButtons: View {
         return "\(accountID):\(flow.confirmedTeamID ?? "personal"):\(flow.isProUpgradeAvailable):\(flow.isAuthenticated)"
     }
 
+    private var isProStatusKnownForUpgrade: Bool {
+        guard let flow = accountFlow else { return true }
+        return !flow.isWorkingOnAuth && (flow.currentIdentity == nil || flow.isProStatusKnown)
+    }
+
     private func shows(_ control: SidebarFooterControl) -> Bool {
         SidebarFooterPresentationPolicy.isVisible(control, presentationMode: presentationMode)
     }
@@ -15435,8 +15440,7 @@ struct SidebarFooterButtons: View {
                SidebarFooterPresentationPolicy.isUpgradeVisible(
                    featureFlagEnabled: CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
                    isProActive: accountFlow?.isProActive == true,
-                   isProStatusKnown: accountFlow?.currentIdentity == nil
-                       || accountFlow?.isProStatusKnown == true
+                   isProStatusKnown: isProStatusKnownForUpgrade
                ) {
                 SidebarProBadge()
             }
