@@ -26,7 +26,7 @@ import {
   vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import type { VmCapabilities } from "../../../services/vms/drivers/types";
-import { assertVmCreateEnabled } from "../../../services/vms/config";
+import { assertVmCreateEnabled, vmCreateDisabledReason } from "../../../services/vms/config";
 import { vmModelPlaneGatewayFor } from "../../../services/vms/modelPlaneGateway";
 import {
   isVmCreateDisabledError,
@@ -38,6 +38,7 @@ import {
   legacyPoolReservationForPlan,
   memoryOptionsMbForPlan,
   isPaidVmPlan,
+  isVmProGateBlocked,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
   upgradePlanForMemory,
@@ -97,6 +98,19 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 // uses 1800).
 export const maxDuration = 600;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
+
+function vmCreationAccessReason(
+  entitlements: ReturnType<typeof resolveVmEntitlements> | null,
+  activeMachineCount: number,
+): "requires_plan" | "limit_reached" | "unavailable" | null {
+  if (!entitlements) return null;
+  if (vmCreateDisabledReason(defaultProviderId(), process.env)) return "unavailable";
+  if (isVmProGateBlocked(entitlements)) return "requires_plan";
+  if (entitlements.maxActiveVms !== null && activeMachineCount >= entitlements.maxActiveVms) {
+    return "limit_reached";
+  }
+  return null;
+}
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -208,10 +222,14 @@ export async function GET(request: Request): Promise<Response> {
         resources: poolShare(entry),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
+      const createAccessReason = vmCreationAccessReason(listEntitlements, activeEntries.length);
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
           activeVmCount: activeEntries.length,
+          canCreateMachines: createAccessReason === null,
+          createAccessReason,
+          ...(createAccessReason === "requires_plan" ? { createUpgradePlanId: "pro" } : {}),
           // The plan's shared pool (null when the plan has none) and what the
           // active machines draw from it. Paused machines do not count.
           poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,

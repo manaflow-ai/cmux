@@ -20,7 +20,10 @@ import SwiftUI
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
     @Environment(\.cloudSystemVPNController) private var systemVPN
+    @Environment(BillingModel.self) private var billing: BillingModel?
+    @Environment(\.openURL) private var openURL
     @State private var isCreateSheetPresented = false
+    @State private var isPlansSheetPresented = false
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -46,6 +49,10 @@ public struct CloudSectionView: View {
                 availableKinds: controller.availableMachineKinds,
                 limits: controller.machineLimits
             )
+        }
+        .sheet(isPresented: $isPlansSheetPresented) {
+            MobilePlansSheet(entryPoint: .cloudUpgrade)
+                .environment(billing)
         }
     }
 
@@ -103,7 +110,17 @@ public struct CloudSectionView: View {
         default:
             if machines.isEmpty {
                 Section {
-                    Text(L10n.string("mobile.cloud.empty.create", defaultValue: "No Cloud machines yet. Create one below."))
+                    Text(
+                        controller.machineLimits?.creationAccess == .available
+                            ? L10n.string(
+                                "mobile.cloud.empty.create",
+                                defaultValue: "No Cloud machines yet. Create one below."
+                            )
+                            : L10n.string(
+                                "mobile.cloud.empty.unavailable",
+                                defaultValue: "No Cloud machines are available for this account yet."
+                            )
+                    )
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("CloudMachinesEmpty")
                 }
@@ -143,21 +160,52 @@ public struct CloudSectionView: View {
                 }
             }
         }
+        cloudAccessSection
         createMachineSection
     }
 
+    @ViewBuilder
+    private var cloudAccessSection: some View {
+        let limits = controller.machineLimits
+        CloudAccessStateView(
+            access: limits?.creationAccess,
+            activeMachineCount: limits?.activeMachineCount,
+            maxActiveMachines: limits?.maxActiveMachines,
+            onUpgrade: { openUpgradePage(planID: limits?.createUpgradePlanID ?? "pro") }
+        )
+    }
+
+    @ViewBuilder
     private var createMachineSection: some View {
-        Section {
-            Button {
-                isCreateSheetPresented = true
-            } label: {
-                Label(
-                    L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
-                    systemImage: "plus"
-                )
+        if controller.machineLimits?.creationAccess == .available || controller.machineLimits == nil {
+            Section {
+                Button {
+                    isCreateSheetPresented = true
+                } label: {
+                    Label(
+                        L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("CloudCreateMachineButton")
             }
-            .accessibilityIdentifier("CloudCreateMachineButton")
         }
+    }
+
+    private static let pricingURL = URL(string: "https://cmux.com/pricing")!
+
+    private func openUpgradePage(planID: String?) {
+        if billing != nil {
+            isPlansSheetPresented = true
+            return
+        }
+        guard let planID,
+              var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
+            openURL(Self.pricingURL)
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
+        openURL(components.url ?? Self.pricingURL)
     }
 
     private var loadingRow: some View {
@@ -167,6 +215,110 @@ public struct CloudSectionView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("CloudMachinesLoading")
+    }
+}
+
+/// Shared access explanation used by the live Cloud list and deterministic
+/// screenshot fixtures. The server decides the state; this view only explains
+/// it and routes the upgrade action.
+struct CloudAccessStateView: View {
+    let access: CloudMachineCreationAccess?
+    let activeMachineCount: Int?
+    let maxActiveMachines: Int?
+    let onUpgrade: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        switch access {
+        case .requiresPlan:
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.string(
+                            "mobile.cloud.access.requiresPlan.title",
+                            defaultValue: "Cloud machines require a paid plan"
+                        ))
+                        Text(L10n.string(
+                            "mobile.cloud.access.requiresPlan.body",
+                            defaultValue: "Upgrade to create a Cloud machine and use its workspaces from anywhere."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "lock.fill")
+                        .foregroundStyle(.tint)
+                }
+                Button(L10n.string(
+                    "mobile.cloud.access.upgrade",
+                    defaultValue: "Upgrade to Pro"
+                ), action: onUpgrade)
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("CloudAccessUpgradeButton")
+            } header: {
+                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
+            }
+        case .limitReached:
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.string(
+                            "mobile.cloud.access.limit.title",
+                            defaultValue: "Cloud machine limit reached"
+                        ))
+                        Text(limitReachedBody)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "speedometer")
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
+            }
+        case .unavailable:
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(L10n.string(
+                            "mobile.cloud.access.unavailable.title",
+                            defaultValue: "Cloud machine creation is unavailable"
+                        ))
+                        Text(L10n.string(
+                            "mobile.cloud.access.unavailable.body",
+                            defaultValue: "Try again later or check the Cloud service status."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Text(L10n.string("mobile.cloud.access.header", defaultValue: "Cloud access"))
+            }
+        case .available, nil:
+            EmptyView()
+        }
+    }
+
+    private var limitReachedBody: String {
+        guard let maximum = maxActiveMachines else {
+            return L10n.string(
+                "mobile.cloud.access.limit.body",
+                defaultValue: "Pause or delete a machine before creating another."
+            )
+        }
+        return String(
+            format: L10n.string(
+                "mobile.cloud.access.limit.bodyFormat",
+                defaultValue: "You are using %1$d of %2$d active machines. Pause or delete one before creating another."
+            ),
+            activeMachineCount ?? 0,
+            maximum
+        )
     }
 }
 

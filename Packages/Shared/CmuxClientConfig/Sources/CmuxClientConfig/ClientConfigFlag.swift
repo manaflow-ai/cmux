@@ -46,6 +46,12 @@ public extension ClientConfigFlag where Value == Bool {
         booleanKey: "ios-artifact-chip-enabled-release",
         defaultValue: true
     )
+    /// Keeps the iOS Cloud tab available by default while allowing a remote
+    /// rollout or kill switch for the complete Cloud surface.
+    static let iosCloudTabEnabledRelease = Self(
+        booleanKey: "ios-cloud-tab-enabled-release",
+        defaultValue: true
+    )
     /// Reverts iOS 26-and-earlier terminal keyboard pinning to the rebuilt
     /// single-constraint dock path. Off by default: the legacy
     /// notification+transform path ships everywhere (iOS 27 and newer never

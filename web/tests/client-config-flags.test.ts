@@ -90,4 +90,14 @@ describe("client-config typed flags", () => {
 
     expect(rawClientConfigFlagValue(config, "unknown-flag")).toBe("variant");
   });
+
+  test("defaults the iOS Cloud tab on when the server omits it", () => {
+    const config: ClientConfig = {
+      featureFlags: {},
+      featureFlagPayloads: {},
+      errorsWhileComputingFlags: false,
+    };
+
+    expect(getClientConfigValue(config, clientConfigFlags.iosCloudTabEnabledRelease)).toBe(true);
+  });
 });

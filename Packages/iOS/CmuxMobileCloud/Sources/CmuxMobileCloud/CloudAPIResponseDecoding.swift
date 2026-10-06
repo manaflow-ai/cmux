@@ -56,6 +56,11 @@ public struct CloudAPIResponseDecoding: Sendable {
                 maxActiveMachines: Self.int(limits["maxActiveVms"]),
                 activeMachineCount: Self.int(limits["activeVmCount"]),
                 planID: limits["planId"] as? String,
+                canCreateMachines: limits["canCreateMachines"] as? Bool,
+                createAccessReason: (limits["createAccessReason"] as? String).flatMap {
+                    CloudMachineCreationAccess(serverValue: $0)
+                },
+                createUpgradePlanID: limits["createUpgradePlanId"] as? String,
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
                 lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,

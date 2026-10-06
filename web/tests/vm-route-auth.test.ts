@@ -584,6 +584,7 @@ describe("VM REST auth", () => {
       // marker counts at the 8 GB default; the paused machine does not count.
       limits: {
         planId: "team", maxActiveVms: 20, activeVmCount: 2, freeAccessWindowDays: 0, freeAccessExpiresAt: null,
+        canCreateMachines: true, createAccessReason: null,
         poolVcpus: 80, poolMemoryMb: 163840, usedVcpus: 20, usedMemoryMb: 40960,
       },
       vms: [
@@ -1512,6 +1513,9 @@ describe("VM REST auth", () => {
       limits: {
         maxActiveVms: 0,
         planId: "free",
+        canCreateMachines: false,
+        createAccessReason: "requires_plan",
+        createUpgradePlanId: "pro",
         freeAccessWindowDays: 7,
         freeAccessExpiresAt: 1_777_000_000_000 + sevenDaysMs,
       },
@@ -1529,6 +1533,21 @@ describe("VM REST auth", () => {
     expect(await response.json()).toMatchObject({
       vms: [{ id: "pro-vm", freeAccessExpiresAt: null }],
       limits: { planId: "pro", freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+    });
+  });
+
+  test("lists Cloud creation as unavailable when the global create kill switch is off", async () => {
+    process.env.CMUX_VM_CREATE_ENABLED = "0";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      limits: {
+        canCreateMachines: false,
+        createAccessReason: "unavailable",
+      },
     });
   });
 

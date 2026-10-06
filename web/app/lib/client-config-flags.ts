@@ -118,5 +118,6 @@ export const clientConfigFlags = {
   cmuxForAndroid: booleanClientConfigFlag("cmux-for-android"),
   mobileConnectButtonEnabledRelease: booleanClientConfigFlag("mobile-connect-button-enabled-release"),
   iosArtifactChipEnabledRelease: booleanClientConfigFlag("ios-artifact-chip-enabled-release", true),
+  iosCloudTabEnabledRelease: booleanClientConfigFlag("ios-cloud-tab-enabled-release", true),
   goPlanEnabledRelease: booleanClientConfigFlag(FEATURE_FLAGS.goPlan.key, false),
 } as const;

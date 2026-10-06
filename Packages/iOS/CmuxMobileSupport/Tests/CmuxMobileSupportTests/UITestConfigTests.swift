@@ -36,6 +36,19 @@ import Testing
         #expect(UITestConfig.mockDataEnabled(from: [:]) == false)
     }
 
+    @Test(arguments: ["requires-plan", "available", "machines", "limit-reached", "unavailable"])
+    func cloudPreviewStateReadsExplicitValue(_ state: String) {
+        #if DEBUG
+        #expect(
+            UITestConfig.cloudPreviewStateValue(
+                from: ["CMUX_UITEST_CLOUD_PREVIEW": "  \(state)  "]
+            ) == state
+        )
+        #else
+        #expect(UITestConfig.cloudPreviewStateValue(from: [:]) == nil)
+        #endif
+    }
+
     @Test func valueReturnsTrimmedNonEmptyWhenMockEnabled() {
         let env = [
             "CMUX_UITEST_MOCK_DATA": "1",

@@ -18,6 +18,9 @@ public final class MobileFeatureFlags {
     /// The remote kill switch for the fully integrated terminal Files chip.
     public static let terminalFilesChipFlag =
         ClientConfigFlag<Bool>.iosArtifactChipEnabledRelease
+    /// The remote kill switch for the iOS Cloud tab. Cloud stays enabled when
+    /// the control plane is unavailable so fresh installs keep the shipping UI.
+    public static let cloudTabFlag = ClientConfigFlag<Bool>.iosCloudTabEnabledRelease
     /// The remote kill switch reverting iOS ≤26 keyboard pinning to the
     /// rebuilt dock path.
     public static let keyboardDockRebuildRevertFlag =
@@ -31,6 +34,10 @@ public final class MobileFeatureFlags {
     private static var keyboardDockRebuildRevertCacheKey: String {
         "cmux.mobile.flags.remote." + keyboardDockRebuildRevertFlag.key
     }
+    /// User-defaults key for the last successful Cloud-tab value.
+    private static var cloudTabCacheKey: String {
+        "cmux.mobile.flags.remote." + cloudTabFlag.key
+    }
     /// Delay between foreground refresh opportunities when the app remains active.
     /// Thirty minutes bounds steady-state control-plane traffic across the fleet;
     /// launch and scene-active refreshes keep flag propagation fast where it matters.
@@ -42,6 +49,8 @@ public final class MobileFeatureFlags {
     /// path. Terminal hosts snapshot this at mount (reopen the workspace to
     /// apply); iOS 27+ ignores it.
     public private(set) var keyboardDockRebuildRevertEnabled: Bool
+    /// Whether the authenticated shell exposes the Cloud tab.
+    public private(set) var cloudTabEnabled: Bool
 
     /// Control-plane client used to fetch evaluated flags.
     @ObservationIgnored private let loader: any ClientConfigLoading
@@ -86,6 +95,10 @@ public final class MobileFeatureFlags {
             forKey: Self.keyboardDockRebuildRevertCacheKey,
             defaults: defaults
         ) ?? Self.keyboardDockRebuildRevertFlag.defaultValue
+        self.cloudTabEnabled = Self.storedBool(
+            forKey: Self.cloudTabCacheKey,
+            defaults: defaults
+        ) ?? Self.cloudTabFlag.defaultValue
     }
 
     /// Starts an immediate refresh and a cancellation-aware thirty-minute scheduler.
@@ -191,6 +204,14 @@ public final class MobileFeatureFlags {
             defaults: defaults
         ) != revertEnabled {
             defaults.set(revertEnabled, forKey: Self.keyboardDockRebuildRevertCacheKey)
+        }
+
+        let cloudTabEnabled = config.value(Self.cloudTabFlag)
+        if self.cloudTabEnabled != cloudTabEnabled {
+            self.cloudTabEnabled = cloudTabEnabled
+        }
+        if Self.storedBool(forKey: Self.cloudTabCacheKey, defaults: defaults) != cloudTabEnabled {
+            defaults.set(cloudTabEnabled, forKey: Self.cloudTabCacheKey)
         }
     }
 

@@ -164,10 +164,38 @@ public struct CloudResourcePool: Sendable, Equatable {
 /// The Mac New Machine sheet uses the same fields. Keeping them in the shared
 /// Cloud model lets mobile show the same size and plan state without guessing
 /// from the machine rows.
+public enum CloudMachineCreationAccess: Sendable, Equatable {
+    /// The current account may provision another machine.
+    case available
+    /// Provisioning requires a paid plan.
+    case requiresPlan
+    /// The account's active-machine allowance is full.
+    case limitReached
+    /// The control plane reported that provisioning is unavailable.
+    case unavailable
+
+    /// Decodes the stable machine-readable reason from `/api/vm`.
+    public init?(serverValue: String) {
+        switch serverValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "requires_plan": self = .requiresPlan
+        case "limit_reached": self = .limitReached
+        case "unavailable": self = .unavailable
+        default: return nil
+        }
+    }
+}
+
 public struct CloudMachineLimits: Sendable, Equatable {
     public var maxActiveMachines: Int?
     public var activeMachineCount: Int?
     public var planID: String?
+    /// Explicit server capability. Optional for compatibility with older API
+    /// responses that only returned the numeric limits below.
+    public var canCreateMachines: Bool?
+    /// Machine-readable reason when creation is unavailable.
+    public var createAccessReason: CloudMachineCreationAccess?
+    /// The plan that unlocks creation when the current plan is gated.
+    public var createUpgradePlanID: String?
     public var memoryOptionsMb: [Int]
     public var lockedMemoryOptionsMb: [Int]?
     public var memoryUpgradePlanID: String?
@@ -180,6 +208,9 @@ public struct CloudMachineLimits: Sendable, Equatable {
         maxActiveMachines: Int? = nil,
         activeMachineCount: Int? = nil,
         planID: String? = nil,
+        canCreateMachines: Bool? = nil,
+        createAccessReason: CloudMachineCreationAccess? = nil,
+        createUpgradePlanID: String? = nil,
         memoryOptionsMb: [Int] = [],
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanID: String? = nil,
@@ -189,11 +220,34 @@ public struct CloudMachineLimits: Sendable, Equatable {
         self.maxActiveMachines = maxActiveMachines
         self.activeMachineCount = activeMachineCount
         self.planID = planID
+        self.canCreateMachines = canCreateMachines
+        self.createAccessReason = createAccessReason
+        self.createUpgradePlanID = createUpgradePlanID
         self.memoryOptionsMb = memoryOptionsMb
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanID = memoryUpgradePlanID
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.resourcePool = resourcePool
+    }
+
+    /// Resolves the server's explicit capability and falls back to the
+    /// pre-capability response shape while older deployments roll forward.
+    public var creationAccess: CloudMachineCreationAccess {
+        if canCreateMachines == true { return .available }
+        if let createAccessReason { return createAccessReason }
+        if canCreateMachines == false {
+            return .unavailable
+        }
+        if planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "free",
+           maxActiveMachines == 0 {
+            return .requiresPlan
+        }
+        if let maxActiveMachines,
+           let activeMachineCount,
+           activeMachineCount >= maxActiveMachines {
+            return .limitReached
+        }
+        return .available
     }
 }
 

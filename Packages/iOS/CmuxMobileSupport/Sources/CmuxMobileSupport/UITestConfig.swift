@@ -79,6 +79,33 @@ public struct UITestConfig {
         #endif
     }
 
+    /// A deterministic Cloud access-state preview selected by
+    /// `CMUX_UITEST_CLOUD_PREVIEW`. Supported values are `requires-plan`,
+    /// `available`, `machines`, `limit-reached`, and `unavailable`.
+    public static var cloudPreviewState: String? {
+        cloudPreviewStateValue(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
+    }
+
+    /// Resolves a Cloud preview state from explicit process inputs.
+    public static func cloudPreviewStateValue(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
+        #if DEBUG
+        let value = env["CMUX_UITEST_CLOUD_PREVIEW"]
+            ?? arguments.first(where: {
+                $0.hasPrefix("CMUX_UITEST_CLOUD_PREVIEW=")
+            })?.split(separator: "=", maxSplits: 1).last.map(String.init)
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+        #else
+        return nil
+        #endif
+    }
+
     /// Forces the legacy keyboard-dock path on any simulator. Legacy is the
     /// shipping default, so this pin exists for explicit-path tests and
     /// debugging. DEBUG-only.
