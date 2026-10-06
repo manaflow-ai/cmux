@@ -305,7 +305,7 @@ let package = Package(
         .target(
             name: "CmuxNextHome",
             dependencies: [
-                "CmuxNextDesign", "CmuxNextWakeups",
+                "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
@@ -318,7 +318,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextHomeTests",
             dependencies: [
-                "CmuxNextHome", "CmuxNextDesign",
+                "CmuxNextHome", "CmuxNextDesign", "CmuxNextIcons",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
