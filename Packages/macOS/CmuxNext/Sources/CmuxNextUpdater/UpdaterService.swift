@@ -59,11 +59,7 @@ public final class UpdaterService {
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
-    public var preferences = UpdatePreferences.defaults {
-        didSet { if preferences.quietHours != oldValue.quietHours { scheduleQuietBoundary() } }
-    }
-    /// The local minute of the day the card is evaluated at.
-    public internal(set) var minuteOfDay = 0
+    public var preferences = UpdatePreferences.defaults
     /// Asks the App to confirm an install although agents run (CmuxDialog).
     @ObservationIgnored public var confirmInterrupt: ((UpdateBlockers) -> Void)?
     /// Sparkle's staged install and its cancel (replaced by tests).
@@ -78,8 +74,6 @@ public final class UpdaterService {
     @ObservationIgnored public var blockersObservation: Task<Void, Never>?
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
-    @ObservationIgnored var quietTimer: DemandTimer?
-    @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let now: () -> Date
 
     /// Asks the App to show the update sheet (set by the App): a failure's
@@ -113,9 +107,7 @@ public final class UpdaterService {
                 defaults: UserDefaults = .standard,
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
-                clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping () -> Date = Date.init) {
-        self.clock = clock
         self.now = now
         self.identity = identity
         self.policy = policy
@@ -141,7 +133,6 @@ public final class UpdaterService {
             cancelStaged = { [weak controller] in controller?.cancelStagedUpdate() }
             acceptAvailable = { [weak controller] in controller?.acceptAvailableUpdate() }
         }
-        minuteOfDay = Self.minuteOfDay(now())
         restorePinnedTestFeed()
         restoreRollbackSkip()
     }

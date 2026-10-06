@@ -1,4 +1,5 @@
 import type { Principal } from "@cmux/ownership"
+import { cloudOpByName } from "@cmux/protocol"
 import type { Env } from "./env.ts"
 import type { Attachment } from "./owner-do.ts"
 
@@ -24,6 +25,26 @@ const unreachable = (ws: WebSocket, message: string | ArrayBuffer) => {
   try {
     ws.send(JSON.stringify({ t: "error", code: "owner.unreachable", message: "could not check this install; retry", ...(typeof key === "string" ? { idempotency_key: key } : {}) }))
   } catch {}
+}
+
+type ChiefGrant = { ok: true; op_classes: ReadonlyArray<string> } | { ok: false }
+
+/**
+ * A chief token holding mutate-shared (a paired server acting as its placed chief): its socket's chief rights are
+ * confirmed per mutating frame. No install_kind condition: a path that leaves it out still gets the check (fail closed).
+ */
+const placedChiefToken = (p: Principal) => p.kind === "install" && !!p.agent && (p.grant_classes ?? []).includes("mutate-shared")
+
+/** An op frame that writes (an unknown op counts as one: fail closed). */
+const mutatingFrame = (message: string | ArrayBuffer): { key?: string } | null => {
+  try {
+    const f = JSON.parse(typeof message === "string" ? message : new TextDecoder().decode(message)) as { t?: unknown; op?: unknown; idempotency_key?: unknown }
+    if (f.t !== "op") return null
+    const key = typeof f.idempotency_key === "string" ? f.idempotency_key : undefined
+    return cloudOpByName.get(String(f.op))?.class === "read" ? null : { ...(key ? { key } : {}) }
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -99,7 +120,9 @@ export class SocketGate {
     this.depth.set(ws, depth)
     const next = (this.chains.get(ws) ?? Promise.resolve())
       .then(async () => {
-        const gate = await this.frameAllowed(ws, ws.deserializeAttachment() as Attachment)
+        const a = ws.deserializeAttachment() as Attachment
+        let gate = await this.frameAllowed(ws, a)
+        if (gate === true) gate = await this.chiefFrameAllowed(ws, a, message)
         if (gate === "unreachable") return unreachable(ws, message)
         if (gate !== true || ws.readyState !== WebSocket.READY_STATE_OPEN) return
         await route()
@@ -164,6 +187,30 @@ export class SocketGate {
       return false
     }
     return true
+  }
+
+  /**
+   * A placed Chief's socket (G8): its chief rights were resolved at connect, so every mutating frame asks
+   * UserDO.installGrant again, which asks TeamDO (the server's authority); nothing is cached. A server
+   * revoked in TeamDO (also before UserDO hears of it), a chief moved off the server or archived refuses
+   * the frame and closes the socket (4401); an unreachable UserDO or TeamDO refuses the frame (fail closed).
+   */
+  async chiefFrameAllowed(ws: WebSocket, a: Attachment, message: string | ArrayBuffer): Promise<true | false | "unreachable"> {
+    const p = a.principal
+    if (!placedChiefToken(p) || !p.user || !p.install) return true
+    const frame = mutatingFrame(message)
+    if (!frame) return true
+    const stub = this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)) as unknown as {
+      installGrant(entity: string, install: string, grant: string | undefined, agent?: string): Promise<ChiefGrant>
+    }
+    const r = await stub.installGrant(p.user, p.install, p.grant, p.agent).catch(() => null)
+    if (r === null) return "unreachable"
+    if (r.ok && r.op_classes.includes("mutate-shared")) return true
+    try {
+      ws.send(JSON.stringify({ t: "error", code: "auth.forbidden", message: "the chief no longer runs on this server", ...(frame.key ? { idempotency_key: frame.key } : {}) }))
+    } catch {}
+    closeQuietly(ws, 4401, "chief rights changed")
+    return false
   }
 
   /** Closes sockets whose token expired (alarm sweep: also with no events). */

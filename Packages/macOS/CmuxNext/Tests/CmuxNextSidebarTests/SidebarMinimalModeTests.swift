@@ -3,9 +3,8 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// R54 (Lawrence 2026-10-03): in minimal mode the chosen pinned bands fade
-/// out while the pointer is away from the sidebar and fade in when it
-/// hovers; VoiceOver still reaches their items.
+/// Sidebar chrome keeps its final frame in every minimal-mode state. Pointer
+/// tracking can change paint, but it never mounts or removes the bands.
 @MainActor @Suite(.serialized) struct SidebarMinimalModeTests {
     private func sidebar(_ mode: SidebarMinimalMode) -> (SidebarView, () -> Void) {
         let saved = DesignSettings.shared.sidebarSections
@@ -16,31 +15,31 @@ import Testing
         return (view, { DesignSettings.shared.sidebarSections = saved })
     }
 
-    /// The band's alpha target: 0 while minimal mode hides it, else 1.
+    /// The band's stable visibility target.
     private func bandAlpha(_ region: SidebarRegionView) -> CGFloat {
         guard let view = region.enclosingScrollView?.superview?.superview as? SidebarView else { return -1 }
         let hidden = region === view.aboveRegion ? view.minimalHiddenBands.top : view.minimalHiddenBands.bottom
         return hidden ? 0 : 1
     }
 
-    @Test func theBottomBandHidesUntilThePointerHovers() {
+    @Test func theBottomBandStaysMountedAwayFromThePointer() {
         let (view, restore) = sidebar(.bottom)
         defer { restore() }
         view.setChromeRevealed(false)
-        #expect(bandAlpha(view.belowRegion) == 0)
+        #expect(bandAlpha(view.belowRegion) == 1)
         #expect(bandAlpha(view.aboveRegion) == 1)
         view.setChromeRevealed(true)
         #expect(bandAlpha(view.belowRegion) == 1)
-        // VoiceOver still finds Settings while the band is faded.
+        // Settings remains in place while the pointer state changes.
         view.setChromeRevealed(false)
         let settings = view.belowRegion.itemView(LayoutItemID("itm_settings"))
         #expect(settings != nil && settings?.isHiddenOrHasHiddenAncestor == false && settings?.isAccessibilityElement() == true)
     }
 
-    @Test func bothBandsHideInBothAndNoneWhenOff() {
+    @Test func bothBandsStayMountedInEveryMode() {
         let (both, restoreBoth) = sidebar(.both)
         both.setChromeRevealed(false)
-        #expect(bandAlpha(both.aboveRegion) == 0 && bandAlpha(both.belowRegion) == 0)
+        #expect(bandAlpha(both.aboveRegion) == 1 && bandAlpha(both.belowRegion) == 1)
         restoreBoth()
         let (off, restoreOff) = sidebar(.off)
         defer { restoreOff() }
@@ -60,6 +59,6 @@ import Testing
         #expect(bandAlpha(view.belowRegion) == 1)
         view.model.itemInfo[LayoutItemID("itm_settings")]?.accessory = nil
         view.setChromeRevealed(false)
-        #expect(bandAlpha(view.belowRegion) == 0)
+        #expect(bandAlpha(view.belowRegion) == 1)
     }
 }

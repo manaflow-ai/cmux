@@ -8,7 +8,7 @@ public enum SidebarAccessorySlot: CaseIterable, Sendable {
     case cloud
     case status
 }
-/// The sidebar's content: the titlebar row (its buttons appear on hover),
+/// The sidebar's content: the titlebar row (its buttons remain mounted),
 /// the workspace list, and footer accessory slots. Workspace search lives in
 /// the command palette (Go to Workspace), not here. Place it in a glass
 /// panel, or use `SidebarContainerView`, which adds the panel, width, and
@@ -93,7 +93,7 @@ public final class SidebarView: NSView {
     public var helpMenuProvider: (() -> NSMenu?)? {
         didSet {
             helpButton.menuProvider = helpMenuProvider
-            helpButton.isHidden = helpMenuProvider == nil
+            helpButton.isEnabled = helpMenuProvider != nil
             needsLayout = true
         }
     }
@@ -197,7 +197,7 @@ public final class SidebarView: NSView {
 
     private func buildHierarchy() {
         newButton.onPress = { [weak self] in self?.model.send(.newWorkspace(machine: nil, group: nil)) }
-        newButton.alphaValue = 0
+        newButton.alphaValue = 1
         addSubview(newButton)
 
         scrollView.drawsBackground = false
@@ -222,7 +222,7 @@ public final class SidebarView: NSView {
         addSubview(footer)
         footer.addSubview(profileBar)
         footer.addSubview(helpButton)
-        helpButton.isHidden = true
+        helpButton.isHidden = false
     }
 
     @objc private func clipBoundsChanged(_ note: Notification) {
@@ -251,7 +251,7 @@ public final class SidebarView: NSView {
         // The list starts right under the titlebar row: no search field.
         let y = titlebarHeight
 
-        // Titlebar row: buttons trail the traffic lights, shown on hover.
+        // Titlebar row: buttons trail the traffic lights at a stable frame.
         let button = SidebarStyle.toolbarButtonSize
         let rowY = max(Metrics.space2, (titlebarHeight - button) / 2)
         newButton.frame = NSRect(x: b.width - Metrics.space3 - button, y: rowY, width: button, height: button)
@@ -267,13 +267,13 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count)
-        profileBar.isHidden = !showsProfiles
+        let showsProfiles = true
+        profileBar.isHidden = false
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         let dotsInFooter = spacesPosition == .bottom && showsProfiles
         let showsHelp = !helpButton.isHidden
-        let footerHeight: CGFloat = visibleSlots.isEmpty && !dotsInFooter && !showsHelp ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards()
         // From the bottom up (R112/R114): the Settings band, the dots, the cards.
         let listFrame = layoutBands(top: y + spacesHeight, footerHeight: footerHeight + cardsHeight)

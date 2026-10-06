@@ -9,7 +9,7 @@
 //! for every source: created tabs close at the session's end unless kept,
 //! automation leases, the session's request filter, its events.
 
-use crate::driver::{Driver, EventSink};
+use crate::driver::{Driver, EventSink, Reply};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
 use crate::provider_link::ProviderDriver;
@@ -122,20 +122,9 @@ impl ProviderEngine {
         })
     }
 
+    /// `tabs.list`: one shape for every source (driver-protocol.md).
     fn tabs_list(&self) -> Value {
-        let tabs: Vec<Value> = self
-            .provider
-            .tab_list(&self.engine)
-            .into_iter()
-            .map(|tab| {
-                json!({
-                    "targetId": tab.target_id, "engine": tab.engine, "url": tab.url,
-                    "title": tab.title, "workspace": tab.workspace, "profile": tab.profile,
-                    "visible": tab.visible,
-                })
-            })
-            .collect();
-        json!({ "tabs": tabs })
+        Value::Array(self.provider.tab_rows(&self.engine).iter().map(|row| row.to_json()).collect())
     }
 }
 
@@ -147,7 +136,8 @@ impl ProviderEngine {
         method: &str,
         params: &Value,
         announce: &mut dyn FnMut(),
-    ) -> Result<Value, DriverError> {
+        raw: bool,
+    ) -> Result<Reply, DriverError> {
         // A closed session's engine can outlive the close (a timed-out cell
         // still runs); it must not take a lease nobody will end.
         if self.ended.load(std::sync::atomic::Ordering::SeqCst) {
@@ -157,7 +147,7 @@ impl ProviderEngine {
             return Err(DriverError::closed(reason));
         }
         match method {
-            "tabs.list" => return Ok(self.tabs_list()),
+            "tabs.list" => return Ok(Reply::Value(self.tabs_list())),
             // The app owns tabs: it opens them in the session's engine. Only
             // the URL and background pass; profile, workspace and focus are
             // never the agent's to pick (D12).
@@ -173,8 +163,9 @@ impl ProviderEngine {
                 let opened = self.provider.call(method, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
+                    self.provider.opened(self.subscription, target);
                 }
-                return Ok(opened);
+                return Ok(Reply::Value(opened));
             }
             _ => {}
         }
@@ -186,6 +177,11 @@ impl ProviderEngine {
                 return Err(DriverError::invalid(format!("{method}: targetId must be a string")));
             }
             None => {
+                if let Some(result) = self.provider.session_call(self.subscription, method, params)
+                {
+                    announce();
+                    return result.map(Reply::Value);
+                }
                 return Err(DriverError::new(
                     crate::protocol::ErrorCode::Unsupported,
                     format!("{method}: not available on the person's tabs without a targetId"),
@@ -208,7 +204,8 @@ impl ProviderEngine {
         // session's tabs; the app has no part in it).
         if method == "tab.keep" {
             self.created_tabs().remove(target_id);
-            return Ok(Value::Null);
+            self.provider.kept(self.subscription, target_id);
+            return Ok(Reply::Value(Value::Null));
         }
         // A structured read: refused before the lease sees it unless it
         // calls an allowlisted page agent function.
@@ -219,7 +216,14 @@ impl ProviderEngine {
         // The automation lease: any call that is not a read acts (and takes
         // the lease when the tab has none) before it runs.
         let reads = OBSERVE_METHODS.contains(&method);
-        if !reads {
+        // A handler registration, and the answer to a dialog or chooser the
+        // source routed to this session, are neither inputs nor reads: they
+        // never take, block or refresh a lease (the session that listens for
+        // a tab's dialogs is often not the one that drives it; the source
+        // refuses an answer from a session the event did not go to).
+        let registration =
+            matches!(method, "tab.handleEvents" | "dialog.respond" | "filechooser.respond");
+        if !reads && !registration {
             let act = LeaseOp::Act { target: target_id.to_owned() };
             self.provider.lease(&act, &self.lease).map_err(|error| lease_refusal(method, error))?;
             // A close that ran between the check at the top and this lease
@@ -253,6 +257,7 @@ impl ProviderEngine {
             params: &params,
             observe: observe.as_ref(),
             agent_source: &self.agent_source,
+            raw,
         });
         // A read is never blocked; only a read that succeeded is the fresh
         // observe after a hand back.
@@ -266,7 +271,7 @@ impl ProviderEngine {
 
 impl Driver for ProviderEngine {
     fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
-        self.call_with(method, params, &mut || {})
+        self.call_with(method, params, &mut || {}, false).and_then(reply_value)
     }
 
     fn call_announced(
@@ -275,7 +280,17 @@ impl Driver for ProviderEngine {
         params: &Value,
         announce: &mut dyn FnMut(),
     ) -> Result<Value, DriverError> {
-        self.call_with(method, params, announce)
+        self.call_with(method, params, announce, false).and_then(reply_value)
+    }
+
+    /// A script's value as the engine sent it (the page's key order).
+    fn call_reply_announced(
+        &self,
+        method: &str,
+        params: &Value,
+        announce: &mut dyn FnMut(),
+    ) -> Result<Reply, DriverError> {
+        self.call_with(method, params, announce, true)
     }
 
     fn end_session(&self) {
@@ -339,6 +354,15 @@ impl ProviderEngine {
             }
             let _ = self.provider.lease(&LeaseOp::SessionEnd, &self.lease);
             self.provider.session_ended(self.subscription);
+        }
+    }
+}
+
+fn reply_value(reply: Reply) -> Result<Value, DriverError> {
+    match reply {
+        Reply::Value(value) => Ok(value),
+        Reply::Json(raw) => {
+            serde_json::from_str(raw.get()).map_err(|e| DriverError::invalid(e.to_string()))
         }
     }
 }
