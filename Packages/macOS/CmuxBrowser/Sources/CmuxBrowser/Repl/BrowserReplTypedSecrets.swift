@@ -136,6 +136,13 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
         }
     }
 
+    /// Whether `tab` holds a value a session typed or the user typed into
+    /// the sign-in sheet: until the tab closes, also after the typist left.
+    /// Clients outside the REPL mask nothing, so they are refused such a tab.
+    public func holdsValues(inTab tab: String) -> Bool {
+        lock.withLock { entries.contains { $0.tab == tab } }
+    }
+
     /// `tab` closed, and its typed values with it.
     public func tabClosed(_ tab: String) {
         lock.withLock {

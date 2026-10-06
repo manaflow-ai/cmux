@@ -3791,6 +3791,32 @@ class TabManager: ObservableObject {
         return toggleReactGrab(in: workspace, browserSurfaceId: nil, returnTerminalSurfaceId: nil) != nil
     }
 
+    /// The browser ``toggleReactGrab(in:browserSurfaceId:returnTerminalSurfaceId:)``
+    /// acts on, without acting: an explicit surface is authoritative (it
+    /// must be a browser, no fallback to a different browser); otherwise the
+    /// route's browser from focus. The socket method asks it first, to
+    /// refuse a tab a browser REPL session drives.
+    func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?) -> UUID? {
+        reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: reactGrabShortcutRoute(in: workspace))
+    }
+
+    private func reactGrabShortcutRoute(in workspace: Workspace) -> ReactGrabShortcutRoute? {
+        resolveReactGrabShortcutRoute(panels: workspace.panels.values.map { panel in
+            ReactGrabShortcutPanelSnapshot(
+                id: panel.id,
+                panelType: panel.panelType,
+                isFocused: panel.id == workspace.focusedPanelId
+            )
+        })
+    }
+
+    private func reactGrabBrowserPanelId(in workspace: Workspace, browserSurfaceId: UUID?, route: ReactGrabShortcutRoute?) -> UUID? {
+        if let explicit = browserSurfaceId {
+            return workspace.browserPanel(for: explicit) != nil ? explicit : nil
+        }
+        return route?.browserPanelId
+    }
+
     /// Toggles React Grab for a specific workspace. When `browserSurfaceId`/`returnTerminalSurfaceId`
     /// are nil this mirrors the keyboard shortcut: it resolves the browser + return terminal from the
     /// focused panel layout. An explicit browser surface (must be a browser) or return terminal
@@ -3804,25 +3830,10 @@ class TabManager: ObservableObject {
         browserSurfaceId: UUID?,
         returnTerminalSurfaceId: UUID?
     ) -> UUID? {
-        let snapshots = workspace.panels.values.map { panel in
-            ReactGrabShortcutPanelSnapshot(
-                id: panel.id,
-                panelType: panel.panelType,
-                isFocused: panel.id == workspace.focusedPanelId
-            )
+        let route = reactGrabShortcutRoute(in: workspace)
+        guard let browserPanelId = reactGrabBrowserPanelId(in: workspace, browserSurfaceId: browserSurfaceId, route: route) else {
+            return nil
         }
-        let route = resolveReactGrabShortcutRoute(panels: snapshots)
-
-        // Browser target: an explicit surface is authoritative (it must be a browser, no
-        // fallback to a different browser); otherwise resolve the route's browser from focus.
-        let browserPanelId: UUID?
-        if let explicit = browserSurfaceId {
-            guard workspace.browserPanel(for: explicit) != nil else { return nil }
-            browserPanelId = explicit
-        } else {
-            browserPanelId = route?.browserPanelId
-        }
-        guard let browserPanelId else { return nil }
 
         // Return terminal: an explicit return surface is authoritative (must be a terminal in
         // this workspace, no fallback) so pasteback never silently goes to the wrong terminal.

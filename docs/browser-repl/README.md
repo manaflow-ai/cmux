@@ -533,6 +533,19 @@ rest. Measurements: [performance.md](performance.md).
   `tabs.history()` entry (history does not say who visited it), and in
   the `url` of every page event (a cancelled navigation, a popup, a
   download) a session gets for a tab it did not create.
+- The older `browser.*` socket methods (`cmux browser <surface> eval`,
+  `click`, `type`, `snapshot`, `screenshot`, `navigate`, `get`, cookies,
+  storage, devtools, zoom, React Grab and the rest) carry no session, so no
+  ownership check, domain policy or secret masking applies to them. They
+  refuse (`denied`) every tab a session drives: one it opened, and a user's
+  tab it drives with `tabs.use()`. They also refuse a tab a session typed a
+  secret into, or the user filled through the sign-in sheet, until the tab
+  closes, since the page may still show the value. The error says the tab
+  belongs to a browser REPL session and names `cmux browser repl` as the way
+  to drive it; it never names the session. Listing tabs
+  (`cmux browser <surface> tab list`), switching to one and closing one
+  still work, as they do in the window. A user's tab no session drives
+  keeps working with them, also once the session that drove it ends.
 - Session behaviors apply only to tabs the session created: tabs from
   `tabs.open()` (and `tabs.content`), and popups of those tabs, while the
   session lasts. In them dialogs and file choosers wait for the agent,

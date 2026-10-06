@@ -431,6 +431,17 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         return attachedSessionIDs.contains(creatorSessionID)
     }
 
+    /// Whether a client outside the browser REPL is refused the tab: the
+    /// older `browser.*` socket methods (`cmux browser eval`, `click`,
+    /// `snapshot`, `screenshot`, `navigate` and the rest) carry no session,
+    /// so no ownership check, domain policy or secret masking applies to
+    /// them. True while any session drives the tab: one it created (its
+    /// creator, while live, is attached) and a user's tab a session drives
+    /// with `tabs.use()`. A tab no session drives is the user's again.
+    public var refusesOutsideClients: Bool {
+        !attachedSessionIDs.isEmpty
+    }
+
     /// Whether `event` goes to a session instead of the user's UI.
     public func routesToSessions(_ event: BrowserReplTabEvent) -> Bool {
         recipient(for: event) != nil

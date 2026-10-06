@@ -6,6 +6,17 @@ import WebKit
 /// already carries `targetId`.
 typealias BrowserReplTabEventSink = @MainActor (_ name: String, _ payload: [String: Any]) -> Void
 
+/// Why a client outside the browser REPL is refused a tab
+/// (``BrowserReplTabAttachments/outsideClientRefusal(panelID:)``).
+enum BrowserReplOutsideClientRefusal: Sendable, Equatable {
+    /// A session drives the tab: one it opened, or a user's tab it drives
+    /// with `tabs.use()`.
+    case drivenBySession
+    /// A session typed a secret into the tab, or the user typed into the
+    /// sign-in sheet for it; the page may still show the value.
+    case holdsTypedSecrets
+}
+
 /// Tabs that REPL sessions are driving, keyed by browser surface id.
 ///
 /// `BrowserPanel`'s UI and download delegates consult this registry: in a tab
@@ -40,6 +51,21 @@ final class BrowserReplTabAttachments {
     func attachment(for panelID: UUID) -> BrowserReplTabAttachment? {
         guard let attachment = attachments[panelID], attachment.isAttached else { return nil }
         return attachment
+    }
+
+    /// Why a client outside the browser REPL (the older `browser.*` socket
+    /// methods: `cmux browser eval`, `click`, `snapshot`, `screenshot`,
+    /// `navigate` and the rest) may not use tab `panelID`, or nil. Those
+    /// methods carry no session, so no ownership check, domain policy or
+    /// secret masking applies to them: they are refused every tab a session
+    /// drives (``BrowserReplTabOwnership/refusesOutsideClients``) and every
+    /// tab that holds a value a session or the sign-in sheet typed, until it
+    /// closes (``BrowserReplTypedSecrets/holdsValues(inTab:)``). The legacy
+    /// socket resolvers ask it for every tab they hand a method.
+    func outsideClientRefusal(panelID: UUID) -> BrowserReplOutsideClientRefusal? {
+        if attachment(for: panelID)?.refusesOutsideClients == true { return .drivenBySession }
+        if Self.typedSecrets.holdsValues(inTab: panelID.uuidString) { return .holdsTypedSecrets }
+        return nil
     }
 
     /// Attaches `sessionID`, whose page agent lives in `world`, to `panel`,
@@ -537,6 +563,12 @@ final class BrowserReplTabAttachment {
     /// cancel its navigations (BrowserReplNavigationGuard).
     var creatorSessionID: String? {
         isAttached && ownership.isSessionOwned ? ownership.creatorSessionID : nil
+    }
+
+    /// Whether a client outside the browser REPL is refused this tab
+    /// (``BrowserReplTabOwnership/refusesOutsideClients``).
+    var refusesOutsideClients: Bool {
+        isAttached && ownership.refusesOutsideClients
     }
 
     /// The live session that created this tab when it is not `sessionID`,

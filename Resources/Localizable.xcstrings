@@ -71042,6 +71042,124 @@
         }
       }
     },
+    "cli.browser.error.replSecretTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A browser REPL session typed a secret into this tab, so other clients cannot read or drive it until it closes. Use `cmux browser repl` to drive it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザ REPL セッションがこのタブにシークレットを入力したため、タブを閉じるまで他のクライアントは読み取りや操作ができません。操作するには `cmux browser repl` を使用してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器 REPL 会话已向此标签页输入了机密信息，因此在其关闭之前，其他客户端无法读取或操作它。请使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Browser-REPL-Sitzung hat ein Geheimnis in diesen Tab eingegeben, daher können andere Clients ihn bis zum Schließen weder lesen noch steuern. Verwende `cmux browser repl`, um ihn zu steuern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une session REPL du navigateur a saisi un secret dans cet onglet : les autres clients ne peuvent pas le lire ni le piloter tant qu’il n’est pas fermé. Utilisez `cmux browser repl` pour le piloter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخلت جلسة REPL للمتصفح سرًا في علامة التبويب هذه، لذا لا يمكن للعملاء الآخرين قراءتها أو التحكم بها حتى تُغلق. استخدم `cmux browser repl` للتحكم بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una sesión REPL del navegador escribió un secreto en esta pestaña, así que otros clientes no pueden leerla ni controlarla hasta que se cierre. Usa `cmux browser repl` para controlarla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器 REPL 工作階段已在此分頁輸入機密資訊，因此在其關閉之前，其他用戶端無法讀取或操作它。請使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저 REPL 세션이 이 탭에 비밀 값을 입력했으므로, 탭이 닫힐 때까지 다른 클라이언트는 읽거나 조작할 수 없습니다. 조작하려면 `cmux browser repl`을 사용하세요."
+          }
+        }
+      }
+    },
+    "cli.browser.error.replSessionTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab belongs to a browser REPL session, which is driving it, so other clients cannot read or drive it. Use `cmux browser repl` to drive it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブはブラウザ REPL セッションが操作中のため、他のクライアントは読み取りや操作ができません。操作するには `cmux browser repl` を使用してください。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此标签页属于正在操作它的浏览器 REPL 会话，因此其他客户端无法读取或操作它。请使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab gehört zu einer Browser-REPL-Sitzung, die ihn gerade steuert, daher können andere Clients ihn weder lesen noch steuern. Verwende `cmux browser repl`, um ihn zu steuern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet appartient à une session REPL du navigateur qui le pilote : les autres clients ne peuvent pas le lire ni le piloter. Utilisez `cmux browser repl` pour le piloter."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تنتمي علامة التبويب هذه إلى جلسة REPL للمتصفح تتحكم بها، لذا لا يمكن للعملاء الآخرين قراءتها أو التحكم بها. استخدم `cmux browser repl` للتحكم بها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pestaña pertenece a una sesión REPL del navegador que la está controlando, así que otros clientes no pueden leerla ni controlarla. Usa `cmux browser repl` para controlarla."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分頁屬於正在操作它的瀏覽器 REPL 工作階段，因此其他用戶端無法讀取或操作它。請使用 `cmux browser repl` 操作它。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭은 이를 조작 중인 브라우저 REPL 세션에 속하므로, 다른 클라이언트는 읽거나 조작할 수 없습니다. 조작하려면 `cmux browser repl`을 사용하세요."
+          }
+        }
+      }
+    },
     "cli.browser.error.tabManagerUnavailable": {
       "extractionState": "manual",
       "localizations": {
