@@ -3735,59 +3735,6 @@
     },
     {
       "accepts" : [
-        0.85,
-        1.5,
-        1.175
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 1,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.densityMotion",
-        "text" : "Density and Motion"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "app.uiScale",
-      "keywords" : [
-        "scale",
-        "zoom",
-        "size",
-        "chrome",
-        "web",
-        "bigger",
-        "smaller"
-      ],
-      "kind" : "number",
-      "path" : [
-        "app",
-        "uiScale"
-      ],
-      "range" : {
-        "max" : 1.5,
-        "min" : 0.85,
-        "placeholder" : 1,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -0.15000000000000002,
-        2.5,
-        "1"
-      ],
-      "section" : "appearance",
-      "title" : {
-        "key" : "settings.appearance.uiScale",
-        "text" : "Interface Scale"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         10,
         16,
         13
@@ -11208,7 +11155,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "40ee35a330fae8ce544f0603cd14b992fcd5f9e8fe471bfe80304ece22dda337",
+  "schema_hash" : "9bb88a276325bf7e1bdc8b9e6ec75d3b026eb7a66f69d049c9fcf22efa803d70",
   "sections" : [
     {
       "id" : "general",

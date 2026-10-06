@@ -378,11 +378,16 @@ fn start(
         );
     }
 
-    let (model, fallback, route_text): (
+    // The describer of turn images (chief-done.md item 12) is the compactor's
+    // deny-all acpmux model; the Messages API route has none yet, so its log
+    // keeps image references without descriptions.
+    type Route = (
         Arc<dyn CompactModel>,
         Option<Arc<dyn CompactModel>>,
         String,
-    ) = match route {
+        Option<Arc<dyn crate::brain::images::Describe>>,
+    );
+    let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
             config
@@ -393,6 +398,7 @@ fn start(
                 "{} over the Messages API at {}",
                 config.model, config.base_url
             ),
+            None,
         ),
         CompactRoute::Acpmux => {
             // The Claude models are Claude-only: another harness builds with
@@ -415,7 +421,7 @@ fn start(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                         .with_log(compactor_log.clone())
                         .with_trace(trace.clone()),
-                ) as Arc<dyn CompactModel>
+                )
             };
             let text = format!(
                 "{} in deny-all {compactor_harness} sessions through acpmux",
@@ -427,8 +433,15 @@ fn start(
                 .fallback_model
                 .as_deref()
                 .filter(|_| compactor_claude)
-                .map(|m| build(Some(m)));
-            (build(compactor_model.as_deref()), fallback, text)
+                .map(|m| build(Some(m)) as Arc<dyn CompactModel>);
+            let main = build(compactor_model.as_deref());
+            let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
+            (
+                main as Arc<dyn CompactModel>,
+                fallback,
+                text,
+                Some(describer),
+            )
         }
     };
     log(format!(
@@ -605,6 +618,10 @@ fn start(
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
     .with_workspaces(workspaces);
+    let mut brain = brain;
+    if let Some(describer) = describer {
+        brain.set_describer(describer);
+    }
     spawn_probe(model, fallback, system, route, tx.clone());
     let (display_name, title) = LinkConfig::names_from_env();
     daemon::spawn_link(

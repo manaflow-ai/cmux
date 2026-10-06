@@ -2,7 +2,8 @@
 /// the Home composer attaches keep their location metadata (photo GPS, a
 /// video's ISO 6709 location). Off by default: the data side strips it
 /// before hashing (`HomeStore.prepareAttachment(keepLocation:)`).
-public nonisolated enum HomeKeepLocationSetting {
+public nonisolated struct HomeKeepLocationSetting {
+    public nonisolated init() {}
     public static let configPath = ["home", "attachments", "keepLocation"]
 
     /// Absent is off; a value that is not a bool is off plus a diagnostic.
