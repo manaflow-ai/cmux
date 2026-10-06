@@ -82,6 +82,11 @@ class Eligibility(unittest.TestCase):
         self.assertIn("older than", self.reason(pr(1, committed_at="2026-09-20T00:00:00Z")))
         self.assertEqual(self.reason(pr(1, head_ref="next-batch/1-1")), "a batch integration branch")
 
+    def test_a_red_web_format_check_does_not_block_a_webviews_pr(self):
+        red = [("web / react-apps-check", "completed", "failure"), ("web / Web status", "completed", "failure")]
+        self.assertIsNone(nb.ineligible_reason(pr(5, checks=red, files=["webviews/src/a.ts"]), NOW))
+        self.assertIn("react-apps-check", nb.ineligible_reason(pr(5, checks=red, files=["app.swift"]), NOW))
+
     def test_workflow_changes_land_by_hand(self):
         # GitHub refuses the job token's push or merge of a workflow change.
         self.assertIn("lands by hand", self.reason(pr(1, files=[".github/workflows/cmux-next.yml"])))
@@ -403,6 +408,92 @@ class MiniRetry(unittest.TestCase):
         self.assertEqual(len(attempts), 1)
 
 
+class FormatBeforeLanding(unittest.TestCase):
+    """Formatting never blocks a landing: the queue runs the web formatter on
+    the PR's head on a runner and pushes the fix to the PR's branch."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                    "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        self.root = root / "repo"
+        self.root.mkdir()
+        self.git("init", "-q", "-b", "lane")
+        (self.root / "a.ts").write_text("let a=1\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "pr")
+        self.head = self.git("rev-parse", "HEAD")
+        (self.root / "a.ts").write_text("let a = 1;\n")
+        self.git("commit", "-q", "-am", "next-batch: format webviews")
+        self.patch = subprocess.run(["git", "format-patch", "-1", "--binary", "--stdout"], cwd=self.root,
+                                    env=self.env, check=True, capture_output=True).stdout
+        self.git("reset", "-q", "--hard", self.head)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", *args], cwd=self.root, env=self.env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def controller(self, result: dict) -> tuple[nb.Controller, list]:
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.worktree = Path(self.tmp.name) / "stack"
+        calls = []
+
+        def mini(mode, branch, sha, extra):
+            calls.append((mode, sha, extra.get("kinds")))
+            return {}, result
+
+        def git(*args, cwd=None):
+            if args[0] == "push":
+                calls.append(("push", args[-1], None))
+                return ""
+            return subprocess.run(["git", *args], cwd=cwd or self.root, env=self.env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+
+        controller.mini, controller.git = mini, git
+        return controller, calls
+
+    def test_formats_on_a_runner_and_pushes_to_the_pr_branch(self):
+        controller, calls = self.controller({"ok": True, "patch": self.patch})
+        target = pr(9, sha=self.head, head_ref="lane-9", files=["webviews/a.ts"])
+        with mock.patch.dict(os.environ, self.env):
+            sha = controller.format_pr(target, "next-batch/x-1")
+        self.assertEqual(calls[0], ("regen-linux", self.head, "format"))
+        self.assertEqual(calls[1][0], "push")
+        self.assertEqual(calls[1][1], f"{sha}:refs/heads/lane-9")
+        self.assertNotEqual(sha, self.head)
+        self.assertEqual(self.git("show", f"{sha}:a.ts"), "let a = 1;")
+
+    def test_nothing_to_format_pushes_nothing(self):
+        controller, calls = self.controller({"ok": True})
+        target = pr(9, sha=self.head, head_ref="lane-9", files=["webviews/a.ts"])
+        self.assertEqual(controller.format_pr(target, "next-batch/x-1"), "")
+        self.assertEqual([call[0] for call in calls], ["regen-linux"])
+
+    def test_land_formats_only_a_pr_with_a_red_format_check(self):
+        controller = nb.Controller.__new__(nb.Controller)
+        controller.args = Namespace(repo="o/r", dry_run=False, no_land=False)
+        controller.run_url = "u"
+        red = pr(1, files=["webviews/a.ts"], checks=[("web / react-apps-check", "completed", "failure")])
+        clean = pr(2, files=["webviews/b.ts"])
+        controller.gh = mock.Mock()
+        controller.merge_green = lambda: Path("/bin/true")
+        controller.comment_once = lambda *args: None
+        formatted, merged = [], []
+        controller.format_pr = lambda item, branch: formatted.append(item.number) or "f" * 40
+        controller.merge_one = lambda helper, item, validation: merged.append(item.number) or "landed"
+        validation = nb.Validation(name="batch", stack=nb.Stack(base="b", head="h", included=[red, clean]),
+                                   branch="next-batch/x-1")
+        with mock.patch.object(nb, "open_prs", return_value=[red, clean]):
+            landed = controller.land(validation)
+        self.assertEqual(formatted, [1])
+        self.assertEqual(merged, [1, 2])
+        self.assertEqual([text for _, text in landed], ["landed", "landed"])
+
+
 class LocalController(unittest.TestCase):
     """`serve` on a workstation: the operator's gh login, cmux-ci for the build."""
 
@@ -547,6 +638,11 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(tools["with"]["ref"], "${{ github.sha }}")
         regen = next(step for step in steps if step.get("id") == "regen")
         self.assertIn(".next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh", regen["run"])
+
+    def test_regen_linux_runs_the_web_formatter_and_lint_autofix(self):
+        script = "\n".join(step.get("run", "") for step in self.jobs["regen-linux"]["steps"])
+        self.assertIn('*" format "*', script)
+        self.assertIn("bun run check:fix", script)
 
     def test_regeneration_jobs_return_a_patch_and_never_push(self):
         for job in ("regen", "regen-linux"):
