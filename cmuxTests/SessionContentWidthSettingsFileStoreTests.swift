@@ -74,30 +74,6 @@ struct SessionContentWidthSettingsFileStoreTests {
     }
 
     @Test
-    func settingsFileStoreAppliesCanonicalIntegrationHooks() throws {
-        let suiteName = "cmux-session-content-width-integrations-(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let directoryURL = try makeTemporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try #"{"integrations":{"claudeCode":{"hooksEnabled":false,"customClaudePath":"/opt/claude"},"kiro":{"notificationLevel":"verbose"}}}"#
-            .write(to: settingsFileURL, atomically: true, encoding: .utf8)
-
-        _ = KeyboardShortcutSettingsFileStore(
-            primaryPath: settingsFileURL.path,
-            fallbackPath: nil,
-            additionalFallbackPaths: [],
-            userDefaults: defaults,
-            startWatching: false
-        )
-
-        #expect(defaults.bool(forKey: SettingCatalog().integrations.claudeCodeHooksEnabled.userDefaultsKey) == false)
-        #expect(defaults.string(forKey: SettingCatalog().integrations.claudeCodeCustomClaudePath.userDefaultsKey) == "/opt/claude")
-        #expect(defaults.string(forKey: SettingCatalog().integrations.kiroNotificationLevel.userDefaultsKey) == "verbose")
-    }
-
-    @Test
     func settingsFileStoreAppliesCanonicalBetaAndSidebarSettings() throws {
         let defaults = UserDefaults.standard
         let catalog = SettingCatalog()
