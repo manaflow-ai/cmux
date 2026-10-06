@@ -29,6 +29,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         Op::WorkspaceUpdate
+            | Op::WorkspaceAgentFolderSet
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
@@ -211,6 +212,18 @@ pub(crate) fn dispatch(
                     expected_revision(fields)?,
                     selectors,
                     update,
+                )
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // AGENT-CWD-FOR-FOLDERLESS-WORKSPACE: gate A2 admitted only the user.
+        Op::WorkspaceAgentFolderSet => {
+            let commit = mux
+                .state_set_agent_folder(
+                    &mutation(&request)?,
+                    expected_revision(fields)?,
+                    selectors,
+                    nullable_string(fields, "path").flatten(),
                 )
                 .map_err(state_error)?;
             state_result(mux, commit)
