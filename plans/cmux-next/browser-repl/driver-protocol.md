@@ -120,6 +120,15 @@ clipboard; the browser refuses the clipboard permissions (`clipboard-read`,
 the guard does not reach; and raw `cdp` refuses an `Input.dispatchKeyEvent`
 with a copy, cut or paste editing command.
 
+cmux-next shared headless browser, background tabs (chief, 2026-10-06): a tab
+an agent session drove (any call on it) or opened in the last 30 s runs at
+full rate; every other tab (kept tabs, tabs of sessions that went quiet) is
+throttled with `Emulation.setCPUThrottlingRate` 4 (Chromium's low-end
+setting), and its next call puts it back to full rate first. The host has no
+timer for this (zero idle work): tabs cool down at the next call on any tab.
+The parity runner closes the tabs each scenario leaves open, so a host reused
+across scenarios does not pile them up.
+
 cmux-next shared browser, file choosers (items 10/11): a headless browser
 intercepts the file choosers of every tab (no person can see an Open panel),
 so D2 applies to all of them. A headful browser (`CMUX_BROWSER_HOST_HEADLESS=0`,

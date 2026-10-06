@@ -21,12 +21,35 @@ pub struct Activity {
 impl Activity {
     /// A session drove `target` at `now`: the changes to apply, as
     /// (tab, throttled).
-    pub fn drove(&mut self, _target: &str, _now: Instant) -> Vec<(String, bool)> {
-        Vec::new()
+    pub fn drove(&mut self, target: &str, now: Instant) -> Vec<(String, bool)> {
+        self.last.insert(target.to_owned(), now);
+        let mut changes = Vec::new();
+        if self.throttled.remove(target) {
+            changes.push((target.to_owned(), false));
+        }
+        let mut cold: Vec<String> = self
+            .last
+            .iter()
+            .filter(|(tab, at)| {
+                tab.as_str() != target
+                    && now.saturating_duration_since(**at) > HOT_FOR
+                    && !self.throttled.contains(*tab)
+            })
+            .map(|(tab, _)| tab.clone())
+            .collect();
+        cold.sort();
+        for tab in cold {
+            self.throttled.insert(tab.clone());
+            changes.push((tab, true));
+        }
+        changes
     }
 
     /// The tab closed.
-    pub fn closed(&mut self, _target: &str) {}
+    pub fn closed(&mut self, target: &str) {
+        self.last.remove(target);
+        self.throttled.remove(target);
+    }
 }
 
 #[cfg(test)]
