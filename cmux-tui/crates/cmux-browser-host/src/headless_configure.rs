@@ -43,16 +43,16 @@ fn unsupported(message: &str) -> DriverError {
 }
 
 impl HeadlessSource {
-    fn configs(
-        &self,
-    ) -> std::sync::MutexGuard<'_, HashMap<u64, SessionConfig>> {
+    fn configs(&self) -> std::sync::MutexGuard<'_, HashMap<u64, SessionConfig>> {
         self.configs.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// `session.configure`: each key given replaces its value (`null` clears).
     pub(crate) fn configure(&self, session: u64, params: &Value) -> Result<Value, DriverError> {
         if params.get("permissions").is_some_and(|p| p.as_array().is_some_and(|l| !l.is_empty())) {
-            return Err(unsupported("permissions are not supported on the shared headless browser yet"));
+            return Err(unsupported(
+                "permissions are not supported on the shared headless browser yet",
+            ));
         }
         let proxy = match params.get("proxy") {
             None => None,
@@ -61,10 +61,10 @@ impl HeadlessSource {
                 if proxy.get("username").is_some() || proxy.get("password").is_some() {
                     return Err(unsupported("proxy credentials are not supported on headless yet"));
                 }
-                let server = proxy["server"]
-                    .as_str()
-                    .filter(|s| !s.is_empty())
-                    .ok_or_else(|| DriverError::invalid("session.configure: proxy: expected { server }"))?;
+                let server =
+                    proxy["server"].as_str().filter(|s| !s.is_empty()).ok_or_else(|| {
+                        DriverError::invalid("session.configure: proxy: expected { server }")
+                    })?;
                 Some(Some(self.driver.create_proxy_context(server, proxy["bypass"].as_str())?))
             }
         };
@@ -84,7 +84,8 @@ impl HeadlessSource {
                 config.proxy = proxy;
             }
             let answer = json!({"proxy": config.proxy.is_some()});
-            let touched = params.get("userAgent").is_some() || params.get("extraHTTPHeaders").is_some();
+            let touched =
+                params.get("userAgent").is_some() || params.get("extraHTTPHeaders").is_some();
             (config.overrides(), touched.then(|| self.routes_tabs_of(session)), answer)
         };
         for target in tabs.into_iter().flatten() {
@@ -94,17 +95,22 @@ impl HeadlessSource {
     }
 
     /// `tabs.open` with the session's options.
-    pub(crate) fn open_configured(&self, session: u64, params: &Value) -> Result<Value, DriverError> {
+    pub(crate) fn open_configured(
+        &self,
+        session: u64,
+        params: &Value,
+    ) -> Result<Value, DriverError> {
         let (context, overrides) = {
             let configs = self.configs();
             let config = configs.get(&session);
             (config.and_then(|c| c.proxy.clone()), config.and_then(SessionConfig::overrides))
         };
         let opened = self.driver.open_tab(params, context.as_deref(), overrides)?;
-        if let (Some(context), Some(target)) = (context, opened.get("targetId").and_then(Value::as_str)) {
-            if let Some(config) = self.configs().get_mut(&session) {
-                config.tab_contexts.insert(target.to_owned(), context);
-            }
+        if let (Some(context), Some(target)) =
+            (context, opened.get("targetId").and_then(Value::as_str))
+            && let Some(config) = self.configs().get_mut(&session)
+        {
+            config.tab_contexts.insert(target.to_owned(), context);
         }
         Ok(opened)
     }

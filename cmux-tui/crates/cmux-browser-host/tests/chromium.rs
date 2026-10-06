@@ -76,7 +76,10 @@ fn serve() -> u16 {
                     ),
                     _ => String::new(),
                 };
-                let body = if !body.is_empty() { body } else { match path.as_str() {
+                let body = if !body.is_empty() {
+                    body
+                } else {
+                    match path.as_str() {
                     "/" => format!(
                         "<!doctype html><title>Host test</title>\
                          <button id=b style=\"width:120px;height:40px\" onclick=\"window.clicked = event.isTrusted\">Go</button>\
@@ -112,7 +115,8 @@ fn serve() -> u16 {
                          <input id=plain value=visible-value>"
                         .to_owned(),
                     _ => "<!doctype html><title>404</title>".to_owned(),
-                } };
+                }
+                };
                 let mut stream = stream;
                 let _ = write!(
                     stream,
@@ -1194,7 +1198,10 @@ fn headless_session(
     .unwrap()
 }
 
-fn echo_text(session: &cmux_browser_host::headless_source::HeadlessSession, target: &str) -> String {
+fn echo_text(
+    session: &cmux_browser_host::headless_source::HeadlessSession,
+    target: &str,
+) -> String {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let text = session
@@ -1263,7 +1270,12 @@ fn session_configure_applies_to_the_sessions_own_tabs() {
     let deadline = Instant::now() + Duration::from_secs(10);
     let popup = loop {
         let tabs = s.call("tabs.list", &json!({})).unwrap();
-        if let Some(tab) = tabs.as_array().unwrap().iter().find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup")) {
+        if let Some(tab) = tabs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup"))
+        {
             break tab["targetId"].as_str().unwrap().to_owned();
         }
         assert!(Instant::now() < deadline, "no popup: {tabs}");
@@ -1316,7 +1328,10 @@ fn a_proxy_session_opens_tabs_in_a_private_store() {
     };
     let plain = open_tab(format!("{origin}/second?plain"));
     let answer = s
-        .call("session.configure", &json!({"proxy": {"server": format!("http://127.0.0.1:{port}")}}))
+        .call(
+            "session.configure",
+            &json!({"proxy": {"server": format!("http://127.0.0.1:{port}")}}),
+        )
         .unwrap();
     assert_eq!(answer["proxy"], true, "{answer}");
     let private = open_tab(format!("{origin}/second?private"));
@@ -1330,7 +1345,12 @@ fn a_proxy_session_opens_tabs_in_a_private_store() {
     let deadline = Instant::now() + Duration::from_secs(10);
     let popup = loop {
         let tabs = s.call("tabs.list", &json!({})).unwrap();
-        if let Some(tab) = tabs.as_array().unwrap().iter().find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup")) {
+        if let Some(tab) = tabs
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["url"].as_str().unwrap_or("").ends_with("?popup"))
+        {
             break tab["targetId"].as_str().unwrap().to_owned();
         }
         assert!(Instant::now() < deadline, "no popup: {tabs}");

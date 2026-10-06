@@ -362,8 +362,7 @@ impl State {
         let title = info.get("title").and_then(Value::as_str).unwrap_or("").to_owned();
         let opener = info.get("openerId").and_then(Value::as_str).map(str::to_owned);
         let mut tab = TabState::new(session_id.to_owned(), url.clone(), title, opener.clone());
-        tab.overrides =
-            opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
+        tab.overrides = opener.as_ref().and_then(|opener| self.tabs.get(opener)?.overrides.clone());
         tab.hidden = self.shell_markers.remove(&url) || self.shell_targets.contains(target_id);
         let hidden = tab.hidden;
         self.tabs.insert(target_id.to_owned(), tab);
