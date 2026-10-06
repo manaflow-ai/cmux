@@ -23,6 +23,13 @@ final class BrowserReplTabAttachments {
     /// list. A tab carries those of the session that created it
     /// (``BrowserReplTabAttachment/contextOptions``).
     private var sessionContexts: [String: BrowserReplContextOptions] = [:]
+    /// The policy generation whose compiled rule list each session's
+    /// context carries (``setContext(_:forSession:rulesGeneration:)``).
+    private var contextRuleGenerations: [String: Int] = [:]
+    /// ``BrowserReplContentRuleLists/failClosedRules`` compiled, once
+    /// (``prepareFailClosedRules()``).
+    private(set) var failClosedRuleList: WKContentRuleList?
+    private var failClosedCompile: Task<WKContentRuleList?, Never>?
     /// Secrets sessions typed into tabs, by tab, masked for every other
     /// session's reads until the tab closes (``BrowserReplTypedSecrets``).
     /// Sessions read it off the main thread (their fetch responses, files
@@ -54,9 +61,44 @@ final class BrowserReplTabAttachments {
 
     /// Sets `sessionID`'s browser-context options and puts them on the
     /// tabs that carry them: the tabs that session created.
-    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String) {
+    /// `rulesGeneration` is the policy generation (``BrowserReplPolicyBoard``)
+    /// whose rules `options.ruleList` holds, when it is a new list.
+    func setContext(_ options: BrowserReplContextOptions, forSession sessionID: String, rulesGeneration: Int? = nil) {
         sessionContexts[sessionID] = options
+        if let rulesGeneration { contextRuleGenerations[sessionID] = rulesGeneration }
         for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Puts each tab `sessionID` created under its current rules again: the
+    /// fail-closed list while its rules for a new policy or new directories
+    /// compile (``rulesInForce(forSession:)``).
+    func applyRules(forSession sessionID: String) {
+        for attachment in attachments(forSession: sessionID) { attachment.applyContextToWebView() }
+    }
+
+    /// Whether the rule list in `sessionID`'s context is the one for its
+    /// latest policy and directories: they compiled, or the list is already
+    /// that generation's. Otherwise its tabs carry the fail-closed list, so
+    /// no page loads anything under the previous rules meanwhile.
+    func rulesInForce(forSession sessionID: String) -> Bool {
+        let board = BrowserReplPolicyBoard.shared
+        if board.ruleState(for: sessionID) == .installed { return true }
+        guard let latest = board.generation(for: sessionID) else { return true }
+        return contextRuleGenerations[sessionID] == latest && board.ruleState(for: sessionID) == .pending
+    }
+
+    /// Compiles the fail-closed list once, before any session's tab can
+    /// need it (the driver awaits this before each call, and a session's
+    /// tabs exist only through its calls).
+    func prepareFailClosedRules() async {
+        if failClosedRuleList != nil { return }
+        let compile = failClosedCompile ?? Task { @MainActor in
+            guard let store = WKContentRuleListStore.default() else { return nil }
+            return try? await BrowserReplContentRuleLists.failClosedList(in: store)
+        }
+        failClosedCompile = compile
+        failClosedRuleList = await compile.value
+        if failClosedRuleList == nil { failClosedCompile = nil }
     }
 
     /// `sessionID`'s browser-context options, if it set any.
@@ -67,6 +109,7 @@ final class BrowserReplTabAttachments {
     /// Detaches `sessionID` from every tab.
     func detach(sessionID: String) {
         sessionContexts.removeValue(forKey: sessionID)
+        contextRuleGenerations.removeValue(forKey: sessionID)
         Self.typedSecrets.sessionLeft(sessionID)
         for (panelID, attachment) in attachments {
             attachment.removeSink(sessionID: sessionID)
@@ -163,6 +206,8 @@ final class BrowserReplTabAttachment {
 
     /// An automated left-button press and the HTML5 drag it may have started.
     struct DragState {
+        /// The session whose press armed it; no other session's input uses it.
+        let sessionID: String
         let capture: BrowserAutomationDragCapture
         var drop: BrowserAutomationDraggingInfo?
         var operation: NSDragOperation = []
@@ -199,9 +244,14 @@ final class BrowserReplTabAttachment {
     /// Runs a whole drag as one press of `sessionID`: it waits for another
     /// session's press to end, and no other session's mouse input reaches
     /// the page until the drag ends.
+    /// When the gesture ends, also when it throws partway, its press and
+    /// drag end without a drop before another session gets the pointer.
     func performPointerGesture<T>(sessionID: String, _ gesture: () async throws -> T) async throws -> T {
         do {
-            return try await pointer.performGesture(sessionID: sessionID, gesture)
+            return try await pointer.performGesture(sessionID: sessionID, ending: { [self] in
+                mouseState.reset()
+                discardDrag()
+            }, gesture)
         } catch let held as BrowserReplPointerOwner.Held {
             throw Self.pointerHeldError(held)
         }
@@ -372,16 +422,16 @@ final class BrowserReplTabAttachment {
         return false
     }
 
-    /// Whether a link activated in this tab may go to the user's configured
-    /// external browser
-    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
-    /// always in a tab no session drives; in one a session drives, only an
-    /// activation WebKit marks as the user's gesture in a user's tab the
-    /// user is working in, while no session's input runs or may still lend
-    /// the page its gesture.
-    func handsLinkToExternalBrowser(isUserInitiated: Bool) -> Bool {
-        guard isAttached else { return true }
-        return ownership.handsLinkToExternalBrowser(
+    /// What a link activated in this tab that would leave the browser for
+    /// `target` does (``BrowserReplTabOwnership/externalDecision(_:_:now:)``):
+    /// it leaves always in a tab no session drives; in one a session
+    /// drives, only for an activation WebKit marks as the user's gesture in
+    /// a user's tab the user is working in, while no session's input runs
+    /// or may still lend the page its gesture.
+    func externalDecision(_ target: BrowserReplExternalTarget, isUserInitiated: Bool) -> BrowserReplExternalDecision {
+        guard isAttached else { return .handOff }
+        return ownership.externalDecision(
+            target,
             BrowserReplLinkActivation(userIsWorkingInTab: !opensPopupsInBackground, isUserInitiated: isUserInitiated),
             now: .now
         )
@@ -694,7 +744,16 @@ final class BrowserReplTabAttachment {
             webView.automationUserAgentOverride = contextOptions.userAgent
         }
         webView.automationExtraHTTPHeaders = contextOptions.extraHTTPHeaders
-        let wanted = contextOptions.ruleList
+        // While the creating session's rules for its latest policy or
+        // directories compile (or after WebKit refused them), the tab
+        // carries the fail-closed list: its live page loads nothing under
+        // the previous rules.
+        var wanted = contextOptions.ruleList
+        if appliesSessionPolicies, let creator = ownership.creatorSessionID,
+           !BrowserReplTabAttachments.shared.rulesInForce(forSession: creator),
+           let failClosed = BrowserReplTabAttachments.shared.failClosedRuleList {
+            wanted = failClosed
+        }
         if let installed = installedRuleList, let owner = ruleListWebView,
            installed !== wanted || owner !== webView {
             owner.configuration.userContentController.remove(installed)
@@ -784,6 +843,8 @@ final class BrowserReplTabAttachment {
         var keys: [BrowserReplKeyStroke] = []
         var buttons: [BrowserReplMouseButton] = []
         var drag: DragState?
+        /// The web view they were pressed in; the release goes only there.
+        var target = BrowserReplInputTarget<CmuxWebView>(nil)
 
         var isEmpty: Bool { keys.isEmpty && buttons.isEmpty && drag == nil }
     }
@@ -794,6 +855,9 @@ final class BrowserReplTabAttachment {
     /// time). Another session's keys and press stay.
     func takeHeldInput(of sessionID: String) -> HeldInput {
         var held = HeldInput(sessionID: sessionID, keys: heldKeys.releaseAll(heldBy: sessionID))
+        // Held input is always the instrumented web view's: a replacement
+        // forgets what was held in the one before (instrumentCurrentWebView).
+        held.target = BrowserReplInputTarget(instrumentedWebView as? CmuxWebView)
         if pointer.owner == sessionID {
             held.buttons = mouseState.pressedButtons
             held.drag = drag
@@ -810,7 +874,13 @@ final class BrowserReplTabAttachment {
     /// that session's input guard, the frame gate
     /// (`WebKitBrowserReplDriver.releaseHeldInput`).
     func deliverRelease(_ held: HeldInput) {
-        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        guard !held.isEmpty else { return }
+        // Only into the web view that got the press: after a replacement
+        // the release is forgotten, never sent to the new page.
+        guard let webView = held.target.deliverable(to: panel?.webView as? CmuxWebView) else {
+            forgetReleased(held)
+            return
+        }
         if held.drag != nil { webView.automationDragCapture = nil }
         if webView.window != nil {
             for stroke in held.keys {
@@ -856,7 +926,7 @@ final class BrowserReplTabAttachment {
     /// Forgets `held` (from ``takeHeldInput(of:)``) without sending the page
     /// any event: a release its session's guards refused.
     func forgetReleased(_ held: HeldInput) {
-        guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
+        guard !held.isEmpty, let webView = held.target.target ?? (panel?.webView as? CmuxWebView) else { return }
         for stroke in held.keys {
             webView.forgetBrowserReplModifier(stroke, heldBy: held.sessionID)
         }
@@ -878,6 +948,28 @@ final class BrowserReplTabAttachment {
         webView.cancelPendingAutomationContextMenus()
         endDragSilently(dragState, in: webView)
         webView.releaseBrowserReplModifiers()
+    }
+
+    /// Forgets every session's held keys, buttons and drag, all held in
+    /// `webView`, which the tab no longer shows; nothing is sent.
+    private func forgetHeldInput(in webView: CmuxWebView?) {
+        _ = heldKeys.releaseAll()
+        mouseState.reset()
+        let dragState = drag
+        drag = nil
+        guard let webView else { return }
+        endDragSilently(dragState, in: webView)
+        webView.releaseBrowserReplModifiers()
+    }
+
+    /// Ends the drag in progress, if any, without a drop and without a
+    /// mouse event (``endDragSilently(_:in:)``): its press failed partway,
+    /// or another session's input found it.
+    func discardDrag() {
+        let dragState = drag
+        drag = nil
+        guard let dragState, let webView = panel?.webView as? CmuxWebView else { return }
+        endDragSilently(dragState, in: webView)
     }
 
     /// Ends the automated drag session `dragState` started, if any: WebKit's
@@ -1036,10 +1128,17 @@ final class BrowserReplTabAttachment {
     func instrumentCurrentWebView() {
         if isAttached { applyContextToWebView() }
         guard let webView = panel?.webView, webView !== instrumentedWebView, isAttached else { return }
+        let previous = instrumentedWebView as? CmuxWebView
         uninstrument()
         // A web view after the first is a replacement (a restore of a page
         // cmux unloaded, a crash recovery): its frames have new ids.
         let isReplacement = hasInstrumentedWebView
+        if isReplacement {
+            // Keys and buttons held in the replaced web view are its own:
+            // forgotten there, with no event, so no release ever reaches
+            // the replacement's page.
+            forgetHeldInput(in: previous)
+        }
         hasInstrumentedWebView = true
         instrumentedWebView = webView
         if isReplacement { emit(.tabReplaced, [:]) }

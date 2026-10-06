@@ -9019,9 +9019,8 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         // As in the navigation delegate: a tab a browser REPL session drives
         // hands a window's link to the external browser only when the user
         // activated it there.
-        let replAllowsExternalOpen = owner.map {
-            BrowserReplNavigationGuard.shared.handsLinkToExternalBrowser(panelID: $0.id, action: navigationAction)
-        } ?? true
+        // Every external side effect below asks the same decision.
+        let replGuard = BrowserReplNavigationGuard.shared
         if let url = navigationAction.request.url {
             if navigationAction.navigationType == .linkActivated,
                navigationAction.targetFrame?.isMainFrame != false,
@@ -9029,9 +9028,11 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
                    url: url,
                    webOrigin: AuthEnvironment.appSessionHandoffOrigin
                ),
+               replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .appLink),
                openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
                 return nil
             }
+            let replAllowsExternalOpen = replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .configuredBrowser)
             switch replAllowsExternalOpen ? externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
@@ -9071,9 +9072,14 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
             return nil
         }
 
-        // External URL schemes → hand off to macOS, don't create a popup
+        // External URL schemes → hand off to macOS, don't create a popup.
+        // From a tab a browser REPL session drives, only on the user's own
+        // click there.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
+            guard replGuard.allowsExternal(panelID: owner?.id, action: navigationAction, target: .otherApp) else {
+                return nil
+            }
             browserHandleExternalNavigation(
                 url,
                 source: "uiDelegate",

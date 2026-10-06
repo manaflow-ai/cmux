@@ -205,6 +205,29 @@ public struct BrowserReplLinkActivation: Sendable, Equatable {
     }
 }
 
+/// Where a navigation or window of a tab would leave the browser
+/// (``BrowserReplTabOwnership/externalDecision(_:_:now:)``).
+public enum BrowserReplExternalTarget: Sendable, CaseIterable {
+    /// A rule that opens matching links in the user's configured browser.
+    case configuredBrowser
+    /// The external-navigation policy's system browser (`NSWorkspace`).
+    case systemBrowser
+    /// A signed-in cmux app link, which opens a browser split.
+    case appLink
+    /// Another app's URL scheme (`mailto:`, `zoommtg:`, `intent:`).
+    case otherApp
+}
+
+/// What a tab does with a navigation or window that would leave it.
+public enum BrowserReplExternalDecision: Sendable, Equatable {
+    /// It leaves, as in a tab no session drives.
+    case handOff
+    /// It loads in the tab, under the tab's guards.
+    case loadInTab
+    /// Nothing opens: it has no form the tab can load.
+    case refuse
+}
+
 public struct BrowserReplTabOwnership: Sendable, Equatable {
     /// The attached session that created the tab, if any.
     public private(set) var creatorSessionID: String?
@@ -359,6 +382,21 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         guard !isSessionOwned, inputSessionIDs.isEmpty, activation.userIsWorkingInTab, activation.isUserInitiated else { return false }
         guard let lastInputEnded else { return true }
         return lastInputEnded.duration(to: now) >= Self.agentGestureLingering
+    }
+
+    /// What a navigation or window of the tab that would leave the browser
+    /// for `target` does: it leaves only when
+    /// ``handsLinkToExternalBrowser(_:now:)`` allows it (the user's own
+    /// activation); otherwise a web link loads in the tab and another
+    /// app's scheme opens nothing. Every external side effect asks this
+    /// one decision.
+    public func externalDecision(
+        _ target: BrowserReplExternalTarget,
+        _ activation: BrowserReplLinkActivation,
+        now: ContinuousClock.Instant
+    ) -> BrowserReplExternalDecision {
+        if handsLinkToExternalBrowser(activation, now: now) { return .handOff }
+        return target == .otherApp ? .refuse : .loadInTab
     }
 
     /// Ends one ``beginInput(sessionID:)`` at `now`.

@@ -98,18 +98,37 @@ final class BrowserReplNavigationGuard {
         board.whenRulesSettle(sessionID: sessionID) { _ in body() }
     }
 
-    /// Whether `action`, a navigation or window of `panelID`, may go to the
-    /// user's configured external browser instead of loading in the tab
-    /// (``BrowserReplTabOwnership/handsLinkToExternalBrowser(_:now:)``):
-    /// always for a tab no session drives. In a tab a session drives, the
-    /// page's own link activations (`a.click()`, agent-world code) and those
-    /// a session's input set off load in the tab under its guards; only one
-    /// WebKit marks as the user's gesture (`_isUserInitiated`, read as false
-    /// where WebKit cannot say) leaves it. Both the navigation delegate and
-    /// the window delegate ask this one decision.
-    func handsLinkToExternalBrowser(panelID: UUID, action: WKNavigationAction) -> Bool {
-        guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID) else { return true }
-        return attachment.handsLinkToExternalBrowser(isUserInitiated: action.browserReplIsUserInitiated)
+    /// What `action`, a navigation or window of `panelID` that would leave
+    /// the browser for `target`, does
+    /// (``BrowserReplTabOwnership/externalDecision(_:_:now:)``): it leaves
+    /// always from a tab no session drives. In a tab a session drives, the
+    /// page's own link activations (`a.click()`, agent-world code) and
+    /// those a session's input set off load in the tab under its guards, or
+    /// open nothing for another app's scheme (reported to the sessions as
+    /// `navigation.blocked`); only one WebKit marks as the user's gesture
+    /// (`_isUserInitiated`, read as false where WebKit cannot say) leaves
+    /// it. The navigation delegate and the window delegate ask this one
+    /// decision before every external side effect: the configured external
+    /// browser, the system browser rule, cmux app links and other apps'
+    /// URL schemes.
+    func externalDecision(panelID: UUID, action: WKNavigationAction, target: BrowserReplExternalTarget) -> BrowserReplExternalDecision {
+        guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID) else { return .handOff }
+        let decision = attachment.externalDecision(target, isUserInitiated: action.browserReplIsUserInitiated)
+        if decision == .refuse {
+            attachment.emit(.navigationBlocked, [
+                "url": attachment.pageURL(action.request.url?.absoluteString ?? ""),
+                "reason": "a link to another app opens only on the user's own click in this tab",
+            ])
+        }
+        return decision
+    }
+
+    /// Whether `action` may leave the browser for `target`
+    /// (``externalDecision(panelID:action:target:)``); `true` for a
+    /// navigation of no tab.
+    func allowsExternal(panelID: UUID?, action: WKNavigationAction, target: BrowserReplExternalTarget) -> Bool {
+        guard let panelID else { return true }
+        return externalDecision(panelID: panelID, action: action, target: target) == .handOff
     }
 
     typealias PopupRoute = BrowserReplPopupRoute

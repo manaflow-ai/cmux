@@ -39,3 +39,24 @@ public struct BrowserReplHeldKeys: Sendable, Equatable {
         return strokes.reversed()
     }
 }
+
+/// The web view a session's held keys and buttons were pressed in. Their
+/// release (when the session ends) goes only to that web view: after the
+/// tab's web view was replaced (a restore, a crash recovery), the release
+/// is forgotten instead of reaching the replacement's page as trusted
+/// events.
+public struct BrowserReplInputTarget<Target: AnyObject> {
+    /// The web view that got the press, while it lives.
+    public private(set) weak var target: Target?
+
+    public init(_ target: Target?) {
+        self.target = target
+    }
+
+    /// `current`, the tab's web view now, when it is the one that got the
+    /// press; otherwise nil, and the release is not delivered.
+    public func deliverable(to current: Target?) -> Target? {
+        guard let target, let current, target === current else { return nil }
+        return current
+    }
+}

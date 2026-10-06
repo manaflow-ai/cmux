@@ -137,6 +137,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let generation = BrowserReplPolicyBoard.shared.publish(policy, sessionID: sessionID)
             policyRunner.submit(PolicyUpdate(policy: policy, generation: generation))
         }
+        failClosedUntilRulesInstall()
+    }
+
+    /// Puts the session's tabs under the fail-closed list on the main
+    /// actor's next turn, ahead of the compile the policy runner starts:
+    /// their live pages load nothing under the previous rules until the
+    /// new list is on them (``BrowserReplTabAttachments/rulesInForce(forSession:)``).
+    private func failClosedUntilRulesInstall() {
+        let sessionID = sessionID
+        Task { @MainActor in BrowserReplTabAttachments.shared.applyRules(forSession: sessionID) }
     }
 
     /// Puts the policy's content rules on the tabs the session created, then
@@ -165,10 +175,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 "the domain policy could not be applied: WebKit refused its content rules (\(reason)); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked"
             )
             BrowserReplPolicyBoard.shared.rulesFailed(sessionID: sessionID, generation: generation, reason: reason)
+            // The tabs stay under the fail-closed list until a policy compiles.
+            BrowserReplTabAttachments.shared.applyRules(forSession: sessionID)
             return
         }
         contextOptions = options
-        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
+        // The list goes on the tabs only when it is the latest policy's;
+        // a newer one keeps them under the fail-closed list.
+        BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID, rulesGeneration: generation)
         BrowserReplPolicyBoard.shared.rulesInstalled(sessionID: sessionID, generation: generation)
     }
 
@@ -192,6 +206,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             let generation = BrowserReplPolicyBoard.shared.publish(domainPolicy, sessionID: sessionID)
             policyRunner.submit(PolicyUpdate(policy: domainPolicy, generation: generation))
         }
+        failClosedUntilRulesInstall()
     }
 
     private var currentFileRoots: [String] { lock.withLock { fileRoots.map(\.path) } }
@@ -219,16 +234,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         tabFacts(panel, workspaceID: Self.browserPanelEntries().first { $0.panel.id == panel.id }?.workspace.id)
     }
 
-    /// The frame gate's scope in `webView`: this session, its directories,
-    /// and the tab that shows the web view as the authority judges it (a
-    /// web view no attached tab shows counts as a user's tab). Document
-    /// verdicts ask no tab capability, so the tab's workspace is not read.
+    /// The frame gate's scope in `webView`: this session, its directories
+    /// and workspace, and the tab that shows the web view as the authority
+    /// judges it, in the workspace that holds it now, so the gate refuses
+    /// every later script and input step once the tab moved out of the
+    /// session's workspace (``BrowserReplFrameGate/checkTab(in:)``). A web
+    /// view no attached tab shows counts as a user's tab, and no workspace
+    /// is judged for it.
     @MainActor
     private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
-        let tab = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel
-            .map { tabFacts($0, workspaceID: nil) }
-            ?? BrowserReplTabFacts(mainFrameURL: webView.url)
-        return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: tab)
+        guard let panel = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel else {
+            return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: BrowserReplTabFacts(mainFrameURL: webView.url))
+        }
+        return BrowserReplFrameGate.Scope(
+            sessionID: sessionID,
+            fileRoots: currentFileRoots,
+            tab: tabFacts(panel, workspaceID: panel.workspaceId),
+            workspaceID: workspaceID
+        )
     }
 
     /// `panel`, held by the workspace `workspaceID`, as the authority judges it.
@@ -304,7 +327,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private func releaseHeldInput(on attachment: BrowserReplTabAttachment) async {
         let held = attachment.takeHeldInput(of: sessionID)
         guard !held.isEmpty, let panel = attachment.panel else { return }
-        let webView = panel.webView
+        // The web view the keys and press were held in; a replacement gets
+        // nothing (BrowserReplTabAttachment.deliverRelease checks again
+        // after the guard's waits).
+        guard let webView = held.target.deliverable(to: panel.webView as? CmuxWebView) else {
+            attachment.forgetReleased(held)
+            return
+        }
         if authority.verdict(BrowserReplAccess(.tabPage(Self.url(panel)), in: tabFacts(panel))) != .allowed {
             attachment.forgetReleased(held)
             return
@@ -364,6 +393,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func dispatchAttached(method name: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         await lock.withLock({ policyRunner }).idle()
+        // Ready before any tab of the session exists to need it.
+        await BrowserReplTabAttachments.shared.prepareFailClosedRules()
         if let policyFailure { return .failure(policyFailure) }
         // Default deny: a method outside the guard table runs nothing.
         guard let method = BrowserReplDriverMethod(rawValue: name) else {
@@ -462,6 +493,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                     return try await handle(method: method, params: params)
                 }
             }()
+            // A tab the session may no longer use (the user moved it to
+            // another workspace while the call ran) hands back nothing.
+            try checkTab(spec, params: params)
             // A method that leaves the page (navigate, history, reload)
             // fails when the page it landed on is one the authority refuses.
             if spec.judgesLandedPage, let panel = targetPanel(params) {
@@ -2131,6 +2165,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 ) else {
                     throw Self.error("invalid", "Could not create a wheel event")
                 }
+                try self.frameGate.checkTab(in: webView)
                 webView.deliverAutomationMouseEvent(event)
                 await BrowserReplNativeInput.roundTrip(webView)
                 return
@@ -2196,7 +2231,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         attachment: BrowserReplTabAttachment,
         dropAllowed: Bool = true
     ) async throws {
+        // Each native step asks the tab capability again
+        // (BrowserReplFrameGate.checkTab): a tab moved out of the session's
+        // workspace while the call waited gets no further event.
         func send() throws {
+            try frameGate.checkTab(in: webView)
             guard let event = BrowserReplNativeInput.mouseEvent(
                 type: type,
                 button: button,
@@ -2211,15 +2250,26 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             webView.deliverAutomationMouseEvent(event)
         }
         let location = BrowserReplNativeInput.windowPoint(webView: webView, cssPoint: css)
+        // A drag is its own session's: one another session's press left
+        // (it failed partway) ends without a drop, never consumed here.
+        if let drag = attachment.drag, drag.sessionID != sessionID {
+            attachment.discardDrag()
+        }
         switch type {
         case .leftMouseDown:
             let capture = BrowserAutomationDragCapture()
             webView.automationDragCapture = capture
-            attachment.drag = BrowserReplTabAttachment.DragState(capture: capture)
-            try send()
+            attachment.drag = BrowserReplTabAttachment.DragState(sessionID: sessionID, capture: capture)
+            do {
+                try send()
+            } catch {
+                attachment.discardDrag()
+                throw error
+            }
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
         case .leftMouseDragged:
             if let drop = attachment.drag?.drop {
+                try frameGate.checkTab(in: webView)
                 drop.draggingLocation = location
                 attachment.drag?.operation = webView.draggingUpdated(drop)
                 await BrowserReplNativeInput.roundTrip(webView)
@@ -2249,10 +2299,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
             }
             if let drop = attachment.drag?.drop {
+                try frameGate.checkTab(in: webView)
                 drop.draggingLocation = location
                 let operation = dropAllowed ? webView.draggingUpdated(drop) : []
                 await BrowserReplNativeInput.roundTrip(webView)
-                if !operation.isEmpty, webView.prepareForDragOperation(drop) {
+                if !operation.isEmpty, (try? frameGate.checkTab(in: webView)) != nil, webView.prepareForDragOperation(drop) {
                     _ = webView.performDragOperation(drop)
                     webView.concludeDragOperation(drop)
                 } else {
@@ -2325,6 +2376,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // AppKit focus (WKWebView+AutomationFocusContainment). WebKit asks
             // for that before it answers the round trip below.
             try await webView.withAutomationFocusContainment {
+                try self.frameGate.checkTab(in: webView)
                 let result = webView.replayBrowserReplKeyStroke(stroke, keyDown: type == "down", heldBy: self.sessionID)
                 guard result == .delivered else {
                     throw Self.error("invalid", "Could not deliver key \"\(keyName)\"")
@@ -2458,12 +2510,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             )
         }
         let world = sessionWorld.agent
+        let frameGate = frameGate
         try await withWindow(panel) { webView, _ in
             try await BrowserReplNativeInput.insertText(
                 text,
                 into: webView,
                 world: world,
-                isCurrent: { [weak panel] in panel?.webView === webView },
+                // Also asked right before the commit: a tab moved out of the
+                // session's workspace meanwhile gets no text.
+                isCurrent: { [weak panel] in
+                    panel?.webView === webView && (try? frameGate.checkTab(in: webView)) != nil
+                },
                 checkTarget: checkTarget
             )
             await BrowserReplNativeInput.roundTrip(webView)
@@ -2484,6 +2541,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         guard let first = points.first, let last = points.last, points.count >= 2 else {
             throw Self.error("invalid", "input.drag needs at least two points")
+        }
+        guard points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else {
+            throw Self.error("invalid", "input.drag: every point's x and y must be finite numbers")
+        }
+        // The session reserved the drag's events against its ledger
+        // (BrowserReplResource.inputEvents); this is the same per-call
+        // limit for a caller that is not a session.
+        let events = 5 * (points.count - 1) + 3
+        if let limit = BrowserReplResourceLimits.standard.each(.inputEvents), events > limit {
+            throw Self.error("invalid", "input.drag: the path makes \(events) native input events, at most \(limit) a call; use a shorter path")
         }
         let modifiers = BrowserReplKeyStroke.modifierFlags(named: params["modifiers"] as? [String] ?? [])
         // A locator drag names the source its press must reach (`expect`)
@@ -2512,6 +2579,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 _ = attachment.mouseState.eventType(forType: "down", button: .left)
                 try await self.deliverMouse(.leftMouseDown, button: .left, at: first, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 for point in trail {
+                    // A cancelled call (its cell timed out, its session
+                    // closed) stops between steps.
+                    try Task.checkCancellation()
                     try await self.deliverMouse(.leftMouseDragged, button: .left, at: point, clickCount: 1, flags: flags, webView: webView, window: window, attachment: attachment)
                 }
                 _ = attachment.mouseState.eventType(forType: "up", button: .left)

@@ -558,3 +558,42 @@ struct SendableBox<T>: @unchecked Sendable {
     let value: T
     init(_ value: T) { self.value = value }
 }
+
+/// A call that started on a tab of the session's workspace can be
+/// suspended in WebKit when the user moves the tab to another workspace.
+/// The gate asks the tab capability again with the tab's workspace as it
+/// is at each script and input step, so a moved tab is neither read nor
+/// sent input.
+@MainActor
+@Suite("Frame gate: a tab moved to another workspace", .serialized)
+struct BrowserReplFrameGateWorkspaceTests {
+    @Test func aTabMovedToAnotherWorkspaceIsNeitherReadNorSentInput() async throws {
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: WKWebViewConfiguration())
+        webView.loadHTMLString("<p>page</p>", baseURL: URL(string: "https://example.com/"))
+        let frames = try await FramePage.settle(webView) { $0.first?.url.hasPrefix("https://example.com") == true }
+        let main = try #require(frames.first)
+        let home = UUID()
+        var tabWorkspace: UUID? = home
+        let gate = BrowserReplFrameGate(world: BrowserReplFrameGateTests.world)
+        gate.scope = { webView in
+            .init(sessionID: "s", fileRoots: nil, tab: BrowserReplTabFacts(id: UUID(), mainFrameURL: webView.url, workspaceID: tabWorkspace), workspaceID: home)
+        }
+        let read = "return document.body.innerText"
+        let text = try await gate.callAsyncJavaScript(read, arguments: [:], in: webView, frame: main, contentWorld: .page)
+        #expect((text as? String)?.contains("page") == true)
+
+        tabWorkspace = UUID()
+        let error = await BrowserReplFrameGateTests.error {
+            try await gate.callAsyncJavaScript("window.ran = 1; return document.body.innerText", arguments: [:], in: webView, frame: main, contentWorld: .page)
+        }
+        #expect(error?.code == "denied", "a tab moved to another workspace was read: \(String(describing: error))")
+        #expect(try await webView.evaluateJavaScript("window.ran === undefined") as? Bool == true)
+
+        var sent = false
+        let inputError = await BrowserReplFrameGateTests.error {
+            try await gate.guardingInput(in: webView, frames: { frames }, checkFocusAfter: false) { sent = true }
+        }
+        #expect(inputError?.code == "denied")
+        #expect(!sent, "input reached a tab moved to another workspace")
+    }
+}

@@ -92,4 +92,34 @@ struct BrowserReplPointerOwnerTests {
         }
         #expect(pointer.owner == nil, "a failed gesture releases the pointer")
     }
+
+    /// A gesture (a drag) arms per-tab state (the drag capture, the held
+    /// button) that the next session's mouse input would act on. It is
+    /// cleared on every outcome, also when the gesture throws partway, and
+    /// before another session's waiting input gets the pointer.
+    @Test func aGesturesStateEndsOnEveryOutcomeBeforeAnotherSessionGetsThePointer() async throws {
+        struct Failed: Error {}
+        let pointer = BrowserReplPointerOwner(timeout: .seconds(30))
+        var armed: String?
+        var seenByOther: [String?] = []
+        await #expect(throws: Failed.self) {
+            try await pointer.performGesture(sessionID: "dragger", ending: { armed = nil }) {
+                armed = "dragger"
+                let other = Task { @MainActor in
+                    try await pointer.waitForPointer(sessionID: "other")
+                    seenByOther.append(armed)
+                }
+                await Task.yield()
+                _ = other
+                throw Failed()
+            }
+        }
+        try await pointer.waitForPointer(sessionID: "other")
+        #expect(armed == nil, "a failed gesture left its state armed")
+        #expect(!seenByOther.contains { $0 != nil }, "another session saw the failed gesture's state")
+
+        var endings = 0
+        try await pointer.performGesture(sessionID: "dragger", ending: { endings += 1 }) {}
+        #expect(endings == 1)
+    }
 }

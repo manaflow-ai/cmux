@@ -526,6 +526,44 @@ struct BrowserReplSessionResourceTests {
         #expect((1...8).contains(refused) && lines.last?.contains("MiB") == true, "\(lines)")
     }
 
+    /// One `input.drag` becomes a native event for each step of its path
+    /// (five a segment, plus the press, release and first move), each a
+    /// main-actor round trip through AppKit and WebKit. Its parameters
+    /// alone allow millions of points, so the call is refused before the
+    /// driver sees it when its path makes more events than one call may
+    /// send; a path within the limit reaches the driver.
+    @Test("A drag path past the native input event limit is refused before the driver sees it")
+    func anOversizedDragPathIsRefused() async throws {
+        let driver = RecordingDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "drag-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "drag.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer { session.close() }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const path = (n) => JSON.stringify({ targetId: "t", path: Array.from({ length: n }, (_, i) => ({ x: i % 500, y: 1 })) });
+            const huge = await driverWith("input.drag", path(400000)).then(() => "ran", (e) => e.message);
+            console.log(huge);
+            const small = await driverWith("input.drag", path(3)).then(() => "ran", (e) => e.message);
+            console.log(small);
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.first?.contains("native input events") == true, "\(lines)")
+        #expect(lines.last == "ran", "\(lines)")
+        #expect(driver.methods == ["input.drag"], "the oversized drag reached the driver: \(driver.methods.count) calls")
+    }
+
     /// An event larger than the per-event limit arrives without its
     /// content, as other outputs past their limits do, and still names its
     /// tab, so masking never has to read it.
@@ -1079,4 +1117,20 @@ private extension Sequence {
         for element in self { values.append(try await transform(element)) }
         return values
     }
+}
+
+/// Answers every call with `null` and records the methods it was asked.
+final class RecordingDriver: BrowserReplDriver, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+    var methods: [String] { lock.withLock { recorded } }
+    var capabilities: [String] { [] }
+
+    func call(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
+        lock.withLock { recorded.append(method) }
+        return .success("null")
+    }
+
+    func attach(eventSink: @escaping BrowserReplDriverEventSink) {}
+    func detach() {}
 }

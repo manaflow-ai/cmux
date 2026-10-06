@@ -291,11 +291,16 @@ public final class BrowserReplFrameGate {
         /// The tab that shows the web view (its creator, main-frame URL,
         /// attached sessions), as ``BrowserReplDocumentAuthority`` judges it.
         public var tab: BrowserReplTabFacts
+        /// The session's workspace; with the tab's workspace in ``tab``,
+        /// the gate refuses a tab that moved out of it
+        /// (``checkTab(in:)``). Nil judges no workspace.
+        public var workspaceID: UUID?
 
-        public init(sessionID: String, fileRoots: [String]?, tab: BrowserReplTabFacts) {
+        public init(sessionID: String, fileRoots: [String]?, tab: BrowserReplTabFacts, workspaceID: UUID? = nil) {
             self.sessionID = sessionID
             self.fileRoots = fileRoots
             self.tab = tab
+            self.workspaceID = workspaceID
         }
     }
 
@@ -320,7 +325,20 @@ public final class BrowserReplFrameGate {
     /// the tab from ``scope``. The gate decides nothing itself.
     private func authority(in webView: WKWebView) -> (BrowserReplDocumentAuthority, BrowserReplTabFacts?) {
         guard let scope = scope(webView) else { return (.judging(policy), nil) }
-        return (BrowserReplDocumentAuthority(sessionID: scope.sessionID, policy: policy, fileRoots: scope.fileRoots), scope.tab)
+        return (BrowserReplDocumentAuthority(sessionID: scope.sessionID, policy: policy, fileRoots: scope.fileRoots, workspaceID: scope.workspaceID), scope.tab)
+    }
+
+    /// Throws `denied` when the session may no longer use the tab that
+    /// shows `webView` (``BrowserReplTabCapability/use``), judged with the
+    /// tab as ``scope`` reads it now: a call that started on a tab of the
+    /// session's workspace and was suspended in WebKit while the user moved
+    /// the tab to another one reads and sends nothing more. Every script
+    /// the gate runs and every input it guards asks it first, and the
+    /// driver asks it before each native input event.
+    public func checkTab(in webView: WKWebView) throws {
+        let (authority, tab) = authority(in: webView)
+        guard let tab, let refusal = authority.verdict(BrowserReplAccess(in: tab, capability: .use)).refusal else { return }
+        throw BrowserReplDriverError(code: refusal.code, message: refusal.message)
     }
 
     /// Whether the gate judges `webView`'s frames: a domain policy is in
@@ -447,6 +465,7 @@ public final class BrowserReplFrameGate {
         contentWorld: WKContentWorld,
         userGesture: Bool = false
     ) async throws -> Any? {
+        try checkTab(in: webView)
         guard isActive(in: webView) else {
             return try await webView.browserReplCallAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: contentWorld, userGesture: userGesture)
         }
@@ -660,11 +679,13 @@ public final class BrowserReplFrameGate {
         checkFocusAfter: Bool,
         _ input: () async throws -> T
     ) async throws -> T {
+        try checkTab(in: webView)
         guard isActive(in: webView) else { return try await input() }
         return try await loadHold.holding(webView) {
             let guards = try await installInputGuards(in: webView, frames: await frames())
             let value: T
             do {
+                try checkTab(in: webView)
                 value = try await input()
                 if checkFocusAfter { try await checkFocus(in: webView, frames: await frames()) }
             } catch {

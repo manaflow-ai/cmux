@@ -108,6 +108,11 @@ public final class BrowserReplPolicyBoard: @unchecked Sendable {
         return try BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots, load)
     }
 
+    /// The generation of the session's latest policy, or nil when it has none.
+    public func generation(for sessionID: String) -> Int? {
+        lock.withLock { entries[sessionID]?.generation }
+    }
+
     public func ruleState(for sessionID: String) -> RuleState {
         lock.withLock { entries[sessionID]?.state ?? .installed }
     }

@@ -132,7 +132,10 @@ refuse them (the tab shows a page the policy blocks, or a local file
 outside the session's directories), nothing is sent and the keys and press
 are forgotten: later input no longer carries those modifiers, and a drag
 ends with `dragend` and no drop. Another session that stays on the tab
-keeps its own keys and press and inherits none of these. When the last
+keeps its own keys and press and inherits none of these. Keys and a
+press are held in the web view that got them: when cmux replaces the
+tab's web view (a restore, a crash recovery), they are forgotten the same
+way, and a release never reaches the replacement's page. When the last
 session leaves or the tab closes, nothing more is sent; what is left is
 forgotten the same way. `session.name` shows the tabs the
 session opened, now and later, as `<name> · <page title>`, following title
@@ -270,7 +273,11 @@ When sessions share a tab, a session's `input.mouse` `down` owns the pointer
 until its `up` (or until the session leaves the tab), and an `input.drag`
 owns it from its press to its release; another session's `input.mouse` or
 `input.drag` waits meanwhile, at most 10 s, then fails with `timeout`
-naming the session that holds the mouse. A modifier key a session holds
+naming the session that holds the mouse. An `input.drag` that fails
+partway (a refused drop, a stale press, a closed window) ends its press and
+drag with `dragend` and no drop before another session gets the pointer,
+and a drag is its own session's: no other session's mouse event moves or
+drops it. A modifier key a session holds
 down (`input.key` `down` of `Shift`, `Meta`, `Alt` or `Control`) applies only
 to that session's later `input.key`, `input.mouse` and `input.drag` events
 until its `up`; another session's input on the tab never carries it.
@@ -365,7 +372,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   the sessions attached to it that may not use it there: no event, dialog,
   file chooser, download or network event of the tab reaches them after
   the move, and their next call on it fails with `denied` (a tab a session
-  created stays its own wherever it moves). It closes only tabs it created and user tabs it is attached
+  created stays its own wherever it moves). A call already in flight when
+  the tab moves stops too: the frame gate asks the tab capability, with
+  the tab's workspace as it is then, before every script it runs and every
+  input it guards, the driver before each native mouse, drag, key and text
+  step, and again before it hands back a result, so the moved tab is
+  neither read nor sent input and the call fails with `denied`. It closes only tabs it created and user tabs it is attached
   to. Navigation-time decisions in tabs a session created (the navigation
   delegate, popups and downloads) still apply the creating session's
   policy and file roots through their own checks (`BrowserReplNavigationGuard`,
@@ -618,7 +630,12 @@ native (`BrowserReplBoundary` in the session, and the driver):
   an opaque origin, `blob:null/...`, is blocked) and `session.configure`
   content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`, `auth.request`,
+  policy's content rules to the tabs the session created. WebKit compiles
+  them asynchronously while those tabs' pages keep running, so from the
+  main actor's next turn after a policy or directory change until the new
+  list is on a tab (and after WebKit refused it, until a policy compiles),
+  the tab carries a fail-closed list that blocks every load: no live page
+  loads, under the previous rules, what the new ones forbid. The driver refuses reads and input (`frame.evaluate`, `auth.request`,
   `frame.contentFrame(s)`, `input.*`, captures, clipboard, file chooser
   answers) on a tab that shows a blocked page, cancels main-frame
   navigations to blocked URLs in tabs the session created

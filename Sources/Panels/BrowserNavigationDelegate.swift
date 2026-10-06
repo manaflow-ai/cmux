@@ -428,6 +428,8 @@ import WebKit
         // Authenticated cmux app links carry an in-process handoff action.
         // Consume them before generic URL rules so a broad external pattern
         // cannot divert the signed-in split placement to LaunchServices.
+        // In a tab a browser REPL session drives, only the user's own click
+        // opens the split; any other activation loads the link in the tab.
         if navigationAction.navigationType == .linkActivated,
            navigationAction.targetFrame?.isMainFrame != false,
            let url = navigationAction.request.url,
@@ -435,6 +437,7 @@ import WebKit
                url: url,
                webOrigin: AuthEnvironment.appSessionHandoffOrigin
            ),
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .appLink),
            openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(
@@ -455,10 +458,8 @@ import WebKit
         // A tab a browser REPL session drives hands a link to the external
         // browser only when the user activated it there: an agent's click
         // or the page's own activation loads in the tab, under its guards.
-        let replAllowsExternalOpen = owner.map {
-            BrowserReplNavigationGuard.shared.handsLinkToExternalBrowser(panelID: $0.id, action: navigationAction)
-        } ?? true
-        if replAllowsExternalOpen, let url = navigationAction.request.url {
+        if let url = navigationAction.request.url,
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .configuredBrowser) {
             let openResult = externalNavigationHandler.openConfiguredExternallyResult(
                 url,
                 navigationType: navigationAction.navigationType,
@@ -596,7 +597,8 @@ import WebKit
 #endif
 
         if let url = navigationAction.request.url,
-           shouldOpenInSystemBrowser(navigationAction, url: url) {
+           shouldOpenInSystemBrowser(navigationAction, url: url),
+           BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .systemBrowser) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
             let opened = NSWorkspace.shared.open(url)
@@ -647,6 +649,14 @@ import WebKit
            browserShouldRouteExternalNavigation(url) {
             clearAttemptedRequest(discardPendingBypasses: true)
             let reportTerminalCancellation = terminalPolicyCancellationReporter?(navigationAction, webView) ?? {}
+            // Another app's scheme in a tab a browser REPL session drives
+            // opens nothing (no prompt over the user's work) unless the user
+            // clicked it there.
+            guard BrowserReplNavigationGuard.shared.allowsExternal(panelID: owner?.id, action: navigationAction, target: .otherApp) else {
+                reportTerminalCancellation()
+                decisionHandler(.cancel)
+                return
+            }
             // WKNavigationAction has no public WKNavigation identity. Keep the replacement
             // unbound so the exact original policy cancellation terminates automation.
             browserHandleExternalNavigation(

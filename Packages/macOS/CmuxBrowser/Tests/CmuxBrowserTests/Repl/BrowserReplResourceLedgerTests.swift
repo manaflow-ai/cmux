@@ -168,6 +168,7 @@ struct BrowserReplResourceLedgerTests {
         let started = await session.evaluate(code: """
         fetchOnce("http://127.0.0.1:\(stream.port)/stream").catch(() => {});
         await driverWith("tabs.list");
+        await driverWith("input.drag", JSON.stringify({ path: [{ x: 0, y: 0 }, { x: 9, y: 9 }] }));
         driverWith("hold").catch(() => {});
         driverWith("tabs.list").catch(() => {});
         sleep(600000);
