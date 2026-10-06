@@ -701,3 +701,52 @@ struct BrowserReplFrameGateCancellationTests {
         #expect(!sent, "a cancelled call sent input")
     }
 }
+
+/// A multi-event input (`input.drag`) sends its press, moves and release
+/// as separate native events, and each asks the gate's tab check first.
+/// The page can navigate its main frame between two of them (the child
+/// frame hold does not cover the main frame), so while guarded input is in
+/// flight that check also judges the main frame's live page: a blocked
+/// page, or a document of another origin than the one the input's checks
+/// and guards judged, gets no further event.
+@MainActor
+@Suite("Frame gate: a main frame that navigates during input", .serialized)
+struct BrowserReplFrameGateMainFrameNavigationTests {
+    /// The tab check of the next native step after the main frame left for
+    /// `destination`, inside guarded input.
+    private func stepAfterMainFrameNavigates(to destination: String) async throws -> BrowserReplDriverError? {
+        let page = try await FramePage.load()
+        let gate = BrowserReplFrameGateTests.gate()
+        let host = try #require(URL(string: destination)?.host)
+        var before: BrowserReplDriverError?
+        var after: BrowserReplDriverError?
+        _ = await BrowserReplFrameGateTests.error {
+            try await gate.guardingInput(in: page.webView, frames: { page.frames }, checkFocusAfter: false) {
+                before = await BrowserReplFrameGateTests.error { try gate.checkTab(in: page.webView) }
+                _ = try await page.webView.evaluateJavaScript("location.href = \"\(destination)\"; true")
+                // WebKit names the new page from the navigation's start, before it commits.
+                _ = try await FramePage.settle(page.webView) { _ in page.webView.url?.host == host }
+                after = await BrowserReplFrameGateTests.error { try gate.checkTab(in: page.webView) }
+                return nil
+            }
+        }
+        #expect(before == nil, "the step before the navigation was refused: \(String(describing: before))")
+        return after
+    }
+
+    @Test func aMainFrameThatNavigatesToABlockedPageGetsNoFurtherStep() async throws {
+        let error = try await stepAfterMainFrameNavigates(to: "cmux-test://blocked.test/")
+        #expect(error?.code == "blocked", "a step of the input reached the blocked page: \(String(describing: error))")
+    }
+
+    @Test func aMainFrameThatNavigatesToAnotherOriginGetsNoFurtherStep() async throws {
+        let error = try await stepAfterMainFrameNavigates(to: "cmux-test://other.test/")
+        #expect(error?.code == "stale", "a step of the input reached a document its checks never judged: \(String(describing: error))")
+    }
+
+    /// Outside guarded input the tab check judges the tab alone, as before.
+    @Test func outsideInputTheTabCheckDoesNotJudgeThePage() async throws {
+        let page = try await FramePage.load(url: "cmux-test://blocked.test/")
+        #expect(await BrowserReplFrameGateTests.error { try BrowserReplFrameGateTests.gate().checkTab(in: page.webView) } == nil)
+    }
+}
