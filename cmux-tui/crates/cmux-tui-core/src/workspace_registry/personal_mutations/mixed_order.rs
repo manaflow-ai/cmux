@@ -4,7 +4,7 @@
 //! shows right before the first workspace at or after it. NULL keeps the
 //! older order, every group after every loose workspace.
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, Transaction, params};
 use serde_json::json;
 
 use super::super::WorkspaceRegistry;
@@ -79,10 +79,22 @@ impl WorkspaceRegistry {
         id: &str,
         top_index: Option<usize>,
     ) -> anyhow::Result<(PersonalGroup, bool)> {
-        validate_workspace_group_id(id)?;
         let tx = self.connection.transaction()?;
+        let output = Self::set_personal_group_top_in(&tx, id, top_index)?;
+        tx.commit()?;
+        Ok(output)
+    }
+
+    /// [`Self::set_personal_group_top`] inside the caller's transaction
+    /// (the v2 `workspace_group.update {top_index}` commit).
+    pub(crate) fn set_personal_group_top_in(
+        tx: &Transaction<'_>,
+        id: &str,
+        top_index: Option<usize>,
+    ) -> anyhow::Result<(PersonalGroup, bool)> {
+        validate_workspace_group_id(id)?;
         let before =
-            read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+            read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         let top = match top_index {
             None => None,
             Some(index) => Some(tx.query_row(
@@ -98,19 +110,18 @@ impl WorkspaceRegistry {
             "UPDATE personal_groups SET top_position = ?2 WHERE group_id = ?1",
             params![id, top],
         )?;
-        crate::state::home_store::require_home_first(&tx)?;
+        crate::state::home_store::require_home_first(tx)?;
         let after =
-            read_group(&tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
+            read_group(tx, id)?.ok_or_else(|| anyhow::anyhow!("unknown personal group {id}"))?;
         let changed = after != before;
         if changed {
             commit_personal(
-                &tx,
+                tx,
                 "personal.group.moved",
                 vec![subject("personal_group", id)],
                 &json!({"group_id": id, "top_index": after.top_index}),
             )?;
         }
-        tx.commit()?;
         Ok((after, changed))
     }
 }

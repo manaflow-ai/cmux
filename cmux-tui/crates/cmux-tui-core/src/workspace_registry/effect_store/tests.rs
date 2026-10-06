@@ -348,7 +348,14 @@ fn effect_patch_commits_topology_event_and_receipt_together() {
         .unwrap();
     assert_eq!(commit.revision, 1);
     assert_eq!(registry.resource_topology_snapshot().unwrap().revision, 1);
-    assert_eq!(registry.resource_events_after(0).unwrap().batches[0].changes, deltas);
+    // The topology delta, then the new workspace's personal placement.
+    let changes = registry.resource_events_after(0).unwrap().batches[0].changes.clone();
+    assert_eq!(changes[0], deltas[0]);
+    assert_eq!(
+        (changes[1]["kind"].as_str(), changes[1]["resource"].as_str()),
+        (Some("state_upsert"), Some("workspace_placement"))
+    );
+    assert_eq!(changes.as_array().unwrap().len(), 2);
     assert_eq!(
         registry
             .lookup_resource_effect("effect-patch-key", "workspace.create", &fingerprint,)

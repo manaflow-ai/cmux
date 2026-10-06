@@ -634,17 +634,24 @@ pub(crate) fn commit_personal(
     subjects: Vec<JournalSubject>,
     payload: &Value,
 ) -> anyhow::Result<u64> {
+    let revision = bump_personal_revision(transaction)?;
+    let mut payload = payload.clone();
+    if let Some(object) = payload.as_object_mut() {
+        object.insert("personal_revision".into(), json!(revision));
+    }
+    append_presentation_record(transaction, kind, subjects, &payload)?;
+    Ok(revision)
+}
+
+/// Bump `personal_revision` alone: for a personal write that is part of
+/// another commit's fact (the create-time personal row of a workspace).
+pub(crate) fn bump_personal_revision(transaction: &Transaction<'_>) -> anyhow::Result<u64> {
     let revision = personal_revision(transaction)?.saturating_add(1);
     transaction.execute(
         "INSERT INTO meta(key, value) VALUES(?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         params![REVISION_META_KEY, revision.to_string()],
     )?;
-    let mut payload = payload.clone();
-    if let Some(object) = payload.as_object_mut() {
-        object.insert("personal_revision".into(), json!(revision));
-    }
-    append_presentation_record(transaction, kind, subjects, &payload)?;
     Ok(revision)
 }
 
