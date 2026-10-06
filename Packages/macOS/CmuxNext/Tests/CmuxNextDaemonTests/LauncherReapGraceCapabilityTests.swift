@@ -93,4 +93,46 @@ import Testing
         #expect(calls.count == 1, "\(calls)")
         #expect(calls.allSatisfy { !$0.contains("--terminal-reap-grace-seconds") }, "\(calls)")
     }
+
+    /// The bundled cmux-tui always accepts the option, so the launcher
+    /// passes it without running `--help` (the probe times out on a loaded
+    /// machine). The stand-in's help fails and is logged: a probe would
+    /// drop the grace and leave a trace in the help log.
+    @Test(.timeLimit(.minutes(1))) func theBundledBinaryGetsTheGraceWithoutAHelpProbe() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-reap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = directory.appendingPathComponent("ensure.log")
+        let helpLog = directory.appendingPathComponent("help.log")
+        let binary = directory.appendingPathComponent("cmux-tui")
+        let started = #"{"generation":"g2","message":"local server started","pid":4343,"session":"s","socket":"/tmp/s.sock","status":"started"}"#
+        let script = """
+        #!/bin/sh
+        case "$1" in
+          help|-h|--help) echo "$*" >> '\(helpLog.path)'; exit 1 ;;
+        esac
+        action=""; previous=""
+        for arg in "$@"; do
+          [ "$previous" = server ] && action="$arg"
+          previous="$arg"
+        done
+        case "$action" in
+          status) echo '{"code":"server.unavailable"}'; exit 3 ;;
+          ensure) echo "$*" >> '\(log.path)'; echo '\(started)'; exit 0 ;;
+        esac
+        exit 2
+        """
+        try script.write(to: binary, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: "s", stateDirectory: directory.appendingPathComponent("state"),
+                                 binaryIsBundled: true),
+            environment: { ["PATH": "/usr/bin:/bin"] })
+        let result = try await launcher.ensure()
+        let calls = try String(contentsOf: log, encoding: .utf8).split(separator: "\n").map(String.init)
+        #expect(result.status == "started")
+        #expect(calls.count == 1, "\(calls)")
+        #expect(calls.first?.contains("--terminal-reap-grace-seconds 30") == true, "\(calls)")
+        #expect(!FileManager.default.fileExists(atPath: helpLog.path), "the bundled binary was probed")
+    }
 }
