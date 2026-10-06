@@ -227,7 +227,10 @@ fn shutdown_daemon_keep_layout_keeps_the_dead_tab_name_and_title_across_restart(
         {
             break;
         }
-        assert!(Instant::now() < deadline, "the live tabs never showed their name and title: {tree}");
+        assert!(
+            Instant::now() < deadline,
+            "the live tabs never showed their name and title: {tree}"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
 

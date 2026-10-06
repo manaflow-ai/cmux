@@ -434,9 +434,7 @@ impl Mux {
             });
             // The title the tab shows now; the next owner has no surface to
             // ask once the terminal ended.
-            let title = runtime
-                .as_ref()
-                .and_then(|surface| kept_title(&surface.title()));
+            let title = runtime.as_ref().and_then(|surface| kept_title(&surface.title()));
             rows.extend(tab_ids.into_iter().map(|tab_id| KeptTab {
                 tab_id,
                 cwd: cwd.clone(),
