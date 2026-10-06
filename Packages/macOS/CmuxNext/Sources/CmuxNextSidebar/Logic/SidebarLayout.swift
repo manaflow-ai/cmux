@@ -103,7 +103,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 rows.append(SidebarRow(
                     key: .section(section.id), y: y, height: m.sectionHeaderHeight, section: section.id,
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil
+                    isCollapsed: collapsed, childCount: nodes.count, groupColor: nil,
+                    titlesProjects: section.machine != nil && machineCount == 1
                 ))
                 y += m.sectionHeaderHeight + m.rowSpacing
             }

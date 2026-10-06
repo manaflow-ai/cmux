@@ -2,7 +2,7 @@
 // no cmux globals and no runtime dependencies, so the integrations app and the
 // backend gateway run the same code (README, "Adoption by the backend"). Files
 // marked "Adapted from executor" carry upstream code under the MIT License
-// (see LICENSE and NOTICE).
+// (see LICENSE-executor and NOTICE).
 
 /** Per-tool policy: run without asking, ask the user each call, or never run. */
 export type ToolAction = "allow" | "ask" | "block"
