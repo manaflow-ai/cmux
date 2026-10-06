@@ -1874,13 +1874,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func installAgent(_ panel: BrowserPanel, _ frame: BrowserReplFrame) async throws {
-        guard let source = bundle.agentInstallSource else {
+        guard let agentSource = bundle.agentInstallSource else {
             throw Self.error("unsupported", "The browser REPL page agent is not bundled")
         }
         // The agent world's own execCommand never runs WebKit's Copy, Cut or
         // Paste (BrowserReplPageClipboard.agentWorldGuardSource): with the
         // gesture of an agent's click they would use the system clipboard.
-        let source = BrowserReplPageClipboard.agentWorldGuardSource + source
+        let source = BrowserReplPageClipboard.agentWorldGuardSource + agentSource
         attachment(panel).installAgentUserScriptIfNeeded(source: source, sessionID: sessionID)
         do {
             // Without a user gesture: the agent's own code in that world may
