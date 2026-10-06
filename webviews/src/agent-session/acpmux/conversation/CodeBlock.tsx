@@ -8,6 +8,9 @@ import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { CodeBrackets, Copy, WrapLines } from "./icons";
 import { translate, type Translate, useT } from "../i18n";
+import { highlightsCode, MAX_TOKENIZED_LINE } from "./highlightLimits";
+import { paneHighlightPool } from "./highlightPool";
+import { PlainCode } from "./StreamingCode";
 
 /// Pierre paints its own lines; they are transparent so the card's fill shows through.
 const codeUnsafeCSS = `${diffUnsafeCSS}
@@ -54,13 +57,22 @@ export type CodeBlockProps = {
 };
 
 /**
- * Fenced code card: language label with wrap and copy over a Pierre `File`.
+ * Fenced code card. A fence over the highlight limits (highlightLimits.ts) draws as plain
+ * monospace text; any other is highlighted (`HighlightedCode`).
+ */
+export function CodeBlock(props: CodeBlockProps) {
+  return highlightsCode(props.code) ? <HighlightedCode {...props} /> : <PlainCode code={props.code} lang={props.lang ?? "text"} />;
+}
+
+/**
+ * Fenced code card: language label with wrap and copy over a Pierre `File`, highlighted in the
+ * pane's worker pool (highlightPool.ts) where the page has one.
  *
  * One File lives as long as the card. A streaming fence grows on every chunk, so new text
  * re-renders the same instance instead of building another; a theme switch on the page
  * (applyAgentTheme sets `data-theme`) changes its syntax colors in place.
  */
-export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
+function HighlightedCode({ code, lang = "text", label }: CodeBlockProps) {
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<PierreFile | undefined>(undefined);
@@ -78,8 +90,9 @@ export function CodeBlock({ code, lang = "text", label }: CodeBlockProps) {
         disableLineNumbers: true,
         overflow: "scroll",
         unsafeCSS: codeUnsafeCSS,
+        tokenizeMaxLineLength: MAX_TOKENIZED_LINE,
       },
-      undefined,
+      paneHighlightPool(),
       // React owns the host element: Pierre must not remove it on cleanUp.
       true,
     );
