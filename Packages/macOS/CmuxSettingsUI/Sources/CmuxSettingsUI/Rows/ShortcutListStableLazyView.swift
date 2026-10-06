@@ -82,6 +82,7 @@ struct ShortcutListStableLazyView: View {
     /// Isolates the row tree from query state. A query change now updates this
     /// child only when matching produces a different action array, instead of
     /// diffing every visible row for each keystroke during the debounce.
+    @MainActor
     private struct ShortcutListRows: View, Equatable {
         let model: ShortcutListModel
         let actions: [ShortcutAction]
