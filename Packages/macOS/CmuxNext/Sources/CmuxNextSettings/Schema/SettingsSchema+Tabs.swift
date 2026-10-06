@@ -42,21 +42,21 @@ nonisolated enum TabSettingsSchema {
     static func closeWarnings(group: SettingText) -> [SettingDescriptor] {
         [
             SettingDescriptor(
-                CloseWarningSetting.tabPath, section: .general, group: group,
+                CmuxConfigSnapshot.warnBeforeClosingTabPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.app.warnBeforeClosingTab", "Warn Before Closing a Running Program"),
                 help: SettingsText.keyed("settings.app.warnBeforeClosingTab.help",
                                         "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."),
                 kind: .toggle,
-                default: .bool(CloseWarningSetting.fallback),
+                default: .bool(CmuxConfigSnapshot.closeWarningFallback),
                 keywords: ["close", "confirm", "warn", "tab", "workspace", "running", "process", "cmd-w"]
             ),
             SettingDescriptor(
-                CloseWarningSetting.agentSessionPath, section: .general, group: group,
+                CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession", "Warn Before Closing a Working Agent"),
                 help: SettingsText.keyed("settings.app.warnBeforeClosingAgentSession.help",
                                         "Ask before closing a terminal tab whose agent is still working."),
                 kind: .toggle,
-                default: .bool(CloseWarningSetting.fallback),
+                default: .bool(CmuxConfigSnapshot.closeWarningFallback),
                 keywords: ["close", "confirm", "warn", "agent", "claude", "codex", "session", "working", "cmd-w"]
             ),
         ]

@@ -68,14 +68,14 @@ enum DestructiveConfirmation {
             return Prompt(title: ConfirmationStrings.closeTabGroupTitle(name), body: ConfirmationStrings.tabGroupBody(count),
                           button: ConfirmationStrings.close)
         case "closeWorkspace":
-            guard services.settings?.snapshot.warnBeforeClosingTab ?? CloseWarningSetting.fallback,
+            guard services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback,
                   let workspace = context.scope(invocation).workspace,
                   let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return nil }
             let programs = await runningPrograms(in: workspace, on: daemon)
             guard !programs.isEmpty else { return nil }
             return Prompt(title: ConfirmationStrings.closeWorkspaceTitle(workspace.displayName),
                           body: ConfirmationStrings.closeWorkspaceBody(programs.joined(separator: ", ")), button: ConfirmationStrings.close,
-                          suppresses: CloseWarningSetting.tabPath)
+                          suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         default:
             return nil
         }

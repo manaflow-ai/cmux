@@ -23,8 +23,8 @@ enum TabCloseGuard {
     static func close(_ tabs: [TabModel], on daemon: DaemonService, services: AppServices, window: NSWindow?,
                       close: @escaping @MainActor () -> Void) {
         let snapshot = services.settings?.snapshot
-        let warnTab = snapshot?.warnBeforeClosingTab ?? CloseWarningSetting.fallback
-        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CloseWarningSetting.fallback
+        let warnTab = snapshot?.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let warnAgent = snapshot?.warnBeforeClosingAgentSession ?? CmuxConfigSnapshot.closeWarningFallback
         let terminals = tabs.filter { $0.kind == .pty && !$0.dead }
         guard CloseUndoToasts.isUserClose, window != nil, warnTab || warnAgent, !terminals.isEmpty else { return close() }
         let agents = terminals.compactMap(workingAgent)
@@ -49,11 +49,11 @@ enum TabCloseGuard {
         switch warning {
         case .agent(let agent):
             return .init(title: title, body: ConfirmationStrings.agentStillWorking(agent),
-                         button: ConfirmationStrings.close, suppresses: CloseWarningSetting.agentSessionPath)
+                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath)
         case .programs(let programs):
             return .init(title: title,
                          body: ConfirmationStrings.closeTabBody(programs.joined(separator: ", ")),
-                         button: ConfirmationStrings.close, suppresses: CloseWarningSetting.tabPath)
+                         button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         }
     }
 

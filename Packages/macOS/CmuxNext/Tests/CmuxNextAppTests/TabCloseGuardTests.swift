@@ -34,7 +34,7 @@ struct TabCloseGuardTests {
     /// turns off the toggle that asked.
     @Test func theQuestionHasDontAskAgainForItsToggle() {
         let prompt = DestructiveConfirmation.Prompt(title: "Close “zsh”?", body: ConfirmationStrings.closeTabBody("vim"),
-                                                    button: ConfirmationStrings.close, suppresses: CloseWarningSetting.tabPath)
+                                                    button: ConfirmationStrings.close, suppresses: CmuxConfigSnapshot.warnBeforeClosingTabPath)
         let spec = DestructiveConfirmation.spec(prompt)
         #expect(spec.fields == [.check(id: DestructiveConfirmation.suppressID, title: QuitStrings.dontAskAgain, on: false)])
         #expect(CmuxDialogKeys.action(for: .return, modifiers: [], in: spec) == .press(DestructiveConfirmation.confirmID))

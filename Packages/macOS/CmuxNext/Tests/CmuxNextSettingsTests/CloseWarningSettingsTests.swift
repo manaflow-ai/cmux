@@ -30,7 +30,7 @@ import Testing
     }
 
     @Test func schemaShowsBothTogglesAndAgentsCannotTurnThemOff() throws {
-        for path in [CloseWarningSetting.tabPath, CloseWarningSetting.agentSessionPath] {
+        for path in [CmuxConfigSnapshot.warnBeforeClosingTabPath, CmuxConfigSnapshot.warnBeforeClosingAgentSessionPath] {
             let descriptor = try #require(SettingsSchema.descriptor(for: path))
             guard case .toggle = descriptor.kind else { Issue.record("\(path) is not a toggle"); continue }
             #expect(descriptor.defaultValue == .bool(true))
