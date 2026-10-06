@@ -6,7 +6,7 @@ import CmuxHomeCore
 /// name. Rows scroll under it (`HomeController.topInset`) and end at its
 /// edge; it draws no border, glass or pill, so it reads as part of the page
 /// rather than a strip laid over it. The Chief's avatar is a glyph on the
-/// theme's accent, not a letter; other participants show their initials.
+/// theme highlight (its ANSI blue), not a letter; other participants show their initials.
 /// The name opens nothing, so it is plain text, not a button.
 final class HomeGlassHeaderView: NSView {
     /// The opaque page-coloured fill (rows under it never show through).

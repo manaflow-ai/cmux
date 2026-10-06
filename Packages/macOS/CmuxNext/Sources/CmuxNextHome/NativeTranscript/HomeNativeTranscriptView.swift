@@ -241,7 +241,7 @@ public final class HomeNativeTranscriptView: NSView {
             // to the opaque page colour so rows never show under the name.
             let home = Palette.fill(for: .home, default: Palette.paneFill)
             header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary,
-                               page: home.alphaComponent >= 1 ? home : Palette.pageBackground, accent: Palette.accent)
+                               page: home.alphaComponent >= 1 ? home : Palette.pageBackground, accent: Palette.highlight)
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary)
             field.applyColors(fill: Palette.elevatedBackground, border: Palette.separator,
                               text: Palette.textPrimary, secondary: Palette.textTertiary)
