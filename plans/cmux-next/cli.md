@@ -58,6 +58,16 @@ The app's action registry is the list of app verbs: `cmux app new-window` and
 `cmux workspace move-to-window --target ws_…` run the action with that CLI name. The mux
 grammar is tried first; only words it rejects and the app reports as an action run there.
 
+## Which `cmux` runs (old app and cmux-next side by side)
+
+The old app and cmux-next both ship a CLI named `cmux` in `Contents/Resources/bin`, and a cmux-next release build binds the old app's release socket path (`~/.local/state/cmux/cmux.sock`, same bundle id `com.cmuxterm.app`). The two CLIs speak different methods: the Swift CLI sends `workspace.create` and friends, the Rust CLI sends `action.run` and app methods; since the compat layer was removed (2026-09-30) neither app answers the other CLI's methods. Shell PATH decides which CLI runs; `CMUX_SOCKET_PATH` decides which app it reaches.
+
+- Old-app terminal: the old app's shell integration puts its own bin first after the rc files, so `cmux` is the Swift CLI and `CMUX_SOCKET_PATH` is the old app's socket.
+- cmux-next terminal: the terminal env puts cmux-next's own `Contents/Resources/bin` first and sets `CMUX_BUNDLED_CLI_PATH` to its `cmux` (`GhosttyShellIntegration.apply`), and `CMUX_SOCKET_PATH` is cmux-next's socket. Before 2026-10-06 the bin dir was appended, so a cmux-next launched from an old-app terminal inherited a PATH where the Swift CLI won and every old verb failed with `Unknown method workspace.create`. An rc file that prepends another dir holding a `cmux` (a dev shim, `/usr/local/bin`) still wins; shims that honor `CMUX_BUNDLED_CLI_PATH` exec the right CLI.
+- Plain shell (Terminal.app, ssh): the first `cmux` on PATH. Settings > Install cmux CLI in PATH links `/usr/local/bin/cmux` to the running app's CLI and reports the link or file it replaced.
+
+When a CLI reaches the other app anyway, the answer is `method_not_found`. This CLI (and the Swift CLI, once its main-branch fix lands) then calls `system.identify` (both apps report `app`, `version`, `app_bundle_path`, `app_cli_path`) and print a version-skew error naming the CLI version, the app and its version, the socket, and the matching CLI path (`cli/app/skew.rs` here).
+
 ## `cmux acp`
 
 - Session verbs: every acpmux command (`ls`, `new`, `send`, `attach`, `wait`, `session …`,

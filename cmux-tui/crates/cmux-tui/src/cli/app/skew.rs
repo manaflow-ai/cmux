@@ -25,15 +25,67 @@ pub(super) struct Peer {
 }
 
 impl Peer {
-    pub(super) fn from_identify(_identify: &Value) -> Option<Self> {
-        None
+    /// `None` when the answer names no app (neither `app` nor
+    /// `app_bundle_path`), so there is nothing reliable to say.
+    pub(super) fn from_identify(identify: &Value) -> Option<Self> {
+        let text = |key: &str| {
+            identify
+                .get(key)
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned)
+        };
+        let app = text("app");
+        let bundle = text("app_bundle_path");
+        if app.is_none() && bundle.is_none() {
+            return None;
+        }
+        // The old app reports `app_bundle_path` and, from 0.66, `"app": "cmux"`.
+        let classic = app.as_deref().is_none_or(|name| name == "cmux");
+        let version = text("version").map(|version| match text("build") {
+            Some(build) => format!("{version} ({build})"),
+            None => version,
+        });
+        Some(Self {
+            classic,
+            name: app.unwrap_or_else(|| "cmux".to_owned()),
+            version,
+            socket: text("socket_path"),
+            cli_path: text("app_cli_path"),
+        })
     }
 }
 
 /// The skew message for `method`, or `None` when the app is this CLI's own
 /// app (then `method_not_found` is a real unknown method).
-pub(super) fn message(_method: &str, _peer: &Peer, _this_exe: Option<&Path>) -> Option<String> {
-    None
+pub(super) fn message(method: &str, peer: &Peer, this_exe: Option<&Path>) -> Option<String> {
+    if let (Some(cli), Some(exe)) = (&peer.cli_path, this_exe)
+        && same_file(Path::new(cli), exe)
+    {
+        return None;
+    }
+    let messages = &crate::localization::catalog().app_control;
+    let socket = peer.socket.as_deref().unwrap_or("?");
+    let template = if peer.classic { messages.skew_classic } else { messages.skew_other };
+    let version = peer.version.as_deref().map_or_else(String::new, |version| format!(" {version}"));
+    let mut text = template
+        .replace("{cli}", env!("CARGO_PKG_VERSION"))
+        .replace("{method}", method)
+        .replace("{app}", &peer.name)
+        .replace("{version}", &version)
+        .replace("{socket}", socket);
+    if let Some(cli) = &peer.cli_path {
+        text.push(' ');
+        text.push_str(&messages.skew_use_cli.replace("{path}", cli));
+    }
+    Some(text)
+}
+
+fn same_file(left: &Path, right: &Path) -> bool {
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => left == right,
+    }
 }
 
 /// Rewrites a `method_not_found` answer into the skew message, after one

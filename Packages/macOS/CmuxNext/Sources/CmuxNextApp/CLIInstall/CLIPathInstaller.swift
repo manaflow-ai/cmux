@@ -9,6 +9,18 @@ nonisolated struct CLIPathInstaller: Sendable {
         let usedAdministratorPrivileges: Bool
         let destination: URL
         let source: URL
+        /// What was at the destination before, when it was not already this
+        /// app's link. Install still replaces it (the old app's Install CLI
+        /// did too) but says so, so another app's `cmux` never disappears
+        /// silently.
+        var replaced: Replaced? = nil
+    }
+
+    nonisolated enum Replaced: Equatable, Sendable {
+        /// A symlink, with its target as written.
+        case link(target: String)
+        /// A file or other non-link entry.
+        case file
     }
 
     nonisolated struct UninstallOutcome: Equatable, Sendable {
@@ -43,9 +55,10 @@ nonisolated struct CLIPathInstaller: Sendable {
 
     @concurrent func install() async throws -> InstallOutcome {
         let source = try bundledCLI()
+        let replaced = previousEntry()
         do {
             try installDirectly(source)
-            return InstallOutcome(usedAdministratorPrivileges: false, destination: destination, source: source)
+            return InstallOutcome(usedAdministratorPrivileges: false, destination: destination, source: source, replaced: replaced)
         } catch {
             guard Self.isPermissionDenied(error) else { throw error }
             try ensureDestinationIsNotDirectory()
@@ -53,7 +66,7 @@ nonisolated struct CLIPathInstaller: Sendable {
             try await privileged("/bin/mkdir -p \(Self.quoted(parent)) && /bin/rm -f \(Self.quoted(destination.path)) && "
                 + "/bin/ln -s \(Self.quoted(source.path)) \(Self.quoted(destination.path))")
             try verifyLink(to: source)
-            return InstallOutcome(usedAdministratorPrivileges: true, destination: destination, source: source)
+            return InstallOutcome(usedAdministratorPrivileges: true, destination: destination, source: source, replaced: replaced)
         }
     }
 
@@ -100,6 +113,16 @@ nonisolated struct CLIPathInstaller: Sendable {
         if existed { try FileManager.default.removeItem(at: destination) }
         if destinationExists() { throw Failure.uninstallVerificationFailed(path: destination.path) }
         return existed
+    }
+
+    /// The entry install would replace, or nil when there is none or it is
+    /// already this app's link.
+    private func previousEntry() -> Replaced? {
+        guard destinationExists(), !isInstalled() else { return nil }
+        if let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination.path) {
+            return .link(target: target)
+        }
+        return .file
     }
 
     /// Any entry at the destination, a dangling symlink included

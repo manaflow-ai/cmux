@@ -58,8 +58,19 @@ enum CLIInstallStrings {
     static func body(_ outcome: CLIPathInstaller.InstallOutcome) -> String {
         let created = format("cli.install.symlinkCreated", "Created symlink:\n\n%1$@ -> %2$@",
                              outcome.destination.path, outcome.source.path)
-        guard outcome.usedAdministratorPrivileges else { return created }
-        return created + "\n\n" + text("cli.install.adminRequired", "Administrator privileges were required to write to /usr/local/bin.")
+        var body = created
+        if outcome.usedAdministratorPrivileges {
+            body += "\n\n" + text("cli.install.adminRequired", "Administrator privileges were required to write to /usr/local/bin.")
+        }
+        switch outcome.replaced {
+        case .link(let target):
+            body += "\n\n" + format("cli.install.replacedLink", "It replaced the previous link to %@.", target)
+        case .file:
+            body += "\n\n" + format("cli.install.replacedFile", "It replaced the file that was at %@.", outcome.destination.path)
+        case nil:
+            break
+        }
+        return body
     }
 
     static func body(_ outcome: CLIPathInstaller.UninstallOutcome) -> String {
