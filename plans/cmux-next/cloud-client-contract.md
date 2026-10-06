@@ -45,10 +45,15 @@ plans `cloud-app.md`, `transport.md`, `team-vm-plan.md`, `identity.md`, backend 
   key and never makes a new one (C7's delete retry logic maps to this one code).
 - Every mutation result carries the entity `revision`; the client applies it to its projection and
   drops any older event (C4i watch/revision logic survives).
-- Principals: `session` and `install` for everything the owner may do; destructive and money ops
-  (`machine.delete`, `snapshot.delete`, `machine.create`, `machine.resize` up) need origin `user`
-  on the client side (native confirmation) and are refused for agent principals (`agt` claim) by
-  the backend.
+- Principals: `session` and `install` for reads and ordinary mutations. Money and destructive ops
+  (`machine.create`, `machine.delete`, `machine.resize`, `machine.upgrade`, `snapshot.create`,
+  `snapshot.restore`, `snapshot.delete`, `billing.checkout`, `migration.start`) never use the default
+  install grants (coordinator decision, 2026-10-04): they need a user principal (session), or, after
+  the origin window lands, an install carrying a fresh single-use `origin.confirmation` token from the
+  native confirmation sheet (decision ORIGIN). Until then an install is refused with `auth.forbidden`,
+  also when its grant lists money or destructive; agent principals (`agt` claim) are always refused.
+  Vectors: `machine.create.install`, `machine.delete.install` (refusals) and
+  `machine.create.install_confirmed` (marked PENDING ORIGIN).
 - Target: `team` (a personal account is a team of one). Ownership: a machine belongs to a team and
   has a creator user; v1 shows the caller's own machines and the team machines the policy allows.
 
@@ -167,14 +172,17 @@ state is paused; the caller runs `cloud.machine.start` with an idempotency key, 
 `cloud.machine.link_token` (the dial credential; CLOUD-ROUTE and LINK-TOKEN-OP, 2026-10-04): class
 `mutation` with NO idempotency key (`idempotency: "none"`): each call mints a fresh token and
 nothing replays, so a stored answer can never hand a credential out twice; a retry mints another.
-Risk `execute`. Principals `install` only (no session), owner `cloud:CloudDO`, off MCP, hidden on
+Risk `execute`. Principals `install` only (no session). An agent (chief) token is refused
+(`auth.forbidden`, decision 2026-10-04): an agent can get a dial token later only through its
+owner's install principal with a confirmation, and that is a separate decision. Further rules: owner `cloud:CloudDO`, off MCP, hidden on
 the CLI, never in an app's `consumes.ops`. CloudDO audits every mint; a mint commits no stream event and
 the token is never cached, logged or kept in a ledger row. Request `{host, services}` (`services`: 1 or 2 unique of `daemon`, `ssh`, a subset of
 what `connect_info` lists). Result `{token, expires_at, host, epoch, services}`: `token` is a
 secret for one `hello` (the VM daemon checks it; a link with no valid token is closed after
 `hello`), single host, single install, these services, this `epoch`; `expires_at` at most 5
-minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound`,
-`auth.forbidden`, plus the standard mutation and Worker gate codes.
+minutes after the mint. Errors: `cloud.machine.not_found`, `cloud.machine.not_bound` (also for a
+machine in `deleting` or `failed`), `cloud.machine.paused {machine, state}` (paused, pausing or starting: no dial to a machine that cannot answer and no automatic start; the client asks "Start machine?" and calls `cloud.machine.start`), `auth.forbidden`, `cloud.rate_limited` (per install), plus the
+standard mutation and Worker gate codes.
 
 Cache rules for `cmux link`:
 1. Cache the `connect_info` result by host id for at most 300 s or until a
@@ -185,12 +193,81 @@ Cache rules for `cmux link`:
 3. On a handshake failure with a cached entry, fetch once more before reporting `unreachable`.
 4. `cloud.machine.removed` drops the entry at once and closes open links to that host.
 
-Mapping to `link.dial` errors: `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
+Host side, the daemon's offline limits (lane 10, 2026-10-04): when the host's token verifier
+accepts a `daemon` hello, the link stamps the stream for the remote entry with
+`"check":"link_token"` next to `link_peer`. The entry records that as the install's good
+control-plane check (`record_remote_check`) before it binds the stream, so the 24 h / 72 h
+offline limits count from the last accepted token. Only the link writes the field, only after
+the verifier accepted the token, and the entry reads it only from the stamp line (before any
+peer byte); a peer frame that looks like a stamp is a frame and is denied.
+
+The entry records the field only when the daemon started with a real token verifier. The daemon
+decides that once, at start, from its own config (`CMUX_LINK_TOKEN_VERIFIER` in the daemon's
+environment: only the exact value `control_plane` names a real verifier; absent, unknown or
+unreadable means `DenyAllTokens`), never from a stamp or a stream (`cmux_link::token::StampChecks`).
+Without a real verifier a stamp that carries any `check` is malformed: the entry closes the stream
+and records and binds nothing.
+
+Limit of the stamp check (named, 2026-10-04): the entry trusts the stamp's author through the
+caller check only. On macOS that check is the cmux code signature; on Linux it is the same user,
+so any process of the host user can write `"check":"link_token"`. And the entry records the time
+it read the stamp, not the time the control plane issued the token, so a held stream or a slow
+link moves the 24 h / 72 h limits later than the token allows.
+
+Hard gates before ANY link token format goes live (the daemon refuses to start with
+`control_plane` until G1 and G2 hold, and G3 and G4 land before that code can start; `CheckBinding::BUILT` names them and tests prove the refusal):
+- G1 (Linux): the entry binds `check` to the supervised link child: the stamp's writer must be the
+  link process the daemon's supervisor started, named by its SO_PEERCRED pid AND that process's
+  start time (so a reused pid fails). Fix F1.
+- G2 (every OS): the recorded check uses the token's issue time (`iat`, carried in the stamp by the
+  link after the verifier accepted the token) instead of the time the entry read the stamp. Fix F2.
+- G3 (every OS, ad349 2026-10-04): the daemon logs its verifier mode (`deny_all` or
+  `control_plane`) ONCE at start, with no token or secret in the line.
+- G4 (every OS, ad349 2026-10-04): the daemon strips `CMUX_LINK_TOKEN_VERIFIER` from the
+  environment it passes to terminals and other children, with a test that a child never sees it.
+  Lane 10 finding (2026-10-05): `daemon_env.rs` builds only the caller-merged `extra_env`; a
+  terminal (`PtyCommand`) and the other spawn paths inherit the daemon's process environment, so
+  the strip must remove the variable from that inherited environment (every spawn path, or the
+  daemon's own environment once, before any thread starts), not only in `daemon_env.rs`.
+- G3 and G4 are implemented (lane 10, 2026-10-05): `main` calls
+  `cmux_link::token::take_from_process_env` as its first statement (read, then `remove_var`),
+  and `start_link_entry` logs one `cmux link: token verifier mode ...` line. A `cmux` client
+  strips the variable too, so an owner started by `cmux server ensure` runs `deny_all`; only a
+  daemon its supervisor execs directly with the variable can ask for `control_plane`.
+- How a deployment selects `control_plane` (decision ad349, 2026-10-05): ONLY the Cloud host's
+  boot supervisor (the image-owned service that starts, owns and re-keys the daemon,
+  `cmux-devbox-boot` or its systemd unit) selects it, by exec'ing the daemon binary directly with
+  `CMUX_LINK_TOKEN_VERIFIER=control_plane`. There is no `cmux server ensure` flag and no
+  user-writable config file for it: the verifier mode belongs to the host image, not to the
+  session user or a client, and a client or a user process must not be able to flip it. A daemon
+  started any other way (a Mac, `cmux server ensure`, a user shell) runs `deny_all`. The link
+  child gets the mode from the daemon that supervises it (passed explicitly at spawn from the
+  daemon's OnceLock), never from the inherited environment, which closes limit (4) below.
+- Keyset (VM side, lane 10, 2026-10-05): `cmux_link::keyset` reads `GET /v1/cloud/keyset` and
+  the bind answer's `keyset` (schemas/link-token/keyset-vectors.json) and schedules refreshes:
+  one daily deadline at a per-host jittered time, at most one unknown-kid fetch per 60 s, a 429
+  holds every fetch for `retry-after` (60 s default), only an accepted 200 replaces the held
+  keyset. The HTTP fetch and the timer task wire in with `host_inbound` (not in `serve` yet).
+
+Limits that remain: (1) the host uses `DenyAllTokens` until a token format ships, so no Cloud
+stream reaches the entry yet, and G1/G2 block a real verifier until F1 and F2 land; (2) a paired
+Mac that is not a Cloud host has no control-plane check, so its streams stay refused (fail
+closed) until a recheck driver exists; (3) a revoke in the middle of a stream depends on `HostDO`
+closing the link, because nothing calls `revoke_remote_install` yet; (4) the link process does not
+read `CMUX_LINK_TOKEN_VERIFIER` yet (`host_inbound` is not wired into `serve`); when it is, the link
+and the daemon must read the same config.
+
+Mapping to `link.dial` errors: `host_paused` also = `cloud.machine.paused` from link_token; `unknown_host` = `cloud.machine.not_found`; `not_authorized` =
 `auth.forbidden` or a refused token; `host_paused` = handshake failure with `state: paused`;
 `unreachable` = no path answered; `bad_request` = malformed op line.
 
 Dependencies: VM bind (the backend lead: CloudDO records `host`, `epoch`, `wg_public_key` at bind
-from the image's bind agent); `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
+from the image's bind agent); the driver writes `/var/lib/cmux/bind.json` (0600 root, dir 0700 root)
+as `{team, machine, bind_token, api_origin, env}` on every create, retry and restore (the bind request adds `install_public_jwk`, the VM's ES256 P-256 install key made per clone and kept in /var/lib/cmux/install/ 0600 root; the bind answer adds `install {id, user, grant}`: a kind "vm" install of the machine's creator, bound to the team and the machine, grant `vm-self`, tokens through /v1/auth/challenge and /v1/auth/token; an epoch raise replaces it, and an old VM install can do nothing because the machine names only the current one): `api_origin`
+is the https origin from the Worker var `CLOUD_API_ORIGIN` (no write if it is not https) and `env`
+is `dev`, `stg` or `prod`, the same tag as the token's `iss` `cmux:cloud:<env>`; the image's agent
+refuses an origin not on its per-environment allowlist, binds, deletes `bind.json` and writes
+`bound.json` `{host, epoch}`; `TeamDO` peer map and the Freestyle tunnel and rule reconciler (lane
 12); for `ssh`, the VM's sshd trusts the team SSH CA (`team_vm.ssh_cert`, team VM lead), so scp and
 sftp use short-lived certificates, never a static key.
 
@@ -269,11 +346,11 @@ role, new backend or transport underneath. DELETE = gone in v1. NEW = files the 
 | `src/link/config.rs` | 234 | CHANGE | link details from `cmux.host.link.get` for `cmux link`, no hub socket |
 | `src/link/spawner.rs` | 177 | CHANGE | spawns or asks `cmux link` to dial a host id (lane 12) |
 | `src/link/argv.rs` | 157 | DELETE | the `remote connect --wireguard-hub` argv goes with the classic transport |
-| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump |
+| `src/connector/mod.rs` | 128 | CHANGE (C13) | `connector.open` app-to-host, frames, pump. STATUS: iface swap done (shared `cmux-terminal-iface`); the frame data plane is not used yet: the link reports `DataPlane::Socket {path}` (shared crate, cldv3-iface) and refuses data/credit frames as `invalid`, bytes ride the carrier socket; close by channel and the `ConnectorEvent` drain are trait methods now; the PUMP is the next Cloud lane item, C13b uses the carrier socket behind one adapter until then |
 | `src/connector/iface.rs` | 127 | DELETE (C13) | replaced by `cmux-terminal-iface` |
 | `src/rescue/mod.rs`, `src/rescue/backend.rs` | 10, 342 | KEEP (C13 frames) | the byte terminal stays |
 | `src/rescue/iface.rs` | 332 | DELETE (C13) | replaced by `cmux-terminal-iface` |
-| `src/rescue/transport.rs` | 86 | CHANGE | `MissingRescueRoute` becomes the `cloud.shell.open` wire stream |
+| `src/rescue/transport.rs` | 86 | CHANGE | `MissingRescueRoute` becomes the `cloud.shell.open` wire stream. GATE: the live stream may land only with the held-output bound (`rescue/stream.rs` MAX_HELD_BYTES, retryable `lost` output_overflow) or transport backpressure |
 | `src/ports/mod.rs`, `ops.rs`, `listener.rs`, `loopback.rs`, `tunnel.rs` | 234, 201, 214, 299, 61 | KEEP | loopback streams ride the link |
 | `src/proxy/mod.rs` | 212 | KEEP | browser proxy route on the link |
 | `src/fs/mod.rs` | 64 | CHANGE | only provider + transfers over the link |
@@ -384,3 +461,61 @@ and for classic VMs before upgrade.
 - The terminal on the new backend depends on lane 12's VM overlay endpoint and bind, and on a new
   cmux-next image (owner: backend lead now that the classic pipeline is out).
 - The classic export needs Lawrence's choice of operator and read credential.
+
+### VM daemon ops (VM install at bind, coordinator and a9, 2026-10-05)
+
+Only a kind "vm" install with grant `vm-self`, for its own bound machine (and only while the machine
+names that install), may call these; a VM install has no team read, no execute and no cloud-link, and
+cannot subscribe to the team's cloud stream. No idempotency key (fresh facts, never replayed).
+
+- `cloud.vm.self.get {machine}` (read): the machine's public view.
+- `cloud.vm.status.report {machine, state: running|degraded|stopping, daemon {version, capabilities},
+  health?, activity {last_user_input_at?, last_agent_action_at?, active_sessions}}`: answers
+  `{applied}`; at most one applied per 10 s per machine, a newer report in the window replaces the
+  held one (latest wins). Activity feeds CloudDO's idle pause (no polling of the VM); only a daemon
+  change emits `cloud.machine.upsert`.
+- `cloud.vm.event.emit {machine, kind, at, data}`: v1 kinds agent.started, agent.finished,
+  agent.needs_input, notification, browser.lease.changed {tab, state}, cua.session.started,
+  cua.session.ended, service.port.opened {port, proto, process?}, service.port.closed {port}; data at
+  most 4 KB, unknown fields refused, URL query strings and fragments removed, never secrets or page
+  content; 10 per second, burst 50 per install (`cloud.rate_limited {retry_after_ms}`). Delivered to
+  team members as the ephemeral frame `{t: "ephemeral", stream, event: "cloud.machine.event", data:
+  {machine, host, kind, at, data}}`: never stored, no seq, no cursor.
+
+Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` events).
+
+### Pause, start and idle pause (2026-10-05)
+
+- `cloud.machine.pause` / `cloud.machine.start`: money ops (a signed-in person, plan and quota on start,
+  per-team limit). The answer is `pausing` / `starting`; `cloud.machine.upsert` brings the outcome.
+- A paused, pausing or starting machine: `connect_info` answers `state`; `link_token` refuses with
+  `cloud.machine.paused {machine, state}`. Nothing starts a machine on connect: the client asks the
+  person ("Start machine?") and calls `cloud.machine.start`.
+- Freestyle never pauses, stops or deletes a machine by itself (every Freestyle timer -1 at create), so the
+  machine record stays true. Our 24 h backstop pauses a machine whose own reports show no sessions and no
+  input or agent action for 24 h, for every team (bounds the cost of a forgotten machine).
+  A running machine whose VM sent no report for 24 h after its last start or bind is also paused (the cost
+  backstop for a silent VM; a machine that never binds counts from its create). Until the VM daemon sends
+  `cloud.vm.status.report`, every machine is therefore paused 24 h after its bind or start: the app shows
+  `pause_reason: no_report`. `pause_reason` on the machine says why cmux paused it: idle, no_report,
+  provider_stopped or provider_paused (connect_info and link_token read the VM's real state and correct
+  the record, e.g. after a poweroff inside); a person's pause or a start clears it.
+- A report speaks for idleness only when its daemon advertises the capability `activity` (it can see
+  sessions). Any other report is unknown activity: it never idle-pauses a machine and does not reset the
+  no_report clock, so only the 24 h no_report backstop applies to that machine.
+- Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
+  pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
+  its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is
+  unknown and never paused.
+
+### Snapshots (2026-10-05)
+
+`cloud.snapshot.create {machine, name?}` (a running or paused, bound machine; answers `creating`,
+`cloud.snapshot.upsert` brings `ready` or `failed`; counts against `max_saved`), `cloud.snapshot.list
+{machine?}`, `cloud.snapshot.delete {snapshot}` (the provider snapshot under its recorded name only;
+`cloud.snapshot.removed {snapshot, revision}`), `cloud.snapshot.restore {snapshot, name?}` (a new machine
+booted from the snapshot, every create check, a fresh bind). Create, delete and restore are money ops (a
+signed-in person, per-team limit). Snapshots stay after their machine is deleted; a snapshot still being
+taken when its machine is deleted finishes first (intent order), so "snapshot, then delete" keeps the state. `size_mb` is the
+machine's disk size when it was taken (Freestyle reports no snapshot size).
+

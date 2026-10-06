@@ -42,6 +42,13 @@ export const CloudMachine = Schema.Struct({
   last_active_at: Schema.NullOr(Millis),
   idle_policy: Schema.Struct({ idle_seconds: Schema.Int }),
   error: Schema.NullOr(Schema.Struct({ code: Schema.String, message: Schema.String, at: Millis })),
+  /**
+   * Why cmux paused a machine by itself, for the app to show: idle (its reports showed it idle past its
+   * idle policy or 24 h), no_report (no report for 24 h after its last start or bind: the cost
+   * backstop), provider_stopped / provider_paused (the VM was found stopped or paused, e.g. a poweroff
+   * inside). Absent or null after a person's pause or a start.
+   */
+  pause_reason: Schema.optionalKey(Schema.NullOr(Schema.Literals(["idle", "no_report", "provider_stopped", "provider_paused"]))),
   revision: Revision
 }).annotate({ identifier: "CloudMachine" })
 
@@ -57,6 +64,8 @@ export const CloudSnapshot = Schema.Struct({
 
 export const CloudPlan = Schema.Struct({
   plan_id: PlanId,
+  /** The plan that lifts these limits, for the page's "See plans"; null when there is none. */
+  upgrade_plan: Schema.NullOr(PlanId),
   limits: Schema.Struct({
     max_active: Schema.Int,
     max_saved: Schema.Int,
@@ -98,6 +107,8 @@ const READ = ["auth.forbidden", "auth.unauthenticated", "selector.not_found", "v
 const MUTATION = [...mutationErrors, ...GATES]
 /** A provider call can fail for now or be cut off; the caller retries the same key after mutation.indeterminate. */
 const PROVIDER = ["cloud.provider.unavailable", "mutation.indeterminate"]
+/** Create and delete are limited per team (CLOUD_MUTATION_LIMIT); retryable, retry after a minute. */
+const LIMITED = ["cloud.rate_limited"]
 const KEY = " After mutation.indeterminate, retry with the same idempotency key."
 const PERSON = " Agent principals are refused; the client asks a person first."
 
@@ -143,21 +154,21 @@ export const CloudMachineCreate = cloudMutation(
   "money",
   Schema.Struct({ name: Schema.optionalKey(MachineName), size: CloudMachineSize, image: Schema.optionalKey(ImageId), from_snapshot: Schema.optionalKey(SnapshotId) }),
   MachineResult,
-  ["cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER, ...LIMITED],
   "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used}, cloud.size.locked. A same-key retry never makes a second machine." + KEY,
   "cloud machine create",
   true
 )
 export const CloudMachineRename = cloudMutation("cloud.machine.rename", "mutate-shared", Schema.Struct({ machine: MachineId, name: MachineName }), MachineResult, ["cloud.machine.not_found"], "Rename a machine.", "cloud machine rename")
-export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER], "Start (resume) a paused machine. May answer cloud.quota.exceeded {limit, used}." + KEY, "cloud machine start")
-export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", ...PROVIDER], "Pause a running machine." + KEY, "cloud machine pause")
+export const CloudMachineStart = cloudMutation("cloud.machine.start", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_paused", "cloud.machine.not_bound", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER], "Start (resume) a paused machine (a machine that never bound answers cloud.machine.not_bound: delete it): answers status starting; cloud.machine.upsert brings running (or paused again with the error after a final provider failure). It takes an active slot (cloud.quota.exceeded {limit, used, resource, plan}); cloud.machine.not_paused {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine start", true)
+export const CloudMachinePause = cloudMutation("cloud.machine.pause", "mutate-shared", MachineParams, MachineResult, ["cloud.machine.not_found", "cloud.machine.not_running", ...LIMITED, ...PROVIDER], "Pause a running machine (memory kept): answers status pausing; cloud.machine.upsert brings paused (or running again with the error). The active slot is freed when it lands; cloud.machine.not_running {machine, state} for any other status. A money op: a signed-in person only; limited per team." + KEY, "cloud machine pause", true)
 export const CloudMachineResize = cloudMutation(
   "cloud.machine.resize",
   "money",
   Schema.Struct({ machine: MachineId, size: CloudMachineSize }),
   MachineResult,
-  ["cloud.machine.not_found", "cloud.quota.exceeded", "cloud.size.locked", ...PROVIDER],
-  "Change a machine's size. A larger size may cost money." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.machine.busy", "cloud.size.grow_only", "cloud.size.locked", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Grow a machine: vCPU, memory and disk only go up (cloud.size.grow_only {size}); vCPU and memory grow on a running or paused machine (on resume), the disk only on a running one (cloud.machine.not_running {machine, state}); within the plan (cloud.size.locked {plan, ...}). One change at a time (cloud.machine.busy). The answer carries the target size; a final provider failure restores the old size with the error. A money op: a signed-in person only; limited per team." + KEY,
   "cloud machine resize",
   true
 )
@@ -166,7 +177,7 @@ export const CloudMachineDelete = cloudMutation(
   "destructive",
   MachineParams,
   Deleted,
-  ["cloud.machine.not_found", ...PROVIDER],
+  ["cloud.machine.not_found", ...PROVIDER, ...LIMITED],
   "Delete a machine and its disk. A provider 404 is success, and the tombstone answers {deleted: true} for 30 days, also to a new key." + KEY,
   "cloud machine delete",
   true
@@ -177,7 +188,7 @@ export const CloudMachineIdlePolicySet = cloudMutation(
   Schema.Struct({ machine: MachineId, idle_seconds: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 604800 })) }),
   MachineResult,
   ["cloud.machine.not_found"],
-  "Set when an idle machine pauses; 0 = never.",
+  "Set this machine's idle policy (ours only; Freestyle's own timer is always off). It applies only with the team policy cloud.idlePause on, from the VM's own activity reports. 0 means no early pause. The 24 h backstop pauses every machine idle for 24 h by its reports, so any value above 24 h acts as 24 h.",
   "cloud machine idle-policy set"
 )
 export const CloudMachineConnectInfo = cloudRead(
@@ -211,8 +222,8 @@ export const CloudMachineLinkToken = def({
     services: LinkServices
   }),
   // No key and no revision input, so no idempotency.conflict and no revision.conflict.
-  errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), "cloud.machine.not_bound", "cloud.machine.not_found"],
-  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only; only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
+  errors: [...MUTATION.filter((code) => code !== "revision.conflict" && code !== "idempotency.conflict"), ...LIMITED, "cloud.link.install_refused", "cloud.machine.not_bound", "cloud.machine.not_found", "cloud.machine.paused"],
+  docs: "Mint the dial token `cmux link` sends on `hello` to one host: single host, single install, the asked services (unique, a subset of what connect_info lists) and the current epoch, valid at most 5 minutes. No idempotency key: each call mints a fresh token and nothing replays, so a stored answer can never hand a credential out twice; a retry mints another. Every mint is audited by CloudDO and commits no stream event; the token is never cached, logged or kept in the ledger. Install principals only (agent tokens refused), and only cli, mac and ios installs (others: cloud.link.install_refused with details {install_kind, allowed}; the kind is what the install registered, so this keeps well-behaved vm, daemon and web installs out and is not a boundary against the user); limited per install (cloud.rate_limited); a deleting or failed machine answers cloud.machine.not_bound; a paused, pausing or starting machine answers cloud.machine.paused {machine, state} (no automatic start: the client asks the person and calls cloud.machine.start); only `cmux link` calls it: off MCP, hidden on the CLI, never consumed by an app.",
   cli: { path: "cloud machine link-token", visible: false },
   mcp: { expose: "never", group: "cloud" }
 })
@@ -240,8 +251,8 @@ export const CloudSnapshotCreate = cloudMutation(
   "money",
   Schema.Struct({ machine: MachineId, name: Schema.optionalKey(MachineName) }),
   Schema.Struct({ snapshot: CloudSnapshot }),
-  ["cloud.machine.not_found", "cloud.quota.exceeded", ...PROVIDER],
-  "Take a snapshot of a machine. It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used}." + KEY,
+  ["cloud.machine.not_found", "cloud.machine.not_running", "cloud.quota.exceeded", "cloud.plan.required", ...LIMITED, ...PROVIDER],
+  "Take a snapshot of a running or paused, bound machine (else cloud.machine.not_running {machine, state}): answers status creating; cloud.snapshot.upsert brings ready (or failed). It counts against the plan's saved limit (max_saved): cloud.quota.exceeded {limit, used, resource: saved}. A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot create",
   true
 )
@@ -250,8 +261,8 @@ export const CloudSnapshotRestore = cloudMutation(
   "money",
   Schema.Struct({ snapshot: SnapshotId, name: Schema.optionalKey(MachineName) }),
   MachineResult,
-  ["cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...PROVIDER],
-  "Create a new machine from a snapshot (plan checks as create)." + KEY,
+  ["cloud.no_snapshot_configured", "cloud.plan.required", "cloud.quota.exceeded", "cloud.size.locked", "cloud.snapshot.not_found", ...LIMITED, ...PROVIDER],
+  "Create a new machine booted from a ready snapshot (plan checks as create; a fresh bind like any create). A money op: a signed-in person only; limited per team." + KEY,
   "cloud snapshot restore",
   true
 )
@@ -260,8 +271,8 @@ export const CloudSnapshotDelete = cloudMutation(
   "destructive",
   Schema.Struct({ snapshot: SnapshotId }),
   Deleted,
-  ["cloud.snapshot.not_found", ...PROVIDER],
-  "Delete a snapshot." + KEY,
+  ["cloud.snapshot.not_found", "cloud.machine.busy", ...LIMITED, ...PROVIDER],
+  "Delete a snapshot (its provider snapshot under the recorded name only); cloud.snapshot.removed follows. A snapshot still being taken answers cloud.machine.busy. A signed-in person only; limited per team." + KEY,
   "cloud snapshot delete",
   true
 )

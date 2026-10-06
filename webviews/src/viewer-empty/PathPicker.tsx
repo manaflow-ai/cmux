@@ -18,6 +18,7 @@
 // The widget (roles, keys, highlight, announcements) is ui/DrillList; this file is the model glue.
 import { useRef, useState } from "react";
 import type { Strings } from "../pages/shared/i18n";
+import { PrefetchCache } from "../protocol/intents/prefetch";
 import { Breadcrumbs } from "../ui/Breadcrumbs";
 import { Dialog } from "../ui/Dialog";
 import { DrillList, type DrillSection } from "../ui/DrillList";
@@ -111,18 +112,18 @@ export function PathPicker({
   const recentSet = recentPathSet(recents, mode);
   const home = listing?.home ?? null;
 
-  const navigate = async (path: string | null, options: { focus?: string; hidden?: boolean } = {}) => {
-    const id = ++request.current;
-    setLoad({ phase: "loading" });
-    let value: unknown;
-    try {
-      value = await list(path, { mode, hidden: options.hidden ?? false });
-    } catch {
-      if (id === request.current) setLoad({ phase: "failed" });
-      return;
-    }
-    if (id !== request.current) return;
-    if (!isPickerListing(value)) return setLoad({ phase: "failed" });
+  // Zero-latency navigation (plans/cmux-next/zero-latency.md, rules a and f): listings are
+  // prefetched (the parent and the highlighted folder) into a bounded cache, so entering a folder
+  // or going up shows the next level in the input's frame. A level that is not cached yet still
+  // moves the location at once and fills its rows when the listing arrives.
+  const [listings] = useState(() => new PrefetchCache<unknown>({ limit: 24 }));
+  const listingKey = (target: string | null, hidden: boolean) => `${hidden ? "h" : "v"}:${target ?? ""}`;
+  const fetchListing = (target: string | null, hidden: boolean) =>
+    listings.get(listingKey(target, hidden), () => list(target, { mode, hidden }));
+  const prefetch = (target: string | null | undefined, hidden = false) => {
+    if (target) void fetchListing(target, hidden).catch(() => undefined);
+  };
+  const showListing = (value: PickerListing, options: { focus?: string; hidden?: boolean }) => {
     listedHidden.current = options.hidden ?? false;
     setListing(value);
     setStartPath((first) => first ?? value.path);
@@ -130,6 +131,31 @@ export function PathPicker({
     const rows = pickerRows(value.entries, options.hidden ? "." : "", mode, recentSet);
     const focus = options.focus ? rows.find((row) => row.path === options.focus) : undefined;
     setHighlightKey(focus ? `entry:${focus.path}` : null);
+    prefetch(value.parent, options.hidden);
+    const next = focus ?? rows[0];
+    if (next?.kind === "dir") prefetch(next.path, options.hidden);
+  };
+
+  const navigate = async (path: string | null, options: { focus?: string; hidden?: boolean } = {}) => {
+    const id = ++request.current;
+    const hidden = options.hidden ?? false;
+    const cached = listings.peek(listingKey(path, hidden));
+    if (isPickerListing(cached)) return showListing(cached, options);
+    setLoad({ phase: "loading" });
+    // The location moves now; the rows follow.
+    if (path && path !== "~") {
+      setListing((previous) => ({ path, parent: parentPath(path), home: previous?.home ?? null, entries: [] }));
+    }
+    let value: unknown;
+    try {
+      value = await fetchListing(path, hidden);
+    } catch {
+      if (id === request.current) setLoad({ phase: "failed" });
+      return;
+    }
+    if (id !== request.current) return;
+    if (!isPickerListing(value)) return setLoad({ phase: "failed" });
+    showListing(value, options);
   };
 
   // A callback ref: the first listing and the Locations load when the picker mounts.
@@ -282,7 +308,7 @@ export function PathPicker({
   const emptyText =
     load.phase === "failed"
       ? t(E.pickerFailed)
-      : load.phase === "loading" && !listing
+      : load.phase === "loading" && !listing?.entries.length
         ? t(E.pickerLoading)
         : path && path.rest !== ""
           ? strings.format(E.pickerNoMatch, path.typed)
@@ -327,7 +353,12 @@ export function PathPicker({
         sections={sections}
         getKey={rowKey}
         highlight={highlight}
-        onHighlight={(index) => setHighlightKey(all[index] ? rowKey(all[index]) : null)}
+        onHighlight={(index) => {
+          const row = all[index];
+          setHighlightKey(row ? rowKey(row) : null);
+          // The folder the user may enter next is listed ahead.
+          if (row?.kind === "dir" && row.row === "entry") prefetch(row.path, filter.startsWith("."));
+        }}
         query={query}
         onQueryChange={setQueryValue}
         onEnter={enter}

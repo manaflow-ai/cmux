@@ -1,3 +1,4 @@
+import { errorMessage } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -50,12 +51,16 @@ export type SwitchPort = {
   /// Sends a prompt to the shown session, its optimistic row keyed by `promptId`.
   send(text: string, attachments: ComposerAttachment[], promptId: string): Promise<unknown>;
   setModel(modelId: string): Promise<void>;
-  setMode(modeId: string): Promise<void>;
-  setConfig(configId: string, value: string): Promise<void>;
+  /// `ticket`: the single-use gesture ticket the pick took (transport.gesture), sent with its frame.
+  setMode(modeId: string, ticket?: string): Promise<void>;
+  setConfig(configId: string, value: string, ticket?: string): Promise<void>;
   /// Ends a session a superseded switch started and nobody used.
   discard(sessionId: string): void;
-  /// Tells acpmux a harness is likely next, so it can warm its adapter. A no-op without support.
-  prewarm(harness: string): void;
+  /// Tells acpmux a harness is likely next in `cwd`, so its pool can ready a session. A no-op
+  /// without support or over a remote-origin connection; never awaited.
+  prewarm(harness: string, cwd?: string): void;
+  /// The connection can take a prewarm hint (acpmux lists the method and calls it local).
+  prewarmSupported(): boolean;
 };
 
 /// Injected time, so the debounce is testable and the store never keeps a timer while idle.
@@ -70,7 +75,8 @@ export const browserSwitchClock: SwitchClock = {
 
 /// How long the pointer or keyboard rests on a harness before the prewarm hint goes out.
 export const PREWARM_DEBOUNCE_MS = 150;
-/// A harness hinted this recently is not hinted again.
+/// The same harness hinted again this soon after its last hint is not sent again (acpmux keeps
+/// only the newest hint, so a harness hinted after another one always goes out).
 export const PREWARM_REPEAT_MS = 30_000;
 
 export type SwitchConfig = { model?: string; mode?: string; options: Readonly<Record<string, string>> };
@@ -116,10 +122,17 @@ type Intent = {
   error?: string;
   queued: Queued[];
   config: { model?: string; mode?: string; options: Record<string, string> };
+  /// Each held mode or config pick's gesture ticket (`mode`, `config:<id>`), the newest pick's.
+  tickets: Map<string, Promise<string | undefined>>;
   /// The port a run is in flight on; a reconnect runs again on the new one.
   running?: SwitchPort;
   done: { resolve(sessionId: string | undefined): void; promise: Promise<string | undefined> };
 };
+
+/// The frame a gesture ticket redeems for (ad349, pane-native transport).
+export type GestureIntent =
+  | { method: "session/set_mode"; params: { modeId: string } }
+  | { method: "session/set_config_option"; params: { configId: string; value: string } };
 
 export type SwitchHandlers = {
   /// Puts prompts a failed or cancelled switch held back into the composer: their text, joined
@@ -129,6 +142,11 @@ export type SwitchHandlers = {
   opened?(sessionId: string): void;
   /// A pick the agent refused (a model it would not switch to).
   notice?(text: string): void;
+  /// Spends the user's pick gesture with the host (`transport.gesture`) and resolves to its
+  /// single-use ticket, bound to `intent`: the exact frame the pick sends later (its method, and
+  /// its params without sessionId and _meta). Called in the pick's own handler, while the gesture
+  /// is live; a refusal means there was none, and the pick applies without a ticket.
+  gesture?(intent: GestureIntent): Promise<string | undefined>;
 };
 
 function deferred<T>() {
@@ -137,8 +155,7 @@ function deferred<T>() {
   return { resolve, promise };
 }
 
-const errorText = (error: unknown) =>
-  error instanceof Error && error.message ? error.message : typeof error === "string" && error ? error : "";
+const errorText = errorMessage;
 
 export class HarnessSwitch {
   private intent?: Intent;
@@ -151,7 +168,7 @@ export class HarnessSwitch {
   private left?: { sessionId: string; harness?: string };
   private hintTarget?: string;
   private cancelHint?: () => void;
-  private hinted = new Map<string, number>();
+  private lastHint?: { harness: string; at: number };
   private handlers: SwitchHandlers = {};
 
   constructor(private readonly clock: SwitchClock = browserSwitchClock) {}
@@ -207,6 +224,7 @@ export class HarnessSwitch {
       queued: previous?.queued ?? [],
       // A model or mode picked for one harness does not carry to another.
       config: { options: {} },
+      tickets: new Map(),
       done,
     };
     if (previous) this.retire(previous, false);
@@ -282,17 +300,33 @@ export class HarnessSwitch {
     });
   }
   /// A permission mode or config option picked while a switch is pending; false otherwise.
+  /// A held pick takes a gesture ticket at once (pane-native transport); a live pick needs none.
   pickMode(mode: string): boolean {
     if (!this.intent) return false;
     this.intent.config = { ...this.intent.config, mode };
+    this.intent.tickets.set("mode", this.takeTicket({ method: "session/set_mode", params: { modeId: mode } }));
     this.changed();
     return true;
   }
   pickConfig(configId: string, value: string): boolean {
     if (!this.intent) return false;
     this.intent.config = { ...this.intent.config, options: { ...this.intent.config.options, [configId]: value } };
+    this.intent.tickets.set(
+      `config:${configId}`,
+      this.takeTicket({ method: "session/set_config_option", params: { configId, value } }),
+    );
     this.changed();
     return true;
+  }
+
+  private takeTicket(intent: GestureIntent): Promise<string | undefined> {
+    const gesture = this.handlers.gesture;
+    if (!gesture) return Promise.resolve(undefined);
+    try {
+      return gesture(intent).catch(() => undefined);
+    } catch {
+      return Promise.resolve(undefined);
+    }
   }
 
   /// Cancel on a queued prompt: it leaves the queue and goes back to the composer. The harness
@@ -326,13 +360,15 @@ export class HarnessSwitch {
     this.changed();
   }
 
-  /// The pointer or keyboard rests on `harness` in the picker. Debounced; one hint per harness
-  /// per PREWARM_REPEAT_MS; nothing for the harness the pane already runs.
+  /// The highlight rests on `harness` in the picker (the pointer, the arrows, or the choices
+  /// opening on it). Debounced; a repeat of the last hint within PREWARM_REPEAT_MS and the
+  /// harness the pane already runs are not sent. The hint names the folder a switch would use.
   hint(harness: string | undefined): void {
     if (harness === this.hintTarget) return;
     this.cancelHintTimer();
     this.hintTarget = harness;
-    if (!harness) return;
+    // A connection that cannot prewarm (remote origin, no _acpmux/prewarm) starts no timer.
+    if (!harness || !this.port?.prewarmSupported()) return;
     this.cancelHint = this.clock.schedule(() => {
       this.cancelHint = undefined;
       const port = this.port;
@@ -341,10 +377,10 @@ export class HarnessSwitch {
       const running = this.intent?.harness ?? shown?.harness;
       if (harness === running) return;
       const now = this.clock.now();
-      const last = this.hinted.get(harness);
-      if (last !== undefined && now - last < PREWARM_REPEAT_MS) return;
-      this.hinted.set(harness, now);
-      port.prewarm(harness);
+      const last = this.lastHint;
+      if (last?.harness === harness && now - last.at < PREWARM_REPEAT_MS) return;
+      this.lastHint = { harness, at: now };
+      port.prewarm(harness, this.intent?.cwd ?? shown?.cwd);
     }, PREWARM_DEBOUNCE_MS);
   }
 
@@ -418,9 +454,24 @@ export class HarnessSwitch {
     const { model, mode, options } = intent.config;
     const applied: Promise<void>[] = [];
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
-    if (mode) applied.push(port.setMode(mode).catch(() => undefined));
+    // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
+    const pickRefused = (error: unknown) => {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+    };
+    const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    if (mode)
+      applied.push(
+        ticket("mode")
+          .then((t) => port.setMode(mode, t))
+          .catch(pickRefused),
+      );
     for (const [configId, value] of Object.entries(options))
-      applied.push(port.setConfig(configId, value).catch(() => undefined));
+      applied.push(
+        ticket(`config:${configId}`)
+          .then((t) => port.setConfig(configId, value, t))
+          .catch(pickRefused),
+      );
     // Prompts go out after the picks, so the first turn runs on what the user chose.
     await Promise.all(applied);
     if (this.intent !== intent) return;

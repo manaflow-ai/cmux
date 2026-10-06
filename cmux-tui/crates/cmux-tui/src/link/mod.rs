@@ -3,8 +3,10 @@
 //! to paired peers only, no relay.
 
 mod cloud;
+mod cloud_fs;
 mod control;
 mod dial;
+mod dial_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -31,7 +33,6 @@ use anyhow::{Context as _, anyhow};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use cmux_link::LINK_PORT;
-use cmux_link::dial::{Service, line};
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::pairing::{PairingRecord, Pairings};
 use cmux_link::registration::{self, Registration};
@@ -53,26 +54,46 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// Start the session daemon's remote entry next to `session_socket` when
-/// `enabled` (`--link-entry`): only the link may connect, and every frame is
-/// denied until lane 10's conversation gate replaces [`DenyAllGate`].
+/// `enabled` (`--link-entry`): only the link may connect, and its gate
+/// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
+/// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
+/// admitted fs ops answer `fs.unavailable`.
 pub(crate) fn start_link_entry(
     enabled: bool,
     mux: &Arc<cmux_tui_core::Mux>,
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
-    use cmux_tui_core::server::{DenyAllGate, LinkVerifier, serve_remote_entry};
+    use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
+    cloud_fs::install_if_cloud_host();
+    // What a stamp's `check` means is fixed here, at daemon start, from the
+    // config `main` took from the environment (G4); a real verifier is
+    // refused until G1 and G2 hold. The mode is logged once (G3).
+    let choice = cmux_link::token::daemon_verifier_choice();
+    let checks = cmux_link::token::StampChecks::at_daemon_start(choice.config);
+    eprintln!("{}", cmux_link::token::mode_log_line(choice, &checks));
     if !enabled {
         return Ok(None);
     }
+    let checks = checks?;
     let verifier: LinkVerifier = Arc::new(|stream: &std::os::unix::net::UnixStream| {
         cmux_link::caller::verify(stream).map_err(std::io::Error::from)
     });
     let path = cmux_link::entry_path::remote_entry_socket_path(session_socket);
-    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, Arc::new(DenyAllGate))?))
+    Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
+}
+
+/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
+/// other frame denied (`remote_denied`).
+fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
+    Arc::new(cmux_tui_core::server::FsGate)
 }
 
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // `dial` has its own exit codes and always one JSON line on stderr.
+    if args.first().map(String::as_str) == Some("dial") {
+        return dial_cli::run(&args[1..]);
+    }
     match run_link(args) {
         Ok(()) => 0,
         Err(error) => {
@@ -96,7 +117,6 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "show" => run_show(&flags(rest, &["--state-dir"])?),
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(rest, &["--state-dir", "--session-socket"])?),
-        "dial" => run_dial(&flags(rest, &["--host"])?),
         #[cfg(target_os = "macos")]
         "install-agent" => run_install_agent(&flags(rest, &["--state-dir", "--session-socket"])?),
         #[cfg(target_os = "macos")]
@@ -323,54 +343,6 @@ async fn shutdown_signal() -> anyhow::Result<()> {
         _ = terminate.recv() => Ok(()),
         interrupted = tokio::signal::ctrl_c() => interrupted.map_err(anyhow::Error::from),
     }
-}
-
-/// `cmux link dial --host ID`: a stdio bridge to the paired host's daemon
-/// remote entry (for callers that cannot speak the link socket, such as an
-/// SSH-style ProxyCommand or the app's sidecar). The reply goes to stderr
-/// as one JSON line; the stream's bytes use stdin and stdout.
-fn run_dial(flags: &Flags) -> anyhow::Result<()> {
-    let host = required(flags, "--host")?.to_string();
-    tokio_runtime()?.block_on(dial_bridge(host))
-}
-
-async fn dial_bridge(host: String) -> anyhow::Result<()> {
-    use cmux_remote::provider::overlay::{OverlayDialError, dial_link};
-    let socket = cmux_tui_core::platform::workspace_state_dir()
-        .and_then(|dir| registration::read_live(&dir))
-        .map_or_else(state::socket_path, |live| live.socket);
-    let dialed = match dial_link(&socket, &host, Service::Daemon).await {
-        Ok(dialed) => dialed,
-        Err(OverlayDialError::Refused { error, path_state, relay_available }) => {
-            eprint!(
-                "{}",
-                line(&json!({"ok": false, "error_code": error, "path_state": path_state,
-                    "relay_available": relay_available}))
-            );
-            return Err(anyhow!("cmux link dial to {host} failed"));
-        }
-        Err(error) => return Err(error.into()),
-    };
-    eprint!(
-        "{}",
-        line(&json!({"ok": true, "path_state": dialed.path_state,
-            "relay_available": dialed.relay_available}))
-    );
-    let (mut reader, mut writer) = dialed.stream.into_split();
-    let upload = async {
-        let _ = tokio::io::copy(&mut tokio::io::stdin(), &mut writer).await;
-        let _ = writer.shutdown().await;
-    };
-    let download = async {
-        let mut stdout = tokio::io::stdout();
-        let _ = tokio::io::copy(&mut reader, &mut stdout).await;
-        let _ = stdout.flush().await;
-    };
-    tokio::select! {
-        () = download => {}
-        () = async { upload.await; std::future::pending::<()>().await } => {}
-    }
-    Ok(())
 }
 
 #[cfg(target_os = "macos")]

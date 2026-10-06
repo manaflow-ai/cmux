@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextDesign
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -257,7 +258,9 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard owned !== controller.window, services.windows.owner(of: owned) === controller else { return }
         services.windows.didActivate(controller)
         publish(controller.focus.state.context)
-        guard owned is NSPanel, owned.sheetParent == nil, !services.palette.owns(owned), overlayPanel == nil else { return }
+        // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
+        guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
+              overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
         overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
@@ -358,10 +361,18 @@ final class FocusEffectApplier: FocusEffectApplying {
             services.agentTabs.setCheckpointFocus(nil)
         }
         var next = registry.context
-        next.subtract([.terminalFocused, .browserFocused, .agentPaneFocused])
+        next.subtract(ActionContext.focusBits)
         if context.terminal { next.insert(.terminalFocused) }
         if context.browser { next.insert(.browserFocused) }
         if context.agent { next.insert(.agentPaneFocused) }
+        if case .addressBar = controller.focus.state.resolved { next.insert(.omnibarFocused) }
+        // The same rule as `KeyRouter.keyContext`: the focused page's id (diff, markdown, code editor).
+        switch services.keyRouter?.focusedPage(in: controller)?.descriptor.id {
+        case KeyRouter.diffPageID?: next.insert(.diffViewerFocused)
+        case KeyRouter.markdownPageID?: next.insert(.markdownFocused)
+        case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
+        default: break
+        }
         if registry.context != next { registry.context = next }
     }
 

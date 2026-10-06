@@ -2,21 +2,21 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
-import { useT } from "./i18n";
+import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
 import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
-  model: "Model",
-  mode: "Mode",
-  effort: "Effort",
-  plan: "Plan",
-  build: "Build",
-  planHint: "Plan reads and proposes without editing; Build makes the changes",
+  model: "picker.model",
+  mode: "picker.mode",
+  effort: "picker.effort",
+  plan: "picker.plan",
+  build: "picker.build",
+  planHint: "picker.planHint",
   /// `{percent}` is the share of the context window used.
-  context: "{percent}% of context used",
-};
+  context: "picker.context",
+} as const satisfies Record<string, StringKey>;
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
 export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
@@ -84,6 +84,8 @@ type Props = {
   onHarnessHint?(harness: string | undefined): void;
   /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
   measurePickerRoom?(menu: HTMLElement): number;
+  /// Mode and Plan live in the composer's + menu in the default pane.
+  showModePlan?: boolean;
 };
 
 /// The composer bar's controls: the
@@ -101,6 +103,7 @@ export function ComposerPickers({
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
+  showModePlan = true,
 }: Props) {
   const t = useT();
   const summary = snapshot.summary;
@@ -193,15 +196,15 @@ export function ComposerPickers({
 
   return (
     <div className="acpmux-chips">
-      {modes.length > 0 && (
+      {showModePlan && modes.length > 0 && (
         <Picker
-          label={PICKER_LABELS.mode}
+          label={t(PICKER_LABELS.mode)}
           warnUnrestricted
           className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
           button={
             <>
               <ShieldIcon />
-              <span>{mode?.name ?? PICKER_LABELS.mode}</span>
+              <span>{mode?.name ?? t(PICKER_LABELS.mode)}</span>
               <ChevronIcon />
             </>
           }
@@ -210,16 +213,16 @@ export function ComposerPickers({
           align="start"
         />
       )}
-      {plan && (
+      {showModePlan && plan && (
         <button
           type="button"
           className="acpmux-plan"
           aria-pressed={planning}
-          title={PICKER_LABELS.planHint}
+          title={t(PICKER_LABELS.planHint)}
           onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
         >
           {planning ? <PlanIcon /> : <BuildIcon />}
-          <span>{planning ? PICKER_LABELS.plan : PICKER_LABELS.build}</span>
+          <span>{planning ? t(PICKER_LABELS.plan) : t(PICKER_LABELS.build)}</span>
         </button>
       )}
       <span className="acpmux-chips-spacer" />
@@ -228,7 +231,7 @@ export function ComposerPickers({
           catalog={snapshot.catalog}
           harness={harness}
           model={shown}
-          label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
+          label={model?.name ?? summary?.model ?? t(PICKER_LABELS.model)}
           efforts={efforts}
           effort={currentEffort}
           recents={recents}
@@ -249,7 +252,7 @@ export function ComposerPickers({
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
-          label={PICKER_LABELS.effort}
+          label={t(PICKER_LABELS.effort)}
           efforts={efforts}
           current={effort.currentValue}
           model={model?.name ?? summary?.model}
@@ -274,9 +277,10 @@ export function isPlan(modeId: string): boolean {
 
 /// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
+  const t = useT();
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
-  const label = PICKER_LABELS.context.replace("{percent}", String(percent));
+  const label = t(PICKER_LABELS.context, { percent });
   const radius = 7;
   const circumference = 2 * Math.PI * radius;
   return (

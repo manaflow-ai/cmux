@@ -57,9 +57,12 @@ public final class BrowserChromeView: NSView {
     let contentContainer = NSView()
     public var onPaneHeaderHeightChange: (() -> Void)?
     private var reportedHeader: CGFloat = -1
+    /// The band under the toolbar rows for the pane's tab strip (R109).
+    let headerBand = BrowserHeaderBand()
     let findBar = FindBarView()
     private let promptBar = PromptBarView()
-    private let pageStatus = PageStatusViews()
+    private let promptDialogs = BrowserPromptDialogs()
+    let pageStatus = PageStatusViews()
     var toolbarHeight: NSLayoutConstraint!
     private var observation: ObservationLoop?
     private var showsStop = false
@@ -124,7 +127,7 @@ public final class BrowserChromeView: NSView {
         if findBar.isHidden {
             findBar.isHidden = false
             findBar.alphaValue = 0
-            Motion.animate(.fadeIn) { self.findBar.animator().alphaValue = 1 }
+            Motion.animate(.fadeIn, in: findBar) { self.findBar.animator().alphaValue = 1 }
             updateOcclusion()
         }
         findBar.focus()
@@ -132,7 +135,7 @@ public final class BrowserChromeView: NSView {
 
     public func hideFindBar() {
         guard !findBar.isHidden else { return }
-        Motion.animate(.fadeOut, { self.findBar.animator().alphaValue = 0 }, completion: {
+        Motion.animate(.fadeOut, in: findBar, { self.findBar.animator().alphaValue = 0 }, completion: {
             self.findBar.isHidden = true
             self.updateOcclusion()
         })
@@ -183,6 +186,7 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         installAccessoryBar(below: separator)
+        installHeaderBand(below: accessoryBar)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -232,7 +236,9 @@ public final class BrowserChromeView: NSView {
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            contentContainer.topAnchor.constraint(equalTo: accessoryBar.bottomAnchor),
+            // The page starts under the header band (empty unless the pane's
+            // tab bar sits below the toolbar, R109).
+            contentContainer.topAnchor.constraint(equalTo: headerBand.guide.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -267,7 +273,7 @@ public final class BrowserChromeView: NSView {
         if let onOmnibarEvent { return onOmnibarEvent(event) }
         switch event {
         case .didEndEditing(.commit), .didEndEditing(.open), .didEndEditing(.cancel), .didEndEditing(.keyword): returnFocusToPage()
-        case .didBeginEditing, .didEndEditing(.blur): break
+        case .didBeginEditing, .didEndEditing(.blur), .didEndEditing(.switchToTab): break
         }
     }
 
@@ -305,6 +311,9 @@ public final class BrowserChromeView: NSView {
         observation = ObservationLoop { [weak self] in self?.render() }
     }
 
+    /// Permission prompts in the bar; JavaScript dialogs as cmux dialogs on this tab.
+    func renderPrompt() { promptDialogs.render(tab.pendingPrompts.first, in: contentContainer, bar: promptBar) }
+
     private func render() {
         let state = tab.state
         backButton.isEnabled = state.canGoBack
@@ -322,12 +331,7 @@ public final class BrowserChromeView: NSView {
 
         pageStatus.render(state)
 
-        if let prompt = tab.pendingPrompts.first {
-            promptBar.show(prompt)
-            promptBar.isHidden = false
-        } else {
-            promptBar.isHidden = true
-        }
+        renderPrompt()
 
         setToolbarHidden(state.isContentFullscreen)
         updateOcclusion()

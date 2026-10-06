@@ -1,0 +1,140 @@
+name: cmux-next third-party notices
+
+# THIRD_PARTY_LICENSES.md is generated (scripts/cmux-next/generate-third-party-notices.sh,
+# pin mode). feat-cmux-next takes direct pushes, so this backstop regenerates it on
+# every push that can change it and fails when the committed file or
+# cmux-tui/build-support/notices/REVIEW.md is stale. It also runs the notices tools'
+# unit tests. Crate sources are cached by the Cargo.lock files, the cmux-tui pin and
+# Package.resolved; the generator checks every .crate against its lock sha256.
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "THIRD_PARTY_LICENSES.md"
+      - "cmux-tui/Cargo.lock"
+      - "cmux-tui/build-support/notices/**"
+      - "first-party-apps/cloud/server/Cargo.lock"
+      - "Native/DiffSidecar/Cargo.lock"
+      - "Packages/macOS/CmuxNext/Package.resolved"
+      - "scripts/cmux-next/cmux-tui.pin"
+      - "scripts/cmux-next/generate-third-party-notices.sh"
+      - "scripts/cmux-next/notices/**"
+      - "scripts/cmux-next/bundle-cli-resources.sh"
+      - "scripts/install-zig-ci.sh"
+      - "cmux-tui/bindings/zig/build.zig.zon"
+      - "cmux-tui/dist/notices/**"
+      - "cmux-tui/dist/scripts/package_notices.py"
+      - "cmux-tui/dist/scripts/test_package_notices.py"
+      - "scripts/cmux-next/notices/test_ios_source_archive.py"
+      - "scripts/cmux-next/publish-ios-source-archive.sh"
+      - ".github/workflows/ios-testflight.yml"
+      - ".github/workflows/ios-appstore-upload.yml"
+      - ".github/workflows/ios-app-store.yml"
+      - ".github/workflows/cmux-next-source-archive.yml"
+      - "cmux-tui/rust-toolchain.toml"
+      - "first-party-apps/cloud/server/rust-toolchain.toml"
+      - "Native/DiffSidecar/rust-toolchain.toml"
+      - "ghostty"
+      - "ghostty-next"
+      - "cmux-tui/crates/cmux-tui-core/src/shell_integration.rs"
+      - "cmux-tui/crates/cmux-browser-host/js/**"
+      - "scripts/cmux-next/bundle-ghostty-resources.sh"
+      - "cmux-tui/crates/ghostty-vt-sys/build.rs"
+      - "scripts/verify-app-bundle-licenses.sh"
+      - "Resources/ghostty/themes/**"
+      - ".github/workflows/cmux-next-notices.yml"
+      - "ios/cmux/Settings.bundle/**"
+      - "Packages/Shared/CmuxGhosttyKit/Package.swift"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-notices-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notices:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Restore the crate source cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-notices
+          key: cmux-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'first-party-apps/cloud/server/Cargo.lock', 'Native/DiffSidecar/Cargo.lock', 'Packages/macOS/CmuxNext/Package.resolved', 'scripts/cmux-next/cmux-tui.pin') }}
+          restore-keys: cmux-notices-v1-
+
+      - name: Notices tool tests
+        run: |
+          python3 cmux-tui/build-support/notices/test_rust_notices.py
+          python3 cmux-tui/build-support/notices/test_license_match.py
+          python3 scripts/cmux-next/notices/test_compose_notices.py
+          python3 scripts/cmux-next/notices/test_check_bundle_notices.py
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_licenses.py
+          python3 cmux-tui/build-support/notices/ghostty/test_ghostty_vendored.py
+          python3 cmux-tui/build-support/notices/ghostty/test_shell_integration_notices.py
+          python3 cmux-tui/build-support/notices/browser-host/test_browser_host_js_notices.py
+          python3 scripts/cmux-next/notices/test_ghostty_themes_notice.py
+          python3 scripts/cmux-next/notices/test_ghostty_source_archive.py
+          python3 scripts/cmux-next/notices/test_check_ghostty_vt_notices.py
+          python3 scripts/cmux-next/notices/test_vt_link_graph.py
+          python3 cmux-tui/dist/scripts/test_package_notices.py
+          python3 tests/test_install_zig_ci_reviewed_version.py
+          python3 cmux-tui/build-support/notices/toolchains/test_toolchain_notices.py
+          python3 scripts/cmux-next/notices/test_ios_notices.py
+          python3 scripts/cmux-next/notices/test_ios_source_archive.py
+
+      # The iOS Settings.bundle Acknowledgements pane, its link set and the libintl
+      # exception all name the CmuxGhosttyKit pin (no network).
+      - name: iOS Acknowledgements pane matches the GhosttyNextKit pin
+        run: python3 scripts/cmux-next/notices/ios_notices.py check-repo
+
+      # D1: no shipped Apple binary statically links LGPL libintl. Every slice of the
+      # pinned GhosttyNextKit is scanned; only the pin listed in
+      # scripts/cmux-next/notices/ios/lgpl-exceptions.json may still contain it, and
+      # that entry must go when its binaries are clean.
+      - name: The pinned GhosttyNextKit carries no LGPL libintl (D1)
+        run: |
+          set -euo pipefail
+          read -r url sha < <(python3 -c 'import sys; sys.path.insert(0, "scripts/cmux-next/notices"); import ios_notices as n; p = n.ghostty_kit_pin(); print(p["url"], p["sha256"])')
+          dir="$RUNNER_TEMP/ghosttykit"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/kit.zip" "$url"
+          echo "$sha  $dir/kit.zip" | sha256sum -c -
+          unzip -q "$dir/kit.zip" -d "$dir"
+          mapfile -t archives < <(find "$dir" -name '*.a' -path '*GhosttyNextKit.xcframework*' | sort)
+          [[ "${#archives[@]}" -ge 3 ]] || { echo "expected the macOS and both iOS slices, found ${#archives[@]}" >&2; exit 1; }
+          python3 scripts/cmux-next/notices/ios_notices.py check-binaries --pin "$sha" "${archives[@]}"
+
+      - name: Rust and Zig standard library notices match the toolchain pins
+        run: |
+          # build.zig.zon of both Ghostty sources sets the Zig version; a missing one fails the check.
+          git submodule update --init --depth 1 --filter=blob:none ghostty ghostty-next
+          python3 cmux-tui/build-support/notices/toolchains/toolchain_notices.py check-repo --repo .
+
+      # ghostty-next/src/shell-integration ships in the app and (include_str!) in cmux-tui:
+      # every file needs a reviewed row (shell-integration.json) and its notice text.
+      - name: Ghostty shell integration files have reviewed notices
+        run: python3 cmux-tui/build-support/notices/ghostty/shell_integration_notices.py check
+
+      # cmux-browser-host embeds js/manifest.json's files (acorn, Playwright in js/vendor):
+      # every vendor file needs a reviewed row (browser-host-js.json) and its notice text.
+      - name: Browser host runtime JavaScript has reviewed notices
+        run: python3 cmux-tui/build-support/notices/browser-host/browser_host_js_notices.py check
+
+      - name: vt-link-graph.json is for the libghostty-vt gitlink
+        run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
+
+      - name: npm and PyPI notice texts match vt-link-graph.json
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-data
+
+      - name: THIRD_PARTY_LICENSES.md and REVIEW.md are current
+        run: ./scripts/cmux-next/generate-third-party-notices.sh --check

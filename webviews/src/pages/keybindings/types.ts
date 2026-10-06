@@ -1,7 +1,9 @@
 // Wire types of the `cmux.keybindings` ops (plans/cmux-next/keybindings.md 8). The Swift
 // provider in the app serves them; the mock provider (mockProvider.ts) serves the same contract.
 
-export type BindingSource = "default" | "app" | "user";
+/** `ghostty`: a keybind the user's Ghostty config changed (terminal only); `ghostty-fallback`: a
+ *  Ghostty default keybind. cmux never writes the Ghostty config, so both are read-only here. */
+export type BindingSource = "default" | "app" | "user" | "ghostty" | "ghostty-fallback";
 
 /** One entry of the effective binding table. */
 export interface Binding {
@@ -78,6 +80,10 @@ export const KeybindingOps = {
   recordStop: "cmux.keybindings.record.stop",
   recorded: "cmux.keybindings.recorded",
   changed: "cmux.keybindings.changed",
+  /** Shows a save panel and writes the `shortcuts` object to the chosen file. */
+  keymapExport: "cmux.keybindings.keymap.export",
+  /** Shows an open panel and imports the chosen keymap file into cmux-next.json. */
+  keymapImport: "cmux.keybindings.keymap.import",
 } as const;
 
 /** The error code of a write the app cannot do yet (no keybindings.json writer). */

@@ -8,8 +8,11 @@ use super::*;
 use crate::agent::Attached;
 use crate::agent_host::{self, Liveness};
 
-/// How long adoption waits for one host's replayed entries to be logged.
-const REPLAY_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long adoption waits for the next replayed entry of one host to be
+/// logged before it recovers from the log as it is.
+const REPLAY_STALL: std::time::Duration = std::time::Duration::from_secs(10);
+/// The most one host's replay may hold adoption (and daemon startup).
+const REPLAY_CEILING: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// What the session log says about the work in flight under one host
 /// incarnation when the previous controller stopped.
@@ -121,6 +124,8 @@ impl Hub {
     /// Reattach every running agent host. Called once at daemon start,
     /// before agents may spawn.
     pub async fn adopt_agent_hosts(self: &Arc<Self>) {
+        // Pooled sessions of a previous daemon were never taken: end them.
+        self.sweep_pool_hosts().await;
         let dir = agent_host::hosts_dir();
         let (good, bad) = match agent_host::load_records(&dir) {
             Ok(records) => records,
@@ -237,7 +242,7 @@ impl Hub {
         }
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
-        if !child.wait_logged(adopted.last_h, REPLAY_BUDGET).await {
+        if !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
         self.append(
@@ -398,6 +403,10 @@ impl Hub {
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
+                        // Adopted after a restart: who prompted is not
+                        // recorded, so it counts as Web (no chat allowance,
+                        // which a restart clears anyway).
+                        control: Control::Web,
                     });
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
@@ -521,7 +530,7 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
 }
 
 /// `agent_host::terminate_unadoptable` off the async runtime.
-async fn end_host_blocking(
+pub(super) async fn end_host_blocking(
     dir: std::path::PathBuf,
     session_id: String,
     nonce: Option<String>,

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4.
+// cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -80,6 +80,10 @@ pub struct AttachSurfaceRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_images: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub snapshot_local_history: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub snapshot_version: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -90,6 +94,23 @@ pub struct AttachSurfaceRequest {
 
 #[rustfmt::skip]
 pub type AttachSurfaceResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionRequest {
+    /// The tab's current session, or null for a tab without one; the bind applies only when it matches.
+    pub expected_session: Nullable<String>,
+    pub session: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BindConversationTabSessionResult {
+    pub conversation: T::ConversationTabRecord,
+    pub replayed: bool,
+    pub surface: T::Id,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,6 +148,11 @@ pub struct BrowserFramePresentedRequest {
 
 #[rustfmt::skip]
 pub type BrowserFramePresentedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BrowserHostProviderRequest {
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -390,6 +416,9 @@ pub struct CloseTabsRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// The close is not recorded in the closed history (session_end).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::CloseReason>,
     pub surfaces: Vec<T::TabRef>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -435,6 +464,116 @@ pub struct CloseWorkspaceRequest {
 
 #[rustfmt::skip]
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationHistoryRequest {
+    pub before_seq: u64,
+    pub conversation: String,
+    pub limit: u32,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationOpRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationSnapshotRequest {
+    pub conversation: String,
+    pub tail: u32,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationSnapshotResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationSubscribeRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationUnsubscribeRequest {
+    pub conversation: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxListRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub include_archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type CloudInboxListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxSubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudInboxSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudInboxUnsubscribeRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudInboxUnsubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudSessionClearRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudSessionClearResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudSessionSetRequest {
+    pub access_token: String,
+    pub api_base_url: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub client_version: Optional<String>,
+    pub expires_at: u64,
+}
+
+#[rustfmt::skip]
+pub type CloudSessionSetResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct CloudSessionStatusRequest {
+}
+
+#[rustfmt::skip]
+pub type CloudSessionStatusResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1344,13 +1483,13 @@ pub struct MoveTabToColumnRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub after_column: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub dock: Optional<T::ColumnPin>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub respawn: Optional<T::SplitRespawn>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen: Optional<T::Id>,
-    #[serde(default, skip_serializing_if = "Optional::is_missing")]
-    pub sticky: Optional<T::ColumnPin>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -1496,20 +1635,27 @@ pub struct NewBrowserTabRequest {
 pub type NewBrowserTabResult = T::SurfaceResult;
 
 #[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct NewConversationTabRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session: Optional<T::AgentSessionSource>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
-    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub conversation: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
-    pub owner: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub owner: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
+    /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -1522,11 +1668,16 @@ pub struct NewConversationTabResult {
     pub replayed: bool,
     pub surface: T::Id,
     pub tab_resource_id: Nullable<String>,
+    /// The request's transaction, when it sent one.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NewFrontendBrowserTabRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub activate: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cols: Optional<u16>,
     pub engine: String,
@@ -1584,6 +1735,8 @@ pub struct NewPaneRightRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -1591,6 +1744,8 @@ pub struct NewPaneRightRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub width: Optional<f32>,
 }
@@ -1631,6 +1786,8 @@ pub struct NewScreenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub cwd: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub env: Optional<BTreeMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub icon: Optional<String>,
@@ -1642,6 +1799,10 @@ pub struct NewScreenRequest {
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub screen_name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -2210,19 +2371,19 @@ pub type SetClientSizingResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SetColumnStickyRequest {
+pub struct SetColumnDockRequest {
+    pub dock: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub edge: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mode: Optional<String>,
     pub pane: T::Id,
-    pub sticky: bool,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<u64>,
 }
 
 #[rustfmt::skip]
-pub type SetColumnStickyResult = T::JsonValue;
+pub type SetColumnDockResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2524,6 +2685,8 @@ pub struct SplitRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub keep: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kind: Optional<T::PaneKind>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
@@ -2531,6 +2694,8 @@ pub struct SplitRequest {
     pub shell_args: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
 }
 
 #[rustfmt::skip]
@@ -2569,6 +2734,20 @@ pub struct SwapPaneRequest {
 
 #[rustfmt::skip]
 pub type SwapPaneResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardReplyRequest {
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub text: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalClipboardSubscribeRequest {
+    pub terminal_ids: Vec<String>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -2926,6 +3105,12 @@ impl CmuxClient {
         if !request.snapshot.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
+        if request.snapshot_images.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-images-v1")?;
+        }
+        if request.snapshot_local_history.is_some() {
+            self.require_capability_field("attach-surface", "terminal-snapshot-local-history-v1")?;
+        }
         if !request.snapshot_version.is_missing() {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
@@ -2933,6 +3118,10 @@ impl CmuxClient {
             self.require_capability_field("attach-surface", "terminal-snapshot-v1")?;
         }
         self.execute_stream(&ATTACH_SURFACE_METADATA, &request)
+    }
+
+    pub fn bind_conversation_tab_session(&mut self, request: BindConversationTabSessionRequest) -> Result<BindConversationTabSessionResult> {
+        self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
@@ -2949,6 +3138,10 @@ impl CmuxClient {
 
     pub fn browser_frame_presented(&mut self, request: BrowserFramePresentedRequest) -> Result<BrowserFramePresentedResult> {
         self.execute(&BROWSER_FRAME_PRESENTED_METADATA, &request)
+    }
+
+    pub fn browser_host_provider(&mut self, request: BrowserHostProviderRequest) -> Result<T::BrowserHostProviderResult> {
+        self.execute(&BROWSER_HOST_PROVIDER_METADATA, &request)
     }
 
     pub fn browser_insert_text(&mut self, request: BrowserInsertTextRequest) -> Result<BrowserInsertTextResult> {
@@ -3040,6 +3233,9 @@ impl CmuxClient {
     }
 
     pub fn close_tabs(&mut self, request: CloseTabsRequest) -> Result<CloseTabsResult> {
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-tabs", "close-reason-v1")?;
+        }
         self.execute(&CLOSE_TABS_METADATA, &request)
     }
 
@@ -3069,6 +3265,50 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_history(&mut self, request: CloudConversationHistoryRequest) -> Result<CloudConversationHistoryResult> {
+        self.execute(&CLOUD_CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_op(&mut self, request: CloudConversationOpRequest) -> Result<CloudConversationOpResult> {
+        self.execute(&CLOUD_CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_snapshot(&mut self, request: CloudConversationSnapshotRequest) -> Result<CloudConversationSnapshotResult> {
+        self.execute(&CLOUD_CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_subscribe(&mut self, request: CloudConversationSubscribeRequest) -> Result<CloudConversationSubscribeResult> {
+        self.execute(&CLOUD_CONVERSATION_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
+        self.execute(&CLOUD_CONVERSATION_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_list(&mut self, request: CloudInboxListRequest) -> Result<CloudInboxListResult> {
+        self.execute(&CLOUD_INBOX_LIST_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_subscribe(&mut self, request: CloudInboxSubscribeRequest) -> Result<CloudInboxSubscribeResult> {
+        self.execute(&CLOUD_INBOX_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_inbox_unsubscribe(&mut self, request: CloudInboxUnsubscribeRequest) -> Result<CloudInboxUnsubscribeResult> {
+        self.execute(&CLOUD_INBOX_UNSUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_session_clear(&mut self, request: CloudSessionClearRequest) -> Result<CloudSessionClearResult> {
+        self.execute(&CLOUD_SESSION_CLEAR_METADATA, &request)
+    }
+
+    pub fn cloud_session_set(&mut self, request: CloudSessionSetRequest) -> Result<CloudSessionSetResult> {
+        self.execute(&CLOUD_SESSION_SET_METADATA, &request)
+    }
+
+    pub fn cloud_session_status(&mut self, request: CloudSessionStatusRequest) -> Result<CloudSessionStatusResult> {
+        self.execute(&CLOUD_SESSION_STATUS_METADATA, &request)
     }
 
     pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
@@ -3386,13 +3626,13 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_column(&mut self, request: MoveTabToColumnRequest) -> Result<MoveTabToColumnResult> {
+        if !request.dock.is_missing() {
+            self.require_protocol_field("move-tab-to-column", 12)?;
+            self.require_capability_field("move-tab-to-column", "dock-columns-v1")?;
+        }
         if !request.respawn.is_missing() {
             self.require_protocol_field("move-tab-to-column", 12)?;
             self.require_capability_field("move-tab-to-column", "tab-column-respawn-v1")?;
-        }
-        if !request.sticky.is_missing() {
-            self.require_protocol_field("move-tab-to-column", 12)?;
-            self.require_capability_field("move-tab-to-column", "edge-docks-v1")?;
         }
         self.execute(&MOVE_TAB_TO_COLUMN_METADATA, &request)
     }
@@ -3457,6 +3697,12 @@ impl CmuxClient {
     }
 
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
+        if !request.agent_session.is_missing() {
+            self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
+        if !request.transaction.is_missing() {
+            self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
+        }
         self.execute(&NEW_CONVERSATION_TAB_METADATA, &request)
     }
 
@@ -3501,6 +3747,10 @@ impl CmuxClient {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-shell-args-v1")?;
@@ -3508,6 +3758,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("new-pane-right", 12)?;
             self.require_capability_field("new-pane-right", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("new-pane-right", 12)?;
+            self.require_capability_field("new-pane-right", "pane-browser-kind-v1")?;
         }
         self.execute(&NEW_PANE_RIGHT_METADATA, &request)
     }
@@ -3517,6 +3771,18 @@ impl CmuxClient {
     }
 
     pub fn new_screen(&mut self, request: NewScreenRequest) -> Result<NewScreenResult> {
+        if !request.env.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.shell_args.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
+        if !request.terminal_id.is_missing() {
+            self.require_protocol_field("new-screen", 12)?;
+            self.require_capability_field("new-screen", "screen-terminal-env-v1")?;
+        }
         self.execute(&NEW_SCREEN_METADATA, &request)
     }
 
@@ -3778,8 +4044,8 @@ impl CmuxClient {
         self.execute(&SET_CLIENT_SIZING_METADATA, &request)
     }
 
-    pub fn set_column_sticky(&mut self, request: SetColumnStickyRequest) -> Result<SetColumnStickyResult> {
-        self.execute(&SET_COLUMN_STICKY_METADATA, &request)
+    pub fn set_column_dock(&mut self, request: SetColumnDockRequest) -> Result<SetColumnDockResult> {
+        self.execute(&SET_COLUMN_DOCK_METADATA, &request)
     }
 
     pub fn set_default_colors(&mut self, request: SetDefaultColorsRequest) -> Result<SetDefaultColorsResult> {
@@ -3932,6 +4198,10 @@ impl CmuxClient {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-reap-v1")?;
         }
+        if !request.kind.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
+        }
         if !request.shell_args.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-shell-args-v1")?;
@@ -3939,6 +4209,10 @@ impl CmuxClient {
         if !request.terminal_id.is_missing() {
             self.require_protocol_field("split", 12)?;
             self.require_capability_field("split", "terminal-placement-env-v1")?;
+        }
+        if !request.url.is_missing() {
+            self.require_protocol_field("split", 12)?;
+            self.require_capability_field("split", "pane-browser-kind-v1")?;
         }
         self.execute(&SPLIT_METADATA, &request)
     }
@@ -3956,6 +4230,14 @@ impl CmuxClient {
 
     pub fn swap_pane(&mut self, request: SwapPaneRequest) -> Result<SwapPaneResult> {
         self.execute(&SWAP_PANE_METADATA, &request)
+    }
+
+    pub fn terminal_clipboard_reply(&mut self, request: TerminalClipboardReplyRequest) -> Result<T::TerminalClipboardReplyResult> {
+        self.execute(&TERMINAL_CLIPBOARD_REPLY_METADATA, &request)
+    }
+
+    pub fn terminal_clipboard_subscribe(&mut self, request: TerminalClipboardSubscribeRequest) -> Result<CmuxStream> {
+        self.execute_stream(&TERMINAL_CLIPBOARD_SUBSCRIBE_METADATA, &request)
     }
 
     pub fn terminal_events(&mut self, request: TerminalEventsRequest) -> Result<T::TerminalEventsResult> {

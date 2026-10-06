@@ -49,4 +49,18 @@ import WebKit
         #expect(reply["t"] == "ok", "built in: no descriptor lists it")
         #expect(runs == 1)
     }
+
+    #if DEBUG
+    /// nxdog32: on the GUI host macOS reports the window occluded, WebKit stops drawing it, and
+    /// captures saw an empty Settings page. Automation launches keep pages drawing; a user
+    /// launch keeps WebKit's occlusion throttling.
+    @Test func onlyAutomationLaunchesRenderCoveredPages() {
+        #expect(PageWebView.rendersWhenCovered(["CMUX_NEXT_NO_ACTIVATE": "1"]))
+        #expect(PageWebView.rendersWhenCovered(["CMUX_NEXT_SOCKET_MODE": "automation"]))
+        #expect(!PageWebView.rendersWhenCovered([:]))
+        #expect(!PageWebView.rendersWhenCovered(["CMUX_NEXT_SOCKET_MODE": "default"]))
+        #expect(!PageWebView.rendersWhenCovered(["CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_PAGES_WEBKIT_OCCLUSION": "1"]),
+                "a live check of the user path keeps WebKit's throttling")
+    }
+    #endif
 }

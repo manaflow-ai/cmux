@@ -224,7 +224,7 @@ fn column_update_sends_typed_edge_mode_and_width() {
         assert_eq!(
             pin["params"],
             json!({"machine": "current", "session": SESSION, "workspace": WORKSPACE,
-                   "screen": SCREEN, "column": SPLIT, "sticky": true, "edge": "left",
+                   "screen": SCREEN, "column": SPLIT, "dock": true, "edge": "left",
                    "mode": "overlay"})
         );
         mutation_ok(stream, &pin, screen.clone());
@@ -238,10 +238,10 @@ fn column_update_sends_typed_edge_mode_and_width() {
         }
         let width = request(reader, "column.update");
         let params = width["params"].as_object().unwrap();
-        assert_eq!((params["width"].as_f64(), params.get("sticky")), (Some(0.5), None));
+        assert_eq!((params["width"].as_f64(), params.get("dock")), (Some(0.5), None));
         mutation_ok(stream, &width, screen.clone());
         let unpin = request(reader, "column.update");
-        assert_eq!(unpin["params"]["sticky"], false);
+        assert_eq!(unpin["params"]["dock"], false);
         assert!(unpin["params"].get("edge").is_none());
         mutation_ok(stream, &unpin, screen);
     });
@@ -266,13 +266,13 @@ fn column_update_sends_typed_edge_mode_and_width() {
         ColumnUpdateOptions { edge: Some("left".into()), ..ColumnUpdateOptions::unpin() },
         ColumnUpdateOptions {
             edge: Some("middle".into()),
-            sticky: Some(true),
+            dock: Some(true),
             mode: None,
             width: None,
         },
         ColumnUpdateOptions {
             mode: Some("floating".into()),
-            sticky: Some(true),
+            dock: Some(true),
             edge: None,
             width: None,
         },

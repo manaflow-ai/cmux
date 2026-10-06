@@ -31,6 +31,18 @@ struct AppEnvironment: Sendable {
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
     var ghosttyBinary: String?
+    /// Whether this app resolves Ghostty's shell integration for its local
+    /// terminals (the daemon connection then echoes
+    /// `terminal-frontend-shell-integration-v1`). Only when the resources
+    /// hold the integration scripts; otherwise the daemon keeps its own.
+    var resolvesShellIntegration: Bool { Self.resolvesShellIntegration(resources: ghosttyResources) }
+
+    nonisolated static func resolvesShellIntegration(resources: String?) -> Bool {
+        guard let resources, !resources.isEmpty else { return false }
+        var directory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: resources + "/shell-integration", isDirectory: &directory)
+            && directory.boolValue
+    }
     /// The saved sidebars the first frame draws (`SidebarSnapshotStore`):
     /// only the real app process sets it; without it nothing is read or
     /// written (tests that build `AppServices`).

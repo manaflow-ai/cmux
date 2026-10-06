@@ -78,7 +78,7 @@ final class SidebarRegionView: NSView {
         let shown = displayed(content)
         layoutResult = Self.layout(shown, width: width)
         guard animated else { return apply(shown) }
-        Motion.animate(.move) {
+        Motion.animate(.move, in: self) {
             self.animatesFrames = true
             self.apply(shown)
             self.animatesFrames = false
@@ -138,7 +138,14 @@ final class SidebarRegionView: NSView {
                 liveItems.insert(id)
                 let view = itemViews[id] ?? makeItem(id)
                 let style: SidebarItemRowView.Style = switch row.kind {
-                case .tile: if case .grid = SectionFlow.mode(section, look: content.look) { .tile } else { .icon }
+                // An icon-only built-in item (the account, an icon-only Settings)
+                // rests on the tile fill in every arrangement (R97).
+                case .tile:
+                    switch SectionFlow.mode(section, look: content.look) {
+                    case .tiles?: .favorite
+                    case .grid?: .tile
+                    default: item.ref.builtIn != nil ? .tile : .icon
+                    }
                 case .chip: .chip
                 default: section.look == .builtIn ? .builtIn : .list
                 }
@@ -224,7 +231,12 @@ final class SidebarRegionView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            for card in cardLayers { card.backgroundColor = Palette.hoverFill.cgColor }
+            // A tiles card takes the next tonal step so it reads as its own
+            // shelf above the session list, not one more card.
+            for (index, card) in cardLayers.enumerated() {
+                let fill = layoutResult.tiledCards.contains(index) ? Palette.selectionFill : Palette.hoverFill
+                card.backgroundColor = fill.cgColor
+            }
             let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
             for line in lineLayers { line.backgroundColor = lineColor.cgColor }
         }

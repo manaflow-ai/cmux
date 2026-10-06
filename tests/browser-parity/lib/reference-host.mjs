@@ -6,9 +6,10 @@
 // contract the Rust host implements. Contract
 // (2026-10-01):
 //
-// - natives: secretSet(name, value, {domains, totp}) (agent-known),
-//   secretList(), secretDelete(name), policyNarrow({allowed?, prohibited?,
-//   blockIPAddresses?, lock?}), policyGet(), policyLog(), policyCheck(targetId).
+// - natives (main's ABI, port plan D1): secrets(op, args) with set, load
+//   {object}, list, has, delete, clear (agent-known values only), and
+//   policy(op, args) with get, check {url}, site {host}, log and set
+//   {allowed?, prohibited?, blockIPs?, lock?, title} (narrow only).
 // - effective policy = base (user) intersected with the session layer (agent).
 // - secret handles {__secret: name} resolve only in input.insertText.text,
 //   input.key.text and the page agent's fill (frame.evaluate world "agent",
@@ -29,7 +30,7 @@ const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 const isIPHost = (host) => /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || /^\[[0-9a-f:.]+\]$/i.test(host);
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
-const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
+const GUARDED = /^(frame\.evaluate|frame\.observe|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
 const NAVIGATIONS = new Set(["tab.navigate", "tab.history", "tab.reload"]);
 const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
 const CAPTURES = new Set(["tab.screenshot", "tab.pdf"]);
@@ -51,6 +52,40 @@ const HOST_SELECT_ALL = `() => {
   if (a && a.isContentEditable) { const r = document.createRange(); r.selectNodeContents(a); const s = getSelection(); s.removeAllRanges(); s.addRange(r); return true; }
   return false;
 }`;
+// The current values of the frame's sensitive fields (browser lead's final
+// redaction rule): <input type=password>, or an autocomplete token
+// one-time-code, current-password, new-password or cc-*. Value and value
+// attribute, shadow roots included.
+const HOST_SENSITIVE_VALUES = `() => {
+  const out = new Set();
+  const sensitive = (el) => {
+    if (!(el instanceof HTMLInputElement)) return false;
+    if (el.type === "password") return true;
+    const tokens = String(el.getAttribute("autocomplete") || "").toLowerCase().split(/\\s+/);
+    return tokens.some((t) => t === "one-time-code" || t === "current-password" || t === "new-password" || t.startsWith("cc-"));
+  };
+  const visit = (root) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (let n = walker.currentNode; n; n = walker.nextNode()) {
+      if (sensitive(n)) {
+        if (n.value) out.add(n.value);
+        const attr = n.getAttribute("value");
+        if (attr) out.add(attr);
+      }
+      if (n.shadowRoot) visit(n.shadowRoot);
+    }
+  };
+  visit(document.documentElement || document);
+  return [...out];
+}`;
+
+// After a capture: every element the mask covered still has it (a page that
+// drops the mask during the capture makes the capture refused).
+const HOST_MASK_HELD = `() => {
+  const saved = globalThis[Symbol.for("cmux.browserHost.secretMask")] || [];
+  return saved.every(([el]) => !el.isConnected || el.style.getPropertyValue("-webkit-text-security") === "disc");
+}`;
+
 const HOST_MASK = `(values, on) => {
   const key = Symbol.for("cmux.browserHost.secretMask");
   const prop = "-webkit-text-security";
@@ -200,9 +235,21 @@ export function createReferenceHost(ns, { host, driver }) {
     }
     masks = list.sort((a, b) => b[0].length - a[0].length);
   }
+  // The codes of every TOTP secret a server still accepts (one window on
+  // each side of the current one), as whole numbers only.
+  const totpCodes = () => {
+    const out = [];
+    const t = now();
+    for (const [name, s] of vault) {
+      if (!s.totp) continue;
+      for (const at of [t - 30_000, t, t + 30_000]) out.push([totp(s.value, at), `<secret:${name}>`]);
+    }
+    return out;
+  };
   const maskText = (text) => {
     if (!masks.length || typeof text !== "string") return text;
     for (const [v, mask] of masks) if (text.includes(v)) text = text.split(v).join(mask);
+    for (const [code, mask] of totpCodes()) text = text.replace(new RegExp(`(?<!\\d)${code}(?!\\d)`, "g"), mask);
     return text;
   };
   function maskValue(value, depth = 0) {
@@ -226,13 +273,30 @@ export function createReferenceHost(ns, { host, driver }) {
   }
   // Text bodies are masked; bytes that are not valid UTF-8 pass unchanged.
   const strictUTF8 = new TextDecoder("utf-8", { fatal: true });
+  // Bytes that are not valid UTF-8 are masked by each value's UTF-8 bytes.
+  const maskBytes = (bytes) => {
+    let out = bytes;
+    for (const [v, mask] of masks) {
+      const needle = Buffer.from(v, "utf8");
+      const parts = [];
+      let from = 0;
+      for (let at = out.indexOf(needle, from); at >= 0; at = out.indexOf(needle, from)) {
+        parts.push(out.subarray(from, at), Buffer.from(mask, "utf8"));
+        from = at + needle.length;
+      }
+      if (parts.length) out = Buffer.concat([...parts, out.subarray(from)]);
+    }
+    return out;
+  };
   const maskBase64 = (b64) => {
     if (!masks.length || !b64) return b64;
+    const bytes = Buffer.from(b64, "base64");
     let text;
     try {
-      text = strictUTF8.decode(Buffer.from(b64, "base64"));
+      text = strictUTF8.decode(bytes);
     } catch {
-      return b64;
+      const masked = maskBytes(bytes);
+      return masked === bytes ? b64 : masked.toString("base64");
     }
     const masked = maskText(text);
     return masked === text ? b64 : Buffer.from(masked, "utf8").toString("base64");
@@ -308,8 +372,58 @@ export function createReferenceHost(ns, { host, driver }) {
     blocking.set(targetId, p);
     return p;
   }
+  // Cookie guards (main's BrowserReplDomainPolicy, merged from
+  // native-boundary.mjs): hosts, not origins, so a pattern's scheme and port
+  // do not narrow them; an allowed pattern covers a cookie its host receives.
+  const T = ns.agentTools;
+  const hostOnly = (p) => ({ ...p, scheme: null, port: null });
+  const allowedEffective = () => intersectAllowLists(allowLists());
+  const prohibitedAll = () => [...base.prohibited, ...layer.prohibited];
+  function cookieBlockReason(domain) {
+    if (!policyActive()) return null;
+    const h = T.normalizeHost(String(domain || "").replace(/^\.+/, ""));
+    if (!h) return "the cookie names no domain";
+    if ((base.blockIPs || layer.blockIPs) && (isIPHost(h) || /(^|\.)(\d+|0x[0-9a-f]*)$/i.test(h))) return "IP addresses are blocked (session.blockIPAddresses)";
+    const names = (p, name) => T.urlMatches(`http://${name}/`, hostOnly(p), false);
+    const receives = (p) => names(p, h) || p.host === "*" || String(p.host).replace(/^\*\./, "").endsWith("." + h);
+    const allowed = allowedEffective();
+    if (allowed && !allowed.some(receives)) return `not in session.allowedDomains (${allowed.map((p) => p.raw).join(", ")})`;
+    const hit = prohibitedAll().find((p) => names(p, h));
+    return hit ? `prohibited by ${hit.raw} (session.prohibitedDomains)` : null;
+  }
+  // A cookie with a Domain attribute reaches every subdomain, so an allowed
+  // pattern must cover all of them and no prohibited host may be among them.
+  function cookieSetBlockReason(domain) {
+    const first = cookieBlockReason(domain);
+    if (first || !policyActive()) return first;
+    const raw = String(domain || "").trim();
+    const allowed = allowedEffective();
+    if (!raw.startsWith(".")) {
+      const h = T.normalizeHost(raw);
+      if (allowed && !allowed.some((p) => T.urlMatches(`http://${h}/`, hostOnly(p), false))) return `not in session.allowedDomains (${allowed.map((p) => p.raw).join(", ")})`;
+      return null;
+    }
+    const h = T.normalizeHost(raw.replace(/^\.+/, ""));
+    const covers = (p) => p.host === "*" || (p.host.startsWith("*.") && (h === p.host.slice(2) || h.endsWith("." + p.host.slice(2))));
+    if (allowed && !allowed.some(covers)) return `a cookie on ${h} reaches its other subdomains, which session.allowedDomains (${allowed.map((p) => p.raw).join(", ")}) does not all allow; set it on the allowed host itself`;
+    const under = (p) => {
+      if (p.host === "*") return true;
+      const named = String(p.host).replace(/^\*\./, "");
+      return named === h || named.endsWith("." + h) || h.endsWith("." + named);
+    };
+    const hit = prohibitedAll().find(under);
+    return hit ? `a cookie on ${h} reaches ${hit.raw} (session.prohibitedDomains)` : null;
+  }
   async function syncContentRules() {
     contentRules = policyContentRules({ allowLists: allowLists(), prohibited: [...base.prohibited, ...layer.prohibited], blockIPs: base.blockIPs || layer.blockIPs });
+    // The dev driver takes the whole policy, as main's driver does: cookie
+    // guards, refusals on tabs that show a blocked page, and the content
+    // rules (it refuses every call while WebKit could not compile them).
+    if (typeof driver.setDomainPolicy === "function") {
+      const policy = { allowed: allowedEffective(), prohibited: prohibitedAll(), blockIPs: base.blockIPs || layer.blockIPs };
+      await driver.setDomainPolicy(policy, urlReason, cookieBlockReason, cookieSetBlockReason, contentRules);
+      return;
+    }
     try {
       await driver.call("session.configure", { contentRules });
     } catch (e) {
@@ -321,18 +435,19 @@ export function createReferenceHost(ns, { host, driver }) {
     return {
       allowed: allowed ? allowed.map((p) => p.raw) : null,
       prohibited: [...base.prohibited, ...layer.prohibited].map((p) => p.raw),
-      blockIPAddresses: base.blockIPs || layer.blockIPs,
+      blockIPs: base.blockIPs || layer.blockIPs,
       locked: base.locked || layer.locked,
     };
   };
   let rulesSync = Promise.resolve();
   function narrow(change) {
-    if (base.locked || layer.locked) throw new Error("the domain policy is locked for this session");
+    const title = change.title || "session.policy";
+    if (base.locked || layer.locked) throw new Error(`${title}: the domain policy is locked for this session`);
     // Parse everything before changing anything.
     const allowed = "allowed" in change ? (change.allowed && change.allowed.length ? change.allowed.map((d) => parsePattern(d, "policy")) : null) : layer.allowed;
     const prohibited = "prohibited" in change ? (change.prohibited || []).map((d) => parsePattern(d, "policy")) : layer.prohibited;
     Object.assign(layer, { allowed, prohibited });
-    if ("blockIPAddresses" in change) layer.blockIPs = !!change.blockIPAddresses;
+    if ("blockIPs" in change) layer.blockIPs = !!change.blockIPs;
     if (change.lock) layer.locked = true;
     rulesSync = syncContentRules();
     return flatPolicy();
@@ -459,8 +574,38 @@ export function createReferenceHost(ns, { host, driver }) {
   }
 
   const vmCalls = [];
+  // frame.observe with the final redaction rule: in snapshot, read,
+  // describe and strictError results every sensitive value of that frame
+  // shows as "********" (a value of 4+ characters wherever it occurs, a
+  // shorter one only as a whole string).
+  const REDACTED = new Set(["snapshot", "read", "describe", "strictError"]);
+  async function observe(params) {
+    const result = maskValue(await driver.call("frame.observe", params));
+    if (!REDACTED.has(params.method)) return result;
+    const values = await hostEval(params.targetId, params.frameId, HOST_SENSITIVE_VALUES, []).catch(() => []);
+    if (!values.length) return result;
+    const redact = (text) => {
+      for (const v of values) {
+        if (text === v) return "********";
+        if (v.length >= 4 && text.includes(v)) text = text.split(v).join("********");
+      }
+      return text;
+    };
+    const walk = (v, depth = 0) => {
+      if (typeof v === "string") return redact(v);
+      if (!v || typeof v !== "object" || depth > 64) return v;
+      if (Array.isArray(v)) return v.map((x) => walk(x, depth + 1));
+      return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, depth + 1)]));
+    };
+    return walk(result);
+  }
+
   async function hostedCall(method, params = {}) {
     vmCalls.push({ method, params: JSON.parse(JSON.stringify(params)) });
+    if (method === "input.insertText" && params && typeof params.secret === "string") {
+      const { secret, ...rest } = params;
+      params = { ...rest, text: { __secret: secret } };
+    }
     try {
       await rulesSync;
       if (method === "frame.evaluate" && params.world === "host") throw Object.assign(new Error("frame.evaluate: the host world is the host's"), { code: "forbidden" });
@@ -485,12 +630,19 @@ export function createReferenceHost(ns, { host, driver }) {
         return await serialCapture(params.targetId, async () => {
           await maskCaptures(params.targetId, true);
           try {
-            return await driver.call(method, params);
+            const shot = await driver.call(method, params);
+            const frames = await driver.call("frames.list", { targetId: params.targetId }).catch(() => []);
+            for (const f of frames) {
+              const held = await hostEval(params.targetId, f.frameId, HOST_MASK_HELD, []).catch(() => true);
+              if (held === false) throw Object.assign(new Error(`${method}: the page removed the secret mask during the capture; the capture is refused`), { code: "invalid" });
+            }
+            return shot;
           } finally {
             await maskCaptures(params.targetId, false);
           }
         });
       }
+      if (method === "frame.observe") return await observe(params);
       return await navigationCall(method, params);
     } catch (e) {
       throw maskError(e);
@@ -531,26 +683,11 @@ export function createReferenceHost(ns, { host, driver }) {
     name: driver.name,
     call: hostedCall,
     on: (event, handler) => driver.on(event, (payload) => handler(maskValue(payload))),
-    capabilities: () => (driver.capabilities ? driver.capabilities() : []),
+    // secret.insert: this host types a secret from input.insertText
+    // { secret: name } (main's shape), so agent code never holds a handle.
+    capabilities: () => [...(driver.capabilities ? driver.capabilities() : []), "secret.insert"],
     detach: () => (driver.detach ? driver.detach() : undefined),
   });
-
-  async function policyCheck(targetId) {
-    const pending = blocking.get(targetId);
-    if (pending) await pending;
-    if (!policyActive()) return null;
-    const info = await driver.call("tab.info", { targetId }).catch(() => null);
-    const reason = info && info.url && urlReason(info.url);
-    if (reason) {
-      await blockPage(targetId, info.url, reason);
-      return maskText(`navigation to ${info.url} was blocked: ${reason}; the tab now shows about:blank`);
-    }
-    const last = lastBlock.get(targetId);
-    if (pending && last) {
-      return maskText(`navigation to ${last.url} was blocked: ${last.reason}; the tab now shows about:blank`);
-    }
-    return null;
-  }
 
   const hostedHost = Object.create(null);
   Object.defineProperties(hostedHost, Object.getOwnPropertyDescriptors(host));
@@ -582,19 +719,75 @@ export function createReferenceHost(ns, { host, driver }) {
       }
       throw new Error(`fetch: ${url}: too many redirects`);
     },
-    secretSet: (name, value, options) => putSecret(name, value, options, true, "secrets.set"),
-    secretList: () => [...vault.keys()].map(describe),
-    secretDelete: (name) => {
-      const s = vault.get(name);
-      if (s && !s.agentKnown) return false;
-      const had = vault.delete(name);
-      rebuildMasks();
-      return had;
+    secrets(op, args = {}) {
+      switch (op) {
+        case "set":
+          putSecret(args.name, args.value, { domains: args.domains, totp: args.totp }, true, "secrets.set");
+          return { name: args.name, domains: args.domains, totp: !!vault.get(args.name).totp };
+        case "load": {
+          // A path is read here, through the session's fs, as the Rust host
+          // reads it through its sandbox: the values never enter the VM.
+          let object = args.object;
+          if (typeof args.path === "string") {
+            const text = Buffer.from(host.fsOp("readFile", { path: args.path }), "base64").toString("utf8");
+            try {
+              object = JSON.parse(text);
+            } catch {
+              throw new Error(`secrets.load: ${args.path} is not JSON`);
+            }
+          }
+          const merged = new Map();
+          for (const [pattern, entries] of Object.entries(object || {})) {
+            for (const [name, v] of Object.entries(entries || {})) {
+              const value = v && typeof v === "object" ? v.value : v;
+              const totp = !!(v && typeof v === "object" && v.totp);
+              const prior = merged.get(name);
+              if (prior && prior.value === value) {
+                prior.domains.push(pattern);
+                prior.totp = prior.totp || totp;
+              } else merged.set(name, { value, domains: [pattern], totp });
+            }
+          }
+          return [...merged].map(([name, m]) => {
+            putSecret(name, m.value, { domains: m.domains, totp: m.totp }, true, "secrets.load");
+            return { name, domains: m.domains, totp: !!vault.get(name).totp };
+          });
+        }
+        case "list":
+          return [...vault.keys()].map(describe);
+        case "has":
+          return vault.has(args.name);
+        case "delete": {
+          const s = vault.get(args.name);
+          if (s && !s.agentKnown) throw new Error(`secrets.delete: ${args.name} is a user secret; agent code cannot change it`);
+          const had = vault.delete(args.name);
+          rebuildMasks();
+          return had;
+        }
+        case "clear":
+          for (const [name, s] of [...vault]) if (s.agentKnown) vault.delete(name);
+          rebuildMasks();
+          return null;
+        default:
+          throw new Error(`secrets: unknown operation ${JSON.stringify(op)}`);
+      }
     },
-    policyNarrow: narrow,
-    policyGet: flatPolicy,
-    policyLog: () => log.map((e) => maskValue({ ...e })),
-    policyCheck,
+    policy(op, args = {}) {
+      switch (op) {
+        case "get":
+          return flatPolicy();
+        case "check":
+          return urlReason(args.url);
+        case "site":
+          return ns.agentTools.registrableDomain(String(args.host || ""));
+        case "log":
+          return log.map((e) => maskValue({ ...e }));
+        case "set":
+          return narrow(args);
+        default:
+          throw new Error(`policy: unknown operation ${JSON.stringify(op)}`);
+      }
+    },
   });
 
   return {

@@ -72,7 +72,10 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         ensure_private_dir(parent)?;
     }
     let nonce = random_hex(16);
-    let live = lock_live_file(&live_path(&spec.hosts_dir, &spec.session_id, &nonce))?;
+    let live_file = live_path(&spec.hosts_dir, &spec.session_id, &nonce);
+    let live = lock_live_file(&live_file)?;
+    // Until the start succeeds, every early return removes what it created.
+    let mut cleanup = StartCleanup { paths: vec![live_file] };
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args)
         .env_clear()
@@ -89,6 +92,7 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
     let _ = std::fs::remove_file(&spec.socket);
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
+    cleanup.paths.push(spec.socket.clone());
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
@@ -114,10 +118,23 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
             unsafe { libc::killpg(pg as i32, libc::SIGKILL) };
         }
         let _ = child.start_kill();
-        let _ = std::fs::remove_file(&spec.socket);
         return Err(e);
     }
+    cleanup.paths.clear();
     Ok(Started { record, listener, child, _live: live })
+}
+
+/// Files a host start created, removed on drop unless the start succeeded.
+struct StartCleanup {
+    paths: Vec<PathBuf>,
+}
+
+impl Drop for StartCleanup {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
@@ -131,6 +148,7 @@ fn lock_live_file(path: &Path) -> Result<std::fs::File> {
         .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let _ = std::fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -145,7 +163,18 @@ enum Event {
     Frame(u64, Option<ControllerFrame>),
     /// SIGTERM: end the harness and the host.
     Term,
+    /// A quiet drain period (its generation) ended: output pipes still open
+    /// belong to processes that left the harness group (setsid).
+    DrainOver(u64),
 }
+
+/// After the harness leader exited and its group was killed: how long the
+/// pipes may stay open with the reader ready (a permit out) and no line
+/// arriving. Output not yet read because of back-pressure is never cut: the
+/// period runs only while the host is ready to read. A process that left the
+/// group (setsid) can hold the pipes open forever; the exit is reported when
+/// a quiet period passes.
+const DRAIN_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 
 struct Controller {
     id: u64,
@@ -233,6 +262,17 @@ impl Started {
             let tx = events_tx.clone();
             let alive = leader_alive.clone();
             tokio::spawn(async move {
+                // End what the agent left running while the exited leader is
+                // still a zombie: its group id cannot be reused yet, so the
+                // kill reaches only this harness's group. Then reap it.
+                if let Some(pg) = pgid
+                    && tokio::task::spawn_blocking(move || wait_exit_unreaped(pg))
+                        .await
+                        .is_ok_and(|ok| ok)
+                {
+                    // SAFETY: the unreaped leader keeps this group id ours.
+                    unsafe { libc::killpg(pg, libc::SIGKILL) };
+                }
                 let code = child.wait().await.ok().and_then(|s| s.code());
                 // Reaped: from here the group id may be freed; nobody may
                 // signal it on the strength of the leader being alive.
@@ -295,11 +335,21 @@ impl Started {
         };
         let mut next_conn = 0u64;
         let mut permit_out = pace_tx.try_send(()).is_ok();
+        // The leader exited and its exit is not pushed yet.
+        let mut draining = false;
+        // Generation of the armed quiet period, if one is armed.
+        let mut drain_gen = 0u64;
+        let mut drain_armed = false;
 
         while let Some(event) = events.recv().await {
             match event {
+                // Output after the Exit entry (an escaped process) is dropped.
+                Event::Stdout(Some(_)) if state.exit_h.is_some() => {}
+                Event::Stderr(Some(_)) if state.exit_h.is_some() => {}
                 Event::Stdout(Some(line)) => {
                     permit_out = false;
+                    drain_gen += 1;
+                    drain_armed = false;
                     state.on_stdout(line).await;
                 }
                 Event::Stdout(None) => {
@@ -307,22 +357,33 @@ impl Started {
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
-                Event::Stderr(Some(line)) => state.on_stderr(line),
+                Event::Stderr(Some(line)) => {
+                    drain_gen += 1;
+                    drain_armed = false;
+                    state.on_stderr(line);
+                }
                 Event::Stderr(None) => {
                     state.stderr_done = true;
                     state.maybe_push_exit();
                 }
                 Event::Exited(code) => {
                     state.leader_code = Some(code);
-                    // Stop what the agent left running so its pipes close.
-                    // The group outlives its reaped leader while members
-                    // remain, so its id is not reused yet.
+                    // The waiter already ended the group before it reaped
+                    // the leader; the group id may be reused from here on.
                     state.leader_alive.store(false, std::sync::atomic::Ordering::SeqCst);
-                    if let Some(pg) = state.pgid {
-                        // SAFETY: the harness led this process group.
-                        unsafe { libc::killpg(pg, libc::SIGKILL) };
-                    }
                     state.maybe_push_exit();
+                    draining = state.exit_h.is_none();
+                }
+                Event::DrainOver(generation) => {
+                    let ready = permit_out || state.stdout_done;
+                    if draining && generation == drain_gen && ready && state.exit_h.is_none() {
+                        tracing::warn!(
+                            "harness output stays open after its exit; reporting the exit"
+                        );
+                        state.stdout_done = true;
+                        state.stderr_done = true;
+                        state.maybe_push_exit();
+                    }
                 }
                 Event::Term => {
                     // The frozen end path (`terminate_unadoptable`): end the
@@ -371,8 +432,25 @@ impl Started {
             if wanted && !permit_out && pace_tx.try_send(()).is_ok() {
                 permit_out = true;
             }
+            // A quiet period runs only while the reader is ready (a permit
+            // out) and the exit waits on open pipes.
+            if draining && state.exit_h.is_some() {
+                draining = false;
+            }
+            if draining && (permit_out || state.stdout_done) && !drain_armed {
+                drain_armed = true;
+                let tx = events_tx.clone();
+                let generation = drain_gen;
+                // task-owner: one bounded quiet period; a later line makes
+                // its generation stale, the runtime ends it with the host.
+                tokio::spawn(async move {
+                    tokio::time::sleep(DRAIN_BUDGET).await;
+                    let _ = tx.send(Event::DrainOver(generation)).await;
+                });
+            }
         }
         remove_artifacts(&state.spec.hosts_dir, &state.record);
+        remove_promoted(&state.spec.hosts_dir, &state.record);
         Ok(())
     }
 }
@@ -658,4 +736,43 @@ impl State {
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Block until process `pid` (a child of this process) has exited, without
+/// reaping it: the zombie keeps its process group id from being reused.
+/// Call it off the async runtime. False when the wait failed (for example
+/// another reaper took the child): the group id is then not proven ours.
+fn wait_exit_unreaped(pid: i32) -> bool {
+    loop {
+        // SAFETY: a zeroed siginfo_t is a valid out-parameter for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waits on this process's own child; WNOWAIT leaves it
+        // waitable, so the reaper below still gets its status.
+        let rc = unsafe {
+            libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOWAIT)
+        };
+        if rc == 0 {
+            return true;
+        }
+        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The leader is waited for without being reaped: while it is a zombie
+    /// its process group id cannot be reused, so ending the group then can
+    /// never signal another process group.
+    #[test]
+    fn waiting_for_the_leader_leaves_it_unreaped() {
+        let mut child =
+            std::process::Command::new("/bin/sh").args(["-c", "exit 3"]).spawn().unwrap();
+        let pid = child.id() as i32;
+        assert!(super::wait_exit_unreaped(pid), "the wait failed");
+        // SAFETY: signal 0 to this test's own child only checks existence.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0, "the leader was reaped by the wait");
+        assert_eq!(child.wait().unwrap().code(), Some(3), "the exit status is kept for the reaper");
+    }
 }

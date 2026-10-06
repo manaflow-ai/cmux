@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3d68350e643abae41960f97711e728cf3681b9fc60044ae1fc478ec89addd2a4. */
+/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -15,6 +15,17 @@ export type AgentRecord = {
 };
 
 export type AgentReportSource = "socket" | "hook";
+
+export type AgentSessionSource = {
+  /** The agent kind the chat was started with. */
+  "harness"?: (string) | null;
+  /** install: and the stable install id of the machine whose acpmux runs the session. */
+  "host": string;
+  /** Display name of the host machine: 1 to 255 bytes, no control characters. */
+  "host_name"?: (string) | null;
+  /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
+  "session"?: (string) | null;
+};
 
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
@@ -48,6 +59,13 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserHostProviderResult = {
+  "host_pid": number;
+  "listener_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type BrowserProviderAuthentication = "none" | "bearer";
@@ -108,6 +126,8 @@ export type ClientSize = {
 };
 
 export type ClientTransport = "local" | "unix" | "ws";
+
+export type CloseReason = "session_end";
 
 export type CloseTerminalResult = {
   "already_closed": boolean;
@@ -226,8 +246,12 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  "conversation": string;
-  "owner": string;
+  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  "agent_session"?: AgentSessionSource;
+  /** Conversation source: a conv_ id, with owner. */
+  "conversation"?: string;
+  /** Conversation source: local or cloud. */
+  "owner"?: string;
 };
 
 export type ConversationTextRun = {
@@ -533,6 +557,8 @@ export type NotifyResult = {
 export type Pane = (LivePane) | (DeadPane);
 
 export type PaneDirection = "left" | "right" | "up" | "down";
+
+export type PaneKind = "pty" | "browser";
 
 export type PaneNeighborResult = {
   "pane": (Id) | null;
@@ -951,6 +977,24 @@ export type Tab = {
 
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
 export type TabRef = JsonValue;
+
+export type TerminalClipboardHost = {
+  "kind": TerminalClipboardHostKind;
+  "name"?: string;
+};
+
+export type TerminalClipboardHostKind = "local" | "remote" | "cloud";
+
+export type TerminalClipboardLocation = "standard" | "selection" | "primary";
+
+export type TerminalClipboardReplyResult = {
+  "accepted": boolean;
+  "granted": boolean;
+};
+
+export type TerminalClipboardSubscribeResult = {
+  "clipboard_read_ready": boolean;
+};
 
 export type TerminalColorOverrides = {
   "bg": (ColorHex) | null;

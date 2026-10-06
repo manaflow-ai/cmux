@@ -209,6 +209,19 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 importCSV.isPersonOnly = true
                 return importCSV
             }(),
+            {
+                // The Passwords page (passwords.md 1.4). Person-only and no CLI verb or MCP tool:
+                // the page shows sites and usernames, which agents never see (decision P2).
+                var open = ActionDescriptor(
+                    id: "passwords.open",
+                    title: String(localized: "action.passwords.open", defaultValue: "Passwords", bundle: .module),
+                    keywords: ["passwords", "passkeys", "sign-in", "logins", "credentials", "keychain", "autofill"],
+                    category: .browser, symbol: "key", surfaces: [.palette],
+                    surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .noObject)
+                )
+                open.isPersonOnly = true
+                return open
+            }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),
@@ -220,13 +233,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.disableBrowser", defaultValue: "Disable cmux Browser", bundle: .module),
                 keywords: ["browser", "disable"], category: .browser, symbol: "globe.badge.chevron.backward",
                 surfaces: [.palette], targets: [.pane], cliName: "browser disable"
-            ),
-            ActionDescriptor(
-                id: "openLinkInNewTab",
-                title: String(localized: "action.openLinkInNewTab", defaultValue: "Open Link in New Tab", bundle: .module),
-                keywords: ["browser", "link"], category: .browser, symbol: "arrow.up.right.square",
-                surfaces: [.contextMenu], requires: [.browserFocused], targets: [.pane],
-                cliName: "browser open-link-in-new-tab"
             ),
             ActionDescriptor(
                 id: "openLinkInDefaultBrowser",
@@ -259,14 +265,14 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "saveFilePreview",
                 title: String(localized: "action.saveFilePreview", defaultValue: "Save File", bundle: .module),
                 keywords: ["file", "editor"], defaultShortcut: Shortcut("s", modifiers: [.command]), category: .browser,
-                symbol: "square.and.arrow.down", surfaces: [.keyboard, .menu], requires: [.filePreviewFocused],
+                symbol: "square.and.arrow.down", surfaces: [.keyboard, .menu], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser save-file", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "toggleFileEditorWordWrap",
                 title: String(localized: "action.toggleFileEditorWordWrap", defaultValue: "Toggle Word Wrap", bundle: .module),
                 keywords: ["file", "editor", "wrap"], defaultShortcut: Shortcut("z", modifiers: [.option]),
-                category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.filePreviewFocused],
+                category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser toggle-word-wrap"
             ),
             ActionDescriptor(
@@ -288,21 +294,6 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.filePreviewRevealInFinder", defaultValue: "Reveal File in Finder", bundle: .module),
                 keywords: ["file", "finder"], category: .browser, symbol: "folder", surfaces: [.contextMenu],
                 requires: [.filePreviewFocused], targets: [.pane], cliName: "browser reveal-file-in-finder"
-            ),
-            ActionDescriptor(
-                id: "openDiffViewer",
-                title: String(localized: "action.openDiffViewer", defaultValue: "Open Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"],
-                // Cmd-Ctrl-Shift-D is New Row (New Column is Cmd-Ctrl-D); G for git.
-                defaultShortcut: Shortcut("g", modifiers: [.control, .shift, .command]), category: .browser,
-                symbol: "plusminus", surfaces: [.palette, .keyboard], targets: [.pane],
-                cliName: "browser open-diff-viewer"
-            ),
-            ActionDescriptor(
-                id: "palette.openDirectoryDiffViewer",
-                title: String(localized: "action.palette.openDirectoryDiffViewer", defaultValue: "Open Directory Diff Viewer", bundle: .module),
-                keywords: ["git", "diff", "changes"], category: .browser, symbol: "plus.forwardslash.minus",
-                surfaces: [.palette], targets: [.pane], cliName: "browser open-directory-diff-viewer"
             ),
             ActionDescriptor(
                 id: "diffViewerNextLine",

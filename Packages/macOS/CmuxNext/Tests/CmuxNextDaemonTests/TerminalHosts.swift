@@ -18,6 +18,33 @@ enum TerminalHosts {
         return Set(String(decoding: output, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { Int32($0) })
     }
 
+    /// The daemon's host children that serve a terminal: those with a
+    /// published discovery record under `state`. This leaves out the spare
+    /// host (R81: one idle `__terminal-host` started ahead of the next new
+    /// tab, with no PTY and no record until a new tab adopts it). Leak
+    /// checks use `of(daemon:)`, which includes the spare.
+    static func terminals(daemon pid: Int32, state: URL) -> Set<Int32> {
+        of(daemon: pid).intersection(published(state: state))
+    }
+
+    /// Host pids named by the discovery records under `state`
+    /// (`terminal-hosts-*/<terminal>.json`).
+    static func published(state: URL) -> Set<Int32> {
+        let files = FileManager.default
+        guard let roots = try? files.contentsOfDirectory(at: state, includingPropertiesForKeys: nil) else { return [] }
+        var pids = Set<Int32>()
+        for root in roots where root.lastPathComponent.hasPrefix("terminal-hosts-") {
+            for file in (try? files.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+            where file.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: file),
+                      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let pid = (object["host_pid"] as? NSNumber)?.int32Value else { continue }
+                pids.insert(pid)
+            }
+        }
+        return pids
+    }
+
     /// Waits up to `timeout` for `pids` to exit; returns those still running.
     /// The daemon replies once each host acknowledged its end; the process
     /// exit trails by a few milliseconds.

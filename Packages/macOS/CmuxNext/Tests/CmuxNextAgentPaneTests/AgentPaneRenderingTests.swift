@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import AppKit
 import Foundation
 import Testing
@@ -56,7 +57,7 @@ import CmuxNextPages
         pane.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
         var steps: [(hidden: Bool, covered: Bool)] = []
-        pane.pause = { [unowned pane] _ in
+        pane.clock = StepClock { [unowned pane] _ in
             steps.append((pane.webView.isHidden, pane.subviews.contains { $0 is NSImageView }))
         }
         pane.rendersAtFullRate = true
@@ -86,7 +87,7 @@ import CmuxNextPages
         window.isReleasedWhenClosed = false
         window.contentView = pane
         pane.snapshotPage = { NSImage(size: NSSize(width: 400, height: 300)) }
-        pane.pause = { _ in }
+        pane.clock = StepClock { _ in }
         #expect(window.makeFirstResponder(pane.webView))
         pane.rendersAtFullRate = true
         await pane.rateReapply?.value

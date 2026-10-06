@@ -38,8 +38,15 @@ extension HomeController {
     public func restoreDraft(for key: IdempotencyKey) {
         guard let pending = pendingSend, pending.intent.key == key else { return }
         pendingSend = nil
+        pendingOrigins = [:]
         if scene.hostedField != nil {
             onRestoreDraft(pending.text)
+            if case .sendMessage(_, let parts) = pending.intent.op {
+                let refs = parts.compactMap { part -> AttachmentRef? in
+                    if case .attachment(let ref) = part { ref } else { nil }
+                }
+                if !refs.isEmpty { onRestoreAttachments(refs) }
+            }
             return
         }
         guard scene.compose.text.isEmpty else { return }

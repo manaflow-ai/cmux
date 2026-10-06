@@ -23,6 +23,14 @@ pub struct RunRequest {
     /// The client's token for a user invocation (palette, keybinding).
     /// Honored only with origin user; the host gets a supervisor-minted token.
     pub gesture: Option<String>,
+    /// The connection and request id that asked; it may cancel the run.
+    pub caller: Option<Caller>,
+}
+
+/// Who asked for a run: a control connection and its request id.
+pub struct Caller {
+    pub client: u64,
+    pub request: Value,
 }
 
 /// Where a run goes.
@@ -40,7 +48,7 @@ pub(super) enum RunKey {
 
 impl Supervisor {
     pub fn run(&self, request: RunRequest, respond: Responder) {
-        let RunRequest { app, op, args, idempotency_key, origin, gesture } = request;
+        let RunRequest { app, op, args, idempotency_key, origin, gesture, caller } = request;
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             // Full names (`cmux.cloud.machine.list`) and short names run the
@@ -50,18 +58,24 @@ impl Supervisor {
                 None => op,
             };
             let (app, op) = (app.as_str(), op.as_str());
-            let respond = match idempotency_key.clone() {
+            let run_key = idempotency_key.as_ref().map(|key| format!("{app}\n{op}\n{key}"));
+            let (op_call, respond) =
+                self.track_run_locked(&mut inner, run_key.as_deref(), caller, respond);
+            let respond = match run_key {
                 None => respond,
-                Some(key) => {
-                    match self.keyed_locked(&mut inner, format!("{app}\n{op}\n{key}"), respond) {
-                        Ok(respond) => respond,
-                        Err(answered) => {
-                            drop(inner);
-                            self.emit(answered.into_iter().collect());
-                            return;
-                        }
+                Some(key) => match self.keyed_locked(&mut inner, key, respond) {
+                    Ok(respond) => respond,
+                    Err(answered) => {
+                        drop(inner);
+                        self.emit(answered.into_iter().collect());
+                        return;
                     }
-                }
+                },
+            };
+            // Only a new op gets here; its answer ends it (`cancel.rs`).
+            let respond = match op_call {
+                Some(call) => self.finish_op(call, respond),
+                None => respond,
             };
             match self.prepare_run(&inner, app, op, origin) {
                 Err(error) => vec![Out::Respond(respond, Err(error))],
@@ -72,6 +86,7 @@ impl Supervisor {
                     args,
                     origin,
                     idempotency_key,
+                    op_call,
                     respond,
                 ),
                 Ok(Target::Host(key, export)) => {

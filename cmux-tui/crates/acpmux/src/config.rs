@@ -301,6 +301,15 @@ pub struct WebSocketConfig {
     /// name). Both lists are read when the listener starts.
     #[serde(default, alias = "allowed_hosts", skip_serializing_if = "Vec::is_empty")]
     pub allowed_hosts: Vec<String>,
+    /// `tokenRotated`: the saved token was replaced at the first start of a
+    /// build that never sends it to a remote-origin connection (earlier
+    /// builds did, in `_acpmux/status`). Set, it never rotates again.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub token_rotated: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 fn default_palette_prefix() -> String {
@@ -357,16 +366,6 @@ impl Default for TuiConfig {
     }
 }
 
-/// A remote acpmux daemon this daemon mirrors. Sessions there appear here as
-/// `<peer>/<name>` and every request is forwarded.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct PeerConfig {
-    pub url: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub token: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -403,6 +402,16 @@ pub struct Config {
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
     pub tui: TuiConfig,
+    /// `webAskingModes`: more asking modes per family (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub web_asking_modes: BTreeMap<String, Vec<String>>,
+    /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_roots: Vec<String>,
+    /// `pool`: hidden pre-created sessions that make a harness switch
+    /// instant (`hub/pool/`).
+    #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
+    pub pool: PoolConfig,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
@@ -430,6 +439,10 @@ pub struct Config {
     /// only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
+    /// The listener's token for this run when `--token` gave one: the
+    /// dashboard link uses it, and it is never saved over `websocket.token`.
+    #[serde(skip)]
+    pub web_token_override: Option<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
@@ -964,6 +977,10 @@ pub use codex_adapter::{
     CODEX_ACP_PACKAGE, adapter_package_launch, codex_through_adapter_package,
     resolve_adapter_package_bin,
 };
+mod peer;
+pub use peer::PeerConfig;
+mod pool;
+pub use pool::PoolConfig;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

@@ -23,7 +23,7 @@ PAGE-SCHEME-CEF.
 - Choices leave by the bridge: `tab.open` (terminal or browser replaces the page,
   `PaneController.replaceNewTabPage`), `tab.jump`, `tab.setDefaultKind`; an agent choice stays and
   becomes the chat in place.
-- Cmd-T follows `tabs.newTabKind` (default `same-kind`; `page` opens this page). Cmd-L
+- Cmd-T follows `tabs.newTabKind` (default `agent`; `page` opens this page). Cmd-L
   (`focusLocation`) opens or focuses the page.
 - Cold cost today: every Cmd-T to the page makes a new WKWebView, a new WebContent process, parses
   the whole acpmux bundle, runs React, opens the acpmux WebSocket and then paints. No baseline is
@@ -180,7 +180,7 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
 
 ## 8. Decisions (coordinator, 2026-10-04)
 
-- Q1 yes: Cmd-T opens this screen by default (`tabs.newTabKind` default `page`), slice N6.
+- Q1 updated: Cmd-T and + open a direct agent chat by default (`tabs.newTabKind` default `agent`). Cmd-L opens the shared screen; `page`, `terminal` and `browser` remain explicit choices.
 - Q2: `!` converts on the key itself (Lawrence: "! and it instantly becomes a terminal").
 - Q3 yes: app-local memory of mode and agent, plus optional settings `newTab.defaultMode` and
   `newTab.defaultAgent` that win when set.
@@ -207,7 +207,7 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   new-tab-e2e.py` measure it on cmux-lawrence-2.
 - N5: `newTab.submit` (`cmux tab new-from-text TEXT [--arg mode=search|ask] [--arg agent=ID]`), MCP tool
   from the app registry, palette with an argument prompt.
-- N6: `tabs.newTabKind` defaults to `page`; a build without the agent page falls back to a terminal.
+- N6: `tabs.newTabKind` defaults to `agent`; a build without the agent page falls back to a terminal.
 - R81(c) daemon spare host (landed 60dd1cc0868, 66704e32cee): one idle `__terminal-host` process
   per daemon, adopted by the next `new-tab`. Measured 2026-10-04 on cmux-lawrence-2 with the
   fleet daemon of nt12-v1 (`scripts/cmux-next/new-tab-daemon-bench.py`): 13 of 15 tabs adopted the
@@ -225,6 +225,26 @@ N1 and N2 start now (webviews only). N4 needs a fleet build for every measuremen
   files waits for the durable-sessions lead's judgement on power-cut recovery. (3) The spare stays
   as is; its follow-ups (prompt reap, adoption by split/new-pane/new-workspace) are frozen until
   IX2/IX3 lands, then keep or delete it with numbers.
+- Debug marks (`CMUX_TUI_DEBUG_SPANS`, 2026-10-04, fleet daemons nt13 = marks only and nt14 =
+  marks plus barrier sync, cmux-lawrence-2, 2 rounds of 20 tabs each, login shell). Daemon time
+  from request to reply, p50: nt13 94.9 / 76.8 ms, nt14 55.6 / 45.1 ms. Mean per tab, nt13 then
+  nt14: host Launch handling in the host process (`host.launch_ready`) 36-26 then 23-18 ms;
+  publication lock 10 then 0.4 ms; `persist_workspace` 10-11 then 3 ms; 5 registry SQLite
+  commits 24-31 then 20-23 ms; bootstrap, connect and lock waits 1-3 ms. The unexplained ~40 ms
+  was the host Launch step (its record write did 2 full syncs) plus the publication lock and
+  workspace mirror syncs. Remaining, after the barrier sync: host Launch about 20 ms (PTY and
+  terminal setup in the host) and the SQLite commits about 20 ms, which reply-on-accept
+  (`plans/cmux-next/new-tab-accept-first.md`) takes off the reply path.
+- Barrier sync for the host record, publication lock and workspace mirror (coordinator approval
+  after the durable-sessions lead's audit): reply p50 -40 to -42 percent in the bench above.
+  The exit record, the SQLite registry and the session journal keep F_FULLFSYNC.
+- Host Launch marks and the liveness lease barrier (nt16, 3b910a9f5d1, A/B against nt14 on
+  cmux-lawrence-2 at load 60-90, 2 x 20 tabs): inside the host's Launch step, shell child spawn
+  20-22 ms, record write 7 ms, liveness lease 5 ms, PTY open 3 ms. The lease barrier gave no
+  measurable gain: the lease step stayed at about 5 ms, so its cost is not the sync. Daemon
+  reply p50 under that load: nt14 98-102 ms, nt16 107-109 ms (noise of the loaded host; the
+  earlier unloaded nt14 run was 45-56 ms). The child spawn is the largest host step; stage A
+  takes the whole host Launch off the reply path.
 
 ## 9. Leo's ideas
 

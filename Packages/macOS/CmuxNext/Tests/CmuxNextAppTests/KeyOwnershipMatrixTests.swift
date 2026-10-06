@@ -73,9 +73,8 @@ struct KeyOwnershipMatrixTests {
             Surface(name: "terminal find field", focus: focused(.terminal, tab: "t1", target: .textField)),
             Surface(name: "palette open", focus: palette, window: .textPanel),
         ]
-        // Diff and Markdown: cmux-next has no diff or Markdown viewer yet
-        // (MiscHandlerStrings.diffViewer, .markdownViewer); their rows land
-        // with the viewers.
+        // The diff tab's context keys: DiffPageTabTests; the markdown and
+        // editor tabs': FilePageTabTests.
     }
 
     // MARK: Keys
@@ -116,7 +115,7 @@ struct KeyOwnershipMatrixTests {
             GhosttyHostKeybind(key: .unicode(UInt32(("]" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.next)),
             GhosttyHostKeybind(key: .unicode(UInt32(("[" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.previous)),
         ]
-        services.keyRouter.ghosttyHostAction = { event in binds.first { $0.matches(event) }?.action }
+        services.keyRouter.loadGhosttyKeybinds(binds, defaults: binds)
         return services
     }
 
@@ -201,6 +200,8 @@ struct KeyOwnershipMatrixTests {
     /// its tier may take the key from this focus, else the surface gets the
     /// key (Cmd-Shift-R in the address bar is the page's hard reload, which
     /// a text field keeps). Guards the dispatcher refactor: no default changes.
+    /// A more specific default meant for this context that cannot run makes
+    /// the key the surface's (R88).
     @Test func everyDefaultBindingKeepsItsOwnerInEverySurface() throws {
         let services = Self.services()
         let registry = services.registry
@@ -218,11 +219,19 @@ struct KeyOwnershipMatrixTests {
             for surface in surfaces {
                 let bits = Self.contextBits(surface.focus, base: registry.context)
                 registry.context = bits
-                let runnable = descriptors.filter { bits.isSuperset(of: $0.requires) && registry.canPerform($0.id) }
+                let applicable = descriptors.filter { bits.isSuperset(of: $0.requires) }
+                let runnable = applicable.filter { registry.canPerform($0.id) }
                 guard var top = runnable.first else { continue }
                 for descriptor in runnable.dropFirst()
                 where descriptor.requires.rawValue.nonzeroBitCount > top.requires.rawValue.nonzeroBitCount { top = descriptor }
-                let expected: KeyOwner = KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
+                // R88: a more specific default meant for this context that cannot run ends the
+                // search; the key never falls through to a less specific one (Cmd-R in a page
+                // without a runnable Reload no longer renames the tab).
+                let blocked = applicable.contains {
+                    !$0.requires.isEmpty && !registry.canPerform($0.id)
+                        && $0.requires.rawValue.nonzeroBitCount > top.requires.rawValue.nonzeroBitCount
+                }
+                let expected: KeyOwner = !blocked && KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
                     ? .action(top.id) : .surface
                 checked += 1
                 let owner = Self.owner(services, event, surface)
@@ -241,11 +250,12 @@ struct KeyOwnershipMatrixTests {
     /// (`FocusEffectApplier.publish`), over the focus-independent bits.
     static func contextBits(_ focus: FocusState, base: ActionContext) -> ActionContext {
         var bits = base
-        bits.subtract([.terminalFocused, .browserFocused, .agentPaneFocused])
+        bits.subtract(ActionContext.focusBits)
         let context = focus.context
         if context.terminal { bits.insert(.terminalFocused) }
         if context.browser { bits.insert(.browserFocused) }
         if context.agent { bits.insert(.agentPaneFocused) }
+        if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
         return bits
     }
 
@@ -258,6 +268,7 @@ struct KeyOwnershipMatrixTests {
         case .consume: return .consumed
         case .panel: return .panel
         case .primaryInput: return .primaryInput
+        case .typeAhead: return .typeAhead
         }
     }
 

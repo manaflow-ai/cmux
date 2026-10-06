@@ -37,10 +37,12 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::SESSION_LIST,
     method::MUX_STATUS,
     method::MUX_SESSIONS,
+    method::MUX_WEB_MODES,
     method::MUX_HARNESSES,
     method::MUX_RELOAD_CONFIG,
     method::MUX_WATCH,
     method::MUX_WARM,
+    method::MUX_PREWARM,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
     method::MUX_HANDOFF_PREPARE,
@@ -59,6 +61,22 @@ pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
+    mut params: Value,
+) -> Result<Value, RpcError> {
+    // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
+    if conn.origin != Origin::Local {
+        super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
+    }
+    let key = super::session_key(&params).ok().map(str::to_owned);
+    let mut reply = dispatch_request(hub, conn, m, params).await;
+    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
+    reply
+}
+
+async fn dispatch_request(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
     // A session that lives on a peer: forward the whole request there.
@@ -73,6 +91,7 @@ pub(super) async fn handle_request(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
+        super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
         if matches!(
             m,
             method::MUX_ATTACH
@@ -129,8 +148,12 @@ pub(super) async fn handle_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "extensions": [
-                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM,
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                // `local`: the unix socket or the proven local app
+                // (`local_app.rs`), which the session pool serves.
+                "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
+                "extensions": [
+                    method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
@@ -162,8 +185,19 @@ pub(super) async fn handle_request(
                 }
                 return Ok(result);
             }
-            let cwd = str_param(&params, "cwd").map(PathBuf::from);
+            let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
+            // The local app starts a preset by its id only: anything that
+            // would shape the harness command from the request is refused.
+            // LocalApp cwd: any existing directory of this user until the native transport limits it to workspace roots.
+            if conn.origin == Origin::LocalApp {
+                super::local_app::preset_by_id_only(&params, meta)?;
+                if super::local_app::names_preset(&params, meta)
+                    && let Some(given) = &cwd
+                {
+                    cwd = Some(super::local_app::canonical_cwd(given).await?);
+                }
+            }
             let adopt =
                 crate::adopt::AdoptRequest::from_meta(meta).map_err(RpcError::invalid_params)?;
             let pick = |key: &str| {
@@ -184,9 +218,13 @@ pub(super) async fn handle_request(
                 model: pick("model"),
                 effort: pick("effort"),
                 adopt,
-                remote: conn.origin == Origin::Web,
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                remote: conn.origin.web_class(),
             };
             let s = hub.new_session(req).await?;
+            if conn.origin.web_class() {
+                super::remote_guard::settle_web_session_mode(hub, &s).await?;
+            }
             attach(hub, conn, &s.id);
             let meta = s.meta();
             Ok(json!({
@@ -280,6 +318,7 @@ pub(super) async fn handle_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend,
+                control: super::remote_guard::control_of(conn.origin, &params),
             };
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
@@ -343,6 +382,7 @@ pub(super) async fn handle_request(
         // ------------------------------------------------ acpmux extensions
         method::MUX_STATUS => Ok(hub.status().await),
         method::MUX_SESSIONS => Ok(json!({"sessions": hub.all_session_summaries()})),
+        method::MUX_WEB_MODES => hub.web_modes_view(&params),
         method::MUX_WARM => {
             let requested: Vec<String> = params
                 .get("sessionIds")
@@ -356,6 +396,18 @@ pub(super) async fn handle_request(
                 params.get("limit").and_then(Value::as_u64).unwrap_or(3).clamp(1, 8) as usize;
             let warmed = hub.warm_sessions(&requested, limit).await;
             Ok(json!({"warmed": warmed}))
+        }
+        method::MUX_PREWARM => {
+            let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
+            hub.prewarm(crate::hub::PrewarmRequest {
+                harness: s("harness"),
+                preset: s("preset"),
+                cwd: s("cwd").map(PathBuf::from),
+                wait: params.get("wait").and_then(Value::as_bool) == Some(true),
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                remote: conn.origin.web_class(),
+            })
+            .await
         }
         "_acpmux/set_default_policy" => {
             let policy: PermissionPolicy = str_param(&params, "policy")
@@ -409,13 +461,7 @@ pub(super) async fn handle_request(
             Ok(cat)
         }
         "_acpmux/peer_add" => {
-            let name = str_param(&params, "name")
-                .ok_or_else(|| RpcError::invalid_params("name is required"))?;
-            let url = str_param(&params, "url")
-                .ok_or_else(|| RpcError::invalid_params("url is required"))?;
-            let token = str_param(&params, "token").map(str::to_owned);
-            let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.add_peer(name, url, token, wait).await?;
+            hub.add_peer_from(&params).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_reconnect" => {
@@ -553,7 +599,8 @@ pub(super) async fn handle_request(
                 // REMOTE-FLOOR v3: a remote-origin client builds its settings
                 // from scratch, so it never sets, changes or clears a preset
                 // that shapes the harness command line (args, systemPrompt).
-                let remote = conn.origin == Origin::Web;
+                // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
+                let remote = conn.origin != Origin::Local;
                 if remote
                     && (cfg.presets.get(&name).is_some_and(|p| p.shapes_command())
                         || set.is_some_and(|s| {
@@ -855,7 +902,8 @@ pub(super) async fn handle_request(
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            hub.respond_permission_group(&s, params).await
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission_group(&s, params, control).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -867,7 +915,8 @@ pub(super) async fn handle_request(
                 .ok_or_else(|| RpcError::invalid_params("permissionId is required"))?;
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
-            hub.respond_permission(&s, pid, option, answers).await?;
+            let control = super::remote_guard::control_of(conn.origin, &params);
+            hub.respond_permission(&s, pid, option, answers, control).await?;
             Ok(json!({}))
         }
         method::MUX_SET_POLICY => {
@@ -912,7 +961,7 @@ pub(super) async fn handle_request(
                 .map(str::to_owned)
                 .collect();
             if end_agents {
-                hub.end_agents_at_shutdown(keep.clone());
+                hub.end_agents_at_shutdown(keep.clone())?;
             }
             hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
@@ -929,8 +978,14 @@ pub(super) async fn handle_request(
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => hub.handoff_start(&params).await,
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
-        // Anything else that names a session goes to the agent untouched.
+        // Anything else that names a session goes to the agent untouched, from the
+        // unix socket only: an extension method may spawn or read (`remote_guard.rs`).
         other => {
+            if conn.origin != Origin::Local && session_key(&params).is_ok() {
+                return Err(RpcError::invalid_params(format!(
+                    "{other} is passed to the harness only from the local unix socket"
+                )));
+            }
             if let Ok(key) = session_key(&params) {
                 let s = hub.resolve(key)?;
                 return hub.forward(&s, other, params).await;

@@ -3,7 +3,7 @@
 // intents. Cmd/Ctrl chords never reach page handlers; recording goes through the app's dispatcher.
 import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
-import { displayStrokes, identity, moveSelection, SourceLabel } from "./model";
+import { displayStrokes, identity, isReadOnly, moveSelection, SourceLabel } from "./model";
 import type { KeybindingsStore } from "./store";
 import type { Binding } from "./types";
 
@@ -74,7 +74,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
     const onControl = (event.target as Element).closest?.("button, input") != null;
     if (event.key === "ArrowDown") store.select(moveSelection(snap.rows, snap.selection, 1));
     else if (event.key === "ArrowUp") store.select(moveSelection(snap.rows, snap.selection, -1));
-    else if (event.key === "Enter" && !onControl && selected && !selected.removed)
+    else if (event.key === "Enter" && !onControl && selected && !isReadOnly(selected))
       void store.changeKeybinding(selected);
     else return;
     event.preventDefault();
@@ -129,7 +129,28 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
           >
             {t("keybindings.page.conflictsOnly")}
           </button>
-          {snap.recording && <span className="keys-hint">{t("keybindings.page.recordHint")}</span>}
+          {snap.recording && (
+            <span className="keys-hint">
+              {t(snap.recording.target === "row" ? "keybindings.page.recordRowHint" : "keybindings.page.recordHint")}
+            </span>
+          )}
+          <span className="keys-spacer" />
+          <button
+            type="button"
+            className="keys-toggle keys-import"
+            disabled={disconnected}
+            onClick={() => void store.importKeymap()}
+          >
+            {t("keybindings.page.importKeymap")}
+          </button>
+          <button
+            type="button"
+            className="keys-toggle keys-export"
+            disabled={disconnected}
+            onClick={() => void store.exportKeymap()}
+          >
+            {t("keybindings.page.exportKeymap")}
+          </button>
         </div>
       </header>
       {snap.notice && (
@@ -295,7 +316,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
             type="button"
             className="keys-when"
             aria-label={`${t("keybindings.page.editWhen")}${binding.when ? `: ${binding.when}` : ""}`}
-            disabled={binding.removed}
+            disabled={isReadOnly(binding)}
             onClick={(event) => {
               event.stopPropagation();
               store.editWhen(binding);
@@ -308,7 +329,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
       <td className="keys-col-source">{t(SourceLabel[binding.removed ? "removed" : binding.source])}</td>
       <td className="keys-col-actions">
         <span className="keys-actions">
-          {!binding.removed && (
+          {!isReadOnly(binding) && (
             <button
               type="button"
               className="keys-icon-button keys-change"
@@ -324,7 +345,7 @@ function BindingRow({ binding, strings, selected, editing, recordingDisplay, res
               <Icon name="change" />
             </button>
           )}
-          {!binding.removed && (
+          {!isReadOnly(binding) && (
             <button
               type="button"
               className="keys-icon-button keys-remove"

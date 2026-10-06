@@ -23,13 +23,17 @@ public protocol PageSurface: AnyObject {
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
+    /// The engine options the page was made with (``PageEngineOptions``).
+    public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: WKWebView
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
     /// router and the bridge instead.
     public var webKitView: WKWebView { webView }
+    /// Whether the document can take typing yet (the dispatcher's type-ahead).
+    public let inputReadiness: PageInputReadiness
     private let bridge: any PageHostBridge
-    private var loaded = false
+    private(set) var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
@@ -46,9 +50,22 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
+    /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
+    /// on every new document.
+    public internal(set) var liveDocumentAttributes: [String: String] = [:]
+
     public var themeSurface: SurfaceKind? {
         didSet { if themeSurface != oldValue { applyTheme() } }
     }
+    /// File drops the host opens itself (``PageFileDrop``); nil gives every drop to the page.
+    public var fileDrop: PageFileDrop? {
+        get { (webView as? PageWKWebView)?.fileDrop }
+        set { (webView as? PageWKWebView)?.fileDrop = newValue }
+    }
+    /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
+    /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
+    /// gesture (a file page's "Open <path>?" sheet) records the value it used.
+    public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     private var crashReloads = PageCrashReloads()
@@ -58,11 +75,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Nil when the page is missing from the resource bundle and no root is registered for it
     /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
-                             documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
-                             dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes,
-                  surface: surface, dynamicResources: dynamicResources)
+                  options: options, surface: surface, dynamicResources: dynamicResources)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -119,13 +136,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                  surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
+        engineOptions = options
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         if options.fullFrameRate {
-            configuration.preferences.setWebKitFeature(PageEngineOptions.near60FPSFeature, enabled: false)
+            WebKitRenderRate.apply(fullRate: true, to: configuration.preferences)
         }
         configuration.setURLSchemeHandler(PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources),
                                           forURLScheme: PageDescriptor.scheme)
@@ -135,7 +153,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
+        inputReadiness = PageInputReadiness(configuration: configuration)
         webView = PageWKWebView(frame: .zero, configuration: configuration)
+        inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
         wantsLayer = true
@@ -158,6 +178,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
+        router.hasUserGesture = { [weak self] in (self?.webView as? PageWKWebView)?.hasRecentUserGesture() ?? false }
+        #if DEBUG
+        // Automation launches (no activation, a GUI host whose windows macOS reports occluded):
+        // WebKit stops drawing an occluded window, so captures saw an empty page. DEBUG only;
+        // users keep WebKit's occlusion throttling.
+        if Self.rendersWhenCovered(ProcessInfo.processInfo.environment) { keepRenderingWhenCovered() }
+        #endif
+        PagePaintProbe.install(in: webView.configuration.userContentController) { [weak self] in
+            self?.paintedUptime = ProcessInfo.processInfo.systemUptime
+        }
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
@@ -227,7 +257,13 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func close() {
         router.close()
         bridge.uninstall()
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
     }
+
+    /// When the current document painted its first frame (``PagePaintProbe``), in
+    /// `ProcessInfo.systemUptime` seconds; nil until it has.
+    public private(set) var paintedUptime: TimeInterval?
+    public var hasPainted: Bool { paintedUptime != nil }
 
     private func receive(_ message: PageHostMessage) async -> Any? {
         guard PageHostTrust.isTrusted(message, page: descriptor) else {
@@ -253,6 +289,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
+        windowDidChangeChrome()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -292,8 +329,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-        // A new document: the old one's subscriptions and host calls end with it.
+        // A new document: the old one's subscriptions and host calls end with it, and it has not
+        // painted yet.
         router.reset()
+        paintedUptime = nil
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
     }
@@ -301,6 +340,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
         applyTheme(force: true)
+        applyLiveDocumentAttributes()
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

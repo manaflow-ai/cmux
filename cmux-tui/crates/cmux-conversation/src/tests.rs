@@ -16,6 +16,7 @@ fn human(id: &str) -> Participant {
         display_name: "Alice".to_string(),
         agent_class: None,
         acp_session: None,
+        person: None,
     }
 }
 
@@ -26,6 +27,7 @@ fn agent(id: &str) -> Participant {
         display_name: "mux".to_string(),
         agent_class: Some(AgentClass::Mux),
         acp_session: Some("mux".to_string()),
+        person: None,
     }
 }
 

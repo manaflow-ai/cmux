@@ -28,13 +28,29 @@ export function isPageError(value: unknown): value is PageError {
 
 export type PageHandler = (params: unknown) => unknown | Promise<unknown>;
 
+/** Options of one call. */
+export interface PageCallOptions {
+  /** Pane-protocol decision 31: the intent's operation id; the owner applies it once and echoes it on events. */
+  opid?: string;
+  /** Aborting (navigation, tab close, the caller gives up) sends `{t:"cancel", id}` so the host
+   * cancels the op, and rejects at once with `cmux.op.cancelled`. A cancelled mutation may or may
+   * not have applied: retry it with the SAME opid (the owner's idempotency key). */
+  signal?: AbortSignal;
+}
+
+/** Envelope fields of one event beyond its data. */
+export interface PageEventMeta {
+  /** Decision 31: the opid of the call that caused the event. */
+  opid?: string;
+}
+
 export interface PageClient {
   /** One op call; rejects with a `PageError`. */
-  call<R>(op: string, params: unknown): Promise<R>;
+  call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R>;
   /** Subscribes to an event stream (with an optional filter); resolves to the unsubscribe function. */
   subscribe<E>(
     stream: string,
-    onEvent: (data: E, seq: number) => void,
+    onEvent: (data: E, seq: number, meta?: PageEventMeta) => void,
     filter?: Record<string, unknown>,
   ): Promise<() => void>;
   /** Serves an op the host calls on the page (both peers may call). Returns the unregister function. */
@@ -42,12 +58,13 @@ export interface PageClient {
 }
 
 type Envelope =
-  | { t: "call"; id: number; op: string; params?: unknown }
+  | { t: "call"; id: number; op: string; params?: unknown; opid?: string }
   | { t: "ok"; id: number; value?: unknown }
   | { t: "err"; id: number; code: string; message: string; retryable?: boolean; details?: unknown }
   | { t: "sub"; id: number; stream: string; filter?: Record<string, unknown> }
-  | { t: "ev"; sub: number; seq: number; data: unknown }
-  | { t: "unsub"; sub: number };
+  | { t: "ev"; sub: number; seq: number; data: unknown; opid?: string }
+  | { t: "unsub"; sub: number }
+  | { t: "cancel"; id: number };
 
 /** A reply-capable message handler (`WKScriptMessageHandlerWithReply`). */
 export interface ReplyHandler {
@@ -62,7 +79,7 @@ export const RECEIVE_NAME = "__cmuxPageReceive";
  */
 export class BridgePageClient implements PageClient {
   private nextId = 1;
-  private readonly listeners = new Map<number, (data: unknown, seq: number) => void>();
+  private readonly listeners = new Map<number, (data: unknown, seq: number, meta?: PageEventMeta) => void>();
   private readonly lastSeq = new Map<number, number>();
   private readonly handlers = new Map<string, PageHandler>();
 
@@ -73,14 +90,45 @@ export class BridgePageClient implements PageClient {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
   }
 
-  async call<R>(op: string, params: unknown): Promise<R> {
-    const reply = await this.post({ t: "call", id: this.nextId++, op, params });
-    return reply as R;
+  async call<R>(op: string, params: unknown, options?: PageCallOptions): Promise<R> {
+    const signal = options?.signal;
+    const cancelled = () =>
+      pageError(
+        "cmux.op.cancelled",
+        "the caller cancelled the op",
+        true,
+        options?.opid ? { opid: options.opid } : undefined,
+      );
+    if (signal?.aborted) throw cancelled();
+    const envelope: Envelope & { id: number } =
+      options?.opid === undefined
+        ? { t: "call", id: this.nextId++, op, params }
+        : { t: "call", id: this.nextId++, op, params, opid: options.opid };
+    const reply = this.post(envelope);
+    if (!signal) return (await reply) as R;
+    return await new Promise<R>((resolve, reject) => {
+      const onAbort = () => {
+        // The host cancels the op; its late answer for this id is ignored.
+        void this.handler.postMessage({ t: "cancel", id: envelope.id } satisfies Envelope).catch(() => undefined);
+        reject(cancelled());
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      reply.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          if (!signal.aborted) resolve(value as R);
+        },
+        (error: unknown) => {
+          signal.removeEventListener("abort", onAbort);
+          if (!signal.aborted) reject(error);
+        },
+      );
+    });
   }
 
   async subscribe<E>(
     stream: string,
-    onEvent: (data: E, seq: number) => void,
+    onEvent: (data: E, seq: number, meta?: PageEventMeta) => void,
     filter?: Record<string, unknown>,
   ): Promise<() => void> {
     const envelope: Envelope & { id: number } = filter
@@ -89,7 +137,7 @@ export class BridgePageClient implements PageClient {
     const value = (await this.post(envelope)) as { sub?: unknown } | undefined;
     const sub = value?.sub;
     if (typeof sub !== "number") throw pageError("cmux.protocol.invalid_result", `subscribe ${stream}: no sub id`);
-    this.listeners.set(sub, onEvent as (data: unknown, seq: number) => void);
+    this.listeners.set(sub, onEvent as (data: unknown, seq: number, meta?: PageEventMeta) => void);
     return () => {
       if (!this.listeners.delete(sub)) return;
       this.lastSeq.delete(sub);
@@ -129,13 +177,13 @@ export class BridgePageClient implements PageClient {
   receive(message: unknown): void {
     const envelope = message as Partial<Envelope> | null;
     if (envelope?.t === "ev") {
-      const { sub, seq, data } = envelope as { sub: number; seq: number; data: unknown };
+      const { sub, seq, data, opid } = envelope as { sub: number; seq: number; data: unknown; opid?: unknown };
       const listener = this.listeners.get(sub);
       if (!listener) return;
       // Events of one subscription are ordered from 1; a duplicate or old event is dropped.
       if (seq <= (this.lastSeq.get(sub) ?? 0)) return;
       this.lastSeq.set(sub, seq);
-      listener(data, seq);
+      listener(data, seq, typeof opid === "string" ? { opid } : {});
       return;
     }
     if (envelope?.t === "call") {

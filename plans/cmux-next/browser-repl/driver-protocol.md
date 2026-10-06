@@ -30,7 +30,7 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `tabs.list` | `{ all? }` | `[{ targetId, title, url, active, windowId, state, dataStore, openerTargetId? }]` in window order (`state`: `live`, `hibernated`, `waking` or `crashed`; listing never wakes a tab); with `all`, then the browser tabs of every other workspace and window (`windowId` names the workspace). Any listed tab is a valid `targetId` for the other methods. Tabs with equal `dataStore` (an opaque id, never reused for another store) share cookies and storage; a hibernated tab not yet loaded since a relaunch has none |
 | `tabs.dataStore` | `{ targetId? }` | `{ dataStore }`: the store `cookies.get` uses with the same params |
 | `tabs.open` | `{ url?, background?, dataStore? }` | `{ targetId }`; resolves after commit of `url`. With `dataStore`, the tab opens in that store (and the profile of a tab that uses it); one no reachable tab uses fails with `invalid` |
-| `tabs.close` | `{ targetId, runBeforeUnload? }` | |
+| `tabs.close` | `{ targetId, runBeforeUnload?, timeoutMs?, reason? }` | `reason` is `"session_end"` only when the browser host closes a tab at the session's end (with `timeoutMs`); the app then closes it with raw `close-tabs {reason: "session_end"}` (`close-reason-v1`), so the close is not in Reopen Closed. An agent's own `tabs.close` carries no reason (the host removes one an agent sends); the app provider closes no tab for it (tabs belong to the person's layout) |
 | `tabs.activate` | `{ targetId }` | |
 | `tab.navigate` | `{ targetId, url, waitUntil: "commit"\|"domcontentloaded"\|"load"\|"networkidle", timeoutMs }` | `{ url, status? }` |
 | `tab.history` | `{ targetId, delta: -1\|1, waitUntil, timeoutMs }` | `{ url }`, or `null` when no entry (the blank page a tab opened on is not an entry) |
@@ -44,7 +44,8 @@ Coordinates are CSS pixels relative to the top-left of the tab's viewport
 | `session.configure` | `{ userAgent?, extraHTTPHeaders?, permissions?, proxy? }`, each key replacing its value (`null` clears) | `{ proxy }`: whether tabs opened from now on use the proxy. Applies to the tabs the session created while it is attached (a user's tab it drives keeps its own user agent, headers and content), whichever session drives them; it is undone when the creating session leaves the tab. Content rules are not accepted here: the driver builds them from the session's domain policy (see "Guards") |
 | `history.search` | `{ queries?, from?, to?, limit }` (times in ms since the epoch) | `[{ url, title, dateVisited }]` newest first, from the history of the profiles the workspace's tabs use |
 
-Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends;
+Tabs the session opened (`tabs.open`, popups of those tabs) close when the session ends
+(`tabs.close` with `reason: "session_end"`, left out of Reopen Closed);
 `tab.keep` releases one so it stays open.
 
 A tab the session created (`tabs.open`, and popups of such a tab) gets the
@@ -424,13 +425,16 @@ structured values cross the boundary as JSON strings.
 | `readResource(relativePath)` | text of a bundled `cmux-tui/crates/cmux-browser-host/js/` file, or `null` |
 | `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
 
-cmux-next: until the native ABI slice (port plan decision D1) lands, the Rust
-VM (`vm.rs`) exposes `secretSet`, `secretList`, `secretDelete`,
-`policyNarrow`, `policyGet`, `policyLog` and `policyCheck` instead of
-`secrets(op)` and `policy(op)`; a secret is a `{__secret: name}` handle that
-`input.insertText { text }` and the page agent's `fill` carry; agent code may
-only narrow the policy. `fs` has no `lstat` yet, and `fetch` answers
-`unsupported`.
+cmux-next: the Rust VM (`vm.rs`) has main's `secrets(op)` and `policy(op)`
+(port plan decision D1), with these differences: a secret is a
+`{__secret: name}` handle that `input.insertText { text }` and the page
+agent's `fill` carry (not `input.insertText { secret }`); `policy set` only
+narrows (the host intersects with the user's layer); `policy site` answers
+from a compact suffix list until the host has a Public Suffix List (D6);
+`policy log` returns the host's own log of navigations it blocked before
+their request; `secrets load` keys come back in sorted order. The host keeps
+the runtime's entry points and removes them and `__cmuxNative` before the
+first cell. `fs` has no `lstat` yet, and `fetch` answers `unsupported`.
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
 the session's own `tmpdir`, never the system temporary directory that other

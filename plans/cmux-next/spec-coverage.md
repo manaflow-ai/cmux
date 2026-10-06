@@ -118,7 +118,7 @@ Source: spec/sidebar-sections.md, spec/visuals/**, spec/plan-tab-search.md, spec
 | Daemon `edge-docks-v1` (L3 step 3) | IN PROGRESS | coordinator: layout model lead | Branch docks 62a636157e9 WIP. |
 | Drop edge bands, vertical reveal for top/bottom docks | IN PROGRESS | coordinator: layout model lead | Waits for edge-docks-v1 and rows. |
 | Dock surfaces and actions (L3 step 5) | IN PROGRESS | coordinator: layout model lead | Not started. |
-| Excellent left/right docked columns (L1) | DONE | 1af7d77913d | sticky-columns-v1. |
+| Excellent left/right docked columns (L1) | DONE | 1af7d77913d | dock-columns-v1. |
 | Column-major and row-major both exist (L2) | IN PROGRESS | coordinator: rows lead + layout model lead | Orientation landed. rows-v1 and InsertRow unlanded. |
 
 ### Search Tabs

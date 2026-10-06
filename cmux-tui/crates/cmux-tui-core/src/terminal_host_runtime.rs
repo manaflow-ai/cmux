@@ -38,6 +38,9 @@ use crate::terminal_host_protocol::{
     wait_for_native_child_status_with_reap_result, write_frame,
 };
 
+mod grant_failure;
+pub use grant_failure::{RendererGrantFailure, RendererGrantUnavailable};
+
 const HOST_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
@@ -162,6 +165,10 @@ pub struct TerminalHostRecord {
     /// snapshot layout without the optional generic terminal metadata tail.
     #[serde(default)]
     pub supports_terminal_metadata: bool,
+    /// Additive capability. Missing/false records belong to hosts that would
+    /// reject the `CLIPBOARD_READ` right bit, so the daemon never asks them.
+    #[serde(default)]
+    pub supports_clipboard_read: bool,
 }
 
 impl std::fmt::Debug for TerminalHostRecord {
@@ -180,6 +187,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_terminate_ack", &self.supports_terminate_ack)
             .field("supports_input_ack", &self.supports_input_ack)
             .field("supports_terminal_metadata", &self.supports_terminal_metadata)
+            .field("supports_clipboard_read", &self.supports_clipboard_read)
             .finish()
     }
 }
@@ -835,10 +843,19 @@ mod unix {
         Ok(colors)
     }
 
+    mod barrier_sync;
+    mod clipboard_read;
     mod control_responses;
+    mod host_parser;
+    mod renderer_grant;
     mod standby;
+    pub(crate) use clipboard_read::ClipboardReadSignal;
+    use clipboard_read::{ClipboardReadInbox, ClipboardReads, SystemClock};
+    use clipboard_read::{OwnerIntent, owner_rights_allowed, owner_rights_for};
     use control_responses::ControlResponseWaiter;
     pub(crate) use control_responses::{ControlResponses, DeferredCellPixelResolution};
+    use host_parser::{ParserSignals, run_host_parser};
+    use renderer_grant::ControlRequestUnanswered;
     pub(crate) use standby::{StandbyTerminalHost, launch_terminal_host_from};
 
     pub(crate) struct InputAckReceipt {
@@ -989,6 +1006,26 @@ mod unix {
         })
     }
 
+    /// One frame on a daemon-to-host connection's writer.
+    fn send_host_frame(
+        writer: &Mutex<UnixStream>,
+        protocol_version: u16,
+        kind: MessageKind,
+        payload: &[u8],
+    ) -> std::io::Result<()> {
+        let mut writer = writer.lock().unwrap();
+        let mut frame = Frame::new(kind, payload.to_vec());
+        frame.version = protocol_version;
+        let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
+        if result.is_err() {
+            // A timed-out write may have emitted only part of a frame.
+            // Poison this connection so the reader takes a fresh atomic
+            // Snapshot instead of ever appending to a corrupt stream.
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+        result
+    }
+
     impl HostAttachment {
         pub fn take_reader(&mut self) -> anyhow::Result<UnixStream> {
             self.reader.take().ok_or_else(|| anyhow::anyhow!("terminal-host reader already taken"))
@@ -999,17 +1036,7 @@ mod unix {
         }
 
         pub fn send(&self, kind: MessageKind, payload: &[u8]) -> std::io::Result<()> {
-            let mut writer = self.writer.lock().unwrap();
-            let mut frame = Frame::new(kind, payload.to_vec());
-            frame.version = self.protocol_version;
-            let result = write_frame(&mut *writer, &frame).map_err(protocol_io_error);
-            if result.is_err() {
-                // A timed-out write may have emitted only part of a frame.
-                // Poison this connection so the reader takes a fresh atomic
-                // Snapshot instead of ever appending to a corrupt stream.
-                let _ = writer.shutdown(std::net::Shutdown::Both);
-            }
-            result
+            send_host_frame(&self.writer, self.protocol_version, kind, payload)
         }
 
         pub(crate) fn begin_input_confirmed(
@@ -1759,38 +1786,11 @@ mod unix {
                     if disconnect_on_timeout {
                         self.disconnect();
                     }
-                    Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
-                        "terminal host did not acknowledge {request_kind:?}: {error}"
-                    )))
+                    Err(ClearHistoryFailure::ambiguous(
+                        ControlRequestUnanswered { request_kind, cause: error }.into(),
+                    ))
                 }
             }
-        }
-
-        pub fn mint_renderer_grant(&self, ttl: Duration) -> anyhow::Result<RendererGrant> {
-            if ttl.is_zero() || ttl > MAX_RENDERER_CAPABILITY_TTL {
-                anyhow::bail!("renderer capability TTL must be between 1ms and 60s");
-            }
-            let ttl_ms = u32::try_from(ttl.as_millis())
-                .map_err(|_| anyhow::anyhow!("renderer capability TTL is too large"))?;
-            let mut payload = Vec::with_capacity(8);
-            payload.extend_from_slice(&CapabilityRights::RENDERER.bits().to_le_bytes());
-            payload.extend_from_slice(&ttl_ms.to_le_bytes());
-            let payload = self
-                .send_control_request(MessageKind::MintCapability, MessageKind::Capability, payload)
-                .map_err(ClearHistoryFailure::into_error)
-                .context("terminal host did not mint renderer grant")?;
-            if payload.len() != crate::terminal_host::CAPABILITY_TOKEN_LEN {
-                self.disconnect();
-                anyhow::bail!("terminal host returned a malformed renderer capability");
-            }
-            Ok(RendererGrant {
-                endpoint: self.record.endpoint.clone(),
-                terminal_id: self.record.terminal_id.clone(),
-                incarnation: self.record.incarnation.clone(),
-                token: encode_hex(&payload),
-                rights: CapabilityRights::RENDERER,
-                protocol_version: self.protocol_version,
-            })
         }
 
         pub fn persist_workspace(&mut self, workspace_key: &str) -> anyhow::Result<()> {
@@ -1918,12 +1918,15 @@ mod unix {
         launch_terminal_host_from(options, root, colors, cell_pixels, kitty, terminal_id, None)
     }
 
+    /// A one-shot owner connection (for example to terminate a host no
+    /// surface adopted). It never takes clipboard reads; surfaces adopt with
+    /// [`adopt_terminal_host_with_kitty_limits`].
     pub fn adopt_terminal_host(
         record: TerminalHostRecord,
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        let mut attachment = connect_record(record, record_path)?;
+        let mut attachment = connect_record(record, record_path, OwnerIntent::OneShot)?;
         attachment.activate_launched_host()?;
         Ok(attachment)
     }
@@ -1933,7 +1936,12 @@ mod unix {
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_current_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_current_record_with_timeout(
+            record,
+            record_path,
+            HOST_HANDSHAKE_TIMEOUT,
+            OwnerIntent::Surface,
+        )
     }
 
     pub(crate) fn adopt_terminal_host_with_kitty_limits(
@@ -1951,7 +1959,7 @@ mod unix {
                 // handshake; only legacy records need version probing.
                 adopt_current_terminal_host(record, record_path)
             } else {
-                connect_record(record, record_path)
+                connect_record(record, record_path, OwnerIntent::Surface)
             }
         };
         let mut attachment = connect(record.clone(), record_path.clone())?;
@@ -2002,6 +2010,7 @@ mod unix {
                 || record.supports_terminate_ack
                 || record.supports_input_ack
                 || record.supports_terminal_metadata
+                || record.supports_clipboard_read
             {
                 anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
             }
@@ -2016,6 +2025,9 @@ mod unix {
             }
             if record.record_version < HOST_RECORD_VERSION && record.supports_input_ack {
                 anyhow::bail!("pre-v4 terminal-host record advertises input receipts");
+            }
+            if record.record_version < HOST_RECORD_VERSION && record.supports_clipboard_read {
+                anyhow::bail!("pre-v4 terminal-host record advertises clipboard reads");
             }
             let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
                 &record.host_start_nonce,
@@ -2354,14 +2366,16 @@ mod unix {
     fn connect_record(
         record: TerminalHostRecord,
         record_path: PathBuf,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
-        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT)
+        connect_record_with_timeout(record, record_path, HOST_HANDSHAKE_TIMEOUT, intent)
     }
 
     fn connect_record_with_timeout(
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         let endpoint = PathBuf::from(&record.endpoint);
         let mut stream = Some(
@@ -2382,6 +2396,7 @@ mod unix {
                     protocol_version,
                     smart_renderer,
                     stream.take().expect("protocol attempt has a connected stream"),
+                    intent,
                 ) {
                     Ok(attachment) => return Ok(attachment),
                     Err(error) => error,
@@ -2422,6 +2437,7 @@ mod unix {
         record: TerminalHostRecord,
         record_path: PathBuf,
         handshake_timeout: Duration,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if record.record_version >= HOST_RECORD_VERSION {
             // Fence-capable records are emitted only by the current smart
@@ -2440,9 +2456,10 @@ mod unix {
                 PROTOCOL_VERSION,
                 true,
                 stream,
+                intent,
             );
         }
-        connect_record_with_timeout(record, record_path, handshake_timeout)
+        connect_record_with_timeout(record, record_path, handshake_timeout, intent)
     }
 
     fn is_transient_handshake_transport(error: &anyhow::Error) -> bool {
@@ -2465,6 +2482,7 @@ mod unix {
         protocol_version: u16,
         smart_renderer: bool,
         mut stream: UnixStream,
+        intent: OwnerIntent,
     ) -> anyhow::Result<HostAttachment> {
         if !(LEGACY_PROTOCOL_VERSION..=PROTOCOL_VERSION).contains(&protocol_version) {
             anyhow::bail!("unsupported terminal-host adoption protocol {protocol_version}");
@@ -2478,7 +2496,7 @@ mod unix {
             min_version: protocol_version,
             max_version: protocol_version,
             role: ClientRole::Admin,
-            requested_rights: CapabilityRights::ADMIN,
+            requested_rights: owner_rights_for(&record, protocol_version, intent),
             terminal_id,
             token: owner_token,
         };
@@ -2517,7 +2535,7 @@ mod unix {
         if host_hello.selected_version != protocol_version
             || host_hello.terminal_id != terminal_id
             || host_hello.incarnation != incarnation
-            || host_hello.granted_rights != CapabilityRights::ADMIN
+            || host_hello.granted_rights != hello.requested_rights
         {
             anyhow::bail!("terminal-host record identity does not match live host");
         }
@@ -2574,7 +2592,9 @@ mod unix {
             smart_renderer,
             reader: Some(reader),
             writer: Arc::new(Mutex::new(stream)),
-            control_responses: Arc::new(ControlResponses::new()),
+            control_responses: Arc::new(ControlResponses::with_clipboard_reads(
+                hello.requested_rights.contains(CapabilityRights::CLIPBOARD_READ),
+            )),
             next_request: AtomicU64::new(2),
             // New hosts do not register Admin as a viewer. Initialize this as
             // if they did so the unconditional release below also upgrades
@@ -2765,10 +2785,10 @@ mod unix {
             let mut file =
                 OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temporary)?;
             file.write_all(&bytes)?;
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?;
             fs::rename(&temporary, path)?;
             if let Some(parent) = path.parent() {
-                File::open(parent)?.sync_all()?;
+                barrier_sync::barrier_sync_dir(parent)?;
             }
             Ok(())
         })();
@@ -3113,6 +3133,11 @@ mod unix {
             fallback_key: Option<KeyInput>,
             response: SyncSender<Result<ParserClearHistoryResult, String>>,
         },
+        /// Answers one deferred clipboard read; `None` refuses it.
+        ClipboardReadComplete {
+            token: u64,
+            text: Option<Vec<u8>>,
+        },
         Drain,
     }
 
@@ -3285,6 +3310,7 @@ mod unix {
         source_order_lock: Mutex<()>,
         parser_commands: SyncSender<ParserCommand>,
         parser_budget: ParserBudget,
+        clipboard: ClipboardReads,
         /// Generation advanced after each parser write. Snapshot admission
         /// waits here when a PTY read ends inside UTF-8 or a control sequence,
         /// without blocking the reader from enqueueing the completing bytes.
@@ -3787,6 +3813,7 @@ mod unix {
         }
 
         fn remove_client(&self, client: u64) {
+            self.release_clipboard_owner(client);
             self.taps.lock().unwrap().remove(&client);
             self.smart.remove(client);
             let _ = mutate_viewer_sizes(
@@ -4664,7 +4691,7 @@ mod unix {
                 let _ = fs::remove_file(&path);
                 return Err(error.into());
             }
-            file.sync_all()?;
+            barrier_sync::barrier_sync(&file)?; // why no full sync: barrier_sync.rs
             Ok(Self { file, path })
         }
     }
@@ -4692,19 +4719,11 @@ mod unix {
     pub(crate) fn prepare_terminal_host_publication_lock(root: &Path) -> anyhow::Result<()> {
         prepare_private_dir(root)?;
         let path = terminal_host_publication_lock_path(root);
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(&path)
+        let (file, existed) = barrier_sync::open_lock_file(&path)
             .with_context(|| format!("create terminal-host publication lock {}", path.display()))?;
         validate_terminal_host_publication_lock(root, &path, &file)?;
         file.set_permissions(fs::Permissions::from_mode(0o600))?;
-        file.sync_all()?;
-        File::open(root)?.sync_all()?;
+        barrier_sync::sync_new_lock_file(&file, root, existed)?;
         Ok(())
     }
 
@@ -4901,6 +4920,7 @@ mod unix {
             anyhow::bail!("expected terminal-host Launch, received {:?}", launch_frame.kind);
         }
         let launch = HostLaunch::decode(&launch_frame.payload)?;
+        crate::debug_spans::install(crate::debug_spans::Trace::start("host", Instant::now()));
         let shared = match spawn_host_runtime(&launch, &bootstrapped) {
             Ok(shared) => shared,
             Err(error) => {
@@ -4926,6 +4946,7 @@ mod unix {
         let listener = UnixListener::bind(&endpoint)?;
         fs::set_permissions(&endpoint, fs::Permissions::from_mode(0o600))?;
         listener.set_nonblocking(true)?;
+        crate::debug_spans::mark("host.endpoint_bound");
 
         let start_nonce = CapabilityToken::random()?;
         let record = TerminalHostRecord {
@@ -4942,6 +4963,7 @@ mod unix {
             supports_terminate_ack: true,
             supports_input_ack: true,
             supports_terminal_metadata: true,
+            supports_clipboard_read: true,
         };
         let record_root = Path::new(&launch.record_path)
             .parent()
@@ -4949,6 +4971,7 @@ mod unix {
         let _publication_lock = acquire_terminal_host_publication_lock(record_root)?;
         let lease =
             HostLivenessLease::acquire(liveness_path(Path::new(&launch.record_path), &record))?;
+        crate::debug_spans::mark("host.lease_acquired");
         let mut guard = HostServiceGuard {
             shared: shared.clone(),
             endpoint,
@@ -4964,6 +4987,8 @@ mod unix {
         // leave behind an undiscoverable terminal process.
         write_record(Path::new(&launch.record_path), &record)?;
         guard.published = true;
+        crate::debug_spans::mark("host.record_written");
+        crate::debug_spans::finish(crate::debug_spans::take());
 
         // Integration failure-injection seam for the narrow record-before-
         // Ready crash window. It is inherited only by explicitly configured
@@ -5082,6 +5107,7 @@ mod unix {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
         let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
         let pty = cmux_pty::open(initial_pty_size)?;
+        crate::debug_spans::mark("host.pty_opened");
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
@@ -5095,6 +5121,7 @@ mod unix {
             command.cwd(cwd);
         }
         let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let mut child = SpawnedPtyChild::new(child, process_group_leader);
         let pid = child.child().process_id();
@@ -5105,6 +5132,7 @@ mod unix {
         let (pty_drain_waker, pty_drain_waiter) = UnixStream::pair()?;
 
         let pending_responses = Arc::new(Mutex::new(Vec::<u8>::new()));
+        let clipboard = ClipboardReads::new(Arc::new(SystemClock));
         let title_changed = Arc::new(AtomicBool::new(false));
         let bell = Arc::new(AtomicBool::new(false));
         let callbacks = Callbacks {
@@ -5120,6 +5148,7 @@ mod unix {
                 let bell = bell.clone();
                 move || bell.store(true, Ordering::Release)
             })),
+            on_clipboard_read: Some(clipboard.callback()),
         };
         let mut term = Terminal::new(launch.cols, launch.rows, launch.scrollback, callbacks)?;
         term.resize(launch.cols, launch.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -5159,6 +5188,7 @@ mod unix {
             source_order_lock: Mutex::new(()),
             parser_commands,
             parser_budget: ParserBudget::new(MAX_HOST_PARSER_QUEUED_BYTES),
+            clipboard,
             parser_progress: (Mutex::new(0), Condvar::new()),
             next_client: AtomicU64::new(1),
             dead: AtomicBool::new(false),
@@ -5183,120 +5213,12 @@ mod unix {
             fail_next_resize_publication: AtomicBool::new(false),
         });
         HostShared::start_exit_publisher(&shared, exit_publish_receiver)?;
+        shared.clipboard.start_timer(&shared)?;
 
         let parser_host = shared.clone();
+        let signals = ParserSignals { pending_responses, title_changed, bell };
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
-            let mut last_colors = initial_colors;
-            let mut last_pwd = None;
-            // Ghostty can answer terminal queries without producing a parser
-            // frame. Flush those answers after every parser command, not only
-            // after PTY output, so lifecycle operations (for example resize
-            // during a Pi reload) cannot leave replies queued in memory and
-            // deliver them to a later TUI write.
-            let flush_pending_responses = || {
-                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                if !responses.is_empty() {
-                    let mut writer = parser_host.writer.lock().unwrap();
-                    let _ = writer.write_all(&responses);
-                    let _ = writer.flush();
-                }
-            };
-            while let Ok(command) = parser_command_receiver.recv() {
-                match command {
-                    ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
-                        let title = {
-                            let mut term = parser_host.term.lock().unwrap();
-                            let cursor_activity = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity");
-                            let normalized = term.vt_write_with_normalized(&bytes).into_owned();
-                            parser_host.terminal_metadata.lock().unwrap().observe_output(&bytes);
-                            let title = title_changed
-                                .swap(false, Ordering::AcqRel)
-                                .then(|| term.title().unwrap_or_default());
-                            let pwd = term.pwd();
-                            let colors = term.color_overrides();
-                            let cursor_changed = term
-                                .cursor_activity()
-                                .expect("valid host terminals expose cursor activity")
-                                != cursor_activity;
-                            let colors = if colors != last_colors || cursor_changed {
-                                let encoded = encode_terminal_color_overrides(&colors);
-                                last_colors = colors;
-                                Some(encoded)
-                            } else {
-                                None
-                            };
-                            let pwd = changed_pwd_frame(&mut last_pwd, pwd);
-                            parser_host.broadcast_frames(output_transition_frames(
-                                normalized, colors, pwd,
-                            ));
-                            // The parser lock is also the snapshot lock. Mark
-                            // this source cursor before releasing it so a
-                            // snapshot cannot include output that its boundary
-                            // still describes as unapplied.
-                            parser_host.smart.mark_applied(source_cursor);
-                            // Keep the host stream watermark on the same side
-                            // of the terminal lock as the applied bytes.
-                            parser_host.stream_progress.notify();
-                            title
-                        };
-                        parser_host.note_parser_progress();
-                        parser_host.parser_budget.release(accounted_bytes);
-                        if let Some(title) = title {
-                            parser_host.broadcast(MessageKind::Title, title.into_bytes());
-                        }
-                        if bell.swap(false, Ordering::AcqRel) {
-                            parser_host.broadcast(MessageKind::Bell, Vec::new());
-                        }
-                        flush_pending_responses();
-                    }
-                    ParserCommand::Resize {
-                        cols,
-                        rows,
-                        cell_pixels,
-                        source_cursor,
-                        acknowledge_with_replay,
-                        targeted_ack,
-                        response,
-                    } => {
-                        let result = parser_host.apply_parser_resize(
-                            cols,
-                            rows,
-                            source_cursor,
-                            acknowledge_with_replay,
-                            targeted_ack,
-                            cell_pixels,
-                        );
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::SetDefaults { colors, source_cursor, response } => {
-                        let colors = *colors;
-                        last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
-                        flush_pending_responses();
-                        let _ = response.send(());
-                    }
-                    ParserCommand::ClearHistory { fallback_key, response } => {
-                        let result = parser_host
-                            .apply_parser_clear_history(fallback_key.as_ref())
-                            .map_err(|error| error.to_string());
-                        if matches!(result, Ok(ParserClearHistoryResult::Cleared(_))) {
-                            parser_host.note_parser_progress();
-                        }
-                        flush_pending_responses();
-                        let _ = response.send(result);
-                    }
-                    ParserCommand::Drain => {
-                        // FIFO reception proves every source byte published by
-                        // the PTY reader has reached the authoritative parser.
-                        parser_host.mark_pty_drained();
-                        parser_host.publish_exit_if_drained();
-                        flush_pending_responses();
-                        break;
-                    }
-                }
-            }
+            run_host_parser(parser_host, parser_command_receiver, initial_colors, signals);
         })?;
 
         let reader_host = shared.clone();
@@ -5607,6 +5529,9 @@ mod unix {
             let _ = write_frame(&mut stream, &frame);
             return Ok(());
         }
+        if granted_rights.contains(CapabilityRights::CLIPBOARD_READ) {
+            host.clipboard.register_owner(&host.term, client, tap.clone());
+        }
         // Legacy hosts began reading as soon as the first owner tap joined.
         // Protocol v4 waits for Activate so public topology and its journal
         // record commit before the first exact PTY bytes can be observed.
@@ -5861,6 +5786,16 @@ mod unix {
                             break;
                         }
                     }
+                    MessageKind::ClipboardReadReply => {
+                        if !command_host.apply_clipboard_read_reply(
+                            client,
+                            granted_rights,
+                            &frame,
+                            selected_version,
+                        ) {
+                            break;
+                        }
+                    }
                     _ => break,
                 }
             }
@@ -5898,8 +5833,7 @@ mod unix {
         }
         if constant_time_equal(hello.token.as_bytes(), host.owner_token.as_bytes()) {
             if hello.role != ClientRole::Admin
-                || hello.requested_rights.is_empty()
-                || !CapabilityRights::ADMIN.contains(hello.requested_rights)
+                || !owner_rights_allowed(hello.requested_rights)
                 || hello.min_version > PROTOCOL_VERSION
                 || hello.max_version < PROTOCOL_VERSION
             {
@@ -6454,8 +6388,11 @@ mod unix {
 
     #[cfg(test)]
     mod tests {
+        mod clipboard_read;
+        mod host_fixture;
         use super::*;
         use cmux_pty::Child;
+        use host_fixture::{test_host_shared, test_host_shared_with};
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6627,6 +6564,7 @@ mod unix {
                 source_order_lock: Mutex::new(()),
                 parser_commands,
                 parser_budget: ParserBudget::new(1),
+                clipboard: ClipboardReads::new(Arc::new(SystemClock)),
                 parser_progress: (Mutex::new(0), Condvar::new()),
                 next_client: AtomicU64::new(1),
                 dead: AtomicBool::new(false),
@@ -6685,70 +6623,6 @@ mod unix {
             exited_host_fixture_with_parser_at(root)
         }
 
-        fn test_host_shared() -> Arc<HostShared> {
-            let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
-                .unwrap();
-            let (pty_drain_waker, _pty_drain_waiter) = UnixStream::pair().unwrap();
-            let (exit_publish_requests, exit_publish_receiver) = mpsc_channel();
-            let (parser_commands, _parser_receiver) = sync_channel(1);
-            let host = Arc::new(HostShared {
-                terminal_id: TerminalId::random().unwrap(),
-                incarnation: HostIncarnation::random().unwrap(),
-                owner_token: CapabilityToken::random().unwrap(),
-                capabilities: CapabilityStore::new(64),
-                term: Mutex::new(term),
-                terminal_metadata: Mutex::new(crate::terminal_metadata::TerminalMetadata::default()),
-                default_colors: Mutex::new(DefaultColors::default()),
-                stream_progress: TerminalStreamProgress::default(),
-                writer: Mutex::new(Box::new(std::io::sink())),
-                master: Mutex::new(Box::new(TestHostMaster {
-                    size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS).unwrap()),
-                })),
-                killer: Mutex::new(Box::new(TestHostKiller)),
-                pid: None,
-                command: vec!["/bin/cat".into()],
-                cwd: None,
-                size: Mutex::new((80, 24)),
-                cell_pixels: Mutex::new(DEFAULT_CELL_PIXELS),
-                viewer_sizes: Mutex::new(HashMap::new()),
-                taps: Mutex::new(HashMap::new()),
-                broadcast_lock: Mutex::new(()),
-                sequence: AtomicU64::new(0),
-                smart: SmartStreamState::new(),
-                source_order_lock: Mutex::new(()),
-                parser_commands,
-                parser_budget: ParserBudget::new(1),
-                parser_progress: (Mutex::new(0), Condvar::new()),
-                next_client: AtomicU64::new(1),
-                dead: AtomicBool::new(false),
-                launch_owner_claimed: AtomicBool::new(false),
-                launch_owner_stream_ready: AtomicBool::new(false),
-                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
-                active_client_streams: AtomicUsize::new(0),
-                accept_waker: AcceptWaker::new().unwrap(),
-                child_exit: (Mutex::new(None), Condvar::new()),
-                child_waitable: AtomicBool::new(false),
-                pty_drained: AtomicBool::new(false),
-                exit_published: AtomicBool::new(false),
-                exit_record_path: std::env::temp_dir().join(format!(
-                    "cmux-host-test-exit-{}-{}",
-                    std::process::id(),
-                    RECORD_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-                )),
-                exit_publish_requests,
-                force_pty_drain: AtomicBool::new(false),
-                pty_drain_waker: Mutex::new(pty_drain_waker),
-                termination_started: AtomicBool::new(false),
-                child_signal_lock: Mutex::new(()),
-                child_reaped: AtomicBool::new(false),
-                group_escalation_complete: AtomicBool::new(false),
-                fail_next_resize_publication: AtomicBool::new(false),
-            });
-            HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();
-            host
-        }
-
         fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease) {
             let root = std::env::temp_dir().join(format!(
                 "cmux-host-record-{name}-{}-{}",
@@ -6776,6 +6650,7 @@ mod unix {
                 supports_terminate_ack: true,
                 supports_input_ack: true,
                 supports_terminal_metadata: true,
+                supports_clipboard_read: false,
             };
             let record_path = record.record_path(&root);
             let lease = HostLivenessLease::acquire(liveness_path(&record_path, &record)).unwrap();
@@ -6802,6 +6677,7 @@ mod unix {
                 supports_terminate_ack: false,
                 supports_input_ack: true,
                 supports_terminal_metadata: false,
+                supports_clipboard_read: false,
             };
             let record_path = std::env::temp_dir().join(format!(
                 "cmux-input-ack-surface-{}-{}.json",
@@ -8080,6 +7956,7 @@ mod unix {
                             connect_record,
                             connect_record_path,
                             Duration::from_millis(30),
+                            OwnerIntent::Surface,
                         )
                         .is_err(),
                     )
@@ -8130,6 +8007,7 @@ mod unix {
                     record.clone(),
                     record_path.clone(),
                     Duration::from_millis(30),
+                    OwnerIntent::OneShot,
                 )
                 .is_err()
             );
@@ -8602,6 +8480,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             )
             .unwrap();
             assert_eq!(attachment.protocol_version(), LEGACY_PROTOCOL_VERSION);
@@ -8717,6 +8596,7 @@ mod unix {
                 record.clone(),
                 record_path.clone(),
                 Duration::from_secs(1),
+                OwnerIntent::Surface,
             );
             let saw_legacy = server.join().unwrap().unwrap();
             let attachment = result.expect("legacy fallback did not adopt the live shell");
@@ -10004,8 +9884,8 @@ mod unix {
 pub use unix::unadoptable::*;
 #[cfg(unix)]
 pub(crate) use unix::{
-    ControlResponses, DecodedHostResize, DeferredCellPixelResolution, StandbyTerminalHost,
-    acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
+    ClipboardReadSignal, ControlResponses, DecodedHostResize, DeferredCellPixelResolution,
+    StandbyTerminalHost, acquire_terminal_host_reset_lock, adopt_terminal_host_with_kitty_limits,
     decode_host_resize_payload_for_version, launch_terminal_host_from,
     load_terminal_host_records_for_reset,
 };

@@ -16,6 +16,10 @@ enum SettingsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
+        // R92: Settings > Terminal shows the Ghostty config diagnostics.
+        registry.bind("ghostty.showDiagnostics", run: { invocation in
+            try context.services.settingsWindow.show(section: .terminal, focus: invocation.allowsViewChange)
+        })
         registry.bind("reloadConfiguration", run: { _ in
             let settings = try requireSettings(context)
             // The Ghostty config too: terminal colors and the chrome theme follow it.
@@ -26,8 +30,10 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.chromium", run: { _ in try setDefaultEngine(.chromium, context) })
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(URL(string: "https://github.com/manaflow-ai/cmux/issues/new")!) })
+        registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
-        UpdateHandlers.bind(into: registry, updater: context.services.updater)
+        UpdateHandlers.bind(into: registry, updater: context.services.updater,
+                            openChangelog: { [weak services = context.services] in services.map { ChangelogPageTab.open($0) } ?? false })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
@@ -54,12 +60,17 @@ enum SettingsHandlers {
     }
 
     /// Opens Ghostty's config (terminal fonts, colors, keybinds), which cmux
-    /// reads for every terminal.
+    /// reads for every terminal: the file Ghostty.app would open
+    /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
+    /// `config.ghostty` or in Application Support gets that file, not a new
+    /// empty `~/.config/ghostty/config` (R92).
     private static func openGhosttyConfig(_ context: AppActionContext) throws {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
-        try openCreatingIfMissing(base.appending(path: "ghostty/config"), contents: "", context)
+        let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
+            ?? base.appending(path: "ghostty/config")
+        try openCreatingIfMissing(url, contents: "", context)
     }
 
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {
@@ -86,11 +97,12 @@ enum SettingsHandlers {
         }
         try AppearanceHandlers.requireUnmanaged(path, context)
         let explicit = invocation["on"]?.boolValue
+        let writer = SettingWriter(invocation.origin)
         Task {
             do {
                 let root = try await settings.file.document()
                 if let descriptor {
-                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true))
+                    try await settings.setSetting(descriptor, to: .bool(explicit ?? descriptor.toggledValue(in: root) ?? true), by: writer)
                 } else {
                     try await settings.set(.bool(explicit ?? !(root.value(at: path)?.boolValue ?? false)), at: path)
                 }

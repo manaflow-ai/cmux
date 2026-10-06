@@ -95,3 +95,35 @@ test("typed rows are capped and Ask is never cut", () => {
   expect(rows.length).toBe(MAX_ROWS);
   expect(rows.at(-1)?.type).toBe("ask");
 });
+
+test("host files and app actions are validated separately from shell commands", () => {
+  const parsed = omnibarContext({
+    files: [{ path: "/src/app/README.md", title: "README" }, { path: 42 }, null],
+    actions: [
+      { id: "settings", title: "Settings", keywords: ["preferences", 42, ""] },
+      { id: "missing-title" },
+      { title: "Missing ID" },
+    ],
+  });
+  expect(parsed?.files).toEqual([{ path: "/src/app/README.md", title: "README" }]);
+  expect(parsed?.actions).toEqual([{ id: "settings", title: "Settings", keywords: ["preferences"] }]);
+  expect(omnibarContext({})?.files).toEqual([]);
+  expect(omnibarContext({})?.actions).toEqual([]);
+});
+
+test("files and app actions match their names, paths and keywords without changing typed defaults", () => {
+  const withActions: OmnibarContext = {
+    ...context,
+    files: [{ path: "/src/app/README.md", title: "Project guide" }],
+    actions: [{ id: "settings", title: "Settings", keywords: ["preferences"] }],
+  };
+  expect(omnibarRows("README", "agent", withActions)).toEqual([
+    { type: "file", path: "/src/app/README.md", title: "Project guide" },
+    { type: "ask", text: "README" },
+  ]);
+  const agent = omnibarRows("preferences", "agent", withActions);
+  expect(agent[0]).toMatchObject({ type: "action", id: "settings", title: "Settings" });
+  expect(defaultRow(agent, "agent", "preferences")).toBe(agent.length - 1);
+  expect(omnibarRows("preferences", "terminal", withActions)[0]).toEqual({ type: "run", text: "preferences" });
+  expect(omnibarRows("README", "browser", withActions)[0]).toEqual({ type: "open", text: "README" });
+});

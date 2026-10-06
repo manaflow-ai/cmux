@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use serve_common::Host;
 use std::sync::Arc;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha"];
+const FIXTURES: &[&str] = &["vm-get"];
 
 /// A server whose host has not given link details yet.
 fn host() -> Host {
@@ -134,7 +134,7 @@ fn link_changed_respawns_the_live_link_with_the_new_details() {
     assert_eq!(up["result"]["generation"], 1, "{up}");
     // Drop the connect's own `up` line.
     while let Some(line) = host.next() {
-        if line["event"] == "cloud.link.changed" && line["state"] == "up" {
+        if line["event"] == "cloud.link.changed" && line["data"]["state"] == "up" {
             break;
         }
     }
@@ -143,7 +143,8 @@ fn link_changed_respawns_the_live_link_with_the_new_details() {
     let down = host.next();
     let new_up = host.next();
     let state = |line: &Option<Value>| {
-        (line.as_ref().map(|l| l["state"].clone()), line.as_ref().map(|l| l["generation"].clone()))
+        let data = line.as_ref().map(|l| &l["data"]);
+        (data.map(|d| d["state"].clone()), data.map(|d| d["generation"].clone()))
     };
     assert_eq!(state(&down), (Some(json!("down")), Some(json!(1))), "{down:?}");
     assert_eq!(state(&new_up), (Some(json!("up")), Some(json!(2))), "{new_up:?}");
@@ -234,14 +235,18 @@ fn a_link_changed_back_to_a_null_hub_ends_the_live_link() {
     let up = connect(&mut host, "c-1");
     assert_eq!(up["ok"], true, "{up}");
     while let Some(line) = host.next() {
-        if line["event"] == "cloud.link.changed" && line["state"] == "up" {
+        if line["event"] == "cloud.link.changed" && line["data"]["state"] == "up" {
             break;
         }
     }
     host.send(&json!({ "t": "host.event", "op": "cmux.host.link.changed", "data": no_hub() }));
     let down = host.next();
     assert_eq!(
-        down.as_ref().map(|l| (l["event"].clone(), l["state"].clone(), l["generation"].clone())),
+        down.as_ref().map(|l| (
+            l["event"].clone(),
+            l["data"]["state"].clone(),
+            l["data"]["generation"].clone()
+        )),
         Some((json!("cloud.link.changed"), json!("down"), json!(1))),
         "the live link ends when the hub goes away: {down:?}"
     );

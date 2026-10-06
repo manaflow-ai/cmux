@@ -15,12 +15,16 @@ import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
+import { translate } from "./i18n";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
-  transport: "acpmux-websocket";
-  endpoint: string;
-  token: string;
+  /// `acpmux-bridge`: the app's host owns the socket and its tokens (bridgeSocket.ts); this page
+  /// gets neither endpoint nor token. `acpmux-websocket`: a real socket, only for the browser dev
+  /// slot (devHost.ts) and mock mode.
+  transport: "acpmux-websocket" | "acpmux-bridge";
+  endpoint?: string;
+  token?: string;
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
@@ -43,7 +47,7 @@ export type AcpmuxAdopt = { harness: string; agentSessionId: string };
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
  *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
 export function newSessionParams(
-  host: Pick<AcpmuxHostConfig, "cwd" | "adopt">,
+  host: Pick<AcpmuxHostConfig, "cwd" | "adopt"> & { peer?: string },
   harness?: string,
 ): Record<string, unknown> {
   if (host.adopt)
@@ -51,7 +55,11 @@ export function newSessionParams(
       mcpServers: [],
       _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } },
     };
-  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+  return {
+    ...(host.cwd ? { cwd: host.cwd } : {}),
+    mcpServers: [],
+    _meta: { acpmux: { harness, ...(host.peer ? { peer: host.peer } : {}) } },
+  };
 }
 
 /** True when a `session/new` result resumed `adopt`. A daemon without adopt ignores the request
@@ -256,8 +264,12 @@ function sessionUpdate(event: EventRecord): any | undefined {
   return event.dir === "in" && event.msg.method === "session/update" ? event.msg.params?.update : undefined;
 }
 
-/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
+/// Opens the client's socket; mock mode passes an in-page daemon (mock.ts), the app the host
+/// bridge (bridgeSocket.ts).
 export type OpenSocket = (url: URL) => WebSocket;
+
+/// The placeholder URL of a bridge connection (never dialed).
+export const BRIDGE_URL = "cmux-bridge://acpmux/";
 
 /// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
 export type GitRoute = "native" | "daemon";
@@ -400,6 +412,9 @@ export class AcpmuxDirectClient {
   private handoffSupported = false;
   /// The `_acpmux/*` methods acpmux's `initialize` lists (`_meta.acpmux.extensions`).
   private extensions: readonly string[] = [];
+  /// acpmux calls this connection local (`_meta.acpmux.origin: "local"`). Without that, a
+  /// WebSocket connection is remote-origin to acpmux, which never pools for it.
+  private localOrigin = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -425,6 +440,7 @@ export class AcpmuxDirectClient {
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
+  private peers: string[] = [];
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -469,10 +485,11 @@ export class AcpmuxDirectClient {
   private async open(): Promise<void> {
     if (this.opening || this.closed) return;
     this.opening = true;
-    const url = new URL(this.host.endpoint);
-    url.searchParams.set("token", this.host.token);
+    // Over the bridge the URL names nothing: the host knows its daemon.
+    const url = new URL(this.host.endpoint ?? BRIDGE_URL);
+    if (this.host.token) url.searchParams.set("token", this.host.token);
     this.wire.lifecycle("connecting", {
-      endpoint: redactEndpoint(this.host.endpoint),
+      endpoint: this.host.endpoint ? redactEndpoint(this.host.endpoint) : BRIDGE_URL,
       sessionId: this.selectedSessionId,
     });
     await new Promise<void>((resolve, reject) => {
@@ -487,7 +504,7 @@ export class AcpmuxDirectClient {
       socket.onerror = () => {
         this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
-        reject(new Error("Unable to connect to acpmux WebSocket"));
+        reject(new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
         if (this.socket !== socket) return;
@@ -499,7 +516,7 @@ export class AcpmuxDirectClient {
         });
         if (!opened) {
           this.opening = false;
-          reject(new Error("acpmux WebSocket closed before connect"));
+          reject(new Error(translate("error.closedBeforeConnect")));
           return;
         }
         this.handoff.disconnect();
@@ -526,10 +543,17 @@ export class AcpmuxDirectClient {
       this.canFork = servesOperation(initialized, FORK_OP);
       const extensions = initialized?._meta?.acpmux?.extensions;
       this.extensions = Array.isArray(extensions) ? extensions.map(String) : [];
+      this.localOrigin = initialized?._meta?.acpmux?.origin === "local";
       this.handoffSupported = supportsHandoff(initialized);
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
+      const status = await this.request("_acpmux/status", {}).catch(() => undefined);
+      this.peers = Array.isArray(status?.peers)
+        ? status.peers
+            .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
+            .filter((peer: string | undefined): peer is string => Boolean(peer))
+        : [];
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -771,9 +795,9 @@ export class AcpmuxDirectClient {
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
-    if (!cwd) return Promise.reject(new Error("This chat has no working folder to search"));
+    if (!cwd) return Promise.reject(new Error(translate("error.noFolderSearch")));
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error("This chat runs on another machine, so its files can't be searched here yet"));
+      return Promise.reject(new Error(translate("error.remoteSearch")));
     return postNative("file.search", { cwd, query, limit });
   }
 
@@ -802,10 +826,10 @@ export class AcpmuxDirectClient {
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
     const cwd = text(summary?.cwd) ?? text(entry?.cwd);
-    if (!sessionId || !cwd) return Promise.reject(new Error("This chat has no working folder to read changes from"));
+    if (!sessionId || !cwd) return Promise.reject(new Error(translate("error.noFolderChanges")));
     // The native host reads folders on this Mac; a cloud session's folder is on its machine.
     if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
-      return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
+      return Promise.reject(new Error(translate("error.remoteChanges")));
     return this.gitRoute === "daemon"
       ? this.request(method, { sessionId, cwd, ...params })
       : postNative(method, { cwd, ...params });
@@ -814,7 +838,7 @@ export class AcpmuxDirectClient {
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN)
       return Promise.reject(
-        Object.assign(new Error("acpmux WebSocket is not open"), {
+        Object.assign(new Error(translate("error.notOpen")), {
           code: "native.not_connected",
           origin: "native",
         }),
@@ -825,7 +849,7 @@ export class AcpmuxDirectClient {
         ? setTimeout(() => {
             this.pending.delete(id);
             reject(
-              Object.assign(new Error("The agent request timed out. Read its saved state before retrying."), {
+              Object.assign(new Error(translate("error.timedOut")), {
                 code: "native.timed_out",
                 origin: "native",
               }),
@@ -1240,6 +1264,7 @@ export class AcpmuxDirectClient {
         }
         return entry;
       }),
+      peers: this.peers,
       summary: summary
         ? {
             sessionId: summary.sessionId,
@@ -1247,6 +1272,7 @@ export class AcpmuxDirectClient {
             turnCount: summary.turnCount,
             usage: this.usage,
             host: text(summary.host),
+            peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
             branch: text(summary.branch),
             worktree: text(summary.worktree),
@@ -1327,7 +1353,7 @@ export class AcpmuxDirectClient {
           record.state !== "discarded" &&
           !this.handoff.state.receipt))
     )
-      throw new Error("Review the continuation before sending a prompt.");
+      throw new Error(translate("error.reviewContinuation"));
     // A shown session takes the prompt in this task, so its row draws in the frame of the send;
     // while a new chat starts, the prompt waits for it (ensureSession).
     const shown = this.creating ? undefined : this.selectedSessionId;
@@ -1415,9 +1441,9 @@ export class AcpmuxDirectClient {
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
-  create(harness?: string, cwd?: string): Promise<string | undefined> {
+  create(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
     const started = (async () => {
-      const sessionId = await this.startSession(harness, cwd);
+      const sessionId = await this.startSession(harness, cwd, peer);
       return sessionId ? this.select(sessionId) : undefined;
     })();
     const tracked = started.finally(() => {
@@ -1430,8 +1456,11 @@ export class AcpmuxDirectClient {
   }
   /// `session/new` without showing it: a harness switch starts the session behind the pane's
   /// new chat and shows it once it is ready (harnessSwitch.ts).
-  async startSession(harness?: string, cwd?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", newSessionParams(cwd ? { cwd } : this.host, harness));
+  async startSession(harness?: string, cwd?: string, peer?: string): Promise<string | undefined> {
+    const result = await this.request(
+      "session/new",
+      newSessionParams(cwd ? { cwd, peer } : { ...this.host, peer }, harness),
+    );
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     return result?.sessionId ? String(result.sessionId) : undefined;
@@ -1472,13 +1501,16 @@ export class AcpmuxDirectClient {
     if (sessionId === this.selectedSessionId) return;
     void this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
   }
-  /// acpmux serves `_acpmux/prewarm`: a hint that `harness` is likely next.
+  /// acpmux serves `_acpmux/prewarm` to this connection: it lists the method and calls the
+  /// connection local. A remote-origin connection is never asked (acpmux refuses it).
   get prewarmSupported(): boolean {
-    return this.extensions.includes(PREWARM_METHOD);
+    return this.localOrigin && this.extensions.includes(PREWARM_METHOD);
   }
-  /// Hints acpmux to warm `harness`'s adapter. Older daemons do not list the method and are not asked.
-  prewarm(harness: string): void {
-    if (this.prewarmSupported) void this.request(PREWARM_METHOD, { harness }).catch(() => undefined);
+  /// Hints acpmux's session pool that `harness` is likely next, in `cwd` when known. Never
+  /// awaited; a refusal (the pool is off, a failed start) is ignored.
+  prewarm(harness: string, cwd?: string): void {
+    if (!this.prewarmSupported) return;
+    void this.request(PREWARM_METHOD, cwd ? { harness, cwd } : { harness }).catch(() => undefined);
   }
   /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
   adopted?: string;
@@ -1557,15 +1589,19 @@ export class AcpmuxDirectClient {
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
   }
-  async setMode(modeId: string): Promise<void> {
-    if (this.selectedSessionId) await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId });
+  /// `ticket`: a gesture ticket a held pick took (pane-native transport, `transport.gesture`); it
+  /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
+  async setMode(modeId: string, ticket?: string): Promise<void> {
+    if (this.selectedSessionId)
+      await this.request("session/set_mode", { sessionId: this.selectedSessionId, modeId, ...gestureMeta(ticket) });
   }
-  async setConfig(configId: string, value: string): Promise<void> {
+  async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
     if (this.selectedSessionId)
       await this.request("session/set_config_option", {
         sessionId: this.selectedSessionId,
         configId,
         value,
+        ...gestureMeta(ticket),
       });
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
@@ -1611,7 +1647,7 @@ export class AcpmuxDirectClient {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
       request.reject(
-        Object.assign(new Error("The agent connection was interrupted. Read its saved state before retrying."), {
+        Object.assign(new Error(translate("error.interrupted")), {
           code: "native.timed_out",
           origin: "native",
         }),
@@ -1620,6 +1656,9 @@ export class AcpmuxDirectClient {
     this.pending.clear();
   }
 }
+
+/// The params field that carries a pick's gesture ticket, or nothing without one.
+const gestureMeta = (ticket?: string) => (ticket ? { _meta: { cmuxGesture: ticket } } : {});
 
 /// Why acpmux says a harness will not start: its launcher check, else its failed model probe.
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {

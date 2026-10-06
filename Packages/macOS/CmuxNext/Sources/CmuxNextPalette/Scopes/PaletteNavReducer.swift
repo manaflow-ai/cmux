@@ -64,7 +64,10 @@ nonisolated public struct PaletteNavReducer: Sendable {
             return []
         case .select(let rowID):
             let top = state.levels.count - 1
-            if state.levels[top].rows.contains(where: { $0.id == rowID }) { state.levels[top].selection = rowID }
+            if state.levels[top].rows.contains(where: { $0.id == rowID }) {
+                state.levels[top].selection = rowID
+                pin(&state.levels[top])
+            }
             return []
         case .results(let levelID, let generation, let rows, let replace, let isFinal, let emptyQuerySelection):
             return accept(&state, levelID: levelID, generation: generation, rows: rows, replace: replace, isFinal: isFinal,
@@ -72,6 +75,10 @@ nonisolated public struct PaletteNavReducer: Sendable {
         case .refresh:
             let top = state.levels.count - 1
             return [reload(&state.levels[top])]
+        case .restart(let query):
+            let top = state.levels.count - 1
+            state.levels[top].rows = []
+            return [edit(&state.levels[top], to: query)]
         }
     }
 
@@ -148,6 +155,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
             state.levels[top].generation += 1
             state.levels[top].pendingReset = true
             state.levels[top].pendingSubmit = false
+            state.levels[top].selectionPinned = false
+            state.levels[top].pendingChoice = nil
             state.levels[top].isLoading = true
             return push(&state, scope: child.id, entry: .keyword(keyword), query: "")
         }
@@ -173,8 +182,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
         if let rowID {
             guard state.levels[top].rows.contains(where: { $0.id == rowID }) else { return [] }
             state.levels[top].selection = rowID
-        } else if !state.levels[top].rowsAreCurrent {
-            // The rows on screen belong to an older query.
+        } else if !state.levels[top].rowsAreCurrent, state.levels[top].rowsQuery != state.levels[top].query {
+            // The rows on screen belong to an older query text (a refresh of the same text runs the
+            // highlighted row at once).
             state.levels[top].pendingSubmit = true
             return []
         }
@@ -193,6 +203,14 @@ nonisolated public struct PaletteNavReducer: Sendable {
         let current = rows.firstIndex { $0.id == state.levels[top].selection } ?? -1
         let next = ((current + delta) % rows.count + rows.count) % rows.count
         state.levels[top].selection = rows[next].id
+        pin(&state.levels[top])
+    }
+
+    /// The user chose the selection: fresh rows of the current query keep it.
+    private func pin(_ level: inout PaletteNavLevel) {
+        level.pendingReset = false
+        level.selectionPinned = true
+        level.pendingChoice = nil
     }
 
     // MARK: Results
@@ -209,16 +227,43 @@ nonisolated public struct PaletteNavReducer: Sendable {
             level.rows = Self.unique(level.rows + rows)
         }
         level.rowsGeneration = generation
+        level.rowsQuery = level.query
         level.isLoading = !isFinal
+        if let choice = level.pendingChoice, level.rows.contains(where: { $0.id == choice }) {
+            level.selection = choice
+            level.pendingChoice = nil
+        }
+        let shown = level.selection.map { selection in level.rows.contains { $0.id == selection } } ?? false
+        func fallback() -> String? {
+            guard !level.rows.isEmpty else { return nil }
+            return previousIndex.map { level.rows[min($0, level.rows.count - 1)].id } ?? defaultSelection(level)
+        }
         if level.pendingReset {
             level.selection = defaultSelection(level)
             level.pendingReset = false
-        } else if let selection = level.selection, level.rows.contains(where: { $0.id == selection }) {
+        } else if level.pendingChoice != nil {
+            // A waiting Return's chosen row is still missing.
+            if !shown { level.selection = fallback() }
+            if !isFinal {
+                state.levels[index] = level
+                return []
+            }
+            // The query's rows are complete without it: Return runs nothing it did not show.
+            level.pendingChoice = nil
+            level.pendingSubmit = false
+        } else if shown {
             // Kept by id.
-        } else if let previousIndex, !level.rows.isEmpty {
-            level.selection = level.rows[min(previousIndex, level.rows.count - 1)].id
+        } else if level.selectionPinned, level.pendingSubmit, !isFinal {
+            // Return waits for the chosen row: a later batch of this query may hold it. Meanwhile
+            // the selection shows a row on screen.
+            level.pendingChoice = level.selection
+            level.selection = fallback()
+            state.levels[index] = level
+            return []
         } else {
-            level.selection = defaultSelection(level)
+            level.selection = fallback()
+            // The chosen row is not in this query's results: Return runs nothing it did not show.
+            if level.selectionPinned { level.pendingSubmit = false }
         }
         let submit = level.pendingSubmit && index == state.levels.count - 1
         level.pendingSubmit = false
@@ -238,6 +283,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
         level.query = text
         level.pendingReset = true
         level.pendingSubmit = false
+        level.selectionPinned = false
+        level.pendingChoice = nil
         return reload(&level)
     }
 

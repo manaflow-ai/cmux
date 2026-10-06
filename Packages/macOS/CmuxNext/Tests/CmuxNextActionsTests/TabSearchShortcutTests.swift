@@ -20,17 +20,17 @@ import Testing
         #expect(registry.descriptor(for: "tab.search")?.defaultShortcut == cmdShiftA)
         for context: ActionContext in [[], [.terminalFocused], [.browserFocused], [.terminalFocused, .textBoxFocused]] {
             registry.context = context
-            #expect(registry.resolve(cmdShiftA)?.id == "tab.search", "context \(context.rawValue)")
+            #expect(registry.keyWinner(cmdShiftA)?.command == "tab.search", "context \(context.rawValue)")
         }
         registry.context = [.simulatorFocused]
-        #expect(registry.resolve(cmdShiftA)?.id == "simulatorToggleAppearance")
+        #expect(registry.keyWinner(cmdShiftA)?.command == "simulatorToggleAppearance")
     }
 
     @Test func focusTextBoxMovedToCmdOptA() {
         let registry = registry()
         registry.context = [.terminalFocused]
-        #expect(registry.resolve(Shortcut("a", modifiers: [.command, .option]))?.id == "focusTextBoxInput")
-        #expect(registry.resolve(Shortcut("a", modifiers: [.command, .option, .shift]))?.id == "attachTextBoxFile")
+        #expect(registry.keyWinner(Shortcut("a", modifiers: [.command, .option]))?.command == "focusTextBoxInput")
+        #expect(registry.keyWinner(Shortcut("a", modifiers: [.command, .option, .shift]))?.command == "attachTextBoxFile")
         #expect(!registry.shortcutConflicts().contains { $0.contains("tab.search") || $0.contains("focusTextBoxInput") })
     }
 

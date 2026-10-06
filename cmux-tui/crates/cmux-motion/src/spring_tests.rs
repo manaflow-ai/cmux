@@ -329,6 +329,41 @@ fn ease_out_is_core_animation_ease_out() {
     }
 }
 
+/// `CAMediaTimingFunction(name: .easeInEaseOut)` sampled through Core
+/// Animation's own solver (`_solveForInput:`, macOS 26).
+#[test]
+fn ease_in_ease_out_is_core_animation_ease_in_ease_out() {
+    const CA_EASE_IN_EASE_OUT: [(f32, f32); 15] = [
+        (0.00, 0.000000),
+        (0.05, 0.004830),
+        (0.10, 0.019722),
+        (0.20, 0.081660),
+        (0.25, 0.129162),
+        (0.30, 0.187396),
+        (0.40, 0.331884),
+        (0.50, 0.500000),
+        (0.60, 0.668116),
+        (0.70, 0.812604),
+        (0.75, 0.870838),
+        (0.80, 0.918340),
+        (0.90, 0.980278),
+        (0.95, 0.995170),
+        (1.00, 1.000000),
+    ];
+    for (t, expected) in CA_EASE_IN_EASE_OUT {
+        let got = ease_in_ease_out(t);
+        assert!((got - expected).abs() < 1e-5, "t {t}: {got} vs Core Animation {expected}");
+    }
+    assert_eq!(EASE_IN_EASE_OUT_CONTROL_POINTS, [0.42, 0., 0.58, 1.]);
+    assert_eq!((ease_in_ease_out(-1.), ease_in_ease_out(2.)), (0., 1.));
+    let mut last = 0.;
+    for i in 1..=1000 {
+        let v = ease_in_ease_out(i as f32 / 1000.);
+        assert!(v >= last, "monotonic at {i}");
+        last = v;
+    }
+}
+
 #[test]
 fn fade_is_ease_out_and_retargets_from_the_presented_value() {
     let policy = MotionPolicy::default();

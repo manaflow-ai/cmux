@@ -5,10 +5,25 @@ import Testing
 
 /// The row status indicator (the shared `StatusIndicatorView`) stops
 /// animating while its window is occluded.
-@MainActor @Suite struct ActivityIndicatorTests {
+@MainActor @Suite(.serialized) struct ActivityIndicatorTests {
     @Test func listPausesAndResumesRowSpinners() throws {
-        Motion.reduceMotionOverride = false // CI runners may have Reduce Motion on
-        defer { Motion.reduceMotionOverride = nil }
+        let design = DesignSettings.shared
+        let savedSpeed = design.animationSpeed
+        let savedReduceMotion = Motion.reduceMotionOverride
+        defer {
+            design.animationSpeed = savedSpeed
+            if Motion.reduceMotionOverride == savedReduceMotion {
+                // Force the shared appearance cache to observe the restored
+                // animation speed even when the override value is unchanged.
+                Motion.reduceMotionOverride = true
+            }
+            Motion.reduceMotionOverride = savedReduceMotion
+        }
+        design.animationSpeed = .fast
+        // Refresh the shared appearance cache after pinning the process-wide
+        // motion inputs. The transition is synchronous and uses no delay.
+        Motion.reduceMotionOverride = true
+        Motion.reduceMotionOverride = false
         var sections = fixture()
         sections[1].nodes[0] = .workspace({ var ws = w("a"); ws.activity = .busy; return ws }())
         let sidebar = SidebarView(model: SidebarModel(sections: sections, activeWorkspaceID: id("a")))

@@ -57,12 +57,19 @@ pub const ConfirmationRequiredDetails =
 pub const CreationConflictDetails = resource.CreationConflictDetails;
 pub const CursorGapDetails = resource.CursorGapDetails;
 pub const CursorInvalidDetails = resource.CursorInvalidDetails;
+pub const HomeNotClosableDetails = resource.HomeNotClosableDetails;
+pub const HomePinnedFirstDetails = resource.HomePinnedFirstDetails;
 pub const IdempotencyConflictDetails =
     resource.IdempotencyConflictDetails;
 pub const LocalIoDetails = resource.LocalIoDetails;
 pub const MutationIndeterminateDetails =
     resource.MutationIndeterminateDetails;
 pub const OperationFailedDetails = resource.OperationFailedDetails;
+pub const UnsupportedAction = resource.UnsupportedAction;
+pub const OperationUnsupportedDetails =
+    resource.OperationUnsupportedDetails;
+pub const RequestOrigin = resource.RequestOrigin;
+pub const OriginForbiddenDetails = resource.OriginForbiddenDetails;
 pub const ResourceNotFoundDetails = resource.ResourceNotFoundDetails;
 pub const RevisionConflictDetails = resource.RevisionConflictDetails;
 pub const SelectorAmbiguousDetails = resource.SelectorAmbiguousDetails;
@@ -70,6 +77,11 @@ pub const SelectorInvalidDetails = resource.SelectorInvalidDetails;
 pub const SelectorNotFoundDetails = resource.SelectorNotFoundDetails;
 pub const SelectorWrongParentDetails =
     resource.SelectorWrongParentDetails;
+pub const TerminalClosedDetails = resource.TerminalClosedDetails;
+pub const TerminalHostUnavailableReason =
+    resource.TerminalHostUnavailableReason;
+pub const TerminalHostUnavailableDetails =
+    resource.TerminalHostUnavailableDetails;
 pub const TransportClosedDetails = resource.TransportClosedDetails;
 pub const ValidationInvalidDetails = resource.ValidationInvalidDetails;
 pub const UnrecognizedResourceErrorDetails =
@@ -123,7 +135,7 @@ pub const LayoutStack = resource.LayoutStack;
 pub const LayoutColumn = resource.LayoutColumn;
 pub const LayoutColumnEdge = resource.LayoutColumnEdge;
 pub const LayoutColumnMode = resource.LayoutColumnMode;
-pub const LayoutColumnSticky = resource.LayoutColumnSticky;
+pub const LayoutColumnDock = resource.LayoutColumnDock;
 pub const LayoutViewport = resource.LayoutViewport;
 pub const UnknownLayoutNode = resource.UnknownLayoutNode;
 pub const LayoutNode = resource.LayoutNode;

@@ -7,16 +7,18 @@ import {
   AppsOps,
   type AppDetail,
   type AppsChanged,
-  type CatalogApp,
   type GrantRow,
   type Grants,
   type InstalledApp,
   type LogLine,
 } from "./types";
+import type { WireDetail, WireInstalledList, WireListing } from "./wire";
 
 export interface MockCall {
   op: string;
+  /** The params without `idempotency_key`, which is recorded in `key`. */
   params: Record<string, unknown>;
+  key?: string;
 }
 
 const ICON =
@@ -31,6 +33,8 @@ export class MockAppsProvider implements PageClient {
   installed: Record<string, InstalledApp>;
   grants: Record<string, Grants>;
   offline = false;
+  /** Errors the next call of an op throws once (a timeout, a refusal). */
+  private readonly failures = new Map<string, Error>();
   /** The host's page streams (connection, dispatcher commands). */
   readonly page = new MockPageStreams();
   private revision = 1;
@@ -46,20 +50,56 @@ export class MockAppsProvider implements PageClient {
   }
 
   async call<R>(op: string, rawParams: unknown): Promise<R> {
-    const params = (rawParams ?? {}) as Record<string, unknown>;
-    this.calls.push({ op, params });
+    const { idempotency_key: key, ...params } = (rawParams ?? {}) as Record<string, unknown>;
+    this.calls.push(typeof key === "string" ? { op, params, key } : { op, params });
     if (this.offline) throw pageError(LINK_CLOSED, "disconnected", true);
+    const failure = this.failures.get(op);
+    if (failure) {
+      this.failures.delete(op);
+      throw failure;
+    }
     const app = typeof params.app === "string" ? params.app : "";
     switch (op) {
       case AppsOps.catalogList:
-        return { apps: Object.values(this.details).map((detail) => this.row(detail)), revision: this.revision } as R;
+        return {
+          listings: Object.values(this.details).map((detail) => this.listing(detail)),
+          next_cursor: null,
+          revision: this.revision,
+        } as R;
       case AppsOps.catalogGet: {
         const detail = this.details[app];
         if (!detail) throw pageError("cmux.apps.not_found", app);
-        return { ...detail, ...this.row(detail) } as R;
+        const wire: WireDetail = {
+          ...this.listing(detail),
+          scopes: detail.scopes,
+          versions: detail.versions,
+          repository: detail.repository,
+          screenshots: detail.screenshots,
+        };
+        return wire as R;
       }
-      case AppsOps.installedList:
-        return { apps: Object.values(this.installed), revision: this.revision } as R;
+      case AppsOps.installedList: {
+        const list: WireInstalledList = {
+          revision: this.revision,
+          apps: Object.values(this.installed).map((row) => ({
+            app: row.id,
+            name: row.name,
+            tier: row.tier ?? "verified",
+            hide_only: row.tier === "first-party",
+            state: {
+              installed: true,
+              enabled: row.enabled,
+              hidden: row.hidden,
+              sandboxed: row.sandboxed,
+              source: row.source,
+              version: row.version,
+              update: row.update ?? null,
+            },
+            grants: [],
+          })),
+        };
+        return list as R;
+      }
       case AppsOps.grantsGet: {
         const grants = this.grants[app];
         if (!grants) throw pageError("cmux.apps.not_installed", app);
@@ -76,6 +116,7 @@ export class MockAppsProvider implements PageClient {
           hidden: false,
           sandboxed: detail.tier === "unverified",
           source: "user",
+          tier: detail.tier,
           icon: detail.icon,
         };
         this.grants[app] = {
@@ -89,6 +130,8 @@ export class MockAppsProvider implements PageClient {
         return this.changed(app) as R;
       }
       case AppsOps.uninstall:
+        // First-party apps are hidable, never removable (FIRST-PARTY-APPS); the owner refuses.
+        if (this.installed[app]?.tier === "first-party") throw pageError("cmux.apps.first_party", app);
         delete this.installed[app];
         delete this.grants[app];
         return this.changed(app) as R;
@@ -147,6 +190,11 @@ export class MockAppsProvider implements PageClient {
     throw pageError("cmux.protocol.unknown_op", stream);
   }
 
+  /** The next call of `op` throws `error` once. */
+  failNext(op: string, error: Error): void {
+    this.failures.set(op, error);
+  }
+
   handle(op: string, handler: PageHandler): () => void {
     this.handlers.set(op, handler);
     return () => void this.handlers.delete(op);
@@ -156,17 +204,32 @@ export class MockAppsProvider implements PageClient {
     return this.watchers.size;
   }
 
-  private row(detail: AppDetail): CatalogApp {
+  /** A sample listing in the owner's wire shape. */
+  private listing(detail: AppDetail): WireListing {
     const installed = this.installed[detail.id];
-    const {
-      scopes: _scopes,
-      versions: _versions,
-      repository: _repository,
-      screenshots: _screenshots,
-      notices: _notices,
-      ...row
-    } = detail;
-    return { ...row, installed: !!installed, enabled: installed?.enabled, hidden: installed?.hidden };
+    return {
+      app: detail.id,
+      name: detail.name,
+      summary: detail.description,
+      publisher: detail.publisher,
+      tier: detail.tier,
+      version: detail.latest_version,
+      icon: null,
+      categories: detail.categories,
+      keywords: detail.keywords,
+      hide_only: detail.tier === "first-party",
+      install: installed
+        ? {
+            installed: true,
+            enabled: installed.enabled,
+            hidden: installed.hidden,
+            sandboxed: installed.sandboxed,
+            source: installed.source,
+            version: installed.version,
+            update: installed.update ?? null,
+          }
+        : null,
+    };
   }
 
   private changed(app: string): { status: "done" } {
@@ -278,8 +341,23 @@ export function sampleApps(): {
       ],
       versions: [{ version: "0.1.0", engines: "^1.0.0" }],
     },
+    // The store itself: installed and first party; the page never lists it (FIRST-PARTY-APPS).
+    "cmux/app-store": {
+      ...base,
+      id: "cmux/app-store",
+      name: "App Store",
+      description: "Find and manage cmux apps.",
+      publisher: "cmux",
+      publisher_verified: true,
+      tier: "first-party",
+      categories: ["productivity"],
+      latest_version: "1.0.0",
+      scopes: [],
+      versions: [{ version: "1.0.0", engines: "^1.0.0" }],
+    },
   };
   details["cmux.github-prs"].installed = true;
+  details["cmux/app-store"].installed = true;
   const installed: Record<string, InstalledApp> = {
     "cmux.github-prs": {
       id: "cmux.github-prs",
@@ -289,8 +367,19 @@ export function sampleApps(): {
       hidden: false,
       sandboxed: false,
       source: "default",
+      tier: "first-party",
       icon: { path: ICON },
       update: { version: "1.2.0" },
+    },
+    "cmux/app-store": {
+      id: "cmux/app-store",
+      name: "App Store",
+      version: "1.0.0",
+      enabled: true,
+      hidden: false,
+      sandboxed: false,
+      source: "default",
+      tier: "first-party",
     },
   };
   const grants: Record<string, Grants> = {

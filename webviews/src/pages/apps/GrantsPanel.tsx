@@ -29,7 +29,7 @@ export function GrantsPanel({ grants, store, strings }: { grants: Grants; store:
               {row.risk !== "standard" && <Badge text={t(RiskLabel[row.risk])} />}
               {row.optional && <Badge text={t("store.detail.optional")} />}
             </span>
-            <span className="apps-muted">{row.reason}</span>
+            <span className="apps-muted selectable">{row.reason}</span>
           </div>
           <Switch
             on={row.granted}

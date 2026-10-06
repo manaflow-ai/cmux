@@ -12,7 +12,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
-        "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
+        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
@@ -69,6 +69,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
+        "browser.pageInfo.reenableCertificateWarnings",
         "browser.extensions.loadUnpacked", "browser.extension.run", "browser.extension.pin", "browser.extension.unpin",
         "browser.extension.enable", "browser.extension.disable", "browser.extension.move", "browser.extension.reload",
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",
@@ -95,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
         "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI", "palette.restartSocketListener",
-        "palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.importClassicSessions",
+        "palette.checkForUpdates", "updates.whatsNew", "announcements.show", "announcements.hide", "palette.applyUpdateIfAvailable", "palette.switchAppChannel", "palette.importClassicSessions",
         "appearance.density.compact", "appearance.density.comfortable", "appearance.animationSpeed.fast",
         "appearance.animationSpeed.normal", "appearance.animationSpeed.off", "browser.defaultEngine.chromium",
         "browser.defaultEngine.webkit", "appearance.paneBorder.toggle", "appearance.panePadding.toggle",
@@ -133,8 +134,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "palette.openDirectoryDiffViewer",
-            "openDiffViewer",
             "palette.disableBrowser",
             "palette.enableBrowser",
             "disconnectRemoteTab",
@@ -146,6 +145,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .guiOnly: [
             "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",
@@ -163,7 +163,7 @@ nonisolated extension ActionSurfaceCatalog {
             "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
-            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
+            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts",
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
@@ -177,11 +177,10 @@ nonisolated extension ActionSurfaceCatalog {
             "toggleTerminalCopyMode", "palette.terminalToggleTextBoxInput", "cycleTextBoxSubmitAction",
             "attachTextBoxFile", "sendCtrlFToTerminal", "pasteLastScreenshot", "find", "findInDirectory", "findNext",
             "findPrevious", "hideFind", "useSelectionForFind", "terminal.scrollToSelection", "terminalCopy", "terminalPaste",
-            "openLinkInNewTab",
-            "browserScreenshotSection", "saveFilePreview", "toggleFileEditorWordWrap", "diffViewerNextLine",
+            "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "toggleFileEditorWordWrap", "diffViewerNextLine",
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",
-            "diffViewerNextFile", "diffViewerPreviousFile", "fileExplorerOpenSelection",
+            "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction", "fileExplorerOpenSelection",
             "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerReveal",
             "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
@@ -209,6 +208,8 @@ nonisolated extension ActionSurfaceCatalog {
             "history.goTo",
             "home.show",
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
+            // nextWorkspaceGroup/prevWorkspaceGroup: their cliName ("workspace-group next") is the action's
+            // identifier ActionContractTests requires; the CLI verb is deliberately not offered (a focus move).
             "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
             "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
@@ -223,7 +224,7 @@ nonisolated extension ActionSurfaceCatalog {
             "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "increaseWorkspaceTerminalFontSize",
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
-            "markdownZoomOut", "markdownZoomReset", "appearance.interfaceSize.increase",
+            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
             "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "column.cycleWidth",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
@@ -287,6 +288,8 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting", "palette.installCLI",
             "palette.uninstallCLI", "palette.restartSocketListener", "palette.applyUpdateIfAvailable",
             "palette.switchAppChannel",
+            // Opens TextEdit on the user's desktop: a person's choice.
+            "help.showCrashLogs",
         ],
         .credentials: [
             "palette.auth.signIn", "palette.auth.signOut", "accounts.reauthenticate", "accounts.connect",

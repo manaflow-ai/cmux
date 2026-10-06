@@ -16,10 +16,16 @@ mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
 mod paging;
+mod pool;
+mod resolve;
+pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 mod shutdown;
+use shutdown::ShutdownPlan;
 mod spawn;
 mod stream;
 mod tap;
+#[cfg(test)]
+mod tap_tests;
 pub use lifecycle::{NewRequest, profile_takes_model_at_spawn};
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
@@ -33,6 +39,9 @@ mod turns;
 mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
+mod web_control;
+pub use web_control::Control;
+pub(crate) use web_control::ModeWrite;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -94,6 +103,9 @@ pub struct TurnInfo {
     pub prompt_id: String,
     /// Sequence of this turn's `turn_started` record.
     pub turn_seq: u64,
+    /// Who prompted (or steered) this turn. A Web turn never uses the chat
+    /// allowance: each eligible permission in it still asks.
+    pub control: Control,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -119,6 +131,8 @@ pub struct PromptOptions {
     /// example after its daemon connection closed: also look in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// The rules the prompt runs under, checked again at dispatch.
+    pub control: Control,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -194,6 +208,8 @@ pub struct Session {
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
+    /// Web control ended: the mode left the asking table (`web_control.rs`).
+    pub(super) web_control_ended: AtomicBool,
 }
 
 impl Session {
@@ -253,12 +269,9 @@ pub struct Hub {
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
-    /// `_acpmux/shutdown {endAgents: true}` (the app's Quit Everything):
-    /// the coming shutdown ends hosted agents instead of detaching them.
-    pub(super) end_agents_on_shutdown: AtomicBool,
-    /// Sessions whose hosted agents a shutdown with `endAgents` still keeps
-    /// (`keepSessions`: the app's Home Chief).
-    pub(super) keep_on_shutdown: StdMutex<std::collections::HashSet<String>>,
+    /// What the coming shutdown does with hosted agents, decided once:
+    /// `_acpmux/shutdown endAgents` sets it until the shutdown takes it.
+    pub(super) shutdown_plan: StdMutex<ShutdownPlan>,
     /// Turns a shutdown with `endAgents` settled as cancelled: their prompt
     /// futures must not write a second result when the agent ends.
     pub(super) settled_by_shutdown: StdMutex<std::collections::HashSet<String>>,
@@ -277,6 +290,10 @@ pub struct Hub {
     pub(super) stopping: AtomicBool,
     /// Held by one idle reaper pass; shutdown waits for it after `stopping`.
     pub(super) idle_pass: Mutex<()>,
+    /// Hidden pre-created sessions for instant harness switches (`pool/`).
+    pub(super) pool: Arc<pool::PoolState>,
+    /// The merged asking-mode table for Web connections (`web_control.rs`).
+    pub(super) web_modes: StdMutex<web_control::WebModeCache>,
 }
 
 /// Tags that have not expired, as a flat map.
@@ -335,8 +352,7 @@ impl Hub {
             importing: StdMutex::new(std::collections::HashSet::new()),
             handoffs,
             agent_hosts: AtomicBool::new(false),
-            end_agents_on_shutdown: AtomicBool::new(false),
-            keep_on_shutdown: StdMutex::new(Default::default()),
+            shutdown_plan: StdMutex::new(ShutdownPlan::default()),
             settled_by_shutdown: StdMutex::new(Default::default()),
             launchers: StdMutex::new(HashMap::new()),
             probe_errors: StdMutex::new(HashMap::new()),
@@ -346,13 +362,18 @@ impl Hub {
             idle_reaper: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             idle_pass: Mutex::new(()),
+            pool: Arc::new(pool::PoolState::new()),
+            web_modes: StdMutex::new(Default::default()),
         });
+        hub.refresh_web_modes(
+            &hub.config.try_read().map(|c| c.web_asking_modes.clone()).unwrap_or_default(),
+        );
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub
@@ -515,6 +536,7 @@ impl Hub {
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
+            web_control_ended: AtomicBool::new(false),
         })
     }
 
@@ -570,18 +592,36 @@ impl Hub {
         msg: Value,
         host_seq: Option<u64>,
     ) -> EventRecord {
+        self.append_logged(session, dir, kind, msg, host_seq).0
+    }
+
+    /// [`Hub::append_with_host_seq`], and whether THIS record is in the
+    /// store (a purged session counts as stored: nothing is kept for it).
+    /// The tap acknowledges a host entry on this result alone.
+    pub(super) fn append_logged(
+        &self,
+        session: &Session,
+        dir: &str,
+        kind: &str,
+        msg: Value,
+        host_seq: Option<u64>,
+    ) -> (EventRecord, bool) {
         let _order = session.append_lock.lock().unwrap();
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let record =
             EventRecord { seq, at: now_ms(), dir: dir.into(), kind: kind.into(), msg, host_seq };
         if session.purged.load(Ordering::SeqCst) {
-            return record;
+            return (record, true);
         }
         self.touch(session);
-        if let Err(e) = self.store.append(&session.id, &record) {
-            session.append_errors.fetch_add(1, Ordering::SeqCst);
-            tracing::warn!(session = %session.id, "append failed: {e}");
-        }
+        let stored = match self.store.append(&session.id, &record) {
+            Ok(()) => true,
+            Err(e) => {
+                session.append_errors.fetch_add(1, Ordering::SeqCst);
+                tracing::warn!(session = %session.id, "append failed: {e}");
+                false
+            }
+        };
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;
@@ -613,7 +653,7 @@ impl Hub {
             record: record.clone(),
             remote: None,
         });
-        record
+        (record, stored)
     }
 
     /// A client attached or detached. Attaching clears the unread bit.
@@ -834,13 +874,15 @@ impl Hub {
     }
 }
 
-/// Browser URL for the dashboard, with the token in the query string.
-pub fn web_url(w: &crate::config::WebSocketConfig) -> String {
+/// Browser URL for the dashboard, with the listener's token in the query
+/// string (a `--token` value for this run, else the saved one).
+pub fn web_url(cfg: &crate::config::Config) -> Option<String> {
+    let w = cfg.web_listener()?;
     let host = w.listen.replace("0.0.0.0", "127.0.0.1").replace("[::]", "[::1]");
-    match &w.token {
+    Some(match cfg.web_token_override.as_ref().or(w.token.as_ref()) {
         Some(t) => format!("http://{host}/?token={t}"),
         None => format!("http://{host}/"),
-    }
+    })
 }
 
 /// Current value of a select config option, by id.

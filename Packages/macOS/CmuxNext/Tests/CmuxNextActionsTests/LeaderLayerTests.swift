@@ -32,13 +32,13 @@ import Testing
         }
     }
 
-    /// New Agent Chat keeps Shift-Cmd-I; the chord is a second way in.
+    /// New Agent Chat keeps Cmd-I; the leader chord is a second way in.
     /// An action with only a chord shows the chord.
     @Test func aDefaultChordAddsToTheSingleKey() {
         let registry = Self.registry()
-        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command, .shift]))
-        #expect(registry.resolve(Shortcut("i", modifiers: [.command, .shift]))?.id == "palette.newAgentChat")
-        #expect(registry.shortcutDisplay(for: "palette.newAgentChat") == "⇧⌘I")
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command]))
+        #expect(registry.keyWinner(Shortcut("i", modifiers: [.command]))?.command == "palette.newAgentChat")
+        #expect(registry.shortcutDisplay(for: "palette.newAgentChat") == "⌘I")
         #expect(registry.shortcutDisplay(for: "terminal.scrollToSelection") == "⌘J J")
         #expect(registry.shortcutKeycaps(for: "terminal.scrollToSelection") == ["⌘", "J", "J"])
         #expect(registry.shortcutDisplay(for: "palette.searchShortcuts") == "⌘J ⇧/")
@@ -89,7 +89,7 @@ import Testing
         let registry = Self.registry()
         registry.bind("toggleSidebar") {}
         registry.setShortcutOverride(LeaderLayer.prefix, for: "toggleSidebar")
-        #expect(registry.resolve(LeaderLayer.prefix)?.id == "toggleSidebar")
+        #expect(registry.keyWinner(LeaderLayer.prefix)?.command == "toggleSidebar")
         #expect(registry.effectiveChord(for: "terminal.scrollToSelection") == nil)
         #expect(!LeaderLayer(registry: registry).hasChords())
 

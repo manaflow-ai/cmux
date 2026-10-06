@@ -18,7 +18,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
+| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `list` arrangement): Home and the App Store as plain rows (Lawrence 2026-10-05: rows; the large-tiles default of #17349 is reverted, `tiles` stays an opt-in arrangement). New Workspace and Import and Sync are reached through their actions (palette, menu, shortcut) |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
@@ -89,7 +89,7 @@ SidebarLayoutDocument { revision: u64, sections: [Section] }       // per user
 Section { id: "sec_<base32>", title: String?, shows_title: Bool, region: top|middle|bottom,
           look: built_in|list, arrangement: Arrangement, room: String?, max_rows: Int?,
           content: items|workspaces, items: [Item] }
-Arrangement { layout: list|inline|grid, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
+Arrangement { layout: list|inline|grid|tiles, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
 Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
 
@@ -102,7 +102,8 @@ both reducers (Swift and cmux-tui-core).
 
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
+only), then icons only, then wraps; `grid` puts tiles in columns; `tiles` puts large tiles (a glyph well over a short
+centered label) in equal columns on one tonal card with a section gap below it. `align` places
 the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
 item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
 stretches its tiles, and a grid with fixed columns places every line by the leftover of a full
@@ -270,16 +271,16 @@ switch (descriptor titles are built once at launch).
 - Bottom band: Settings and the account avatar on one line (above).
 - Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
 - Band caps 1/3 and 1/4, then scroll; customizable (section 7).
-- Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
-  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
-  it. Done: one emoji draws as text, any other value is an SF Symbol name
-  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
-  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
-  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
-  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
-  after each put deletes blobs no registered reference field names and older than 7 days, and a
-  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
-  reviewed by the state-module owner.
+- Custom icons (emoji, SF Symbol, image or SVG) for workspaces and Home: the existing workspace
+  `icon` string of workspace-metadata-v1 carries the one icon value (R94, plans/cmux-next/icons.md):
+  one emoji, an SF Symbol name, `image:sha256-<hex>` or `svg:sha256-<hex>`. Assets are stored once
+  in the daemon's personal blob store (`put-blob {media_type, data}` -> `{ref, icon, size}`,
+  `get-blob {blob}`, capability `icon-assets-v1`): png/jpeg/webp at most 256 KiB (the picker scales
+  images to 256 px PNG), SVG at most 64 KiB after the allowlist sanitizer, content addressed and
+  idempotent. GC: a sweep at open and before each put deletes blobs no icon field references and
+  older than 7 days; a 64 MiB cap refuses a put the sweep cannot make room for. A replica without
+  the blob draws the kind's default icon (coordination/icons.md). Picker: the one icon picker
+  (Set Workspace Icon from the palette, the context menu or `cmux workspace set-icon`).
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`

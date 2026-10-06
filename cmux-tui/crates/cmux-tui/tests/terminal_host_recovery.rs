@@ -1647,7 +1647,7 @@ fn cleared_history_stays_cleared_after_daemon_reconnect() {
     let host_pid = records[0].1.host_pid as libc::pid_t;
     // SAFETY: the durable record identifies this harness's live terminal host.
     assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until_stopped(host_pid);
     let resume_host = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(250));
         // SAFETY: this resumes the same host stopped immediately above.
@@ -4668,21 +4668,6 @@ fn wait_for_host_records(root: &Path, expected: usize) -> Vec<(PathBuf, Terminal
     }
 }
 
-fn wait_for_no_host_records(root: &Path) {
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while Instant::now() < deadline {
-        if load_terminal_host_records(root).unwrap().is_empty()
-            && load_terminal_host_exit_records(root).unwrap().is_empty()
-        {
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    let records = load_terminal_host_records(root).unwrap();
-    let exits = load_terminal_host_exit_records(root).unwrap();
-    panic!("terminal host records or exit sidecars remained after close: {records:?}; {exits:?}");
-}
-
 fn wait_for_socket_hangup(stream: &UnixStream, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
@@ -5333,12 +5318,16 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         &harness.socket,
         serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
     );
-    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    assert_screen_shows(&harness.socket, adopted_surface, &typed, &terminal_id);
     request(
         &harness.socket,
         serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
     );
-    wait_for_no_host_records(&harness.host_root());
+    let named = [
+        ("adopted", terminal_id.as_str()),
+        ("run", run["value"]["terminal_id"].as_str().unwrap_or("")),
+    ];
+    wait_for_no_host_records_naming(&harness.host_root(), &harness.socket, &named);
 }
 
 /// Wait for the template binding, then check that it names the one listed

@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -86,6 +87,20 @@ import WebKit
         guard let near60 = full.webView.configuration.preferences.isWebKitFeatureEnabled(key) else { return }
         #expect(near60 == false)
         #expect(standard.webView.configuration.preferences.isWebKitFeatureEnabled(key) == true)
+    }
+
+    /// A bundled page made without a root (the diff page's path, diff-host S4) keeps the engine
+    /// options it was given.
+    @Test func theRootlessInitKeepsItsEngineOptions() throws {
+        let page = try #require(PageWebView(descriptor: .history, routes: [], options: PageEngineOptions(fullFrameRate: true)))
+        defer { page.close() }
+        #expect(page.engineOptions.fullFrameRate)
+        if let near60 = page.webView.configuration.preferences.isWebKitFeatureEnabled(PageEngineOptions.near60FPSFeature) {
+            #expect(near60 == false)
+        }
+        let standard = try #require(PageWebView(descriptor: .history, routes: []))
+        defer { standard.close() }
+        #expect(standard.engineOptions == .standard)
     }
 
     // MARK: H10 first-party roots in other bundles

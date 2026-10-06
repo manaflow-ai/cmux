@@ -59,9 +59,9 @@ extension DaemonConnection {
     /// `endTerminals`, each terminal whose tabs all close ends too, unless kept.
     @discardableResult
     public func closeTabs(_ surfaces: [SurfaceID], endTerminals: Bool = true,
-                          transaction: ClientTransactionID? = nil) async throws -> CloseTabsResult {
+                          transaction: ClientTransactionID? = nil, reason: CloseReason? = nil) async throws -> CloseTabsResult {
         try await requestNew(CloseTabsRequest(surfaces: surfaces, endTerminals: endTerminals, transaction: transaction,
-                                              mutation: mutation()))
+                                              mutation: mutation(), reason: reason))
     }
 
     // Terminals, tabs, panes, columns, screens
@@ -172,11 +172,11 @@ extension DaemonConnection {
         return try await request(SetTabPinnedRequest(surface: surface, pinned: pinned))
     }
 
-    /// App-rendered browser tab (`frontend-browser-tabs-v1`).
+    /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab.
     @discardableResult
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil,
-                                      profileID: String? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID))
+                                      profileID: String? = nil, activate: Bool? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        try await request(NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate))
     }
 
     @discardableResult
@@ -199,7 +199,7 @@ extension DaemonConnection {
         _ = try await request(SetColumnWidthRequest(pane: pane, width: width, transaction: transaction))
     }
 
-    /// `set-column-sticky` for the column holding `pane`; nil unpins it.
+    /// `set-column-dock` for the column holding `pane`; nil unpins it.
     public func setColumnDock(of pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) async throws {
         _ = try await request(SetColumnDockRequest(pane: pane, dock: dock, transaction: transaction))
     }

@@ -12,6 +12,7 @@ import {
   type CallMessage,
   type Envelope,
   type ErrMessage,
+  type EvMessage,
   type OpenMessage,
   type SubMessage,
 } from "./envelope";
@@ -47,6 +48,18 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** Capability handle sent as `cap`. */
   cap?: RemoteHandle | string;
+  /**
+   * Decision 31: the client-generated operation id sent as `opid`. The provider applies an opid
+   * once (a resend after a reconnect is answered with the earlier result) and echoes it on the
+   * events the call caused.
+   */
+  opid?: string;
+}
+
+/** Envelope fields of one event beyond its data. */
+export interface EventMeta {
+  /** Decision 31: the opid of the call that caused the event, when the provider echoed one. */
+  opid?: string;
 }
 
 export interface SubscribeOptions<T = unknown> {
@@ -54,7 +67,7 @@ export interface SubscribeOptions<T = unknown> {
   cap?: RemoteHandle | string;
   /** Aborting before the `ok` cancels the subscribe; aborting after unsubscribes. */
   signal?: AbortSignal;
-  onEvent: (data: T, seq: number) => void;
+  onEvent: (data: T, seq: number, meta: EventMeta) => void;
   /**
    * Events were lost before this one. `dropped` means the provider said so (`gap:true`, its queue
    * overflowed; decision 15); otherwise seq skipped. Either way, resync from a fresh read.
@@ -70,6 +83,8 @@ export interface HandlerContext {
   id: number;
   op: string;
   cap: string | undefined;
+  /** Decision 31: the caller's opid, to echo on the events this call causes. */
+  opid: string | undefined;
   /** Aborted when the peer cancels or the session closes. */
   signal: AbortSignal;
   session: Session;
@@ -81,8 +96,8 @@ export interface EventSourceContext {
   stream: string;
   filter: Record<string, unknown> | undefined;
   cap: string | undefined;
-  /** Sends one event with the next seq (starting at 1). */
-  emit(data: unknown): void;
+  /** Sends one event with the next seq (starting at 1); `opid` echoes the call that caused it. */
+  emit(data: unknown, meta?: EventMeta): void;
   /** Aborted on unsub or session close. */
   signal: AbortSignal;
 }
@@ -240,6 +255,17 @@ export class Session {
       const msg: CallMessage = { t: "call", id, op, params: params ?? {} };
       const cap = capId(options.cap);
       if (cap !== undefined) msg.cap = cap;
+      if (options.opid !== undefined) {
+        if (!/^[A-Za-z0-9._:-]{1,128}$/.test(options.opid)) {
+          this.pending.delete(id);
+          signal?.removeEventListener("abort", onAbort);
+          reject(
+            new ProtocolError(ProtocolErrorCode.badMessage, "opid must be 1 to 128 characters of [A-Za-z0-9._:-]"),
+          );
+          return;
+        }
+        msg.opid = options.opid;
+      }
       this.sendOrFail(id, msg);
     });
   }
@@ -435,7 +461,7 @@ export class Session {
         this.settle(envelope.id, (call) => call.reject(errorFromMessage(envelope)));
         return;
       case "ev":
-        this.receiveEvent(envelope.sub, envelope.seq, envelope.data, envelope.gap === true);
+        this.receiveEvent(envelope.sub, envelope.seq, envelope.data, envelope.gap === true, envelope.opid);
         return;
       case "call":
         this.receiveCall(envelope);
@@ -493,7 +519,7 @@ export class Session {
     apply(call);
   }
 
-  private receiveEvent(subId: number, seq: number, data: unknown, gap: boolean): void {
+  private receiveEvent(subId: number, seq: number, data: unknown, gap: boolean, opid: string | undefined): void {
     const sub = this.subscriptions.get(subId);
     if (!sub) return; // Late event after unsub.
     const previous = sub.lastSeq;
@@ -509,7 +535,7 @@ export class Session {
         return;
       }
     }
-    sub.options.onEvent(data, seq);
+    sub.options.onEvent(data, seq, opid === undefined ? {} : { opid });
   }
 
   private receiveCall(msg: CallMessage): void {
@@ -532,7 +558,14 @@ export class Session {
     }
     const controller = new AbortController();
     this.running.set(msg.id, controller);
-    const ctx: HandlerContext = { id: msg.id, op: msg.op, cap: msg.cap, signal: controller.signal, session: this };
+    const ctx: HandlerContext = {
+      id: msg.id,
+      op: msg.op,
+      cap: msg.cap,
+      opid: msg.opid,
+      signal: controller.signal,
+      session: this,
+    };
     Promise.resolve()
       .then(() => handler(msg.params, ctx))
       .then(
@@ -567,10 +600,12 @@ export class Session {
         filter: msg.filter,
         cap: msg.cap,
         signal: controller.signal,
-        emit: (data) => {
+        emit: (data, meta) => {
           if (controller.signal.aborted || this.closeError) return;
           seq += 1;
-          this.trySend({ t: "ev", sub: subId, seq, data: data === undefined ? null : data });
+          const ev: EvMessage = { t: "ev", sub: subId, seq, data: data === undefined ? null : data };
+          if (meta?.opid !== undefined) ev.opid = meta.opid;
+          this.trySend(ev);
         },
       });
     } catch (error) {

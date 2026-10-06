@@ -19,12 +19,15 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
+    try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloudInboxListRequest, "include_archived");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "seq");
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -39,6 +42,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.NewConversationTabResult, "transaction");
+    try expectExplicitNullRejected(protocol.NewFrontendBrowserTabRequest, "activate");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewRowRequest, "keep");
@@ -55,6 +60,11 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
+    try expectExplicitNullRejected(protocol.CloudConversationChangedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudConversationResyncedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudInboxChangedEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudInboxResetEvent, "account");
+    try expectExplicitNullRejected(protocol.CloudSubscriptionStateEvent, "account");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
@@ -123,6 +133,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "emoji");
     try expectExplicitNullRejected(protocol.ConversationReactionKind, "tapback");
     try expectExplicitNullRejected(protocol.ConversationSummary, "last_message");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "agent_session");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "conversation");
+    try expectExplicitNullRejected(protocol.ConversationTabRecord, "owner");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "link");
     try expectExplicitNullRejected(protocol.ConversationTextRun, "mention");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
@@ -153,6 +166,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
+    try expectExplicitNullRejected(protocol.TerminalClipboardHost, "name");
     try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");

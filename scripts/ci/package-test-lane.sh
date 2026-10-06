@@ -69,6 +69,15 @@ case "${1:-}" in
     set --
     ;;
 esac
+# Swift Testing runs many test cases at once (up to twice the core count).
+# The CmuxNext full run then oversubscribes the main actor: on 2026-10-04 a
+# queued main-actor reload waited 55 s, past test deadlines. Cap the width at
+# the physical core count unless the caller set one. The variable is
+# experimental in swift-testing and is ignored by a toolchain without it.
+if [ -z "${SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH:-}" ]; then
+  SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH="$(sysctl -n hw.physicalcpu 2>/dev/null || echo 4)"
+  export SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH
+fi
 event="${EVENT_NAME:-}"
 full_suite="${FULL_SUITE:-false}"
 while [ "$#" -gt 0 ]; do
@@ -228,30 +237,54 @@ interface_fingerprint() {
 # pass share them, so the test pass finds the prebuilt products up to date.
 package_args() {
   local pkg="$1"
-  # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
-  # resolve the actual directory so this list stays group-agnostic.
-  pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+  pkgdir=""
+  if [[ "$pkg" == */* ]]; then
+    # A path is accepted only when it is exactly Packages/<group>/<name> with a
+    # Package.swift (2026-10-04: a path looked up as a name compiled nothing).
+    if [[ "$pkg" =~ ^Packages/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$ && "$pkg" != *..* && -f "${pkg%/}/Package.swift" ]]; then
+      pkgdir="${pkg%/}"
+    fi
+  elif [[ "$pkg" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+    # Packages live under group folders (Packages/{Shared,iOS,macOS}/);
+    # resolve the actual directory so this list stays group-agnostic.
+    pkgdir="$(find Packages -mindepth 2 -maxdepth 2 -type d -name "$pkg" -print -quit)"
+    [ -z "$pkgdir" ] || [ -f "$pkgdir/Package.swift" ] || pkgdir=""
+  fi
   if [ -z "$pkgdir" ]; then
-    echo "package '$pkg' not found under Packages/*/ (renamed or moved?)"
+    echo "package '$pkg' not found: give a name under Packages/*/ or a Packages/<group>/<name> path with a Package.swift"
     return 1
   fi
   swift_test_args=(--package-path "$pkgdir")
 }
 
-# One package's build, for prebuild_packages. It never fails the lane: a
+# One package's build. It exits non-zero when the package is not found or its
+# build fails, so a compile step run on its own is never green without a
+# compile (2026-10-04 false green). prebuild_packages ignores its status: a
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
   local pkg="$1" log="$2" started=$SECONDS status=0
-  package_args "$pkg" > "$log" 2>&1 || { echo "Prebuild skipped $pkg (not found)."; return 0; }
+  if ! package_args "$pkg" > "$log" 2>&1; then
+    cat "$log" >&2
+    echo "error: prebuild of $pkg compiled nothing: package not found." >&2
+    return 2
+  fi
   python3 scripts/ci/run_with_timeout.py \
     --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
     -- swift build --build-tests "${swift_test_args[@]}" > "$log" 2>&1 < /dev/null || status=$?
   if [ "$status" -eq 0 ]; then
     echo "Prebuilt $pkg in $((SECONDS - started))s."
-  else
-    echo "Prebuild of $pkg exited $status after $((SECONDS - started))s; its swift test builds whatever is still missing (the GhosttyKit packages exit 1 here on the known binaryTarget diagnostic)."
+    return 0
   fi
+  # The GhosttyKit packages exit 1 on the known cosmetic binaryTarget
+  # diagnostic after a complete build; anything else is a failed build.
+  if [ "$status" -eq 1 ] && grep -q 'GhosttyKit\.xcframework' "$pkgdir/Package.swift" 2>/dev/null \
+    && grep -Fq 'Build complete!' "$log" && grep -Eq 'unexpected binary' "$log"; then
+    echo "Prebuilt $pkg in $((SECONDS - started))s (tolerated the GhosttyKit binaryTarget diagnostic)."
+    return 0
+  fi
+  echo "Prebuild of $pkg exited $status after $((SECONDS - started))s (log: $log)." >&2
+  return "$status"
 }
 
 # Every package is its own SwiftPM root with its own .build, so each selected
@@ -327,11 +360,10 @@ run_package_tests() {
       END { exit found ? 0 : 1 }
     ' "$log"
   }
-  # Stop after the first selected package fails. Package selection is already
-  # dependency-ordered, so testing later packages would spend fleet time after
-  # the PR has a decisive failure while hiding the first actionable result.
-  # test_package returns the package's status so the summary records it before
-  # the lane exits.
+  # Every selected package runs even after another one fails, so one broken
+  # or hung package cannot hide the results of the packages after it.
+  # test_package returns the package's status instead of exiting; every
+  # package gets a summary row, and the summary at the end fails the lane.
   prebuild_packages
   run_default_package_test() {
     # Blacksmith macOS runners intermittently abort a package's
@@ -410,7 +442,6 @@ run_package_tests() {
         result="failed (exit $package_status)"
         echo "::error title=Swift package tests failed::$pkg failed with exit status $package_status after ${seconds}s"
       fi
-      break
     fi
     summary+=("$(printf '%-34s %-18s %6ss' "$pkg" "$result" "$seconds")")
   done < "$selected"
@@ -435,8 +466,17 @@ run_suite() {
   if grep -q 'GhosttyKit\.xcframework' "$suite_package/Package.swift"; then
     ensure_ghosttykit
   fi
-  echo "::group::swift build --build-tests $suite_package"
-  swift build --build-tests --package-path "$suite_package" < /dev/null
+  # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
+  # user runs); @testable imports then need -enable-testing. The default stays debug.
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}")
+  # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
+  # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
+  # release suite build turns that one SIL pass off.
+  if [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = release ]; then
+    configuration+=(-Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
+  fi
+  echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
+  swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null
   echo "::endgroup::"
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
@@ -455,7 +495,7 @@ run_suite() {
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
-      -- swift test --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
     if [ "$status" -eq 0 ]; then
       python3 scripts/ci/require_swift_test_execution.py --log "$log" || status=$?
     fi

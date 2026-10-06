@@ -1,51 +1,53 @@
-export const handoffStrings = {
-  transcript: "Transcript",
-  tool_output: "Tool output",
-  plan: "Plan",
-  files: "Files",
-  model: "Model",
-  included: "Included",
-  summarized: "Summarized",
-  omitted: "Omitted",
-  unavailable: "Unavailable",
-  continueIn: "Continue in…",
-  review: "Review continuation",
-  fromTo: "Continue from %@ in %@",
-  context: "Context to carry forward",
-  checkpoint: "Repository checkpoint",
-  checkpointPlaceholder: "A saved commit, stash, or backup reference",
-  checkpointConfirm: "I saved the working changes, including the files I need to keep.",
-  memory: "Approved memory references",
-  memoryHelp: "Share only the references you approve for this chat, one per line.",
-  starting: "Starting…",
-  continueTarget: "Continue in %@",
-  returnSource: "Back to source chat",
-  discard: "Discard continuation",
-  saving: "Saving review…",
-  reload: "Reload saved review",
-  coverage: "Carried context",
-  source: "Source chat",
-  target: "Target chat",
-  nativePolicy: "Native policy · isolation unverified",
-  unverified: "Coverage unverified",
-  unverifiedDetail: "Filesystem and network isolation have not been verified for this session.",
-  reviewContext: "Review the context before continuing.",
-  tooLarge: "Keep the context below %@ bytes.",
-  saveCheckpoint: "Save a repository checkpoint before continuing.",
-  checkpointSingle: "Use a single checkpoint reference.",
-  memoryLimit: "Use at most 32 memory references, one per line.",
-  failedReview: "Couldn’t review this continuation.",
-};
-export type HandoffStrings = typeof handoffStrings;
-export function localizedHandoffStrings(value: unknown): HandoffStrings {
-  const strings = { ...handoffStrings };
-  if (value && typeof value === "object")
-    for (const key of Object.keys(strings) as (keyof HandoffStrings)[]) {
-      const translated = (value as Record<string, unknown>)[key];
-      if (typeof translated === "string" && translated.trim()) strings[key] = translated;
-    }
-  return strings;
+// The continuation review's labels: keys of the pane's string table (handoff.*, acpmux/Localizable.xcstrings), in
+// every shipped language, so English is never a fallback the user sees.
+import { type StringKey, type Translate, translate } from "../i18n";
+
+const HANDOFF_KEYS = {
+  transcript: "handoff.transcript",
+  tool_output: "handoff.tool_output",
+  plan: "handoff.plan",
+  files: "handoff.files",
+  model: "handoff.model",
+  included: "handoff.included",
+  summarized: "handoff.summarized",
+  omitted: "handoff.omitted",
+  unavailable: "handoff.unavailable",
+  continueIn: "handoff.continueIn",
+  review: "handoff.review",
+  fromTo: "handoff.fromTo",
+  context: "handoff.context",
+  checkpoint: "handoff.checkpoint",
+  checkpointPlaceholder: "handoff.checkpointPlaceholder",
+  checkpointConfirm: "handoff.checkpointConfirm",
+  memory: "handoff.memory",
+  memoryHelp: "handoff.memoryHelp",
+  starting: "handoff.starting",
+  continueTarget: "handoff.continueTarget",
+  returnSource: "handoff.returnSource",
+  discard: "handoff.discard",
+  saving: "handoff.saving",
+  reload: "handoff.reload",
+  coverage: "handoff.coverage",
+  source: "handoff.source",
+  target: "handoff.target",
+  nativePolicy: "handoff.nativePolicy",
+  unverified: "handoff.unverified",
+  unverifiedDetail: "handoff.unverifiedDetail",
+  reviewContext: "handoff.reviewContext",
+  tooLarge: "handoff.tooLarge",
+  saveCheckpoint: "handoff.saveCheckpoint",
+  checkpointSingle: "handoff.checkpointSingle",
+  memoryLimit: "handoff.memoryLimit",
+  failedReview: "handoff.failedReview",
+} as const satisfies Record<string, StringKey>;
+
+export type HandoffStrings = Record<keyof typeof HANDOFF_KEYS, string>;
+
+/** The labels in the pane's language (`t` from `useT()` in render; the current language otherwise). */
+export function handoffStrings(t: Translate = translate): HandoffStrings {
+  return Object.fromEntries(Object.entries(HANDOFF_KEYS).map(([name, key]) => [name, t(key)])) as HandoffStrings;
 }
+
 export function formatHandoff(value: string, ...args: string[]): string {
   let index = 0;
   return value.replace(/%@/g, () => args[index++] ?? "");

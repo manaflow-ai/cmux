@@ -70,7 +70,7 @@ public struct LayoutMapping {
         return LayoutColumn(id: id, width: width, root: root, dock: column.dock.map(Self.dock), rows: rows)
     }
 
-    /// Daemon `columns[].sticky` or `columns[].dock` as the layout's dock.
+    /// Daemon `columns[].dock` as the layout's dock.
     public nonisolated static func dock(_ snapshot: DockSnapshot) -> DockColumn {
         let edge: DockEdge = switch snapshot.edge {
         case .left: .left

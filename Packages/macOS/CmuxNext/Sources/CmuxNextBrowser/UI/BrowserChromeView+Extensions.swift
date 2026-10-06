@@ -101,7 +101,11 @@ extension BrowserChromeView {
         super.viewDidMoveToWindow()
         if window == nil { extensionToolbar.hidePopups() }
         // A tab shown again repaints: overrides may have changed while it was out (R55).
-        else { updateColors() }
+        else {
+            updateColors()
+            renderPrompt()
+        }
+        headerBandReattachIfInstalled()
     }
 
     /// The region of this chrome that contains `view`, nil when outside.

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Quit alert text (Resources/Quit.xcstrings).
+/// Quit dialog text (Resources/Quit.xcstrings).
 enum QuitStrings {
     static var title: String {
         String(localized: "quit.title", defaultValue: "Quit cmux?", table: "Quit", bundle: .module)
@@ -33,8 +33,16 @@ enum QuitStrings {
         String(localized: "quit.dontAskAgain", defaultValue: "Don’t ask again", table: "Quit", bundle: .module)
     }
 
-    static var endSessions: String {
-        String(localized: "quit.button.endSessions", defaultValue: "End Sessions…", table: "Quit", bundle: .module)
+    static var keepSessionsRunning: String {
+        String(localized: "quit.button.keep", defaultValue: "Keep Sessions Running", table: "Quit", bundle: .module)
+    }
+
+    static var quitEverythingEllipsis: String {
+        String(localized: "quit.button.quitEverythingEllipsis", defaultValue: "Quit Everything…", table: "Quit", bundle: .module)
+    }
+
+    static var quitEverything: String {
+        String(localized: "quit.button.quitEverything", defaultValue: "Quit Everything", table: "Quit", bundle: .module)
     }
 
     static var endTitle: String {
@@ -43,10 +51,6 @@ enum QuitStrings {
 
     static var endEverythingDeletes: String {
         String(localized: "quit.end.body", defaultValue: "End Everything also deletes your workspaces.", table: "Quit", bundle: .module)
-    }
-
-    static var endKeepLayout: String {
-        String(localized: "quit.button.endKeepLayout", defaultValue: "End Sessions, Keep Layout", table: "Quit", bundle: .module)
     }
 
     static var endEverything: String {
@@ -69,6 +73,56 @@ enum QuitStrings {
 
     static func failedShutdown(_ message: String) -> String {
         String(localized: "quit.failed.shutdown", defaultValue: "The terminals did not end: \(message)", table: "Quit", bundle: .module)
+    }
+
+    static var unsavedTitle: String {
+        String(localized: "quit.unsaved.title", defaultValue: "Save changes before quitting?", table: "Quit", bundle: .module)
+    }
+
+    static var unsavedSave: String { String(localized: "quit.unsaved.save", defaultValue: "Save", table: "Quit", bundle: .module) }
+
+    static var unsavedDontSave: String {
+        String(localized: "quit.unsaved.dontSave", defaultValue: "Don’t Save", table: "Quit", bundle: .module)
+    }
+
+    static func unsavedSaving(_ title: String) -> String {
+        String(format: String(localized: "quit.unsaved.saving", defaultValue: "Saving %@…", table: "Quit", bundle: .module), title)
+    }
+
+    static func unsavedFailed(_ title: String, _ reason: String) -> String {
+        String(format: String(localized: "quit.unsaved.failed", defaultValue: "Could not save %1$@: %2$@", table: "Quit", bundle: .module),
+               title, reason)
+    }
+
+    static func unsavedRefused(_ titles: String) -> String {
+        String(format: String(localized: "quit.unsaved.refused",
+                              defaultValue: "Not quitting: unsaved changes in %@ could not be saved. Save or close them in the app, then quit again.",
+                              table: "Quit", bundle: .module), titles)
+    }
+
+    static func recovered(_ title: String) -> String {
+        String(format: String(localized: "recovery.notice", defaultValue: "Recovered unsaved changes in %@", table: "Quit", bundle: .module), title)
+    }
+
+    static func recoveredChanged(_ title: String) -> String {
+        String(format: String(localized: "recovery.noticeChanged",
+                              defaultValue: "Recovered unsaved changes in %@. The file changed on disk since; review before saving.",
+                              table: "Quit", bundle: .module), title)
+    }
+
+    static var recoveredOpen: String { String(localized: "recovery.open", defaultValue: "Open", table: "Quit", bundle: .module) }
+
+    /// acpmux is already shutting down; it may not have ended its agents.
+    static var agentsShutdownInProgress: String {
+        String(localized: "quit.failed.agentsShutdownInProgress",
+               defaultValue: "acpmux is already shutting down, so agents may still be running. Retry waits for the shutdown to finish.",
+               table: "Quit", bundle: .module)
+    }
+
+    /// Agent hosts that are still alive after acpmux stopped.
+    static func agentsStillRunning(_ count: Int) -> String {
+        String(format: String(localized: "quit.failed.agentsStillRunning", defaultValue: "Agents still running: %lld.",
+                              table: "Quit", bundle: .module), count)
     }
 
     static func failedEndAgents(_ message: String) -> String {

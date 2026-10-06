@@ -7,7 +7,7 @@
 //! that is down: an open on a dead carrier fails, and nothing is queued for
 //! a later carrier.
 
-use crate::connector::iface::Carrier;
+use crate::link::Carrier;
 use std::fmt;
 use std::io::{Read, Write};
 

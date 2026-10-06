@@ -45,6 +45,13 @@ public struct SidebarMapping {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs)
+        let kind: SidebarWorkspaceKind = if tabs.contains(where: { $0.agent != nil }) {
+            .harness
+        } else if tabs.contains(where: { $0.kind == .browser }) {
+            .browser
+        } else {
+            .terminal
+        }
         return SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -52,14 +59,15 @@ public struct SidebarMapping {
             subtitle: subtitle(tabs),
             // The hooks' status line, else the daemon's workspace status (state resources).
             status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
-            icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
+            icon: Self.icon(color: workspace.color, icon: workspace.icon),
+            kind: kind,
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
             agentBrand: agentBrand(tabs),
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
-                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: Self.tabKind(tab.kind), isUnread: tab.hasUnread)
+                SidebarTab(id: TabID(tab.id), title: tab.displayTitle, kind: tab.agentSession == nil ? Self.tabKind(tab.kind) : .agentChat, isUnread: tab.hasUnread)
             }
         )
     }
@@ -114,6 +122,13 @@ public struct SidebarMapping {
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
+    }
+
+    /// A workspace's sidebar icon: its icon with its color (a tinted symbol,
+    /// an emoji on a color chip), else its color as a swatch, else none.
+    public static func icon(color name: String?, icon: String?) -> WorkspaceIcon? {
+        let color = shared.color(name)
+        return icon.flatMap { WorkspaceIcon.parse($0, color: color) } ?? color.map(WorkspaceIcon.swatch)
     }
 
     public func color(_ name: String?) -> GroupColor? {

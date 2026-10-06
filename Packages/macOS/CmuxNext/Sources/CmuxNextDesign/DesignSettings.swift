@@ -12,6 +12,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case columnGap
     case panelCornerRadius
     case chromeFontSize
+    /// The unified titlebar height (cmux-browser's header height reads the same key).
+    case titlebarHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -22,6 +24,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 public final class DesignSettings {
     public static let shared = DesignSettings()
 
+    /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
+    public var showModifierHoldHints = true
     public var density: Density = .compact
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`).
     public var animationSpeed: MotionSpeed = .fast
@@ -58,6 +62,8 @@ public final class DesignSettings {
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// `sidebar.border` and `sidebar.borderWidth`.
+    public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
     public var attention = AttentionSettings()
     /// `appearance.statusIndicator.*`: loading and status indicators on
@@ -85,6 +91,18 @@ public final class DesignSettings {
     public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
+    /// `window.titlebarButtons`.
+    public var titlebarButtons: TitlebarButtonsMode = .hover
+    /// `tabs.plusButton`.
+    public var plusButton: PlusButtonMode = .hover
+    /// `sidebar.side` (R109).
+    public var sidebarSide: SidebarSide = .left
+    /// `sidebar.spacesPosition` (R109).
+    public var spacesPosition: SpacesPosition = .bottom
+    /// `tabs.barPosition` (R109).
+    public var tabBarPosition: TabBarPosition = .top
+    /// `tabs.barOrder` (R109).
+    public var tabBarOrder: TabBarOrder = .aboveToolbar
 
     public init() {}
 
@@ -112,6 +130,7 @@ public final class DesignSettings {
         case .columnGap: 0...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .titlebarHeight: 24...56
         }
     }
 }

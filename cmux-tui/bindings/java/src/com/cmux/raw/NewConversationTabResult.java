@@ -16,6 +16,8 @@ public final class NewConversationTabResult implements WireValue {
     private final boolean replayed;
     private final UInt64 surface;
     private final String tabResourceId;
+    /** The request's transaction, when it sent one. */
+    private final Field<String> transaction;
 
     private NewConversationTabResult(Builder builder) {
         if (!builder.contentResourceIdSet) throw new IllegalArgumentException("content_resource_id is required");
@@ -28,6 +30,7 @@ public final class NewConversationTabResult implements WireValue {
         this.surface = Wire.nonNull(builder.surface, "surface");
         if (!builder.tabResourceIdSet) throw new IllegalArgumentException("tab_resource_id is required");
         this.tabResourceId = builder.tabResourceId;
+        this.transaction = builder.transaction;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -37,6 +40,7 @@ public final class NewConversationTabResult implements WireValue {
     public boolean replayed() { return replayed; }
     public UInt64 surface() { return surface; }
     public String tabResourceId() { return tabResourceId; }
+    public Field<String> transaction() { return transaction; }
 
     public static NewConversationTabResult fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewConversationTabResult");
@@ -51,6 +55,10 @@ public final class NewConversationTabResult implements WireValue {
         builder.surface(Wire.uint64(rawSurface, "NewConversationTabResult.surface"));
         Object rawTabResourceId = Wire.required(object, "tab_resource_id");
         builder.tabResourceId(rawTabResourceId == null ? null : Wire.string(rawTabResourceId, "NewConversationTabResult.tab_resource_id"));
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(Wire.string(rawTransaction, "NewConversationTabResult.transaction"));
+        }
         return builder.build();
     }
 
@@ -62,17 +70,18 @@ public final class NewConversationTabResult implements WireValue {
         Wire.put(object, "replayed", replayed);
         Wire.put(object, "surface", surface);
         Wire.put(object, "tab_resource_id", tabResourceId);
+        Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewConversationTabResult that)) return false;
-        return Objects.equals(contentResourceId, that.contentResourceId) && Objects.equals(conversation, that.conversation) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabResourceId, that.tabResourceId);
+        return Objects.equals(contentResourceId, that.contentResourceId) && Objects.equals(conversation, that.conversation) && Objects.equals(replayed, that.replayed) && Objects.equals(surface, that.surface) && Objects.equals(tabResourceId, that.tabResourceId) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(contentResourceId, conversation, replayed, surface, tabResourceId); }
+    public int hashCode() { return Objects.hash(contentResourceId, conversation, replayed, surface, tabResourceId, transaction); }
 
     @Override
     public String toString() { return "NewConversationTabResult" + toWire(); }
@@ -88,6 +97,7 @@ public final class NewConversationTabResult implements WireValue {
         private boolean surfaceSet;
         private String tabResourceId;
         private boolean tabResourceIdSet;
+        private Field<String> transaction = Field.omitted();
 
         public Builder contentResourceId(String value) {
             this.contentResourceId = value;
@@ -112,6 +122,10 @@ public final class NewConversationTabResult implements WireValue {
         public Builder tabResourceId(String value) {
             this.tabResourceId = value;
             this.tabResourceIdSet = true;
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.of(value);
             return this;
         }
         public NewConversationTabResult build() { return new NewConversationTabResult(this); }

@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextDesign
+import UniformTypeIdentifiers
 
 /// The `cmux.keybindings.*` ops of the Keyboard Shortcuts page (R59):
 /// `list` (the binding table with conflicts, `KeybindingReports.list`),
@@ -16,6 +18,7 @@ final class KeybindingsPageProvider: PageProvider {
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
+    private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
 
     init(services: AppServices) {
         self.services = services
@@ -24,15 +27,30 @@ final class KeybindingsPageProvider: PageProvider {
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.keybindings.list":
-            return KeybindingReports.list(params.objectValue ?? [:], registry: services.registry)
+            return KeybindingReports.pageList(params.objectValue ?? [:], registry: services.registry)
         case "cmux.keybindings.record.start":
             startRecording()
             return .object([:])
         case "cmux.keybindings.record.stop":
             stopRecording()
             return .object([:])
+        case "cmux.keybindings.keymap.export":
+            return try await keymapFile(export: true)
+        case "cmux.keybindings.keymap.import":
+            return try await keymapFile(export: false)
         case "cmux.keybindings.set", "cmux.keybindings.remove", "cmux.keybindings.reset":
-            throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
+            guard let settings = services.settings else {
+                throw PageError(code: "cmux.keybindings.unsupported", message: KeybindingStrings.editingUnsupported)
+            }
+            let writes = KeybindingPageWrites(registry: services.registry, settings: settings)
+            let fields = params.objectValue ?? [:]
+            switch op {
+            case "cmux.keybindings.set": try await writes.set(fields)
+            case "cmux.keybindings.remove": try await writes.remove(fields)
+            default: try await writes.reset(fields)
+            }
+            for listener in changedListeners.values { listener([:]) }
+            return .object([:])
         default:
             throw PageError.unknownOp(op)
         }
@@ -44,13 +62,50 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.recorded":
             let id = UUID()
             recordedListeners[id] = onEvent
-            return PageSubscription { [weak self] in MainActor.assumeIsolated { _ = self?.recordedListeners.removeValue(forKey: id) } }
+            return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
         case "cmux.keybindings.changed":
-            // Fires when keybindings.json loads (slice 4); nothing changes the table from here yet.
-            return PageSubscription {}
+            // Fires after a keymap import (and, with slice 4, when keybindings.json loads).
+            let id = UUID()
+            changedListeners[id] = onEvent
+            return PageSubscription { [weak self] in _ = self?.changedListeners.removeValue(forKey: id) }
         default:
             throw PageError.unknownOp(stream)
         }
+    }
+
+    /// Export Keymap… / Import Keymap… (parity with the Swift Settings
+    /// Keyboard section): a save or open panel on the page's window, then
+    /// the settings owner writes or imports the `shortcuts` object. Returns
+    /// `{path}`, or `{cancelled: true}` when the person closed the panel.
+    private func keymapFile(export: Bool) async throws -> JSONValue {
+        guard let settings = services.settings else {
+            throw PageError(code: "cmux.keybindings.keymap_failed", message: KeybindingStrings.editingUnsupported)
+        }
+        let url: URL? = await withCheckedContinuation { continuation in
+            let panel: NSSavePanel
+            if export {
+                panel = NSSavePanel()
+                panel.nameFieldStringValue = "cmux-next-keymap.json"
+            } else {
+                let open = NSOpenPanel()
+                open.allowsMultipleSelection = false
+                panel = open
+            }
+            panel.allowedContentTypes = [.json]
+            panel.beginForCmux(in: pageWindow()) { continuation.resume(returning: $0) }
+        }
+        guard let url else { return ["cancelled": true] }
+        do {
+            if export {
+                try await settings.exportShortcutKeymap(to: url)
+            } else {
+                try await settings.importShortcutKeymap(from: url)
+                for listener in changedListeners.values { listener([:]) }
+            }
+        } catch {
+            throw PageError(code: "cmux.keybindings.keymap_failed", message: String(describing: error))
+        }
+        return ["path": .string(url.path)]
     }
 
     private func startRecording() {

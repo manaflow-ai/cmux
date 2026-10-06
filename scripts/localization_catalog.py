@@ -86,6 +86,13 @@ def catalog_entries(text: str) -> list[Member]:
     return members(text, strings.start, strict_values=True)
 
 
+def catalog_locales(entries: list[Member]) -> tuple[str, ...]:
+    """The locales a catalog carries: the required macOS ones, then every other locale any of its
+    entries has (the agent pane's catalog carries 21)."""
+    present = {locale for entry in entries for locale in entry.value.get("localizations", {})}
+    return LOCALES + tuple(sorted(present - set(LOCALES)))
+
+
 def discover(root: Path) -> list[Path]:
     paths = set((root / "Resources").rglob("*.xcstrings"))
     paths.update((root / "Packages/macOS").glob("*/Sources/**/*.xcstrings"))

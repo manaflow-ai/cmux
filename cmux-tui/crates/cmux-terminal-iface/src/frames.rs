@@ -85,7 +85,8 @@ pub enum FrameBody {
     Data { offset: u64, bytes: Vec<u8> },
     /// The receiver grants `bytes` more of `direction`.
     Credit { direction: Direction, bytes: u32 },
-    /// Exactly once per channel, after its last data.
+    /// Exactly once per channel, after its last data; none follows a
+    /// [`crate::ByteTerminal::close`] (the session host ended it).
     End(End),
 }
 

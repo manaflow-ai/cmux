@@ -9,6 +9,12 @@ public struct DockLayoutReport: Sendable {
         public var dock: DockColumn
         public var frameInWindow: CGRect
         public var coverInWindow: CGRect
+        /// The inner-edge resize handle (the dock's rim); nil when the
+        /// column is not drawn as a dock.
+        public var rimInWindow: CGRect?
+        /// False when the layout holds the flag but the geometry draws the
+        /// column in the strip (for example a screen of only docked columns).
+        public var shownAsDock: Bool
         public var panes: [PaneID]
         public var hasBackdrop: Bool
     }
@@ -33,11 +39,18 @@ extension LayoutRootView {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return nil }
         let geometry = screen.geometry
         func inWindow(_ rect: CGRect) -> CGRect { screen.convert(rect, to: nil) }
-        let columns = geometry.dock.map { entry in
-            DockLayoutReport.Column(
-                column: entry.column, dock: entry.dock, frameInWindow: inWindow(entry.frame), coverInWindow: inWindow(entry.cover),
-                panes: model.activeScreen?.layout.columns.first { $0.id == entry.column }?.root.panes ?? [],
-                hasBackdrop: screen.backdrops[entry.column] != nil
+        // Every column the layout docks, drawn as a dock or not, so a caller
+        // never sees an empty list while a flag is set.
+        let layoutColumns = model.activeScreen?.layout.columns ?? []
+        let columns = layoutColumns.compactMap { column -> DockLayoutReport.Column? in
+            guard let dock = column.dock else { return nil }
+            let entry = geometry.dock.first { $0.column == column.id }
+            let frame = entry?.frame ?? geometry.columns[column.id] ?? .zero
+            let rim = entry == nil ? nil : geometry.columnEdges.first { $0.column == column.id && $0.dockEdge != nil }?.hitFrame
+            return DockLayoutReport.Column(
+                column: column.id, dock: entry?.dock ?? dock, frameInWindow: inWindow(frame),
+                coverInWindow: entry.map { inWindow($0.cover) } ?? .zero, rimInWindow: rim.map(inWindow),
+                shownAsDock: entry != nil, panes: column.root.panes, hasBackdrop: screen.backdrops[column.id] != nil
             )
         }
         let bar = screen.scrollbarReport

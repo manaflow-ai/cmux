@@ -7,15 +7,15 @@ import CmuxNextSettings
 /// Docked columns and the strip scrollbar (plans/cmux-next/dock-column.md).
 /// Every entry point (palette, context menus, CLI verbs, `action.run`,
 /// `debug.dock`) ends in `apply`: the layout model validates and emits
-/// the intent, the daemon's `set-column-sticky` changes the layout, and the
+/// the intent, the daemon's `set-column-dock` changes the layout, and the
 /// app shows it when the daemon's snapshot arrives (no optimistic copy).
 /// Disabled with the daemon's reason on a daemon without
-/// `sticky-columns-v1` (an older remote machine; the bundled same-tree
+/// `dock-columns-v1` (an older remote machine; the bundled same-tree
 /// daemon serves it, check-daemon-capabilities.sh).
 enum ColumnDocking {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         DockColumnHandlers.bind(into: registry, context: ctx)
-        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapabilities.shared.edgeDocks, daemon: ctx.services.activeDaemon,
+        registry.bind("tab.moveToNewDockColumn", requires: DaemonCapabilities.shared.dockColumns, daemon: ctx.services.activeDaemon,
                       run: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let edge = invocation["edge"]?.stringValue.flatMap(DockEdge.init(rawValue:)) ?? defaultEdge
@@ -48,8 +48,8 @@ enum ColumnDocking {
     static var defaultMode: DockMode { DesignSettings.shared.dockColumnMode == .overlay ? .overlay : .docked }
 
     /// The one mutation path: checks the workspace's own daemon serves
-    /// `sticky-columns-v1`, validates like the daemon, sends
-    /// `set-column-sticky`; a refusal throws its reason.
+    /// `dock-columns-v1`, validates like the daemon, sends
+    /// `set-column-dock`; a refusal throws its reason.
     static func apply(_ dock: DockColumn?, to column: LayoutColumn, in content: WorkspaceContentController,
                       transaction: LayoutTransactionID = .make()) throws {
         let capability = DaemonCapabilities.shared.dockColumns
@@ -64,7 +64,7 @@ enum ColumnDocking {
         case .unknownColumn: throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         case .lastScrollingColumn: throw ActionFailure.invalidTarget(RefusalStrings.lastScrollingColumn)
         case .unchanged:
-            throw ActionFailure.invalidTarget(dock == nil ? RefusalStrings.columnNotDocked : RefusalStrings.columnAlreadyDocked)
+            throw ActionFailure.noTarget(dock == nil ? RefusalStrings.columnNotDocked : RefusalStrings.columnAlreadyDocked)
         }
     }
 }

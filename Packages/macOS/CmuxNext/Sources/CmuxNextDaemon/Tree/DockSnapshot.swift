@@ -1,7 +1,7 @@
 import Foundation
 
-/// A column pinned to a viewport edge: left or right (`sticky-columns-v1`,
-/// `columns[].sticky`), top or bottom (`edge-docks-v1`, `columns[].dock`).
+/// A column docked to a viewport edge, `columns[].dock`: left or right
+/// (`dock-columns-v1`), top or bottom (also `edge-docks-v1`).
 public struct DockSnapshot: Sendable, Hashable, Decodable {
     public enum Edge: String, Sendable, Hashable, Decodable {
         case left, right, top, bottom

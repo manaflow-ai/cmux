@@ -10,6 +10,13 @@
  */
 import { readFileSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
+import { cloudEntryPlan } from "../src/cloud-plans.ts"
+import { overlayAddress } from "../src/overlay.ts"
+import { backendOnlyCases } from "./cloud-vectors-backend-only.ts"
+import { vmCases } from "./cloud-vectors-vm.ts"
+
+/** The plan the refusals and the checkout name, from the plan catalog (never a literal). */
+const PLAN_ID = cloudEntryPlan()
 
 type Json = null | boolean | number | string | Array<Json> | { [k: string]: Json }
 type Obj = { [k: string]: Json }
@@ -104,11 +111,20 @@ const replayPair = (op: string, key: string, value: Json, revision: string): Arr
 
 const INSTALL_P = { kind: "install" }
 const AGENT_P = { kind: "install", agent: AGENT }
+/** A signed-in person (session). Money and destructive ops need one (decision: never the default install grants). */
+const SESSION_P = { kind: "session" }
+/** Ops that cost money or destroy data: a user principal, or later an install with a fresh origin.confirmation (ORIGIN). */
+const PERSON_OPS = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.start", "cloud.machine.pause", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore", "cloud.snapshot.delete", "cloud.billing.checkout", "cloud.migration.start"])
 const CUT = "the provider call was cut off; retry with the same key"
 
 const cases: Array<Obj> = []
+/**
+ * Requests a correct client never sends (both selectors, a key on link_token) and the VM bind agent's
+ * POST /v1/cloud/bind (not a catalog op): kept out of `cases`, so op-driven client checks never see them.
+ */
+const backendOnly: Array<Obj> = []
 const kase = (name: string, op: string, params: Obj, responses: Array<Obj>, opts: { key?: string; mutation?: boolean; principal?: Obj; note?: string } = {}) => {
-  const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? INSTALL_P, params }
+  const c: Obj = { name, op, class: opts.key || opts.mutation ? "mutation" : "read", principal: opts.principal ?? (PERSON_OPS.has(op) ? SESSION_P : INSTALL_P), params }
   if (opts.key) c.idempotency_key = opts.key
   c.responses = responses
   if (opts.note) c.note = opts.note
@@ -156,21 +172,21 @@ kase(
   "machine.create.plan_required",
   "cloud.machine.create",
   { name: "big box", size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } },
-  [opErr("cloud.machine.create", "key-create-plan", "cloud.plan.required", "Cloud machines need a paid plan", false, { plan: "pro" })],
+  [opErr("cloud.machine.create", "key-create-plan", "cloud.plan.required", "Cloud machines need a paid plan", false, { plan: PLAN_ID })],
   { key: "key-create-plan" }
 )
 kase(
   "machine.create.quota",
   "cloud.machine.create",
   { name: "sixth box", size: SIZE },
-  [opErr("cloud.machine.create", "key-create-quota", "cloud.quota.exceeded", "this plan allows 5 active machines", false, { limit: 5, used: 5, resource: "active" })],
+  [opErr("cloud.machine.create", "key-create-quota", "cloud.quota.exceeded", "this plan allows 5 active machines", false, { limit: 5, used: 5, resource: "active", plan: "max" })],
   { key: "key-create-quota" }
 )
 kase(
   "machine.create.size_locked",
   "cloud.machine.create",
   { name: "huge box", size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } },
-  [opErr("cloud.machine.create", "key-create-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536 })],
+  [opErr("cloud.machine.create", "key-create-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536, plan: "max" })],
   { key: "key-create-locked" }
 )
 kase(
@@ -179,6 +195,24 @@ kase(
   { name: "agent box", size: SIZE },
   [opErr("cloud.machine.create", "key-create-agent", "auth.forbidden", "an agent cannot create machines")],
   { key: "key-create-agent", principal: AGENT_P }
+)
+kase(
+  "machine.create.install",
+  "cloud.machine.create",
+  { name: "from an install", size: SIZE },
+  [opErr("cloud.machine.create", "key-create-install", "auth.forbidden", "creating a machine needs a signed-in person")],
+  { key: "key-create-install", principal: INSTALL_P, note: "Money and destructive ops never use the default install grants." }
+)
+kase(
+  "machine.create.install_confirmed",
+  "cloud.machine.create",
+  { name: "confirmed on the Mac", size: SIZE },
+  [opErr("cloud.machine.create", "key-create-confirmed", "auth.forbidden", "creating a machine needs a signed-in person")],
+  {
+    key: "key-create-confirmed",
+    principal: { kind: "install", origin_confirmation: "conf_pending_origin" },
+    note: "PENDING ORIGIN: an install with a fresh single-use origin.confirmation token from the native confirmation sheet. Until the origin window lands this is refused like any install; after it, the expected answer is the machine.create success."
+  }
 )
 
 // ---- rename, start, pause, resize, idle policy
@@ -192,21 +226,24 @@ kase(
   "machine.start.quota",
   "cloud.machine.start",
   { machine: vm(2) },
-  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active" })],
+  [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: PLAN_ID })],
   { key: "key-start-quota" }
 )
 kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
   key: "key-pause-1"
 })
+kase("machine.pause.not_running", "cloud.machine.pause", { machine: vm(2) }, [opErr("cloud.machine.pause", "key-pause-2", "cloud.machine.not_running", "only a running machine can be paused", false, { machine: vm(2), state: "paused" })], { key: "key-pause-2" })
+kase("machine.start.not_paused", "cloud.machine.start", { machine: vm(1) }, [opErr("cloud.machine.start", "key-start-2", "cloud.machine.not_paused", "only a paused machine can be started", false, { machine: vm(1), state: "running" })], { key: "key-start-2" })
 const big = { cpu: 4, memory_mb: 8192, disk_mb: 32768 }
 kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, revision: "50" } }, "50")], {
   key: "key-resize-1"
 })
+kase("machine.resize.grow_only", "cloud.machine.resize", { machine: vm(1), size: { cpu: 1 } }, [opErr("cloud.machine.resize", "key-resize-2", "cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", false, { size: M1.size as Json })], { key: "key-resize-2" })
 kase(
   "machine.resize.size_locked",
   "cloud.machine.resize",
   { machine: vm(1), size: { cpu: 16, memory_mb: 65536, disk_mb: 262144 } },
-  [opErr("cloud.machine.resize", "key-resize-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536 })],
+  [opErr("cloud.machine.resize", "key-resize-locked", "cloud.size.locked", "this size needs another plan", false, { memory_mb: 65536, plan: "max" })],
   { key: "key-resize-locked" }
 )
 kase(
@@ -240,14 +277,24 @@ kase(
   [opErr("cloud.machine.delete", "key-delete-agent", "auth.forbidden", "an agent cannot delete machines")],
   { key: "key-delete-agent", principal: AGENT_P }
 )
+kase(
+  "machine.delete.install",
+  "cloud.machine.delete",
+  { machine: vm(1) },
+  [opErr("cloud.machine.delete", "key-delete-install", "auth.forbidden", "deleting a machine needs a signed-in person")],
+  { key: "key-delete-install", principal: INSTALL_P, note: "Money and destructive ops never use the default install grants." }
+)
 
 // ---- connect_info (contract 1.7): no credential in a read
+/** transport.md 3.1: the real derivation (fd7c:6d78::/32 + 96 bits of sha256(host id)). */
+const overlay = new Map<number, string>()
+for (const n of [1, 2, 4]) overlay.set(n, await overlayAddress(host(n)))
 const connectInfo = (n: number, state: string, rev: number): Obj => ({
   machine: vm(n),
   host: host(n),
   epoch: 1,
   state,
-  peer: { wg_public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", overlay_address: `fd7c:6d78:0:0:0:0:0:${n}`, vpc_endpoint: null, public_ipv6: null },
+  peer: { wg_public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", overlay_address: overlay.get(n)!, vpc_endpoint: null, public_ipv6: null },
   gateway: null,
   services: ["daemon", "ssh"],
   daemon: { version: "0.40.0", capabilities: ["terminal", "files", "ports"] },
@@ -276,13 +323,35 @@ kase(
   [mintOk(linkToken(1)), mintOk(linkToken(2))],
   { mutation: true, note: "Two calls, two fresh tokens: no key, no replay." }
 )
+/** A refused mint: no stream, no key, no sequence (nothing was committed). */
+const mintErr = (code: string, message: string, details?: Obj): Obj => ({
+  http: { path: "/v1/ops", status: 200 },
+  body: { ok: false, op: "cloud.machine.link_token", error: { code, message, retryable: false, ...(details ? { details } : {}) }, transaction: tx(), idempotency_key: "", replayed: false, stream: "", sequence: 0 }
+})
 kase(
-  "machine.link_token.not_bound",
+  "machine.link_token.paused",
   "cloud.machine.link_token",
-  { host: host(4), services: ["daemon"] },
-  [opErr("cloud.machine.link_token", "", "cloud.machine.not_bound", "the machine is still provisioning")],
-  { mutation: true }
+  { host: host(2), services: ["ssh"] },
+  [mintErr("cloud.machine.paused", "the machine is paused; start it first", { machine: vm(2), state: "paused" })],
+  { mutation: true, note: "No dial to a machine that cannot answer and no automatic start: the client shows \"Start machine?\" and calls cloud.machine.start." }
 )
+kase("machine.link_token.not_bound", "cloud.machine.link_token", { host: host(4), services: ["ssh"] }, [mintErr("cloud.machine.not_bound", "the machine is still provisioning")], { mutation: true })
+kase("machine.link_token.not_found", "cloud.machine.link_token", { host: host(9), services: ["ssh"] }, [mintErr("cloud.machine.not_found", "no such machine in this team")], { mutation: true })
+kase(
+  "machine.link_token.session_forbidden",
+  "cloud.machine.link_token",
+  { host: host(1), services: ["ssh"] },
+  [mintErr("auth.forbidden", "link tokens are minted only for an install's cmux link")],
+  { mutation: true, principal: SESSION_P, note: "Install principals only (LINK-RESOLVE): an app or page caller never holds a link token." }
+)
+kase(
+  "machine.link_token.install_refused",
+  "cloud.machine.link_token",
+  { host: host(1), services: ["ssh"] },
+  [mintErr("cloud.link.install_refused", "only the cli, mac app and ios installs mint link tokens", { install_kind: "web", allowed: ["cli", "mac", "ios"] })],
+  { mutation: true, note: "CLOUD-LINK-FOLLOWUPS (2): a vm, daemon or web install never mints; the check runs before the machine lookup." }
+)
+backendOnly.push(...backendOnlyCases({ TEAM, INSTALL_P, vm, host, readErr }))
 
 // ---- snapshots
 const S1 = snapshot(1, 1, "nightly", 3)
@@ -295,7 +364,7 @@ kase(
   "snapshot.create.quota",
   "cloud.snapshot.create",
   { machine: vm(1), name: "one more" },
-  [opErr("cloud.snapshot.create", "key-snap-quota", "cloud.quota.exceeded", "this plan keeps 10 saved snapshots", false, { limit: 10, used: 10, resource: "saved" })],
+  [opErr("cloud.snapshot.create", "key-snap-quota", "cloud.quota.exceeded", "this plan keeps 10 saved snapshots", false, { limit: 10, used: 10, resource: "saved", plan: "max" })],
   { key: "key-snap-quota" }
 )
 const M6 = machine(6, "restored box", "provisioning", 44, { bound: false })
@@ -313,18 +382,19 @@ kase("snapshot.delete", "cloud.snapshot.delete", { snapshot: snap(1) }, replayPa
 
 // ---- plan and billing
 const PLAN = {
-  plan_id: "pro",
+  plan_id: PLAN_ID,
+  upgrade_plan: "max",
   limits: { max_active: 5, max_saved: 10, memory_options_mb: [4096, 8192, 16384, 32768, 65536], locked_memory_options_mb: [65536], vm_hours_included: 500 },
   usage: { active: 2, saved: 3, vm_hours_used: 41.5, period_end: 1792000000000 }
 }
 kase("plan.get", "cloud.plan.get", {}, [readOk("cloud.plan.get", PLAN, "12")])
-kase("billing.checkout", "cloud.billing.checkout", { plan: "pro" }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
+kase("billing.checkout", "cloud.billing.checkout", { plan: PLAN_ID }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
   key: "key-checkout-1"
 })
 kase(
   "billing.checkout.agent_forbidden",
   "cloud.billing.checkout",
-  { plan: "pro" },
+  { plan: PLAN_ID },
   [opErr("cloud.billing.checkout", "key-checkout-agent", "auth.forbidden", "an agent cannot start a checkout")],
   { key: "key-checkout-agent", principal: AGENT_P }
 )
@@ -390,6 +460,7 @@ event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revisi
 event("snapshot.upsert", "cloud.snapshot.upsert", { snapshot: { ...S3, status: "ready", revision: "2" } })
 event("snapshot.removed", "cloud.snapshot.removed", { snapshot: snap(1), revision: "4" })
 event("plan.changed", "cloud.plan.changed", { plan: PLAN })
+vmCases({ kase, readOk, readErr, events, stream: STREAM, tx, vm, host, M1, seq })
 
 const doc = {
   $comment:
@@ -398,7 +469,7 @@ const doc = {
   version: 1,
   identities: { team: TEAM, user: USER, install: INSTALL, agent: AGENT },
   conventions: {
-    request: "POST http.path with {op, params, idempotency_key?}; reads have no key.",
+    request: "POST http.path with {op, params, idempotency_key?}; reads have no key. `backend_only` bind cases POST params as the whole body to /v1/cloud/bind with no bearer (the one-time bind token is the credential).",
     responses: "One entry per attempt with the same (principal, op, params, idempotency_key): attempt i gets responses[i], later attempts the last entry.",
     read_error: "A read error is the HTTP error body {_tag, code, message} at http.status.",
     principal: "kind install or session; agent set = a chief token (claim agt).",
@@ -406,7 +477,8 @@ const doc = {
       "Decimal string: the team owner's (CloudDO) event sequence at the entity's last change, so entity and list revisions compare. A client drops an event or answer older than what it holds."
   },
   cases,
-  events
+  events,
+  backend_only: backendOnly
 }
 
 const out = fileURLToPath(new URL("../../../catalog/cloud-vectors.json", import.meta.url))

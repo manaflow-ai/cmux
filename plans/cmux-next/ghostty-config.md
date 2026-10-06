@@ -104,3 +104,68 @@ keys follow the creator, which is deterministic and documented (a second client 
 rendering, input and keybinds, but the creator's replies). Trade-offs: three small fork APIs to carry;
 cmux.json keys migrate (one-time, logged); `+show-config` adds a process spawn for client-less
 hosts (off the startup path); clipboard-read prompts need a client round trip.
+
+## Lane follow-ups (in order)
+
+1. `new-screen` and `new-workspace` send no `env` and no `shell_args` from the Mac, so their
+   terminals get no app environment and only the host's integration (`shell-integration = none`
+   still ignored there). Add `env`/`shell_args` to both with the same capability pattern.
+2. Fork PR 2 (manaflow-ai/ghostty-next): deferred clipboard reads in libghostty-vt
+   (`ghostty_terminal_clipboard_read_complete`, original terminator kept, timeout replies empty and
+   frees the token, no leaked tokens on terminal close); then the host broker (single subscribed
+   frontend answers; zero or several = deny; client default deny/ask).
+3. Fork PR 1 pin bump (needs a window): key list, key sources, loaded files.
+
+## Clipboard-read broker decisions (coordinator, 2026-10-04)
+
+Negotiated by a feature flag in the terminal-host ClientHello rights set (`clipboard-read-v1`), not a
+protocol version, so it does not couple to the v4 split. Conditions: `ask` is per request and the
+sheet names the terminal and its host (local, Cloud machine name, ssh host); reply text capped at
+1 MiB; one open ask per terminal, extra reads while it is open are denied at once; Ghostty `allow`
+applies to local terminals only, remote and Cloud terminals always ask unless a separate explicit
+setting allows them (default off); agents and the socket can never answer a read (frontend user path
+only); logs never contain clipboard content. Needs the full window, after agent-tabs-store.
+
+### Broker implementation state (branch nx-r92-clipboard-broker)
+
+1. Done: ghostty-vt deferred reads (`Callbacks::on_clipboard_read`, `Terminal::set_clipboard_reads_deferred`,
+   `Terminal::complete_clipboard_read`, 1 MiB cap), red then green on a Testbox.
+2. Terminal host: an old host rejects unknown ClientHello rights bits (spec/terminal-host.md "Unknown bits ...
+   are invalid"), so the daemon cannot simply request a new bit. Plan: the host advertises
+   `supports_clipboard_read:true` in its discovery record (the existing additive `supports_*` pattern; older
+   records omit it), and the daemon requests the new right bit (0x20, owner/admin role only) only for a
+   host whose record lists it. With the right granted the host enables deferral, sends
+   `ClipboardReadRequest{token, location}` to that connection and takes `ClipboardReadReply{token, text|refusal}`;
+   pending reads are refused on a one-shot 60 s timer, owner disconnect and terminal end; one open read per terminal,
+   further reads refused at once.
+3. Done (2026-10-05): daemon broker (`server/clipboard_read.rs`), capability `terminal-clipboard-read-v1`:
+   `terminal-clipboard-subscribe {terminal_ids}`, targeted events `terminal-clipboard-read {request_id, terminal_id,
+   location, host}` and `terminal-clipboard-read-cancelled {request_id}`, `terminal-clipboard-reply {request_id,
+   text?}`. Single live subscribed frontend or refuse at once; one open read per terminal; 16 open reads per
+   frontend; only client kind `frontend` with origin `user` (else `origin.forbidden`); a hosted surface signals
+   the broker from its frame reader and answers through a weak per-connection replier; no clipboard text in logs.
+   The daemon sends `host.kind` `local` only (its hosts are local); remote and Cloud naming is the frontend's.
+   Open: local in-process PTY surfaces (surface/spawn.rs) still ignore OSC 52 reads (not wired to the broker).
+   Review fixes (2026-10-05): only the owner connection a surface keeps requests 0x20 (`OwnerIntent`; the
+   one-shot terminate adoption asks for ADMIN); reads dispatch after the chunk's Output frames; the host reply
+   handler checks the full envelope; `Frame` Debug omits payload bytes; the Surface grant API is test-only.
+4. Mac: Ghostty `clipboard-read` allow applies to local terminals only; remote and Cloud terminals ask unless an
+   explicit setting (default off) allows; the sheet names the terminal and its host.
+   Done (2026-10-05, branch nx-r92-clipboard-mac): `TerminalClipboardBroker` (CmuxNextDaemon) keeps
+   `terminal-clipboard-subscribe` equal to the local store's terminal tabs (store observation, resent after each
+   reconnect) and answers from `ClipboardReadSetting.decision(host:)` (`allow` only for local hosts; `ask` is Ghostty's default);
+   `TerminalClipboardReadService` (App) runs it on the local daemon connection only (S3) and asks with a cmux
+   dialog in the terminal's tab naming the tab title and "this Mac". Allow has no Return key; `debug.dialog`
+   cannot press, type into or set fields of that dialog. No explicit remote allow setting exists yet (nothing
+   remote can subscribe). Primary and selection reads use the general pasteboard.
+
+### Remote frontends (coordinator decision S3, 2026-10-05)
+
+This landing: only a local verified app answers; Cloud and remote reads are refused (fail-closed). Next change:
+let the user's own Mac app answer on a remote connection, with a written remote-relay analysis in the PR text and
+the spec: only the authenticated user's own Mac app, bound to the identity the remote transport checks, may
+subscribe; never a second remote client; the reply carries clipboard text off the Mac; the Mac always asks for
+remote and Cloud reads; the user can set a per-host deny; tests for a second remote client that tries to
+subscribe or reply. The daemon reports `host.kind` `local`; the Mac owns the host label on the sheet.
+Follow-up: in-process PTY surfaces (`--ephemeral`, auxiliary, byte-backend, Windows) keep ignoring reads.
+

@@ -49,6 +49,11 @@ enum HomeText {
     static var tapbackFailedTitle: String { String(localized: "home.tapback.failedTitle", defaultValue: "Couldn't Add the Reaction", bundle: .module) }
     static var actionFailedTitle: String { String(localized: "home.action.failedTitle", defaultValue: "Couldn't Update the Conversation", bundle: .module) }
     static var ok: String { String(localized: "home.ok", defaultValue: "OK", bundle: .module) }
+    /// An op (a tapback, a read cursor) ran out of resends unanswered.
+    static var unansweredTitle: String {
+        String(localized: "home.unanswered.title", defaultValue: "A change may not have gone through. Check your connection.",
+               bundle: .module)
+    }
 
     // MARK: Offline and refusals
 

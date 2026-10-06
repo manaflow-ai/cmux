@@ -24,6 +24,10 @@ extension SidebarBridge {
         .newTerminal: "newSurface",
         .newBrowser: "openBrowser",
         .newAgentChat: "palette.newAgentChat",
+        .newWorkspace: "newTab",
+        // The combined import entry opens onboarding, whose role step starts
+        // both the classic-session and agent-chat scans.
+        .importSync: "importAndSync.show",
         .customize: "appearance.customize",
     ]
 
@@ -86,7 +90,7 @@ extension SidebarBridge {
                 _ = apps.apps
                 let shown = window?.workspaceID
                 return (service.document, shown != nil && shown == home.homeWorkspace?.id, NotificationCenterService.unreadCount(store),
-                        updater.indicatorPhase.isUpdateAvailable)
+                        updater.showsSettingsBadge)
             }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
@@ -138,8 +142,10 @@ extension SidebarBridge {
     static func appInfo(_ id: String, registry: AppRegistry) -> SidebarItemInfo {
         guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
+        // A first-party app keeps its former built-in's short tile caption.
+        let caption = SidebarLayoutDocument.firstPartyApps.first { $0.value == id }?.key.caption
         return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
-                               isHidden: AppPresence([app]).suppressed.contains(id))
+                               isHidden: AppPresence([app]).suppressed.contains(id), caption: caption)
     }
 
     /// A layout change from this sidebar (a drag, an inline edit): sent to

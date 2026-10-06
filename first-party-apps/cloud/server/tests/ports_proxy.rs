@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::Duration;
 
-const FIXTURES: &[&str] = &["vm-get", "attach_endpoint_alpha"];
+const FIXTURES: &[&str] = &["vm-get"];
 
 fn open(args: serde_json::Value, key: &str) -> Request {
     Request::new("cloud.browser.open", args).key(key)

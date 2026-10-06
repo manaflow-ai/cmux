@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentCursor
 import CmuxNextActions
 import CmuxNextHistory
 import CmuxNextBridge
@@ -12,6 +13,7 @@ import Observation
 /// Which workspace that is, plus frame and sidebar width, persist in the
 /// daemon's personal projection through `WindowManager`.
 final class WindowController: NSWindowController, NSWindowDelegate {
+    var shortcutHints: WindowShortcutHints?
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
@@ -37,6 +39,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// Agent cursors on this window's cursor layer (made on the first input it draws).
+    private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
 
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
@@ -77,18 +81,21 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
+        startShortcutHints()
         observeWorkspace()
         observeRoom()
+        observeSidebarHidden()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func teardown() {
+        stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
         workspaceObservation?.cancel()
-        badgeObservation?.cancel()
+        sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
         roomObservation?.cancel()
@@ -251,6 +258,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: NSWindowDelegate
 
+
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
         let snapshots = services.sidebarSnapshots, id = state.id
@@ -261,6 +269,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         focus.send(.windowKey(false))
+        // Hover cards in other windows show this window's pages (R131). The
+        // next key window is known on the next main-actor turn.
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            WindowKeyFamily.windowResignedKey(window, newKey: NSApp.keyWindow, owner: { $0.parent ?? $0.sheetParent },
+                                              presenters: self.content?.panes.values.map { $0 as any SurfacePresenter } ?? [],
+                                              cache: self.services.cache)
+        }
     }
 
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
@@ -269,7 +285,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
-    private var badgeObservation: Task<Void, Never>?
+    var sidebarObservation: Task<Void, Never>?
 
     /// Marks this window incognito: the badge shows in the sidebar header,
     /// and in the top row after the traffic lights while the sidebar is
@@ -277,16 +293,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func showIncognitoBadge() {
         sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
         root.titlebarBadge = IncognitoBadgeView()
-        let model = sidebar.model
-        badgeObservation = Task { [weak self] in
-            for await hidden in Observations({ model.isHidden }) {
-                guard let self else { return }
-                root.showsTitlebarBadge = hidden
-                root.layoutSubtreeIfNeeded()
-                for pane in content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
-            }
-        }
+        root.showsTitlebarBadge = sidebar.model.isHidden
+        root.needsLayout = true
     }
+
 
     /// Set once closing this incognito window was confirmed (or needed no
     /// confirmation).
@@ -316,9 +326,11 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// reports every first-responder change to the window's focus coordinator
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
-final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting {
+final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting {
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var windowControlsCollapsed: Bool { (contentView as? WindowRootView)?.windowControlsCollapsed ?? false }
+    var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
@@ -352,8 +364,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// frame with the page over the focus ring; the notifications that
     /// follow the page would come a frame late.
     override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
+        ChildWindowPolicy.check(childWin, parent: self)
         super.addChildWindow(childWin, ordered: place)
         if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     // MARK: OverlayPlaneHosting
@@ -366,7 +381,10 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     // MARK: BrowserWindowOcclusionProviding
 
-    var browserOcclusionRectsInWindow: [CGRect] { overlayLayer.interactiveRects }
+    /// Interactive overlays in the window, and occluders (the sidebar) that stay above pages.
+    var browserOcclusionRectsInWindow: [CGRect] {
+        overlayLayer.interactiveRects + (WindowOverlayHost.existingHost(for: self)?.occluderRects ?? [])
+    }
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
         let accepted = super.makeFirstResponder(responder)

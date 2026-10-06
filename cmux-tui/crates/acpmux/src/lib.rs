@@ -11,7 +11,11 @@
 
 pub mod adopt;
 pub mod agent;
+#[cfg(test)]
+mod agent_exit_tests;
 pub mod agent_host;
+#[cfg(test)]
+mod agent_replay_tests;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;
@@ -31,5 +35,6 @@ pub mod store;
 pub mod transcript;
 pub mod trust;
 pub mod tui;
+pub mod web_modes;
 
 pub mod model_catalog;

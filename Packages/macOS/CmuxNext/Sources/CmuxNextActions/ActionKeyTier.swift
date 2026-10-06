@@ -46,7 +46,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
 
     /// Context facts that mean "this action acts on focused content".
     static let contentContexts: ActionContext = [
-        .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused,
+        .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused, .codeEditorFocused,
         .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen, .agentPaneFocused,
     ]
 
@@ -74,13 +74,16 @@ extension ActionRegistry {
     }
 
     /// The action a key-down resolves to in the current context, with its
-    /// tier, without running it. Among several candidates the most specific
-    /// one wins first (so Cmd-R in a page is reload, not rename), then the
-    /// router decides by tier whether it may run now.
+    /// tier, without running it: the binding table's winner
+    /// (``RegistryKeyBindings/table``, as the key router resolves), so a
+    /// more specific entry wins (Cmd-R in a page is reload, not rename);
+    /// the router then decides by tier whether it may run now.
     public func resolveShortcut(for event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
+        let bindings = RegistryKeyBindings(self)
+        let table = bindings.table, bits = context
         for shortcut in Self.shortcuts(for: event) {
-            if let resolved = resolve(shortcut) {
-                return (resolved.id, resolved.argument, keyTier(for: resolved.id))
+            if let winner = table.resolve([shortcut], in: KeyContext(bits: bits), isRunnable: { bindings.canPerform($0, in: bits) }).winner {
+                return (winner.command, winner.argument, keyTier(for: winner.command))
             }
         }
         return nil

@@ -14,6 +14,8 @@ import {
   type Diagnostic,
   type Domains,
   type HostLists,
+  type AccountsRun,
+  type AccountsState,
   type SettingsPageAction,
   type ListRow,
   type ManagedInfo,
@@ -38,17 +40,21 @@ export type SettingsState = {
   revision: number;
   rows: ReadonlyMap<string, ListRow>;
   diagnostics: ReadonlyMap<string, string[]>;
+  /** Every problem of the last load, in file order (Advanced lists them). */
+  problems: ReadonlyArray<{ path: string; message: string }>;
   managed: ReadonlyMap<string, ManagedInfo>;
   errors: ReadonlyMap<string, RowError>;
   domains: Domains;
   /** Spaces, machines and browser profiles; null until read, or when the host has none. */
   host: HostLists | null;
+  /** The Accounts part; null until read, or when the host has none. */
+  accounts: AccountsState | null;
 };
 
 export type WriteResult = { ok: true } | { ok: false; error: WireError };
 
 /** Where the page opens things it does not edit itself (catalog actions). */
-export type NativeTarget = "cmuxJSON" | "section";
+export type NativeTarget = "cmuxJSON";
 
 const emptyDomains: Domains = { themes: [], font_families: [], sounds: [] };
 
@@ -62,10 +68,12 @@ export class SettingsStore {
     revision: 0,
     rows: new Map(),
     diagnostics: new Map(),
+    problems: [],
     managed: new Map(),
     errors: new Map(),
     domains: emptyDomains,
     host: null,
+    accounts: null,
   };
   private readonly listeners = new Set<() => void>();
   private refreshSequence = 0;
@@ -94,6 +102,7 @@ export class SettingsStore {
         if (event.connected) void this.refresh();
       }),
       this.listen("cmux.settings.host.changed", (host) => this.update({ host })),
+      this.listen("cmux.settings.accounts.changed", (accounts) => this.update({ accounts })),
       this.listen("cmux.page.command", (event) => {
         for (const listener of this.commandListeners) listener(event.command);
       }),
@@ -105,6 +114,59 @@ export class SettingsStore {
   async refreshHost(): Promise<void> {
     const reply = await this.request("cmux.settings.host.lists", {});
     if (reply.ok && !this.disposed) this.update({ host: reply.value });
+  }
+
+  /** Sets one theme level of the active window, then re-reads the lists (the current theme). */
+  async setTheme(level: string, spec: string | null): Promise<void> {
+    await this.request("cmux.settings.theme.set", { level, spec });
+    await this.refreshHost();
+  }
+
+  /** Whether `text` is a theme spec the host accepts. */
+  async acceptsTheme(text: string): Promise<boolean> {
+    const reply = await this.request("cmux.settings.theme.accepts", { text });
+    return reply.ok && reply.value.accepts;
+  }
+
+  /** The section's action buttons; empty when the host has none. */
+  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+    const reply = await this.request("cmux.settings.section.actions", { section });
+    return reply.ok ? reply.value : [];
+  }
+
+  /** Runs a section button (a registry action; the host allows only the sections' own). */
+  runSectionAction(id: string): void {
+    void this.request("cmux.app.action.run", { action: id });
+  }
+
+  /** Opens the cmux picker for the folder list `key`; the host writes the chosen folders. */
+  async addFolders(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.folders.add", { key });
+    if (!reply.ok)
+      this.setError(key, {
+        code: errorCode(reply.error),
+        message: errorText(errorCode(reply.error)),
+        detail: reply.error.message,
+      });
+    else await this.refresh();
+  }
+
+  revealSettingsFile(): void {
+    void this.request("cmux.settings.file.reveal", {});
+  }
+
+  /** Reads the Accounts part. */
+  async refreshAccounts(): Promise<void> {
+    const reply = await this.request("cmux.settings.accounts.state", {});
+    if (reply.ok && !this.disposed) this.update({ accounts: reply.value });
+  }
+
+  /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
+  async runAccounts(run: AccountsRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.accounts.run", run);
+    await this.refreshAccounts();
+    if (!reply.ok) return reply.error.message;
+    return reply.value.error ?? null;
   }
 
   /** Runs one of the page's catalog actions (`target` is `kind:id`), then re-reads the lists. */
@@ -155,6 +217,10 @@ export class SettingsStore {
       rows: new Map(list.value.map((row) => [row.key, row])),
       managed: new Map(Object.entries(snapshot.value.managed ?? {})),
       diagnostics: diagnosticsByKey(snapshot.value.diagnostics ?? []),
+      problems: (snapshot.value.diagnostics ?? []).map((diagnostic) => ({
+        path: Array.isArray(diagnostic.path) ? diagnostic.path.join(".") : diagnostic.path,
+        message: diagnostic.message,
+      })),
       domains: publishedDomains(snapshot.value),
     });
   }
@@ -181,12 +247,9 @@ export class SettingsStore {
     void this.request("cmux.settings.preview.end", { key });
   }
 
-  openNative(target: NativeTarget, section?: string): void {
-    const params =
-      target === "cmuxJSON"
-        ? { action: "palette.openCmuxSettingsFile" }
-        : { action: "openSettings", args: section ? { section } : {} };
-    void this.request("cmux.app.action.run", params);
+  /** Opens cmux.json in the editor (the palette's action). The Swift Settings window is gone (R82). */
+  openNative(_target: NativeTarget): void {
+    void this.request("cmux.app.action.run", { action: "palette.openCmuxSettingsFile" });
   }
 
   playSound(name: string): void {

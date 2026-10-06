@@ -1,12 +1,14 @@
-// The Files section of a machine on the landed catalog (R71 C5): list, stat and read for a preview
-// of small text files, mkdir and write as ops, and remove, push and pull only as native actions.
+// The Files section of a machine: daemon `fs.*` ops on the link behind `fs-v1` (contract 2.4). List,
+// stat and read for a preview of small text files, mkdir and write as ops, and remove, push and pull
+// only as native actions.
 import { describe, expect, test } from "bun:test";
 import { MockCloudProvider, sampleMachines } from "./mockProvider";
 import { ACTION_RUN, CloudOps, type CloudMachine } from "./ops";
 import { CloudStore } from "./store";
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-const running = () => sampleMachines().find((machine) => machine.status === "running") as CloudMachine;
+const running = () =>
+  sampleMachines().find((machine) => machine.status === "running" && !machine.classic) as CloudMachine;
 
 async function browsing(provider = new MockCloudProvider()) {
   let keys = 0;
@@ -138,6 +140,56 @@ describe("Cloud files", () => {
     await Promise.all([selection, listing]);
     expect(files(store).entries?.map((entry) => entry.name)).toContain("notes.txt");
     expect(store.getSnapshot().detail!.snapshots?.length).toBeGreaterThan(0);
+  });
+
+  test("a save after a preview replaces only the revision it read (baseRevision)", async () => {
+    const { provider, store } = await browsing();
+    await store.files.preview("/home/cmux/notes.txt");
+    const revision = files(store).preview?.revision;
+    expect(revision).toBe("s12-m1791100000000");
+    expect(await store.files.save("/home/cmux/notes.txt", "edited\n")).toBe(true);
+    expect(ops(provider, CloudOps.fsWrite)[0].params).toEqual({
+      machine: running().id,
+      path: "/home/cmux/notes.txt",
+      dataBase64: btoa("edited\n"),
+      baseRevision: revision,
+      idempotency_key: "k1",
+    });
+    // The file changed elsewhere: the next save with the old revision is a conflict, and nothing is lost.
+    const stale = files(store).preview!.revision;
+    await provider.call(CloudOps.fsWrite, {
+      machine: running().id,
+      path: "/home/cmux/notes.txt",
+      dataBase64: btoa("other\n"),
+      idempotency_key: "elsewhere",
+    });
+    expect(stale).toBeDefined();
+    expect(await store.files.save("/home/cmux/notes.txt", "mine\n")).toBe(false);
+    expect(store.getSnapshot().error).toBe("/home/cmux/notes.txt changed since it was read");
+  });
+
+  test("the mock refuses a write over 12 MiB with file_too_large, like the server", async () => {
+    const provider = new MockCloudProvider();
+    const big = btoa("x".repeat(12 * 1024 * 1024 + 1));
+    await expect(
+      provider.call(CloudOps.fsWrite, {
+        machine: "vm_a1",
+        path: "/home/cmux/big.txt",
+        dataBase64: big,
+        idempotency_key: "w",
+      }),
+    ).rejects.toMatchObject({
+      code: "cmux.cloud.file_too_large",
+      message: "the data is 12582913 bytes; the limit is 12582912 bytes",
+    });
+  });
+
+  test("file_ops_busy shows the server's message in the banner and lists nothing new", async () => {
+    const { provider, store } = await browsing();
+    provider.fs.opsBusy = true;
+    await store.files.open("/home/cmux/src");
+    expect(store.getSnapshot().error).toBe("Other file ops are running: try again when one ends");
+    expect(files(store).unavailable).toBeUndefined();
   });
 
   test("a failed write answers false so the editor keeps the text", async () => {

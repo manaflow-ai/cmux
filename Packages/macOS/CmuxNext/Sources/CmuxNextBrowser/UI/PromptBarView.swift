@@ -81,6 +81,27 @@ final class PromptBarView: NSView {
         density.start()
     }
 
+    /// Lines the message takes (tests).
+    var messageLineCount: Int {
+        let line = NSLayoutManager().defaultLineHeight(for: messageLabel.font ?? BrowserMetrics.bodyFont)
+        return max(1, Int((messageLabel.intrinsicContentSize.height / line).rounded()))
+    }
+
+    /// The message wraps at the width the bar may take: `promptMaxWidth`,
+    /// or less in a narrower pane (its container, else the bar itself),
+    /// minus the padding. Never the label's own last width: a short earlier
+    /// message (or a narrow first pass) would stick, and a long question
+    /// would wrap one character per line.
+    override func layout() {
+        super.layout()
+        let room = superview.map { $0.bounds.width - BrowserMetrics.overlayInset * 2 } ?? bounds.width
+        let width = min(BrowserMetrics.promptMaxWidth, room) - BrowserMetrics.overlayPadding * 2
+        if width > 0, abs(messageLabel.preferredMaxLayoutWidth - width) > 0.5 {
+            messageLabel.preferredMaxLayoutWidth = width
+            needsLayout = true
+        }
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -113,11 +134,18 @@ final class PromptBarView: NSView {
             case .camera: Strings.permissionCamera(prompt.origin)
             case .microphone: Strings.permissionMicrophone(prompt.origin)
             case .cameraAndMicrophone: Strings.permissionCameraAndMicrophone(prompt.origin)
+            case .automaticDownloads: Strings.permissionAutomaticDownloads(prompt.origin)
             }
-            // Permission prompt answers: never, this time, while visiting.
-            addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
-            addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
-            addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            if kind == .automaticDownloads {
+                // Chrome's question: Block or Allow, remembered for the site.
+                addButton(PageInfoStrings.block, prominent: false, response: .deny)
+                addButton(PageInfoStrings.allow, prominent: true, response: .allow)
+            } else {
+                // Permission prompt answers: never, this time, while visiting.
+                addButton(PageInfoStrings.promptNeverAllow, prominent: false, response: .deny)
+                addButton(PageInfoStrings.promptAllowThisTime, prominent: false, response: .allowOnce)
+                addButton(PageInfoStrings.promptAllowWhileVisiting, prominent: true, response: .allow)
+            }
         case .alert(let message):
             messageLabel.stringValue = "\(Strings.dialogFrom(prompt.origin))\n\(message)"
             addButton(Strings.ok, prominent: true, response: .accept)

@@ -37,9 +37,17 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
     /// prompt-driven flow unchanged.
     var installsInBackground = false
+    /// With background installs: whether a found update downloads without a click.
+    var downloadsInBackground = true
+    /// Replaces the baked feed when set (``UpdateController/feedOverride``).
+    var feedOverride: String?
+    /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
+    var skipsBuildsThrough: String?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
+    /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
+    var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
@@ -92,11 +100,16 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
+        if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
+            log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
+            setState(.idle)
+            return reply(.dismiss)
+        }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source)
         }
-        if installsInBackground { return acceptInBackground(available) }
+        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setStateAfterMinimumCheckDelay(.updateAvailable(available))
     }
 

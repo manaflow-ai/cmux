@@ -31409,20 +31409,17 @@ mod tests {
 
     #[test]
     fn size_menu_commands_reach_the_shared_sizing_host() {
-        let mux = Mux::new("size-menu-commands-test", SurfaceOptions::default());
+        let mux = Mux::new("size-menu-commands-test", crate::test_wait::quiet_surface());
         let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
         mux.resize_surface_for_client(surface.id, 0, 100, 40).unwrap();
         mux.resize_surface_for_client(surface.id, 7, 118, 30).unwrap();
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
         let settle = |app: &mut App| {
-            loop {
-                let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+            crate::test_wait::recv_until(&events, "SessionMutationSettled", |event| {
                 let settled = matches!(event, AppEvent::SessionMutationSettled { .. });
                 assert!(app.handle(event).is_ok());
-                if settled {
-                    break;
-                }
-            }
+                settled
+            });
         };
 
         app.activate_menu(MenuAction::SetSizeMode {
@@ -31457,6 +31454,8 @@ mod tests {
         .unwrap();
         assert!(app.status_message.is_some());
         assert!(!mux.terminal_size_state(surface.id).unwrap().participant("c7").unwrap().counts);
+        drop(app);
+        mux.shutdown();
     }
 
     #[test]

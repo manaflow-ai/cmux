@@ -83,10 +83,13 @@ export function useMenuTree(
     setPath((list) => [...list.slice(0, at), node.key]);
     if (!focus) return;
     setLevel(at + 1);
+    const entered = entryKey(node.children ?? []);
+    // The highlight a submenu opens on rests there as an arrow would put it (a prewarm hint).
+    node.children?.find((child) => child.key === entered)?.rest?.();
     setActive((list) => {
       const next = list.slice(0, at + 2);
       next[at] = node.key;
-      next[at + 1] = entryKey(node.children ?? []);
+      next[at + 1] = entered;
       return next;
     });
   };

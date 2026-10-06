@@ -2636,8 +2636,8 @@ Result<MutationResult<ScreenSnapshot>> Screen::update_column(
     ColumnUpdateOptions update,
     MutationOptions options) const {
     Json::Object params{{"column", Json(column.value())}};
-    if (update.sticky) {
-        params.emplace("sticky", Json(*update.sticky));
+    if (update.dock) {
+        params.emplace("dock", Json(*update.dock));
     }
     if (update.edge) {
         params.emplace("edge", Json(std::move(*update.edge)));

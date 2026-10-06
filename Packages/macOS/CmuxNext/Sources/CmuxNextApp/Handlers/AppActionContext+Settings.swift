@@ -4,7 +4,7 @@ import os
 
 /// The palette's one write path for cmux.json settings: every handler that
 /// writes a key `SettingsSchema` lists goes through
-/// `SettingsController.setSetting(at:to:)`, the validated write the
+/// `SettingsController.setSetting(at:to:by:)`, the validated write the
 /// Settings window uses, so a managed key or a value the schema refuses is
 /// refused the same way from every entrypoint.
 extension AppActionContext {
@@ -16,9 +16,12 @@ extension AppActionContext {
     /// the file and the managed layers win over the live value again.
     func writeSettings(_ label: String, _ edits: [([String], JSONValue?)], reloadOnFailure: Bool = false) {
         guard let settings = services.settings else { return }
+        // The action run's origin, read now (the write runs later): a socket or page run is not
+        // the user and may change only agent-settable keys.
+        let writer = SettingWriter.currentRun()
         registry.track(Task { @MainActor in
             do {
-                for (path, value) in edits { try await settings.setSetting(at: path, to: value) }
+                for (path, value) in edits { try await settings.setSetting(at: path, to: value, by: writer) }
                 return nil
             } catch {
                 Self.settingsLogger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")

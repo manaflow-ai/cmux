@@ -9,8 +9,8 @@
 //! - server -> host: `{"type":"result","id","ok","result"|"error"}`
 //! - server -> host: `{"type":"event","event":"cloud.machine.watch","data"}`
 //!   with `data` = `{"type":"upsert","revision","machine"}` or
-//!   `{"type":"removed","revision","id"}`; `{"type":"event","event":"cloud.link.changed",...}`;
-//!   `{"type":"event","event":"cloud.port.changed","machine","kind":"forward"|"browser",
+//!   `{"type":"removed","revision","id"}`; `{"type":"event","event":"cloud.link.changed","data"}`;
+//!   `{"type":"event","event":"cloud.port.changed","data"}` with `data` = `{"machine","kind",
 //!   "port"?,"host","localPort","generation","state":"down","reason"}` when a link change
 //!   closed a forward or a browser route. Link and port lines go out as soon as the
 //!   loop is free (with no op after the change); while an op runs (a relay call, or a
@@ -22,18 +22,19 @@
 //!   or `{"type":"relay.result","id","ok":false,"error":{"code","message","retryable","details"?}}`
 //!   (a `/v1/ops` `OpResponse` as is; a non-200 HTTP answer's `{code, message}` body
 //!   as the error, retryable on 503).
-//! - TRANSITIONAL (attach, scp and file routes until the link slice):
-//!   server -> host `{"type":"relay.request","id","op","method","path","body","idempotency_key"}`;
-//!   host -> server `{"type":"relay.response","id","status","body","error_code"}`.
 //! - host -> server, for any relay call: `{"type":"relay.error","id",
 //!   "code":"not_signed_in"|"unavailable","message"}`
 //! - server -> host: `{"type":"relay.session","id"}`; host -> server:
 //!   `{"type":"relay.session","id","signed_in","team"}`
-//! - host-only ops (`cmux.host.link.get`): `t` frames, see [`super::host`].
-//!   A host frame that arrives during a relay call is kept and applied
-//!   after the call, on the loop thread: a `host.event` replaces a waiting
-//!   one of the same op, at most 64 events (distinct ops) and 64 answers
-//!   are kept, other frames are dropped (see `HostRelay::hold`).
+//! - host-only ops (`cmux.host.link.get`, `cmux.terminal.connector.open`):
+//!   `t` frames, see [`super::host`]. A host frame that arrives during a
+//!   relay call is kept and applied after the call, on the loop thread: a
+//!   `host.event` replaces a waiting one of the same op (a
+//!   `cmux.terminal.connector.close` only one of the same channel), at most
+//!   66 events and 66 answers are kept (one per frame link plus the link
+//!   details), other frames are dropped (see `HostRelay::hold`).
+//! - frame lines of frame links (`data`, `credit`, `end`; crate::connector):
+//!   kept during a relay call, at most 4096; past that every frame link ends.
 //!
 //! The host adds the install token when it sends the call (never a Stack
 //! bearer, contract 1.1 and state-placement 5.5); no line in either
@@ -49,8 +50,7 @@
 //! on one channel and sends a link change at once, with no op after it.
 
 use super::control_plane::{
-    ControlPlane, HttpCall, HttpReply, RelayError, SessionStatus, WireCall, WireError, WireReply,
-    WireResult,
+    ControlPlane, RelayError, SessionStatus, WireCall, WireError, WireReply, WireResult,
 };
 use super::error::{CloudError, codes};
 use serde_json::{Value, json};
@@ -152,12 +152,30 @@ pub struct HostRelay<R, W> {
     host_events: usize,
     /// `team.event` lines in `queued` (they get no result line).
     team_events: usize,
+    /// Frame lines (`data`, `credit`, `end`) in `queued`.
+    frame_lines: usize,
+    /// A [`FRAME_OVERFLOW`] marker is in `queued`.
+    frame_overflow: bool,
+    /// A relay call read a wake and dropped it ([`Self::next_step`]).
+    wake_dropped: bool,
 }
 
 /// Team wire events a relay call keeps waiting. They are kept in order and
 /// never answered; one more is dropped (the projection compares revisions,
 /// and the next listing repairs a dropped change).
 const TEAM_EVENT_LINES: usize = 256;
+
+/// Frame lines a relay call keeps waiting (all frame links together).
+const FRAME_LINES: usize = 4096;
+
+/// Host answers and events a relay call keeps: one per frame link (its
+/// `connector.open` answer or its `connector.close`) plus the link details.
+pub const HOST_FRAME_LINES: usize = crate::connector::frames::MAX_FRAME_LINKS + 2;
+
+/// The internal line that ends every frame link after frame lines
+/// overflowed during a relay call. The same line from the host is read as
+/// invalid ([`read_json_line`]); the serve loop handles only the queued one.
+pub(crate) const FRAME_OVERFLOW: &str = "cmux.cloud.internal.frame_overflow";
 
 impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub fn new(reader: R, writer: W) -> Self {
@@ -170,6 +188,9 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             host_answers: 0,
             host_events: 0,
             team_events: 0,
+            frame_lines: 0,
+            frame_overflow: false,
+            wake_dropped: false,
         }
     }
 
@@ -187,6 +208,11 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     pub(crate) fn next_step(&mut self) -> std::io::Result<Option<Next>> {
         if let Some(m) = self.pop_queued() {
             return Ok(Some(Next::Message(m)));
+        }
+        // A wake that a relay call read and dropped: its events may not be
+        // taken yet, and the waker sends no new wake while it is pending.
+        if std::mem::take(&mut self.wake_dropped) {
+            return Ok(Some(Next::Wake));
         }
         match &mut self.input {
             Input::Direct(reader) => Ok(read_json_line(reader)?.map(Next::Message)),
@@ -206,6 +232,8 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             Some("host.result" | "host.error") => self.host_answers -= 1,
             Some("host.event") => self.host_events -= 1,
             _ if super::host::is_host_frame(&m) => {}
+            _ if crate::connector::is_frame_line(&m) => self.frame_lines -= 1,
+            _ if m["type"] == FRAME_OVERFLOW => self.frame_overflow = false,
             _ if m["type"] == "team.event" => self.team_events -= 1,
             _ => self.waiting_ops -= 1,
         }
@@ -220,15 +248,17 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     }
 
     /// The next host line. In the inbox, a wake that arrives during a relay
-    /// call is dropped: the loop takes every event after each op anyway
-    /// (and clears the pending flag first, so later events wake it again).
+    /// call is not lost: it becomes a [`Next::Wake`] after the call (the
+    /// waker sends no second wake while one is pending).
     fn read_line(&mut self) -> std::io::Result<Option<Value>> {
         match &mut self.input {
             Input::Direct(reader) => read_json_line(reader),
             Input::Inbox(inbox) => loop {
                 match inbox.recv() {
                     Ok(Inbound::Host(line)) => return line,
-                    Ok(Inbound::Wake) => {}
+                    // Kept as a flag: the loop takes the events after the
+                    // call ([`Self::next_step`]).
+                    Ok(Inbound::Wake) => self.wake_dropped = true,
                     Err(_) => return Ok(None),
                 }
             },
@@ -265,8 +295,7 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             }
             let expected = match kind.as_str() {
                 Some("relay.session") => "relay.session",
-                Some("relay.op") => "relay.result",
-                _ => "relay.response",
+                _ => "relay.result",
             };
             if message["type"] != expected {
                 return Err(RelayError::Unavailable("unexpected relay answer".into()));
@@ -280,8 +309,9 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
     /// Keeps a line that came during a relay call for after it. Host frames
     /// are answers and events, never op lines: a `host.event` replaces the
     /// waiting one of the same op in place (only the newest counts), at most
-    /// [`RELAY_QUEUE_LINES`] host answers are kept (the server has far fewer
-    /// waiting), and other host frames are dropped. Every other line gets a
+    /// [`HOST_FRAME_LINES`] host answers are kept (as many as can wait), and
+    /// other host frames are dropped. Frame lines are kept up to
+    /// [`FRAME_LINES`]. Every other line gets a
     /// result line from the loop, so at most [`RELAY_QUEUE_LINES`] of them
     /// wait; one more is answered now with the retryable
     /// `cmux.cloud.relay_busy`. When that write fails the channel is dead,
@@ -291,18 +321,26 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
             match message["t"].as_str() {
                 Some("host.event") => {
                     let op = message["op"].clone();
-                    let same = |m: &Value| m["t"] == "host.event" && m["op"] == op;
+                    // A frame link close names its channel: only the same
+                    // channel's close is the same event.
+                    let data = (op == crate::connector::frames::CONNECTOR_CLOSE)
+                        .then(|| message["data"].clone());
+                    let same = |m: &Value| {
+                        m["t"] == "host.event"
+                            && m["op"] == op
+                            && data.as_ref().is_none_or(|d| &m["data"] == d)
+                    };
                     // In place: the newest event keeps the older one's turn.
                     if let Some(waiting) = self.queued.iter_mut().find(|m| same(m)) {
                         *waiting = message;
-                    } else if self.host_events < RELAY_QUEUE_LINES {
+                    } else if self.host_events < HOST_FRAME_LINES {
                         self.host_events += 1;
                         self.queued.push_back(message);
                     } else {
                         eprintln!("cmux-cloud: dropped a host event that came during a relay call");
                     }
                 }
-                Some("host.result" | "host.error") if self.host_answers < RELAY_QUEUE_LINES => {
+                Some("host.result" | "host.error") if self.host_answers < HOST_FRAME_LINES => {
                     self.host_answers += 1;
                     self.queued.push_back(message);
                 }
@@ -310,6 +348,24 @@ impl<R: BufRead, W: Write> HostRelay<R, W> {
                 // frame type the server does not know: the loop would drop
                 // it anyway.
                 _ => eprintln!("cmux-cloud: dropped a host frame that came during a relay call"),
+            }
+            return Ok(());
+        }
+        if crate::connector::is_frame_line(&message) {
+            // The host sends data only inside the credit this server
+            // granted, so these stay within the windows; past the bound a
+            // line is dropped, and the pump ends its channel (gap).
+            if self.frame_lines < FRAME_LINES {
+                self.frame_lines += 1;
+                self.queued.push_back(message);
+                return Ok(());
+            }
+            // Past the bound a dropped line would break a channel's offsets
+            // or credit: every frame link ends instead (one marker; later
+            // lines find no link and are dropped).
+            if !std::mem::replace(&mut self.frame_overflow, true) {
+                eprintln!("cmux-cloud: frame lines overflowed during a relay call");
+                self.queued.push_back(json!({ "type": FRAME_OVERFLOW }));
             }
             return Ok(());
         }
@@ -382,7 +438,11 @@ fn read_json_line<R: BufRead>(reader: &mut R) -> std::io::Result<Option<Value>> 
         if line.iter().all(u8::is_ascii_whitespace) {
             continue;
         }
-        return match serde_json::from_slice(&line) {
+        return match serde_json::from_slice::<Value>(&line) {
+            // Only this server queues its internal marker.
+            Ok(v) if v["type"] == FRAME_OVERFLOW => {
+                Ok(Some(json!({ "type": "invalid", "error": "an internal line type" })))
+            }
             Ok(v) => Ok(Some(v)),
             Err(e) => Ok(Some(json!({ "type": "invalid", "error": e.to_string() }))),
         };
@@ -407,21 +467,6 @@ impl<R: BufRead, W: Write> ControlPlane for HostRelay<R, W> {
                 }),
             None => Err(RelayError::Unavailable("relay result has no ok".into())),
         }
-    }
-
-    fn classic(&mut self, call: &HttpCall) -> Result<HttpReply, RelayError> {
-        let mut request = serde_json::to_value(call).expect("HttpCall serializes");
-        request["type"] = json!("relay.request");
-        let answer = self.exchange(request)?;
-        let status = answer["status"]
-            .as_u64()
-            .and_then(|s| u16::try_from(s).ok())
-            .ok_or_else(|| RelayError::Unavailable("relay answer has no status".into()))?;
-        Ok(HttpReply {
-            status,
-            body: answer.get("body").cloned().unwrap_or(Value::Null),
-            error_code: answer["error_code"].as_str().map(str::to_owned),
-        })
     }
 
     fn session(&mut self) -> Result<SessionStatus, RelayError> {

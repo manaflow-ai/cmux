@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// The page host's rules (plans/cmux-next/react-pages.md 1): only admitted ops reach a provider,
-/// the host stamps origin `user` and refuses one from the page, events are numbered per
+/// the host stamps origin `page` and refuses an origin or confirmation from the page, events are numbered per
 /// subscription, and closing the page cancels everything.
 @MainActor
 @Suite struct PageRouterTests {
@@ -46,15 +46,29 @@ import Testing
 
     final class Box { var items: [JSONValue] = [] }
 
-    @Test func admittedCallsReachTheirProviderWithOriginUser() async {
+    @Test func admittedCallsReachTheirProviderWithOriginPage() async {
         let (router, daemon, native, _) = router()
         let reply = await router.handle(["t": "call", "id": 1, "op": "cmux.settings.list", "params": ["section": "appearance"]])
         #expect(reply == ["t": "ok", "id": 1, "value": ["echo": "cmux.settings.list"]])
         #expect(daemon.calls.map(\.op) == ["cmux.settings.list"])
         #expect(daemon.calls.first?.params == ["section": "appearance"])
-        #expect(daemon.calls.first?.context == PageCallContext(page: "cmux.settings", origin: "user"))
+        // SECURITY: a page call is never the user's by itself.
+        #expect(daemon.calls.first?.context == PageCallContext(page: "cmux.settings", origin: "page"))
+        #expect(daemon.calls.first?.context.isConfirmedUser == false)
         _ = await router.handle(["t": "call", "id": 2, "op": .string(PageNativeOp.actionRun), "params": ["action": "x"]])
         #expect(native.calls.map(\.op) == [PageNativeOp.actionRun])
+    }
+
+    /// Decision 31: the page's operation id reaches the provider; a malformed one is refused.
+    @Test func theOpidReachesTheProviderAndAMalformedOneIsRefused() async {
+        let (router, daemon, _, _) = router()
+        _ = await router.handle(["t": "call", "id": 1, "op": "cmux.settings.list", "params": [:], "opid": "p1:42"])
+        #expect(daemon.calls.first?.context.opid == "p1:42")
+        for bad: JSONValue in ["", "has space", .string(String(repeating: "a", count: 129)), 7] {
+            let reply = await router.handle(["t": "call", "id": 2, "op": "cmux.settings.list", "params": [:], "opid": bad])
+            #expect(reply["code"] == "cmux.protocol.bad_message", "\(bad)")
+        }
+        #expect(daemon.calls.count == 1)
     }
 
     @Test func everythingElseIsUnknownAndReachesNoProvider() async {
@@ -71,6 +85,10 @@ import Testing
         let (router, daemon, _, _) = router()
         let origin = await router.handle(["t": "call", "id": 4, "op": "cmux.settings.set", "params": ["key": "a", "origin": "mcp"]])
         #expect(origin["code"] == "cmux.protocol.invalid_params")
+        for reserved in ["confirmed", "confirmation"] {
+            let claim = await router.handle(["t": "call", "id": 6, "op": "cmux.settings.set", "params": ["key": "a", reserved: true]])
+            #expect(claim["code"] == "cmux.protocol.invalid_params", "a page cannot confirm its own call (\(reserved))")
+        }
         let array = await router.handle(["t": "call", "id": 5, "op": "cmux.settings.set", "params": [1, 2]])
         #expect(array["code"] == "cmux.protocol.invalid_params")
         #expect(daemon.calls.isEmpty)
@@ -148,6 +166,59 @@ import Testing
         router.reset()
         let again = await router.handle(["t": "call", "id": 10, "op": "cmux.settings.list", "params": [:]])
         #expect(again["t"] == "ok")
+    }
+
+    /// A provider whose call waits until it is cancelled; records the cancellation it saw.
+    final class Slow: PageProvider {
+        var started = false
+        var sawCancel = false
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+            started = true
+            do {
+                try await Task.sleep(for: .seconds(30))
+            } catch {
+                sawCancel = true
+                throw error
+            }
+            return [:]
+        }
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            PageSubscription {}
+        }
+    }
+
+    func slowRouter() -> (PageRouter, Slow) {
+        let slow = Slow()
+        return (PageRouter(descriptor: page, routes: [PageRoute(prefix: "cmux.settings.", provider: slow)]), slow)
+    }
+
+    /// op.cancel (app-op-routing.md "Op cancel"): the page's `{t:"cancel", id}` cancels that call's
+    /// work at once; the call answers `cmux.op.cancelled` exactly once.
+    @Test func aCancelEnvelopeCancelsTheCallAtOnce() async {
+        let (router, slow) = slowRouter()
+        let reply = Task { await router.handle(["t": "call", "id": 4, "op": "cmux.settings.set", "params": [:], "opid": "op-1"]) }
+        for _ in 0..<100 where !slow.started { await Task.yield() }
+        #expect(await router.handle(["t": "cancel", "id": 4]) == .null)
+        let answer = await reply.value
+        #expect(answer["t"] == "err" && answer["code"] == "cmux.op.cancelled" && answer["id"] == 4)
+        for _ in 0..<100 where !slow.sawCancel { await Task.yield() }
+        #expect(slow.sawCancel, "the provider's work was cancelled, not left running")
+        // A cancel of an unknown or finished id is a no-op.
+        #expect(await router.handle(["t": "cancel", "id": 4]) == .null)
+        #expect(await router.handle(["t": "cancel", "id": 99]) == .null)
+    }
+
+    /// Navigation (reset) and tab close (close) cancel every call still in flight.
+    @Test func navigationAndCloseCancelCallsInFlight() async {
+        let (router, slow) = slowRouter()
+        let reply = Task { await router.handle(["t": "call", "id": 5, "op": "cmux.settings.set", "params": [:]]) }
+        for _ in 0..<100 where !slow.started { await Task.yield() }
+        router.reset()
+        let answer = await reply.value
+        #expect(answer["code"] == "cmux.op.cancelled")
+        for _ in 0..<100 where !slow.sawCancel { await Task.yield() }
+        #expect(slow.sawCancel)
     }
 
     @Test func hostCallsResolveFromThePageReply() async throws {

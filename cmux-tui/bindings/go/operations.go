@@ -1291,8 +1291,8 @@ func (s *Screen) Rename(ctx context.Context, options ScreenRenameOptions) (Mutat
 func (s *Screen) UpdateColumn(ctx context.Context, options ScreenColumnUpdateOptions) (MutationResult[*Screen], error) {
 	input := s.route.params()
 	input["column"] = options.Column
-	if options.Sticky != nil {
-		input["sticky"] = *options.Sticky
+	if options.Dock != nil {
+		input["dock"] = *options.Dock
 	}
 	putOptionalString(input, "edge", options.Edge)
 	putOptionalString(input, "mode", options.Mode)

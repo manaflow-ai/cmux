@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 mod layout_column;
 #[path = "model_tab.rs"]
 mod tab;
-pub use layout_column::{LayoutColumn, LayoutColumnSticky};
+pub use layout_column::{LayoutColumn, LayoutColumnDock};
 pub use tab::{TabContentId, TabContentKind, TabSnapshot};
 
 /// JSON retained only where the catalog explicitly declares a JSON or extension value.

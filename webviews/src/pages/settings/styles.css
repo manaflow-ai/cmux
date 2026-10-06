@@ -97,6 +97,13 @@ mark {
   padding: 14px 10px;
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  transition: border-color var(--motion-hover);
+}
+
+/* nxdog41: while the window's sidebar is hidden (the host sets data-app-sidebar), the section
+   list's edge fades out and comes back while the pointer is over the list. */
+:root[data-app-sidebar="hidden"] .sidebar:not(:hover) {
+  border-right-color: transparent;
 }
 
 .content {
@@ -139,11 +146,14 @@ mark {
   border-radius: 6px;
   background: transparent;
   text-align: left;
-  transition: background var(--motion-hover);
 }
 
+/* Only the pointer fades in. The current-section mark snaps: a route the host opens while the
+   tab is hidden (Customize Appearance… on a kept page) must not replay a fade from the old
+   section when the tab shows again. */
 .section-link:hover {
   background: var(--input-bg);
+  transition: background var(--motion-hover);
 }
 
 .section-link[aria-current] {
@@ -325,6 +335,27 @@ mark {
 .number {
   width: 64px;
   text-align: right;
+}
+
+/* A number field as wide as the text it shows (its value, else its default label): the hidden
+   copy in the same grid cell sets the column width; at least the old 64 px. */
+.number-sizer {
+  display: inline-grid;
+  min-width: 64px;
+}
+
+.number-sizer::after {
+  content: attr(data-value);
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+}
+
+.number-sizer > .number {
+  grid-area: 1 / 1;
+  width: 100%;
 }
 
 .number-field,
@@ -712,4 +743,197 @@ mark {
 .host-swatch-clear {
   border: 1px solid var(--border-strong);
   background: transparent;
+}
+
+/* Accounts (R82 commit 3). */
+.accounts-header,
+.accounts-buttons,
+.accounts-linked {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.accounts-header {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.accounts-intro {
+  flex: 1;
+  white-space: normal;
+}
+
+.accounts-banner,
+.accounts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.accounts-banner {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.accounts-mark {
+  display: inline-flex;
+  flex: none;
+  width: 20px;
+}
+
+.accounts-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted-text);
+}
+
+.accounts-dot {
+  width: 0;
+  height: 0;
+  border: 3px solid var(--muted-text);
+  border-radius: 50%;
+}
+
+.accounts-status[data-status="success"] .accounts-dot {
+  border-color: var(--success, var(--text));
+}
+
+.accounts-status[data-status="attention"] .accounts-dot {
+  border-color: var(--danger);
+}
+
+.accounts-status[data-status="quiet"] .accounts-dot {
+  opacity: 0.4;
+}
+
+.accounts-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 0 0 36px;
+}
+
+.accounts-body:empty {
+  display: none;
+}
+
+.accounts-form > .field {
+  max-width: 320px;
+}
+
+/* Theme picker by level and wallpaper grid (R82 commit 4). */
+.theme-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-picker > .field {
+  max-width: 320px;
+}
+
+.theme-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+}
+
+.theme-choice {
+  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.theme-choice[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.backdrop-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.backdrop-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.backdrop-thumb {
+  width: 100%;
+  height: 68px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.backdrop-tile[aria-pressed="true"] .backdrop-thumb {
+  border-color: var(--text);
+}
+
+.backdrop-none {
+  display: block;
+  border-color: var(--border);
+}
+
+.backdrop-title {
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Folder lists (picker.pinned, files.roots). */
+.folder-list {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.folder-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.folder-path {
+  max-width: 260px;
+  overflow: hidden;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.icon-up {
+  transform: rotate(180deg);
+}
+
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }

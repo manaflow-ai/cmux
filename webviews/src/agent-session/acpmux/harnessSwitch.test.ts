@@ -57,17 +57,24 @@ class FakePort implements SwitchPort {
   setModel = async (model: string) => {
     this.calls.push(`model ${model}`);
   };
-  setMode = async (mode: string) => {
+  tickets: (string | undefined)[] = [];
+  setMode = async (mode: string, ticket?: string) => {
     this.calls.push(`mode ${mode}`);
+    this.tickets.push(ticket);
   };
-  setConfig = async (id: string, value: string) => {
+  setConfig = async (id: string, value: string, ticket?: string) => {
     this.calls.push(`config ${id}=${value}`);
+    this.tickets.push(ticket);
   };
   discard = (sessionId: string) => {
     this.calls.push(`discard ${sessionId}`);
   };
-  prewarm = (harness: string) => {
+  prewarmCwds: (string | undefined)[] = [];
+  supportsPrewarm = true;
+  prewarmSupported = () => this.supportsPrewarm;
+  prewarm = (harness: string, cwd?: string) => {
     this.calls.push(`prewarm ${harness}`);
+    this.prewarmCwds.push(cwd);
   };
 }
 
@@ -216,6 +223,79 @@ describe("harness switch: a prompt sent before the session is ready", () => {
       "config reasoning_effort=high",
       "send go",
     ]);
+  });
+
+  /// The pane-native transport spends a gesture per held pick (transport.gesture): the ticket is
+  /// taken in the pick's own handler and goes with the pick's frame when the switch applies it.
+  test("a held mode or effort pick takes a gesture ticket at once and sends it with the pick", async () => {
+    const { store, port } = setup();
+    const asked: unknown[] = [];
+    let next = 0;
+    store.setHandlers({ gesture: (intent) => (asked.push(intent), Promise.resolve(`ticket-${(next += 1)}`)) });
+    void store.switchTo("codex");
+    expect(store.pickMode("read-only")).toBe(true);
+    expect(store.pickConfig("reasoning_effort", "high")).toBe(true);
+    // Asked in the pick, before acpmux started anything, bound to exactly the frame it will send
+    // (ad349: the frame's params without sessionId and _meta).
+    expect(asked).toEqual([
+      { method: "session/set_mode", params: { modeId: "read-only" } },
+      { method: "session/set_config_option", params: { configId: "reasoning_effort", value: "high" } },
+    ]);
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(port.calls.slice(2)).toEqual(["open codex-1", "mode read-only", "config reasoning_effort=high"]);
+    expect(port.tickets).toEqual(["ticket-1", "ticket-2"]);
+  });
+
+  test("a pick without a gesture (the host refused) still applies, without a ticket", async () => {
+    const { store, port } = setup();
+    store.setHandlers({ gesture: () => Promise.reject(new Error("transport.gesture_required")) });
+    void store.switchTo("codex");
+    expect(store.pickMode("plan")).toBe(true);
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(port.calls).toContain("mode plan");
+    expect(port.tickets).toEqual([undefined]);
+  });
+
+  test("a held pick the host refuses for want of a gesture says so", async () => {
+    const { store, port, notices } = setup();
+    port.setMode = async () => {
+      throw Object.assign(new Error("Refused by the cmux host"), { code: "transport.gesture_required" });
+    };
+    void store.switchTo("codex");
+    store.pickMode("plan");
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(notices).toEqual(["Click the choice again to apply it."]);
+  });
+
+  /// One outstanding ticket per (method, configId): two held options each keep their own.
+  test("two held config options each reserve and send their own ticket", async () => {
+    const { store, port } = setup();
+    const asked: unknown[] = [];
+    store.setHandlers({
+      gesture: (intent) => (asked.push(intent), Promise.resolve(`ticket-${asked.length}`)),
+    });
+    void store.switchTo("codex");
+    store.pickConfig("reasoning_effort", "high");
+    store.pickConfig("verbosity", "low");
+    port.creates[0]!.reply.resolve("codex-1");
+    await settle();
+    expect(asked).toEqual([
+      { method: "session/set_config_option", params: { configId: "reasoning_effort", value: "high" } },
+      { method: "session/set_config_option", params: { configId: "verbosity", value: "low" } },
+    ]);
+    expect(port.calls.slice(3)).toEqual(["config reasoning_effort=high", "config verbosity=low"]);
+    expect(port.tickets).toEqual(["ticket-1", "ticket-2"]);
+  });
+
+  test("a pick in a live session (not held) asks for no gesture", () => {
+    const { store } = setup();
+    let asked = 0;
+    store.setHandlers({ gesture: () => ((asked += 1), Promise.resolve("t")) });
+    expect(store.pickMode("plan")).toBe(false);
+    expect(asked).toBe(0);
   });
 
   test("with no prompt the switch opens the session and ends; Send then goes as usual", async () => {
@@ -469,5 +549,29 @@ describe("harness switch: prewarm hints", () => {
     clock.advance(PREWARM_DEBOUNCE_MS);
     expect(port.calls).toEqual(["prewarm opencode"]);
     expect(clock.timers.filter((timer) => !timer.cancelled)).toEqual([]);
+  });
+
+  // acpmux keeps only the newest hint, so a harness hinted again after another one must go out
+  // again: only a repeat of the last hint is dropped.
+  test("a harness hinted again after another one is hinted again, for the shown chat's folder", () => {
+    const { store, port, clock } = setup();
+    port.session = { sessionId: "claude-1", harness: "claude", empty: false, cwd: "/work/app" };
+    for (const harness of ["codex", "opencode", "codex"]) {
+      store.hint(harness);
+      clock.advance(PREWARM_DEBOUNCE_MS);
+    }
+    expect(port.calls).toEqual(["prewarm codex", "prewarm opencode", "prewarm codex"]);
+    expect(port.prewarmCwds).toEqual(["/work/app", "/work/app", "/work/app"]);
+  });
+
+  // A remote-origin or pool-off connection cannot prewarm: a hover there starts no debounce timer.
+  test("a connection that cannot prewarm starts no timer for a hint", () => {
+    const { store, port, clock } = setup();
+    port.supportsPrewarm = false;
+    store.hint("codex");
+    store.hint("opencode");
+    expect(clock.timers).toEqual([]);
+    clock.advance(PREWARM_DEBOUNCE_MS);
+    expect(port.calls).toEqual([]);
   });
 });

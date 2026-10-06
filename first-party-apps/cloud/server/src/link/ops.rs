@@ -2,19 +2,24 @@
 //! a carrier only). `cloud.rescue.open` asks for focus on the new terminal
 //! only for origin `user` or an explicit `focus: true` (OWNERSHIP-PRINCIPLES).
 
-use super::argv::{AttachEndpoint, link_command};
+use super::argv::link_command;
+use super::channel::{Carrier, CarrierEvent};
+use super::dial::DialCode;
 use super::supervisor::{LinkFailure, LinkState};
 use crate::api::models::MachineStatus;
-use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes};
-use crate::connector::iface::{Carrier, CarrierEvent};
+use crate::api::{CloudError, ControlPlane, Origin, Request, args, codes, event_line};
 use crate::ops::Server;
-use crate::rescue::iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use crate::rescue::{MISSING_ROUTE, RESCUE_KIND};
+use cmux_terminal_iface::{BackendError, Grid, OpenRequest, OpenToken, TerminalBackend};
 use serde_json::{Value, json};
 
 pub const LINK_REVOKED: &str = "cmux.cloud.link_revoked";
 pub const LINK_DOWN: &str = "cmux.cloud.link_down";
 pub const LINK_UNAVAILABLE: &str = "cmux.cloud.link_unavailable";
+
+/// The server event of a link change (the daemon broadcasts it to apps
+/// clients as `cmux.cloud.link.changed`).
+pub(crate) const LINK_CHANGED: &str = "cloud.link.changed";
 
 pub(crate) const CONNECT: &str = "cloud.machine.connect";
 pub(crate) const DISCONNECT: &str = "cloud.machine.disconnect";
@@ -24,23 +29,39 @@ pub(crate) const RESCUE_OPEN: &str = "cloud.rescue.open";
 /// call, in order. The serve loop takes them after each op and whenever a
 /// link process event wakes it (`LinkSupervisor::set_wake`).
 pub(crate) fn take_event_lines<C: ControlPlane>(server: &mut Server<C>) -> Vec<Value> {
-    server
-        .attach_mut()
-        .take_host_link_events()
+    let attach = server.attach_mut();
+    let events = attach.take_host_link_events();
+    // The typed `link.dial` refusal that ended a link, when one did
+    // (`host_paused`: connect again, which starts the machine).
+    let refusal = |machine: &str| {
+        attach.supervisor.refusal(machine).map_or(Value::Null, |code| json!(code.as_str()))
+    };
+    events
         .into_iter()
-        .map(|event| match event {
-            CarrierEvent::Up { carrier } => json!({ "type": "event", "event": "cloud.link.changed",
-                "machine": carrier.target, "state": "up", "carrier": carrier.id,
-                "generation": carrier.generation }),
-            CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
-                "type": "event", "event": "cloud.link.changed", "machine": target,
-                "state": "down", "generation": generation, "retryable": retryable,
-                "reason": reason }),
-            CarrierEvent::Revoked { target, reason, .. } => json!({ "type": "event",
-                "event": "cloud.link.changed", "machine": target, "state": "revoked",
-                "reason": reason }),
+        .map(|event| {
+            let code = match &event {
+                CarrierEvent::Up { .. } => Value::Null,
+                CarrierEvent::Down { target, .. } | CarrierEvent::Revoked { target, .. } => {
+                    refusal(target)
+                }
+            };
+            event_line(LINK_CHANGED, link_change(event, code))
         })
         .collect()
+}
+
+/// The `data` of one `cloud.link.changed` line (`error_code`: the typed
+/// `link.dial` refusal that ended the link, or null).
+fn link_change(event: CarrierEvent, error_code: Value) -> Value {
+    match event {
+        CarrierEvent::Up { carrier } => json!({ "machine": carrier.target, "state": "up",
+            "carrier": carrier.id, "generation": carrier.generation }),
+        CarrierEvent::Down { target, generation, retryable, reason, .. } => json!({
+            "machine": target, "state": "down", "generation": generation,
+            "retryable": retryable, "reason": reason, "error_code": error_code }),
+        CarrierEvent::Revoked { target, reason, .. } => json!({ "machine": target,
+            "state": "revoked", "reason": reason, "error_code": error_code }),
+    }
 }
 
 /// Ops whose answer is live link state and must never be replayed.
@@ -63,8 +84,17 @@ pub(crate) fn run<C: ControlPlane>(
     match name {
         CONNECT => {
             let id = args::id(args::object(raw, &["machine"])?, "machine")?.to_owned();
-            let start_key = key.map(|k| format!("{k}/start"));
+            // One start key per attempt: a start key reused across attempts
+            // would replay an old start and never start a machine that
+            // paused again (v2 review P3).
+            let nonce = server.attach_mut().attempt_nonce();
+            let start_key = key.map(|k| format!("{k}/start/{nonce}"));
             let carrier = connect(server, &id, origin, start_key)?;
+            // The host's open token (a user run of an `openOps` op): the
+            // link's bytes also get a frame link on the host channel.
+            if let Some(token) = open_token {
+                server.request_frame_link(&carrier, token);
+            }
             Ok(carrier_json(&carrier))
         }
         DISCONNECT => {
@@ -154,6 +184,32 @@ pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
         LinkFailure::Spawn(why) => {
             CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
         }
+        LinkFailure::Dial(code) => dial_error(&code),
+    }
+}
+
+/// A `link.dial` refusal as an op error (contract 1.7 mapping).
+fn dial_error(code: &DialCode) -> CloudError {
+    let retryable = |code: &'static str, message: &str| CloudError {
+        retryable: true,
+        ..CloudError::new(code, message.to_owned())
+    };
+    match code {
+        DialCode::HostPaused => retryable(
+            codes::MACHINE_PAUSED,
+            "The machine is still paused after a start: try again when it runs",
+        ),
+        DialCode::UnknownHost => {
+            CloudError::new(codes::NOT_FOUND, "cmux Cloud does not know this machine's host")
+        }
+        DialCode::NotAuthorized => {
+            CloudError::new(codes::FORBIDDEN, "This Mac may not reach this machine")
+        }
+        DialCode::Unreachable => retryable(LINK_DOWN, "No network path reached the machine"),
+        DialCode::BadRequest => {
+            CloudError::new(LINK_UNAVAILABLE, "cmux link did not understand the dial")
+        }
+        DialCode::Unavailable(why) => retryable(LINK_UNAVAILABLE, why),
     }
 }
 
@@ -172,7 +228,11 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     let attach = server.attach_mut();
     attach.supervisor.pump();
     match attach.supervisor.state(machine) {
-        Some(LinkState::Up(carrier)) => return Ok(Begun::Up(carrier.clone())),
+        Some(LinkState::Up(carrier)) => {
+            let carrier = carrier.clone();
+            attach.paused_restarts.remove(machine);
+            return Ok(Begun::Up(carrier));
+        }
         Some(LinkState::Revoked { reason }) => {
             return Err(CloudError::new(LINK_REVOKED, reason.clone()));
         }
@@ -191,39 +251,72 @@ pub(crate) fn begin_connect<C: ControlPlane>(
         Some(key) => key,
         None => format!("link-{}/start", attach.attempt_nonce()),
     };
-    let answer = match ensure_running(server, machine, origin, &start_key) {
-        // A start can fail for plan reasons (403): that is not a revocation.
-        Err(error) => Err((error, false)),
-        Ok(()) => server
-            .ctx(CONNECT, None)
-            .call(
-                "POST",
-                format!("/api/vm/{machine}/attach-endpoint"),
-                Some(json!({ "transport": "cmux-remote" })),
-            )
-            .map_err(|e| (e, true)),
+    // The last stream found the machine paused: this connect starts it
+    // once, whatever the projection says. If the next stream finds it
+    // paused again, the connect after that answers machine_paused once
+    // (no loop), and the one after it may start again.
+    let restart = match attach.supervisor.refusal(machine) {
+        Some(DialCode::HostPaused) if attach.paused_restarts.remove(machine) => {
+            return Err(dial_error(&DialCode::HostPaused));
+        }
+        Some(DialCode::HostPaused) => {
+            attach.paused_restarts.insert(machine.to_owned());
+            true
+        }
+        _ => false,
     };
-    let answer = match answer {
-        Ok(answer) => answer,
-        Err((error, from_attach)) => {
-            let supervisor = &mut server.attach_mut().supervisor;
+    let key = if restart { format!("{start_key}/restart") } else { start_key };
+    // The readiness check is a read (connect_info), never a dial: a dial
+    // mints a link token, and each mint is one real connection.
+    let info = ensure_running(server, machine, origin, &key, restart)
+        .and_then(|()| super::info::connect_info(server, machine))
+        .and_then(|info| match info.state {
+            MachineStatus::Running => Ok(info),
+            state => {
+                if state == MachineStatus::Paused {
+                    // The record was older than the machine: start it now.
+                    ensure_running(server, machine, origin, &format!("{key}/info"), true)?;
+                }
+                // Contract 1.7: wait for the `running` upsert, then dial. The
+                // client connects again on that upsert; nothing waits here.
+                Err(CloudError {
+                    retryable: true,
+                    ..CloudError::new(
+                        LINK_DOWN,
+                        "The machine is starting: connect again when it runs",
+                    )
+                })
+            }
+        });
+    let info = match info {
+        Ok(info) => info,
+        Err(error) => {
+            // A failed or unfinished start leaves the next connect free to
+            // start again.
+            server.attach_mut().paused_restarts.remove(machine);
             if error.code == codes::AUTH_REQUIRED {
                 // Signed out: no link may outlive the sign-in.
-                supervisor.disconnect_all("signed out of cmux Cloud");
-            } else if error.code == codes::NOT_FOUND
-                || (from_attach && error.code == codes::FORBIDDEN)
-            {
+                server.attach_mut().supervisor.disconnect_all("signed out of cmux Cloud");
+            } else if error.code == codes::NOT_FOUND || error.code == codes::FORBIDDEN {
                 // The machine is gone or access ended: refuse new links to it.
-                supervisor.revoke(machine, &error.message);
+                server.attach_mut().supervisor.revoke(machine, &error.message);
             }
+            // A start can fail for plan reasons, and a machine without a host
+            // is still provisioning: neither is a revocation.
             return Err(error);
         }
     };
-    let endpoint = AttachEndpoint::decode(answer)?;
-    let command = link_command(&paths, machine, &endpoint, &child_env);
+    if !info.services.iter().any(|s| s == "daemon") {
+        return Err(CloudError::new(
+            codes::FORBIDDEN,
+            "This Mac may not reach the machine's cmux daemon (team policy)",
+        ));
+    }
+    let host = info.host;
+    let command = link_command(&paths, machine, &host, &child_env);
     let attach = server.attach_mut();
-    attach.endpoints.insert(machine.to_owned(), endpoint);
-    // The relay calls above may have taken a while: a link that came up or
+    attach.hosts.insert(machine.to_owned(), host);
+    // The calls above may have taken a while: a link that came up or
     // started meanwhile is used, not replaced.
     attach.supervisor.pump();
     if let Some(carrier) = attach.supervisor.carrier(machine) {
@@ -242,17 +335,20 @@ fn ensure_running<C: ControlPlane>(
     machine: &str,
     origin: Origin,
     start_key: &str,
+    force_start: bool,
 ) -> Result<(), CloudError> {
     if server.projection().get(machine).is_none() {
         server.handle(&Request::new("cloud.machine.get", json!({ "machine": machine })))?;
     }
-    let paused =
-        server.projection().get(machine).is_some_and(|m| m.status == MachineStatus::Paused);
+    let paused = force_start
+        || server.projection().get(machine).is_some_and(|m| m.status == MachineStatus::Paused);
     if paused {
         let start = Request::new("cloud.machine.start", json!({ "machine": machine }))
             .origin(origin)
             .key(start_key);
         server.handle(&start)?;
+        // The machine's state changed: read its link facts again.
+        server.attach_mut().infos.forget(machine);
     }
     Ok(())
 }
@@ -286,7 +382,7 @@ fn rescue_open<C: ControlPlane>(
         || format!("rescue-{}/start", server.attach_mut().attempt_nonce()),
         |k| format!("{k}/start"),
     );
-    ensure_running(server, &machine, origin, &start_key)?;
+    ensure_running(server, &machine, origin, &start_key, false)?;
     let attach = server.attach_mut();
     let terminal = attach.next_terminal_id();
     let grid = Grid::new(u16::try_from(cols).unwrap_or(80), u16::try_from(rows).unwrap_or(24));
@@ -312,4 +408,42 @@ fn rescue_open<C: ControlPlane>(
         "kind": RESCUE_KIND,
         "focus": origin == Origin::User || focus,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every field of a link change is under `data` (the daemon broadcasts
+    /// only `data`), revoked and down included.
+    #[test]
+    fn revoked_and_down_lines_carry_their_fields_under_data() {
+        let code = json!("host_paused");
+        let revoked = CarrierEvent::Revoked {
+            target: "vm-alpha01".into(),
+            reason: "the app's permission was revoked".into(),
+            generation: Some(3),
+        };
+        let line = event_line(LINK_CHANGED, link_change(revoked, code));
+        assert_eq!(
+            line,
+            json!({ "type": "event", "event": "cloud.link.changed", "data": {
+                "machine": "vm-alpha01", "state": "revoked",
+                "reason": "the app's permission was revoked", "error_code": "host_paused" } })
+        );
+        let down = CarrierEvent::Down {
+            target: "vm-alpha01".into(),
+            generation: 2,
+            retryable: true,
+            reason: "exit 1".into(),
+            opened: true,
+        };
+        let line = event_line(LINK_CHANGED, link_change(down, Value::Null));
+        assert_eq!(
+            line,
+            json!({ "type": "event", "event": "cloud.link.changed", "data": {
+                "machine": "vm-alpha01", "state": "down", "generation": 2, "retryable": true,
+                "reason": "exit 1", "error_code": null } })
+        );
+    }
 }

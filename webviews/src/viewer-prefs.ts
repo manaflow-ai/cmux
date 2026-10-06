@@ -1,5 +1,7 @@
 import { sanitizeCollapsedFiles } from "./collapsed-files";
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
+import type { DiffWrites } from "./diff-writes";
+import { DIFF_PREFS_GET_OP, DIFF_PREFS_SET_OP, pageDiffPrefsClient } from "./diff/pageStore";
 import type { DiffViewerOptions } from "./pierre-options";
 
 /**
@@ -13,6 +15,10 @@ import type { DiffViewerOptions } from "./pierre-options";
  * new diff panels, and app restarts (#5284). `localStorage` is kept as a
  * best-effort fallback for pages opened outside cmux, because generated viewer
  * origins do not reliably persist web storage.
+ *
+ * On the shared page host the prefs are `diff.*` settings: `cmux.diff.prefs.get` and
+ * `cmux.diff.prefs.set {key, value}` (diff/pageStore.ts), and web storage is never touched (the
+ * page host pool clears it). The host seeds first paint through `payload.viewerOptions`.
  */
 export type ViewerPrefs = Partial<Omit<DiffViewerOptions, "collapsed">> & { collapsedFiles?: string[] };
 
@@ -45,6 +51,15 @@ export function sanitizeViewerPrefs(raw: unknown): ViewerPrefs {
 }
 
 export async function loadViewerPrefs(): Promise<ViewerPrefs> {
+  const page = pageDiffPrefsClient();
+  if (page) {
+    try {
+      const value = await page.call<{ prefs?: unknown }>(DIFF_PREFS_GET_OP, {});
+      return sanitizeViewerPrefs(value?.prefs);
+    } catch {
+      return {};
+    }
+  }
   if (diffCommentsBridgeAvailable()) {
     try {
       const value = await callDiffComments<{ preferences?: unknown }>("viewerPrefs.get", {});
@@ -56,17 +71,35 @@ export async function loadViewerPrefs(): Promise<ViewerPrefs> {
   return readLocalViewerPrefs();
 }
 
-export function saveViewerPrefs(prefs: ViewerPrefs): void {
+/** Saves `prefs` through the mounted viewer's outbox (`writes`) and to localStorage. */
+export function saveViewerPrefs(prefs: ViewerPrefs, writes: DiffWrites): void {
   const sanitized = sanitizeViewerPrefs(prefs);
+  const page = pageDiffPrefsClient();
+  if (page) {
+    for (const [key, value] of Object.entries(sanitized)) {
+      page.call<unknown>(DIFF_PREFS_SET_OP, { key, value }).catch(() => {
+        // Preferences are a convenience; a failed save must never surface.
+      });
+    }
+    return;
+  }
   if (diffCommentsBridgeAvailable()) {
-    callDiffComments<unknown>("viewerPrefs.set", { preferences: sanitized }).catch(() => {
-      // Preferences are a convenience; a failed save must never surface.
-    });
+    // Preferences are a convenience; a failed save never surfaces. The outbox keeps writes of the
+    // same keys in order and sends only the newest of a burst (diff-writes.ts).
+    const keys = Object.keys(sanitized).sort();
+    if (keys.length > 0) {
+      writes.dispatch("prefs", {
+        resource: `prefs:${keys.join(",")}`,
+        write: { method: "viewerPrefs.set", params: { preferences: sanitized } },
+      });
+    }
   }
   writeLocalViewerPrefs(sanitized);
 }
 
 export function readLocalViewerPrefs(): ViewerPrefs {
+  // The page host keeps prefs in settings (and seeds them in the payload), not web storage.
+  if (pageDiffPrefsClient()) return {};
   try {
     const raw = window.localStorage.getItem(persistedOptionsKey);
     const prefs = raw == null ? {} : sanitizeViewerPrefs(JSON.parse(raw));

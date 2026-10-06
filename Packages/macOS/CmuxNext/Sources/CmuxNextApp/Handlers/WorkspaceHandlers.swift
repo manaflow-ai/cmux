@@ -49,24 +49,29 @@ enum WorkspaceHandlers {
     }
 
     /// Same; `newWindow` opens it in a new window (Shift-Return in the
-    /// address bar) instead of the active one.
+    /// address bar) instead of the active one, `window` in that open
+    /// window; `room` pins it to that space first (Open Link in New Space).
     static func createAndShow(services: AppServices, name: String? = nil, cwd: String? = nil, newWindow: Bool = false,
+                              window: String? = nil, room: ProfileID? = nil,
                               then configure: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)? = nil) {
         let daemon = services.activeDaemon
         let windows = services.windows!
         // Claimed before the create command, so the workspace lands in (or
         // opens) its window in the step that first mirrors it.
-        let target = windows.targetWindow(preferring: newWindow ? nil : windows.active?.state.id)
+        let target = windows.targetWindow(preferring: newWindow ? nil : window ?? windows.active?.state.id)
+        let home = services.machines.local
         Task {
             guard let connection = daemon.connection else { return }
             do {
                 let key = WorkspaceKey.generate()
                 windows.claimNew(workspaceID: key.rawValue, window: target)
-                _ = try await services.emptyWorkspaces.populating(key) {
-                    let workspace = try await connection.createWorkspace(name: name, key: key)
-                    let terminal = try await connection.createTerminal(in: workspace.key, cwd: cwd ?? NSHomeDirectory())
+                if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
+                    try await homeConnection.pinWorkspace(session: session, key: key, to: room)
+                }
+                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: services.emptyWorkspaces) { created in
+                    let terminal = try await connection.createTerminal(in: created, cwd: cwd ?? NSHomeDirectory())
                     try await configure?(connection, terminal)
-                    return workspace.key.rawValue
+                    return created.rawValue
                 }
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")

@@ -1,23 +1,21 @@
 //! Running file transfers: the copy runs on its own worker thread, off the
 //! op loop. The op answers at once with a transfer id; the worker sends
 //! one completion through a channel and wakes the loop, and the loop (the
-//! only writer of transfer state) finishes the transfer: it closes the
-//! one-shot route, publishes a pull, and queues a
+//! only writer of transfer state) finishes the transfer: it publishes a
+//! pull and queues a
 //! `cloud.file.transfer.changed` event. At most [`MAX_TRANSFERS`] run at
 //! once; more are refused (retryable), nothing queues.
-//! `cloud.file.transfer.cancel` kills the worker's children through the
-//! transfer's [`Cancel`]; the loop finishes it like any other end, with
+//! `cloud.file.transfer.cancel` stops the worker between chunks through
+//! the transfer's [`Cancel`]; the loop finishes it like any other end, with
 //! state `cancelled`, and removes a pull's partial file.
 
 use super::cancel::Cancel;
-use super::key::TransferKey;
 use super::transfer::{
     Direction, TRANSFER_CANCELLED, TRANSFER_FAILED, Transfer, TransferError, TransferJob,
 };
 use crate::api::{CloudError, codes};
 use crate::clock::{Clock, SystemClock};
 use crate::link::LinkWake;
-use crate::ports::listener::Listener;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
@@ -49,10 +47,8 @@ pub(crate) struct Running {
     pub(crate) guest: String,
     /// The user's local path (a pull is published here).
     pub(crate) local: PathBuf,
-    /// Where scp writes (a pull's hidden name; a push's own file).
+    /// Where a pull writes (its hidden name; a push's own file).
     pub(crate) landing: PathBuf,
-    /// The one-shot listener to the guest's SSH port; closed at the end.
-    pub(crate) route: Listener,
     /// Shared with the worker: a cancel kills its children.
     pub(crate) cancel: Cancel,
     /// Epoch milliseconds by the transfers' clock (set by `start`).
@@ -105,7 +101,6 @@ impl Drop for Transfers {
         self.settle();
         for running in self.running.values_mut() {
             running.cancel.cancel();
-            running.route.close();
             if running.direction == Direction::Pull {
                 let _ = std::fs::remove_file(&running.landing);
             }
@@ -174,7 +169,7 @@ impl Transfers {
                 Err(e) if e.code == TRANSFER_CANCELLED => entry["state"] = json!("cancelled"),
                 Err(e) => {
                     // Code and retryable only: the message can hold local
-                    // paths and scp output, and this read is on MCP.
+                    // paths and daemon text, and this read is on MCP.
                     entry["state"] = json!("failed");
                     entry["error"] = json!({ "code": e.code, "retryable": e.retryable });
                 }
@@ -200,13 +195,12 @@ impl Transfers {
     }
 
     /// Starts the copy on a worker thread and returns its id. The worker
-    /// owns the job and the key (dropped, and so wiped, when it ends) and
+    /// owns the job and
     /// sends exactly one completion.
     pub(crate) fn start(
         &mut self,
         transfer: Arc<dyn Transfer>,
         job: TransferJob,
-        key: TransferKey,
         running: Running,
     ) -> Result<String, CloudError> {
         if self.full() {
@@ -226,8 +220,7 @@ impl Transfers {
         let cancel = running.cancel.clone();
         let spawned =
             std::thread::Builder::new().name("cmux-cloud-transfer".into()).spawn(move || {
-                let result = transfer.run(&job, &key, &cancel);
-                drop(key);
+                let result = transfer.run(&job, &cancel);
                 // A closed channel means the server is gone: nothing waits.
                 if done.send(Done { id: worker_id, result }).is_ok()
                     && let Some(wake) = wake
@@ -236,8 +229,6 @@ impl Transfers {
                 }
             });
         if let Err(e) = spawned {
-            let mut running = running;
-            running.route.close();
             if running.direction == Direction::Pull {
                 let _ = std::fs::remove_file(&running.landing);
             }
@@ -260,10 +251,6 @@ impl Transfers {
         self.settle();
         if let Some(running) = self.running.get_mut(id) {
             running.cancel.cancel();
-            // The one-shot route closes now: scp's own ssh child loses its
-            // connection at once, so the worker returns without waiting for
-            // ssh's keepalive timeout. Closing again at the end is a no-op.
-            running.route.close();
             return Ok(CancelAnswer::Cancelling);
         }
         let issued = id
@@ -307,8 +294,7 @@ impl Transfers {
     }
 
     fn finish(&mut self, done: Done) {
-        let Some(mut running) = self.running.remove(&done.id) else { return };
-        running.route.close();
+        let Some(running) = self.running.remove(&done.id) else { return };
         // A cancel wins over the copy's own end, except for a push whose
         // copy had already finished: its bytes are on the machine.
         let cancelled = running.cancel.is_cancelled()

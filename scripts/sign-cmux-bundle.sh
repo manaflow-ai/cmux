@@ -20,8 +20,12 @@
 #                              stapling so the submitted helper CDHash survives.
 #
 # Signs in the Apple-documented inside-out order:
+#   0. scripts/sign-cmux-bundle-helpers.sh stamps the cmux server's launchd
+#      plists (Contents/Library/LaunchDaemons, LaunchAgents) from the final
+#      bundle id; the app signature seals them.
 #   1. Helpers under Contents/Resources/bin/* and libexec/* with minimal
-#      hardened-runtime entitlements (no application-identifier).
+#      hardened-runtime entitlements (no application-identifier), through
+#      scripts/sign-cmux-bundle-helpers.sh; libexec/cmux-server-helper gets none.
 #      The macOS cmux-tui SSH payloads under Resources/bin/cmux-tui-ssh/ are
 #      signed the same way (scripts/sign-cmux-tui-ssh-payloads.sh).
 #   2. The nested cmux Computer Use app with the Developer ID identity.
@@ -112,36 +116,8 @@ if [[ -d "$SYSTEM_EXTENSIONS_DIR" ]]; then
 fi
 
 if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; then
-  # 0. The cmux server helper's LaunchDaemon plist follows the FINAL bundle id
-  # (nightly and RC rename the bundle after the build); stable drops the helper.
-  "$SCRIPT_DIR/cmux-next/bundle-server-helper.sh" --stamp "$APP_PATH"
-  # 1. CLI and private helpers
-  for helper_dir in bin libexec; do
-    for helper in "$APP_PATH/Contents/Resources/$helper_dir"/*; do
-      # bin/cmux-tui and bin/acpmux are relative symlinks to bin/cmux, which is
-      # signed as itself; the bundle seal records the links.
-      if [[ -L "$helper" ]]; then
-        echo "==> leaving symlink $(basename "$helper") -> $(readlink "$helper") to the bundle seal"
-        continue
-      fi
-      [[ -f "$helper" && -x "$helper" ]] || continue
-      # Scripts are sealed by the bundle signature. Code-signing them directly
-      # stores the signature in an extended attribute, which Sparkle's
-      # BinaryDelta refuses to diff, so it would block delta updates.
-      if ! /usr/bin/file -b "$helper" | grep -q 'Mach-O'; then
-        echo "==> leaving non-Mach-O helper $(basename "$helper") to the bundle seal"
-        continue
-      fi
-      if [[ "$(basename "$helper")" == "cmux-server-helper" ]]; then
-        # A root LaunchDaemon gets no entitlements (no JIT, no library validation opt-out).
-        echo "==> signing root helper cmux-server-helper (no entitlements)"
-        /usr/bin/codesign "${COMMON[@]}" --identifier cmux-server-helper "$helper"
-        continue
-      fi
-      echo "==> signing helper $(basename "$helper")"
-      /usr/bin/codesign "${COMMON[@]}" --entitlements "$HELPER_ENTITLEMENTS" "$helper"
-    done
-  done
+  # 0-1. The cmux server launchd plists, then the CLI and private helpers.
+  "$SCRIPT_DIR/sign-cmux-bundle-helpers.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
   # cmux-tui builds for SSH hosts. Notarization requires the macOS ones to be
   # Developer ID signed; the script re-pins them in the bundled manifest.
   "$SCRIPT_DIR/sign-cmux-tui-ssh-payloads.sh" "$APP_PATH" "$HELPER_ENTITLEMENTS" "$IDENTITY"
@@ -206,6 +182,10 @@ fi
   "$APP_PATH/Contents/Resources/bin/cmux-diff-sidecar" \
   --archs "$(lipo -archs "$APP_PATH/Contents/MacOS/cmux")" \
   --require-signed
+
+# The browser host, when the bundle carries one, sits beside bin/cmux (the
+# daemon runs its sibling) and is signed like it: Developer ID, hardened runtime.
+"$SCRIPT_DIR/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" --hardened
 
 APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
   /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"

@@ -7,12 +7,14 @@ import { isPageError, type PageClient } from "../shared/pageClient";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
+import { createEditReporter } from "../shared/editReporter";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
   MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
+  MARKDOWN_EDITED_OP,
   MARKDOWN_SAVE_OP,
   isMarkdownConfig,
   type MarkdownChange,
@@ -43,6 +45,13 @@ export interface MarkdownState {
   /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
   canBack: boolean;
   canForward: boolean;
+  /**
+   * The file a followed link (or back/forward) is opening, named in the toolbar in the input's
+   * frame while it loads (plans/cmux-next/zero-latency.md, rule a); null otherwise.
+   */
+  navigating: string | null;
+  /** The last navigation that did not open its file (shown until the next one), or null. */
+  navigationFailed: string | null;
 }
 
 /** One file in the page's link history, with the anchor it opened at and its scroll offset. */
@@ -82,6 +91,8 @@ export class MarkdownStore {
     look: { settings: undefined, themeCSS: undefined, appearance: undefined },
     canBack: false,
     canForward: false,
+    navigating: null,
+    navigationFailed: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
   private readonly listeners = new Set<() => void>();
@@ -96,11 +107,34 @@ export class MarkdownStore {
   private stopChanges: (() => void) | null = null;
   private stopLook: (() => void) | null = null;
   private started = false;
+  private readonly reporter;
 
   constructor(
     private readonly client: PageClient | null,
     private readonly schedule: Schedule = defaultSchedule,
-  ) {}
+    reportSchedule: Schedule = defaultSchedule,
+  ) {
+    this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+  }
+
+  /** `cmux.markdown.edited`: the host's unsaved state and recovery draft follow the document. */
+  private reportEdited(): void {
+    const config = this.state.config;
+    if (!config || !this.client || this.state.readOnly) return;
+    this.client
+      .call<unknown>(MARKDOWN_EDITED_OP, { path: config.path, text: this.currentText(), baseHash: this.baseHash })
+      .catch((error) => {
+        if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op"))
+          console.warn("cmux markdown edited", error);
+      });
+  }
+
+  /** The host's `cmux.markdown.flush`: saves pending edits now; `dirty` when some are still not on disk. */
+  async flush(): Promise<{ dirty: boolean }> {
+    if (this.state.readOnly) return { dirty: false };
+    if (!this.state.conflict && this.currentText() !== this.savedText) await this.save();
+    return { dirty: this.state.conflict !== null || this.currentText() !== this.savedText };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -224,6 +258,7 @@ export class MarkdownStore {
   /** A user edit in either mode: the file is edited, and saves after the user pauses. */
   edited(): void {
     if (this.state.readOnly || this.state.phase !== "ready") return;
+    this.reporter.edited();
     if (this.state.status !== "saving") this.set({ status: "edited" });
     this.cancelAutosave?.();
     if (this.state.conflict) return;
@@ -330,11 +365,30 @@ export class MarkdownStore {
     return entry;
   }
 
+  /** A link to another markdown file was followed: name it now, before anything loads. */
+  beginNavigation(target: string): void {
+    this.set({ navigating: target, navigationFailed: null });
+  }
+
+  /**
+   * The navigation ended. Shown files clear `navigating` themselves; one still set here did not
+   * open, and is named as failed unless `failed` is false (the link went to another viewer).
+   */
+  endNavigation(failed = true): void {
+    const target = this.state.navigating;
+    if (target !== null) this.set({ navigating: null, navigationFailed: failed ? target : null });
+  }
+
   /** `back` (-1) and `forward` (+1) page commands: the link history entry, shown in place. */
   async go(delta: -1 | 1, scroll: number): Promise<HistoryEntry | null> {
     const { entries, index } = this.history;
     const target = entries[index + delta];
-    if (!target || !(await this.show(target.path))) return null;
+    if (!target) return null;
+    if (target.path !== this.state.config?.path) this.beginNavigation(target.path);
+    if (!(await this.show(target.path))) {
+      this.endNavigation();
+      return null;
+    }
     if (entries[index]) entries[index].scroll = scroll;
     this.history.index = index + delta;
     this.set({ canBack: this.history.index > 0, canForward: this.history.index < entries.length - 1 });
@@ -345,7 +399,10 @@ export class MarkdownStore {
   private async show(path: string): Promise<boolean> {
     const config = this.state.config;
     if (!config || !this.client) return false;
-    if (path === config.path) return true;
+    if (path === config.path) {
+      if (this.state.navigating !== null) this.set({ navigating: null });
+      return true;
+    }
     // Edits are saved before the page leaves the file; a file that would lose them stays.
     if (!this.state.readOnly && this.currentText() !== this.savedText) await this.save();
     if (this.state.conflict || (!this.state.readOnly && this.currentText() !== this.savedText)) return false;
@@ -370,6 +427,7 @@ export class MarkdownStore {
       status: "saved",
       conflict: null,
       revision: this.state.revision + 1,
+      navigating: null,
     });
     this.editor?.setReadOnly(readOnly);
     this.editor?.load(file.text);

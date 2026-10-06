@@ -1,4 +1,6 @@
 import { callDiffComments, diffCommentsBridgeAvailable } from "./comments/bridge";
+import type { DiffWrites } from "./diff-writes";
+import { DIFF_VIEWED_CLEAR_OP, DIFF_VIEWED_LIST_OP, DIFF_VIEWED_SET_OP, pageDiffViewedClient } from "./diff/pageStore";
 import type { DiffSource } from "./diff/generated/protocol";
 import { fileName } from "./diff-stream";
 
@@ -11,7 +13,9 @@ import { fileName } from "./diff-stream";
  * the `cmuxDiffComments` bridge (`viewedFiles.list` / `.set` / `.clear`),
  * keyed by (repository root, diff source identity, path); generated viewer
  * origins do not reliably persist web storage, so there is no localStorage
- * fallback and pages opened outside cmux keep session-local state only.
+ * fallback and pages opened outside cmux keep session-local state only. On the
+ * shared page host the host keeps them (`cmux.diff.viewed.list` / `.set` /
+ * `.clear`, diff/pageStore.ts).
  */
 export type ViewedFileEntry = { path: string; fingerprint: string };
 export type ViewedFileState = "unviewed" | "viewed" | "changed";
@@ -251,6 +255,11 @@ export function toggleViewedItem<T extends ToggleableItem>(
 }
 
 export async function loadViewedFiles(scope: ViewedScope): Promise<ViewedFileEntry[]> {
+  const page = pageDiffViewedClient();
+  if (page) {
+    const value = await page.call<{ files?: unknown }>(DIFF_VIEWED_LIST_OP, { scope });
+    return Array.isArray(value?.files) ? value.files.filter(isViewedFileEntry) : [];
+  }
   if (!diffCommentsBridgeAvailable()) {
     return [];
   }
@@ -258,15 +267,31 @@ export async function loadViewedFiles(scope: ViewedScope): Promise<ViewedFileEnt
   return Array.isArray(value?.files) ? value.files.filter(isViewedFileEntry) : [];
 }
 
-export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null): void {
-  if (scope == null || change == null || !diffCommentsBridgeAvailable()) {
+export function persistViewedChange(scope: ViewedScope | null, change: ViewedChange | null, writes: DiffWrites): void {
+  if (scope == null || change == null) {
     return;
   }
-  const request =
-    change.kind === "set"
-      ? callDiffComments<unknown>("viewedFiles.set", { scope, file: change.entry })
-      : callDiffComments<unknown>("viewedFiles.clear", { scope, path: change.path });
-  request.catch((error) => console.warn("cmux diff viewed state save failed", error));
+  const page = pageDiffViewedClient();
+  if (page) {
+    const request =
+      change.kind === "set"
+        ? page.call<unknown>(DIFF_VIEWED_SET_OP, { scope, file: change.entry })
+        : page.call<unknown>(DIFF_VIEWED_CLEAR_OP, { scope, path: change.path });
+    request.catch((error) => console.warn("cmux diff viewed state save failed", error));
+    return;
+  }
+  if (!diffCommentsBridgeAvailable()) {
+    return;
+  }
+  // One write in flight per file, in order; a newer mark replaces a queued one (diff-writes.ts).
+  const path = change.kind === "set" ? change.entry.path : change.path;
+  writes.dispatch("viewed", {
+    resource: `viewed:${viewedScopeKey(scope)}:${path}`,
+    write:
+      change.kind === "set"
+        ? { method: "viewedFiles.set", params: { scope, file: change.entry } }
+        : { method: "viewedFiles.clear", params: { scope, path: change.path } },
+  });
 }
 
 function isViewedFileEntry(value: unknown): value is ViewedFileEntry {

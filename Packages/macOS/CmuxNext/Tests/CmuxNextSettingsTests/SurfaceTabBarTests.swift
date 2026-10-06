@@ -15,7 +15,8 @@ import Testing
     @Test func unsetUsesTheDefaults() throws {
         let result = try parse("{}")
         #expect(result.tabBar.usesDefaults)
-        #expect(result.tabBar.buttons.map(\.actionID) == ["newSurface", "splitRight", "splitDown"])
+        // R120: no trailing buttons by default; users add them back.
+        #expect(result.tabBar.buttons.isEmpty)
         #expect(result.diagnostics.isEmpty)
     }
 
@@ -130,7 +131,8 @@ import Testing
             #expect(entry?.configID == id)
             #expect(entry.flatMap { registry.descriptor(for: ActionID(rawValue: $0.actionID)) } != nil, "\(id)")
         }
-        for spec in SurfaceTabBarConfig.defaultButtons {
+        #expect(SurfaceTabBarConfig.defaultButtons.isEmpty)
+        for spec in SurfaceTabBarConfig.builtInButtons {
             #expect(registry.descriptor(for: ActionID(rawValue: spec.actionID)) != nil)
         }
     }

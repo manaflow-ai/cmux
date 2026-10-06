@@ -12,8 +12,6 @@ impl Hub {
         let tap_session = session.clone();
         let tap_hub = self.clone();
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
-            let errors = tap_session.append_errors.load(Ordering::SeqCst);
-            let stored = |s: &Session| s.append_errors.load(Ordering::SeqCst) == errors;
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
@@ -21,14 +19,15 @@ impl Hub {
                     if method == crate::agent::HOST_STDERR =>
                 {
                     let text = params.as_ref().and_then(|p| p.get("text")).cloned();
-                    tap_hub.append_with_host_seq(
-                        &tap_session,
-                        "mux",
-                        "stderr",
-                        json!({"text": text}),
-                        host_seq,
-                    );
-                    return stored(&tap_session);
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "mux",
+                            "stderr",
+                            json!({"text": text}),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::In, Message::Notification { method, params })
                     if method == crate::agent::HOST_EXIT =>
@@ -36,27 +35,29 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
-                    tap_hub.append_with_host_seq(
-                        &tap_session,
-                        "mux",
-                        if intentional { "stopped" } else { "exited" },
-                        json!({"code": code}),
-                        host_seq,
-                    );
-                    return stored(&tap_session);
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "mux",
+                            if intentional { "stopped" } else { "exited" },
+                            json!({"code": code}),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
                     if method.starts_with("claude.") {
                         // Raw stream-json line; translated messages follow.
-                        tap_hub.append_with_host_seq(
-                            &tap_session,
-                            "in",
-                            &kind,
-                            params.clone().unwrap_or(Value::Null),
-                            host_seq,
-                        );
-                        return stored(&tap_session);
+                        return tap_hub
+                            .append_logged(
+                                &tap_session,
+                                "in",
+                                &kind,
+                                params.clone().unwrap_or(Value::Null),
+                                host_seq,
+                            )
+                            .1;
                     }
                     if method == crate::rpc::method::SESSION_UPDATE {
                         if let Some(su) = params
@@ -79,14 +80,15 @@ impl Hub {
                 (Direction::Out, Message::Notification { method, params })
                     if method == "claude.stdin" =>
                 {
-                    tap_hub.append_with_host_seq(
-                        &tap_session,
-                        "out",
-                        "claude.stdin",
-                        params.clone().unwrap_or(Value::Null),
-                        host_seq,
-                    );
-                    return stored(&tap_session);
+                    return tap_hub
+                        .append_logged(
+                            &tap_session,
+                            "out",
+                            "claude.stdin",
+                            params.clone().unwrap_or(Value::Null),
+                            host_seq,
+                        )
+                        .1;
                 }
                 (Direction::Out, Message::Notification { method, .. }) => ("out", method.clone()),
                 (Direction::Out, Message::Response { .. }) => ("out", "response".to_owned()),
@@ -99,12 +101,12 @@ impl Hub {
             if live_update {
                 tap_hub.before_agent_update(&tap_session, msg.params());
             }
-            let rec =
-                tap_hub.append_with_host_seq(&tap_session, d, &kind, msg.to_value(), host_seq);
+            let (rec, logged) =
+                tap_hub.append_logged(&tap_session, d, &kind, msg.to_value(), host_seq);
             if live_update {
                 tap_hub.after_agent_update(&tap_session, &rec);
             }
-            stored(&tap_session)
+            logged
         })
     }
 }

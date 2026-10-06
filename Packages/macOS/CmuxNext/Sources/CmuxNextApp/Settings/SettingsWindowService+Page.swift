@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSettingsWindow
@@ -22,7 +23,45 @@ extension SettingsWindowService {
             "profile_colors": .array(GroupColor.allCases.map { color in
                 ["name": .string(color.rawValue), "swatch": .string(Self.hex(color.swatch)), "fill": .string(Self.hex(color.fill))]
             }),
+            // R82 commit 4: theme levels of the active window, terminal facts, the settings file
+            // and the wallpaper choices (thumbnails at cmux-page://cmux.settings/backdrop/<id>).
+            "theme": [
+                "levels": .array(themeLevels.map { .string($0.rawValue) }),
+                "current": .object(Dictionary(uniqueKeysWithValues: themeLevels.map { level in
+                    (level.rawValue, theme(at: level).map(JSONValue.string) ?? .null)
+                })),
+            ],
+            "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
+            // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
+            "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
+            "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
+            "backdrops": .array(Self.backdrops.choices.map { choice in
+                ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]
+            }),
+            "derived": .object(pageDerivedNumbers()),
         ]
+    }
+
+    /// Where unset number rows' sliders sit, by schema key: the window opacity the theme resolved.
+    func pageDerivedNumbers() -> [String: JSONValue] {
+        var derived: [String: JSONValue] = [:]
+        for path in [WindowBackgroundSetting.opacityPath] {
+            guard let id = SettingsSchema.descriptor(for: path)?.id, let value = derivedNumber(at: path) else { continue }
+            derived[id] = .number(value)
+        }
+        return derived
+    }
+
+    /// The wallpaper grid's choices (bounded: a large Desktop Pictures folder stays quick).
+    static let backdrops = BackdropCatalog(systemDirectory: URL(fileURLWithPath: "/System/Library/Desktop Pictures"), fileManager: .default)
+
+    /// The theme picker's write: the same theme actions as the palette, at `level` of the active
+    /// window; nil `spec` returns the level to the Ghostty config.
+    func setPageTheme(level: String, spec: String?) throws {
+        guard let level = SettingsThemeLevel(rawValue: level), themeLevels.contains(level) else {
+            throw ActionFailure.invalidTarget(level)
+        }
+        setTheme(spec, at: level)
     }
 
     private static func listRow(_ row: SettingsListRow) -> JSONValue {

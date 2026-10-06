@@ -5,12 +5,14 @@
 # release and RC builds use the pin.
 #
 # tree (default): the daemon built from this checkout's own cmux-tui source.
-#   The key is a git tree hash of the binary's source inputs, the cmux-tui
-#   tree and the ghostty and ghostty-next gitlinks (`pin-cmux-tui.sh key`):
-#     printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n160000 commit %s\tghostty-next\n' \
-#       "$(git rev-parse HEAD:cmux-tui)" "$(git rev-parse HEAD:ghostty)" \
-#       "$(git rev-parse HEAD:ghostty-next)" | git mktree --missing
-#   (a revision without ghostty-next drops that line and keeps its old key)
+#   The key is a git tree hash of the binary's source inputs
+#   (scripts/cmux-next/cmux-tui-tree-inputs.txt: the cmux-tui tree, the
+#   ghostty-next gitlink and the reducer FFI build script), computed by
+#   scripts/ci/cmux_tui_tree_key.py (`pin-cmux-tui.sh key`). That is key v2.
+#   Key v1 also hashed the classic `ghostty` gitlink, which no cmux-tui binary
+#   builds from since 0c9d74bc3ea (CMUX-TUI-TREE-KEY-V2). Until v1 goes away,
+#   fetch and resolve-commit take the v2 publication, else the v1 publication
+#   of the same commit (`key --version v1`), and the workflow publishes both.
 #   The `cmux-tui artifacts` workflow runs on every push to feat-cmux-next,
 #   feat-cmux-next-acpmux and cmux-tui-pin-* that touches cmux-tui, ghostty or ghostty-next.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
@@ -20,7 +22,12 @@
 #   cmux-tui/target/hosted/tree/<key>/cmux-tui and checks the published
 #   sha256. When the key is not published yet it waits, printing progress, up
 #   to CMUX_TUI_TREE_WAIT_SECONDS (default 2700), then fails. It never falls
-#   back to another binary. A fleet build that already compiled this source
+#   back to another binary. In CI the wait also reads the cmux-tui artifacts
+#   runs of CMUX_TUI_TREE_PUBLISHER_SHA (the pushed commit; needs GH_TOKEN with
+#   actions: read) every CMUX_TUI_TREE_RUN_CHECK_SECONDS (default 300) and fails
+#   fast when two checks in a row find no active run: the runs were cancelled,
+#   superseded (finished without publishing) or never started. An active run, or
+#   an API it cannot read, keeps the bounded wait. A fleet build that already compiled this source
 #   (the cmux recipe's cmux_tui_client phase sets CMUX_TUI_CLIENT_LOCAL)
 #   is used instead when its build commit has the same key: `fetch` then
 #   downloads nothing, and the bundle phase records source=tree-local-build.
@@ -45,6 +52,16 @@
 #        and, when the push starts no run, gh workflow run cmux-tui-artifacts.yml --ref cmux-tui-pin-<short>.
 #     3. ./scripts/cmux-next/pin-cmux-tui.sh pin --commit <sha> --verified-run <run-id>
 #     4. Commit scripts/cmux-next/cmux-tui.pin; delete the helper branch.
+#     5. GPLv3 source availability: tag the pinned commit (and every commit a
+#        vendor pins) with an annotated tag and push it:
+#          git tag -a cmux-tui-src-<first 11 of sha> <full sha> -m "source for vendored cmux-tui crates"
+#          git push origin refs/tags/cmux-tui-src-<first 11 of sha>
+#        Never move or delete these tags.
+#     6. Third-party notices: when cmux-tui.pin moves, regenerate them with
+#        ./scripts/cmux-next/generate-third-party-notices.sh and commit
+#        THIRD_PARTY_LICENSES.md (and cmux-tui/build-support/notices/REVIEW.md
+#        when it changes) with the pin. The cmux-tui-src-<first 11 of sha> tag
+#        from step 5 must exist first; the generator refuses without it.
 #
 # App host (cmux-app-host, apps-v1): both modes also fetch the app host the
 #   same build published, cmux-tui-app-host-<target> in the commit-addressed
@@ -57,12 +74,17 @@
 #   goes beside it as cmux-cloud (cmux-cloud.sha256; cloud_server_url= and
 #   cloud_server_sha256= in the pin); without it the supervisor answers
 #   apps.server_missing for cmux/cloud.
+#   The browser host rides the same way too: cmux-tui-browser-host-<target> goes
+#   beside it as cmux-browser-host (cmux-browser-host.sha256; browser_host_url=
+#   and browser_host_sha256= in the pin), where the daemon looks for it (the
+#   sibling of its own executable); without it the daemon has no browser host.
 #
 # No mode needs GitHub credentials: downloads are public and sha256-checked.
 #
-# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--rev <rev>]
+# Usage: pin-cmux-tui.sh fetch [--tree|--pin] | path [--tree|--pin] | key [--version v1|v2] [--rev <rev>]
 #        | app-host-path [--tree|--pin] (where fetch puts the app host)
 #        | cloud-server-path [--tree|--pin] (where fetch puts cmux-cloud)
+#        | browser-host-path [--tree|--pin] (where fetch puts cmux-browser-host)
 #        | resolve-commit (the commit that published this tree, for nightly)
 #        | local-build <binary> (exit 0 when that build has this checkout's key)
 #        | show | pin --commit <sha> [--verified-run <id>]
@@ -100,6 +122,12 @@ read_pin() {
     [[ "$pin_cloud_server_url" == https://* && "$pin_cloud_server_sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: malformed pin $pin_file (cloud_server_url= and cloud_server_sha256= go together)" >&2; exit 1; }
   fi
+  pin_browser_host_url="$(pin_field browser_host_url)"
+  pin_browser_host_sha256="$(pin_field browser_host_sha256)"
+  if [[ -n "$pin_browser_host_url$pin_browser_host_sha256" ]]; then
+    [[ "$pin_browser_host_url" == https://* && "$pin_browser_host_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "error: malformed pin $pin_file (browser_host_url= and browser_host_sha256= go together)" >&2; exit 1; }
+  fi
 }
 
 # Downloads $1 to $2 with retries; never follows to a non-HTTPS URL.
@@ -107,21 +135,18 @@ download() {
   curl -fsSL --proto '=https' --retry 4 --retry-delay 2 --connect-timeout 20 --max-time 600 -o "$2" "$1"
 }
 
-# The tree key of <rev> (default HEAD): the git tree hash of {cmux-tui tree,
-# ghostty gitlink, ghostty-next gitlink when present}, the binary's source
-# inputs (libghostty-vt builds from ghostty-next; the shell-integration
-# scripts come from ghostty). Revisions without ghostty-next keep their key.
+# The tree key of <rev> (default HEAD) is derived from
+# cmux-tui-tree-inputs.txt. That one list is also the trusted workflow's PR
+# path filter, so changes such as the layout-reducer FFI build script cannot
+# silently reuse a stale publication.
 tree_key() {
-  local rev="${1:-HEAD}" tui ghostty next entries
-  tui="$(git -C "$repo_root" rev-parse --verify -q "$rev:cmux-tui")" || {
-    echo "error: $rev has no cmux-tui tree" >&2; return 1; }
-  ghostty="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty")" || {
-    echo "error: $rev has no ghostty gitlink" >&2; return 1; }
-  entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui" "$ghostty")"
-  if next="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty-next")"; then
-    entries+="$(printf '\n160000 commit %s\tghostty-next' "$next")"
-  fi
-  printf '%s\n' "$entries" | git -C "$repo_root" mktree --missing
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "${1:-HEAD}"
+}
+# The v1 key of <rev> (with the classic ghostty gitlink): trees published
+# before CMUX-TUI-TREE-KEY-V2 exist only under it.
+# Empty when <rev> has no v1 key (a revision without the classic gitlink).
+legacy_tree_key() {
+  python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v1 "${1:-HEAD}" 2>/dev/null || true
 }
 
 mode_from_args() {
@@ -139,12 +164,17 @@ mode_from_args() {
 
 tree_dir() { echo "$repo_root/cmux-tui/target/hosted/tree/$1"; }
 
+# B2 evidence (CMUX-TUI-TREE-KEY-V2): "<key> (v2)" or "<key> (v1 fallback)"
+# for the publication actually read. <key> is published_key, <v2 key> the
+# checkout's key.
+tree_source_label() { [[ "$1" == "$2" ]] && echo "$1 (v2)" || echo "$1 (v1 fallback)"; }
+
 # Refuses a checkout whose cmux-tui source differs from the committed tree:
 # the published binary would not contain those edits.
 refuse_dirty_source() {
   [[ "${CMUX_NEXT_TUI_ALLOW_DIRTY:-}" == 1 ]] && return 0
   local dirty
-  dirty="$(git -C "$repo_root" status --porcelain --ignore-submodules=dirty -- cmux-tui ghostty ghostty-next 2>/dev/null || true)"
+  dirty="$(git -C "$repo_root" status --porcelain --ignore-submodules=dirty -- cmux-tui ghostty-next 2>/dev/null || true)"
   [[ -z "$dirty" ]] && return 0
   {
     echo "error: uncommitted cmux-tui source changes are not in any published cmux-tui binary:"
@@ -158,19 +188,100 @@ refuse_dirty_source() {
   exit 1
 }
 
+# Prints the state of the cmux-tui artifacts runs for commit <sha>, one line:
+#   active               a run is queued, waiting or in progress
+#   ended <runs>         every run completed; <runs> lists conclusion: url
+#   none                 no run exists for the commit
+#   unknown              the API could not be read (the caller keeps waiting)
+artifacts_runs_state() {
+  local sha="$1" url body
+  url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20"
+  body="$(curl -fsSL --connect-timeout 10 --max-time 30 \
+    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || { echo unknown; return 0; }
+  python3 -c '
+import json, sys
+try:
+    runs = json.loads(sys.stdin.read())["workflow_runs"]
+except Exception:
+    print("unknown"); sys.exit(0)
+if not runs:
+    print("none")
+elif any(r.get("status") != "completed" for r in runs):
+    print("active")
+else:
+    print("ended " + ", ".join("%s: %s" % (r.get("conclusion") or "unknown", r.get("html_url") or r.get("id")) for r in runs))
+' <<<"$body" 2>/dev/null || echo unknown
+}
+
+# Exits 1 with the reason when no cmux-tui artifacts run will publish tree <key>.
+fail_unpublishable_tree() {
+  local key="$1" sha="$2" state="$3" elapsed="$4"
+  {
+    echo "error: no cmux-tui artifacts run will publish tree $key (checked after ${elapsed}s, not the full wait)."
+    case "$state" in
+      none)
+        echo "  no cmux-tui artifacts run exists for $sha." ;;
+      *success*)
+        echo "  The runs for $sha ended without publishing it: ${state#ended }."
+        echo "  A run that finds a newer branch head skips the build: this commit was superseded." ;;
+      *)
+        echo "  The runs for $sha ended without publishing it: ${state#ended }." ;;
+    esac
+    echo "  A superseded commit needs no tree; the newest push publishes its own."
+    echo "  To publish this commit's tree anyway: gh workflow run cmux-tui-artifacts.yml --ref <its branch>,"
+    echo "  or for an unmerged commit push it to cmux-tui-pin-${sha:0:12} (see pin-cmux-tui.sh --help)."
+  } >&2
+  exit 1
+}
+
 # Downloads the published sha256 file of tree <key> to <file>, waiting up to
-# CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it.
+# CMUX_TUI_TREE_WAIT_SECONDS while the artifacts workflow publishes it. With
+# CMUX_TUI_TREE_PUBLISHER_SHA and GH_TOKEN set, it fails fast when two run
+# checks in a row find no active artifacts run for that commit.
+# Waits until tree <key> (v2) or <legacy> (the v1 key of the same commit) is
+# published, writes its sha256 file to <out>, and sets published_key to the
+# key that was found and published to its sha256.
 wait_for_tree() {
-  local key="$1" out="$2" sha_url wait_seconds poll_seconds started elapsed
+  local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
+  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state=""
   sha_url="$BASE/tree/$key/cmux-tui-$TARGET.sha256"
+  legacy_url=""
+  [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/cmux-tui-$TARGET.sha256"
+  published_key="$key"
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
-  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ ]] || {
-    echo "error: CMUX_TUI_TREE_WAIT_SECONDS and CMUX_TUI_TREE_POLL_SECONDS must be whole seconds" >&2; exit 2; }
+  check_seconds="${CMUX_TUI_TREE_RUN_CHECK_SECONDS:-300}"
+  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ ]] || {
+    echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS and CMUX_TUI_TREE_RUN_CHECK_SECONDS must be whole seconds" >&2; exit 2; }
+  if [[ -n "$publisher" ]]; then
+    if [[ ! "$publisher" =~ ^[0-9a-f]{40}$ || -z "${GH_TOKEN:-}" ]]; then
+      echo "note: run check off (CMUX_TUI_TREE_PUBLISHER_SHA needs a 40-hex sha and GH_TOKEN)" >&2
+      publisher=""
+    elif [[ "$(tree_key "$publisher" 2>/dev/null)" != "$key" ]]; then
+      echo "note: run check off: $publisher does not have tree $key" >&2
+      publisher=""
+    fi
+  fi
   started="$(date +%s)"
   # The query string bypasses a cached 404 at the CDN edge.
-  until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null; do
+  until curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$sha_url?t=$(date +%s)" 2>/dev/null \
+    || { [[ -n "$legacy_url" ]] \
+      && curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$out" "$legacy_url?t=$(date +%s)" 2>/dev/null \
+      && published_key="$legacy" && sha_url="$legacy_url"; }; do
     elapsed=$(( $(date +%s) - started ))
+    if [[ -n "$publisher" ]] && (( elapsed >= next_check )); then
+      next_check=$(( elapsed + check_seconds ))
+      state="$(artifacts_runs_state "$publisher")"
+      case "$state" in
+        active|unknown) ended_checks=0 ;;
+        *) ended_checks=$(( ended_checks + 1 )) ;;
+      esac
+      echo "cmux-tui artifacts runs for $publisher: $state" >&2
+      # Two checks in a row: a failed publish requeues its run, and a new
+      # push's run can appear a moment after the push.
+      (( ended_checks >= 2 )) && fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
+    fi
     if (( elapsed >= wait_seconds )); then
       {
         echo "error: cmux-tui for this checkout's tree $key is not published after $((elapsed / 60)) min ($sha_url)."
@@ -221,12 +332,12 @@ refuse_unpushed_source() {
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository 2>/dev/null)" == false ]] || return 0
   [[ -n "$(git -C "$repo_root" for-each-ref --count=1 refs/remotes 2>/dev/null)" ]] || return 0
   local last
-  last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty ghostty-next 2>/dev/null)" || return 0
+  last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty-next 2>/dev/null)" || return 0
   [[ -n "$last" ]] || return 0
   [[ -n "$(git -C "$repo_root" branch -r --contains "$last" 2>/dev/null | head -n 1)" ]] && return 0
   on_origin_branch "$last" && return 0
   {
-    echo "error: commit $last, the last change to cmux-tui, ghostty or ghostty-next here, is on no remote branch,"
+    echo "error: commit $last, the last change to cmux-tui or ghostty-next here, is on no remote branch,"
     echo "  so no workflow will publish its cmux-tui. Push it (to feat-cmux-next, feat-cmux-next-acpmux or"
     echo "  cmux-tui-pin-<short-sha>), or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
@@ -258,7 +369,8 @@ local_build_matches() {
 }
 
 # Fetches a companion binary of tree <key> into <dir>: cmux-tui-<artifact>-<target>
-# (app-host -> cmux-app-host, cloud-server -> cmux-cloud) that the commit named by
+# (app-host -> cmux-app-host, cloud-server -> cmux-cloud, browser-host ->
+# cmux-browser-host) that the commit named by
 # <dir>/source.json published in its attested commit-addressed manifest. Records its
 # sha256, or `none` when that build published none, in <dir>/<file>.sha256.
 fetch_tree_companion() {
@@ -303,6 +415,7 @@ fetch_tree_companion() {
 fetch_tree_companions() {
   fetch_tree_companion "$1" "$2" app-host cmux-app-host
   fetch_tree_companion "$1" "$2" cloud-server cmux-cloud
+  fetch_tree_companion "$1" "$2" browser-host cmux-browser-host
 }
 
 fetch_tree() {
@@ -315,8 +428,13 @@ fetch_tree() {
   refuse_dirty_source
   dir="$(tree_dir "$key")"
   binary="$dir/cmux-tui"
-  if [[ -f "$binary" && -f "$dir/cmux-tui.sha256" && "$(sha256_of "$binary")" == "$(cat "$dir/cmux-tui.sha256")" ]]; then
+  # The cache dir carries the v2 key's name even when the binary came from the
+  # v1 publication, so fetched-key records the source; a cache without that
+  # record is fetched again rather than reported as an unknown source.
+  if [[ -f "$binary" && -f "$dir/cmux-tui.sha256" && -s "$dir/fetched-key" &&
+        "$(sha256_of "$binary")" == "$(cat "$dir/cmux-tui.sha256")" ]]; then
     echo "same-tree cmux-tui $key already present: $binary"
+    echo "cmux-tui tree $key already present, fetched from $(tree_source_label "$(awk '{print $1}' "$dir/fetched-key")" "$key")"
     fetch_tree_companions "$key" "$dir"
     return 0
   fi
@@ -334,17 +452,23 @@ fetch_tree() {
       echo "pull-request cmux-tui tree $key differs from base tree $base_key; waiting for its own publication (bounded)" >&2
     fi
   fi
-  wait_for_tree "$wait_key" "$temp_dir/sha256"
+  wait_for_tree "$wait_key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
+  if [[ "$published_key" != "$key" ]]; then
+    echo "same-tree cmux-tui $key: using its v1 publication $published_key (CMUX-TUI-TREE-KEY-V2)" >&2
+    url="$BASE/tree/$published_key/cmux-tui-$TARGET"
+  fi
   download "$url" "$temp_dir/cmux-tui" || { echo "error: could not download $url" >&2; exit 1; }
   actual="$(sha256_of "$temp_dir/cmux-tui")"
   [[ "$actual" == "$published" ]] || { echo "error: $url has sha256 $actual, but $url.sha256 publishes $published" >&2; exit 1; }
-  download "$BASE/tree/$key/source.json" "$temp_dir/source.json" 2>/dev/null || echo '{}' > "$temp_dir/source.json"
+  download "$BASE/tree/$published_key/source.json" "$temp_dir/source.json" 2>/dev/null || echo '{}' > "$temp_dir/source.json"
   chmod 755 "$temp_dir/cmux-tui"
   # Rename into place: a rewritten Mach-O keeps a stale code signature.
   mv -f "$temp_dir/source.json" "$dir/source.json"
   mv -f "$temp_dir/cmux-tui" "$binary"
   printf '%s\n' "$published" > "$dir/cmux-tui.sha256"
+  if [[ "$published_key" == "$key" ]]; then echo "$published_key v2"; else echo "$published_key v1"; fi > "$dir/fetched-key"
   echo "fetched same-tree cmux-tui $key to $binary"
+  echo "fetched cmux-tui tree $(tree_source_label "$published_key" "$key")"
   fetch_tree_companions "$key" "$dir"
 }
 
@@ -356,9 +480,9 @@ resolve_tree_commit() {
   temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-tui-tree.XXXXXX")"
   # shellcheck disable=SC2064 # expand now: the trap must remove this temp dir
   trap "rm -rf '$temp_dir'" EXIT
-  wait_for_tree "$key" "$temp_dir/sha256"
-  download "$BASE/tree/$key/source.json" "$temp_dir/source.json" || {
-    echo "error: $BASE/tree/$key/source.json is missing" >&2; exit 1; }
+  wait_for_tree "$key" "$temp_dir/sha256" "$(legacy_tree_key HEAD)"
+  download "$BASE/tree/$published_key/source.json" "$temp_dir/source.json" || {
+    echo "error: $BASE/tree/$published_key/source.json is missing" >&2; exit 1; }
   commit="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("commit") or "")' "$temp_dir/source.json")"
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo "error: tree $key names no source commit" >&2; exit 1; }
   download "$BASE/$commit/manifest.json" "$temp_dir/manifest.json" || {
@@ -366,6 +490,7 @@ resolve_tree_commit() {
   manifest_sha="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["binaries"].get(sys.argv[2], ""))' "$temp_dir/manifest.json" "cmux-tui-$TARGET")"
   [[ "$manifest_sha" == "$published" ]] || {
     echo "error: commit $commit published cmux-tui-$TARGET $manifest_sha, not tree $key's $published" >&2; exit 1; }
+  echo "resolved cmux-tui tree $(tree_source_label "$published_key" "$key")" >&2
   echo "$commit"
 }
 
@@ -410,6 +535,11 @@ fetch_pin() {
   else
     rm -f "$dir/cmux-cloud"
   fi
+  if [[ -n "$pin_browser_host_url" ]]; then
+    fetch_pinned "$pin_browser_host_url" "$pin_browser_host_sha256" "$dir/cmux-browser-host" cmux-browser-host
+  else
+    rm -f "$dir/cmux-browser-host"
+  fi
 }
 
 cmd="${1:-}"
@@ -432,17 +562,18 @@ case "$cmd" in
     manifest_url="$BASE/$commit/manifest.json"
     download "$manifest_url" "$temp_dir/manifest.json" || {
       echo "error: $manifest_url is not published; run the cmux-tui artifacts workflow on $commit (see --help)" >&2; exit 1; }
-    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" <<'PY'
+    read -r manifest_commit sha256 run app_host_sha256 cloud_server_sha256 browser_host_sha256 < <(python3 - "$temp_dir/manifest.json" "cmux-tui-$TARGET" "cmux-tui-app-host-$TARGET" "cmux-tui-cloud-server-$TARGET" "cmux-tui-browser-host-$TARGET" <<'PY'
 import json, re, sys
 m = json.load(open(sys.argv[1]))
 run = re.search(r"/actions/runs/(\d+)", m.get("attestationUrl") or "")
 binaries = m.get("binaries", {})
-print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-")
+print(m.get("sourceCommit", ""), binaries.get(sys.argv[2], ""), run.group(1) if run else "-", binaries.get(sys.argv[3], "") or "-", binaries.get(sys.argv[4], "") or "-", binaries.get(sys.argv[5], "") or "-")
 PY
 )
     [[ "$run" == - ]] && run=""
     [[ "$app_host_sha256" == - ]] && app_host_sha256=""
     [[ "$cloud_server_sha256" == - ]] && cloud_server_sha256=""
+    [[ "$browser_host_sha256" == - ]] && browser_host_sha256=""
     [[ "$manifest_commit" == "$commit" && "$sha256" =~ ^[0-9a-f]{64}$ ]] || {
       echo "error: $manifest_url does not describe cmux-tui-$TARGET for $commit" >&2; exit 1; }
     url="$BASE/$commit/cmux-tui-$TARGET"
@@ -469,6 +600,15 @@ PY
     else
       echo "note: $commit published no cmux-cloud; the pin bundles none"
     fi
+    browser_host_url=""
+    if [[ "$browser_host_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+      browser_host_url="$BASE/$commit/cmux-tui-browser-host-$TARGET"
+      download "$browser_host_url" "$temp_dir/cmux-browser-host"
+      [[ "$(sha256_of "$temp_dir/cmux-browser-host")" == "$browser_host_sha256" ]] || {
+        echo "error: $browser_host_url does not match its manifest" >&2; exit 1; }
+    else
+      echo "note: $commit published no cmux-browser-host; the pin bundles none"
+    fi
     {
       echo "# Hosted cmux-tui that release and RC builds bundle (dogfood builds use the same-tree binary). Refresh: scripts/cmux-next/pin-cmux-tui.sh --help"
       echo "commit=$commit"
@@ -483,6 +623,10 @@ PY
       if [[ -n "$cloud_server_url" ]]; then
         echo "cloud_server_url=$cloud_server_url"
         echo "cloud_server_sha256=$cloud_server_sha256"
+      fi
+      if [[ -n "$browser_host_url" ]]; then
+        echo "browser_host_url=$browser_host_url"
+        echo "browser_host_sha256=$browser_host_sha256"
       fi
     } > "$pin_file"
     echo "pinned $commit ($version)"
@@ -519,6 +663,15 @@ PY
       echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-cloud"
     fi
     ;;
+  browser-host-path)
+    mode_from_args "$@"
+    if [[ "$mode" == tree ]]; then
+      echo "$(tree_dir "$(tree_key HEAD)")/cmux-browser-host"
+    else
+      read_pin
+      echo "$repo_root/cmux-tui/target/hosted/$pin_commit/cmux-browser-host"
+    fi
+    ;;
   resolve-commit)
     resolve_tree_commit
     ;;
@@ -527,8 +680,15 @@ PY
     ;;
   key)
     rev=HEAD
-    if [[ "${1:-}" == --rev ]]; then rev="${2:?--rev needs a revision}"; fi
-    tree_key "$rev"
+    version=v2
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --rev) rev="${2:?--rev needs a revision}"; shift 2 ;;
+        --version) version="${2:?--version needs v1 or v2}"; shift 2 ;;
+        *) usage >&2; exit 2 ;;
+      esac
+    done
+    python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version "$version" "$rev"
     ;;
   show)
     read_pin
