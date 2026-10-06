@@ -74,3 +74,21 @@ import Testing
         #expect(view.updatePillView.frame.width > 0)
     }
 }
+
+/// Leo (2026-10-06): the footer's avatar and gear were invisible until the
+/// pointer found them. With default settings they draw at rest.
+@MainActor @Suite(.serialized) struct SidebarFooterAtRestTests {
+    @Test func theFooterBandDrawsAtRestByDefault() {
+        let saved = DesignSettings.shared.sidebarSections
+        defer { DesignSettings.shared.sidebarSections = saved }
+        DesignSettings.shared.sidebarSections = .defaults
+        let view = SidebarView(model: SidebarModel())
+        view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
+        view.layoutSubtreeIfNeeded()
+        view.setChromeRevealed(true)
+        view.setChromeRevealed(false)
+        #expect(!view.minimalHiddenBands.bottom, "the avatar and gear stay drawn while the pointer is away")
+        #expect(view.belowRegion.itemView(LayoutItemID("itm_account")) != nil)
+        #expect(view.belowRegion.itemView(LayoutItemID("itm_settings")) != nil)
+    }
+}
