@@ -177,7 +177,32 @@ impl Mux {
     }
 }
 
+/// Apply `change` and publish every group whose snapshot it changed. A
+/// place keeps each group at its place among the other rows
+/// (`personal-mixed-order-v1`), so a workspace that crosses a group changes
+/// the group's `top_index` too.
 fn apply_personal(
+    tx: &Transaction<'_>,
+    session: &str,
+    workspace_key: Option<&str>,
+    change: PersonalChange,
+) -> anyhow::Result<StateChanges> {
+    let before = personal::workspace_group_snapshots(tx, None)?;
+    let mut applied = apply_personal_change(tx, session, workspace_key, change)?;
+    for group in personal::workspace_group_snapshots(tx, None)? {
+        let id = group["id"].as_str().unwrap_or_default().to_string();
+        let published = applied
+            .changes
+            .iter()
+            .any(|change| change["resource"] == "workspace_group" && change["id"] == id.as_str());
+        if !published && !before.contains(&group) {
+            applied.changes.push(state_upsert("workspace_group", &id, group));
+        }
+    }
+    Ok(applied)
+}
+
+fn apply_personal_change(
     tx: &Transaction<'_>,
     session: &str,
     workspace_key: Option<&str>,

@@ -111,12 +111,23 @@ fn place_home_first(transaction: &Transaction<'_>, workspace_key: &str) -> anyho
     // upsert is redundant: the upserts queued here follow it in the same
     // batch, so clients end with home at index 0.
     let local = crate::state::values::local_registry_id(transaction)?;
+    let groups = crate::state::personal_state_store::workspace_group_snapshots(transaction, None)?;
     WorkspaceRegistry::set_personal_workspace_in(
         transaction,
         &local,
         workspace_key,
         PersonalWorkspaceUpdate { index: Some(0), group: Some(None), ..Default::default() },
     )?;
+    // Home moves to the front, across any group with a place: publish the
+    // groups whose top_index changed (personal-mixed-order-v1).
+    let after = crate::state::personal_state_store::workspace_group_snapshots(transaction, None)?;
+    for group in after {
+        if !groups.contains(&group) {
+            let id = group["id"].as_str().unwrap_or_default().to_string();
+            let change = crate::state::store::state_upsert("workspace_group", &id, group);
+            crate::state::closed_history_store::queue_change(transaction, &change)?;
+        }
+    }
     for placement in crate::state::personal_state_store::placement_snapshots(transaction)? {
         let id = crate::state::personal_state_store::placement_id(
             placement["workspace"]["session_id"].as_str().unwrap_or_default(),
