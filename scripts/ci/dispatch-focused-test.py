@@ -785,7 +785,7 @@ def same_product_inputs(first: str, second: str) -> bool:
 # runs 36212302297 and 36213457297), so the owned choice test-e2e.yml offers
 # serves every class.
 FAMILY_RUNNERS = {"blacksmith": "blacksmith-6vcpu-macos-26"}
-OWNED_LABEL = re.compile(r"glaeda-(?:root-)?(xl|std|light)-xcode-([0-9.]+)")
+OWNED_LABEL = re.compile(r"glaeda-(?:aws-)?(?:root-)?(xl|std|light)-xcode-([0-9.]+)")
 
 
 def owned_class(label: str | None) -> tuple[str, str] | None:
