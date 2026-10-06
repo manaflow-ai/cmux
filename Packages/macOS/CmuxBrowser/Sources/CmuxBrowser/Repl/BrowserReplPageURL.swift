@@ -40,7 +40,8 @@ public struct BrowserReplPageURL: Sendable, Equatable {
         return BrowserReplPageURL(address, creator: liveCreator)
     }
 
-    /// The URL with its credential values replaced
+    /// The URL with its credential values replaced, and a URL that holds
+    /// its document (`data:`, `blob:`, `javascript:`) as its scheme alone
     /// (``Swift/String/redactingBrowserReplURLCredentials()``).
     public var credentialFree: String { raw.redactingBrowserReplURLCredentials() }
 
@@ -108,6 +109,30 @@ public struct BrowserReplPageText: Sendable, Equatable {
 }
 
 extension String {
+    /// This URL without the capability token of a page cmux serves from
+    /// local files (``BrowserReplFileSandbox/isAppServed(_:)``), which would
+    /// let a reader load those files: the host of one of cmux's own schemes
+    /// (`cmux-diff-viewer://<token>/...`), the first path segment of the diff
+    /// viewer's HTTP form (`http://127.0.0.1:<port>/<token>/...`), each
+    /// replaced by `redacted`. Nil for any other URL.
+    var browserReplAppServedTokenFree: String? {
+        guard let url = URL(string: self), BrowserReplFileSandbox.isAppServed(url),
+              let schemeEnd = range(of: "://") else { return nil }
+        let rest = self[schemeEnd.upperBound...]
+        let authorityEnd = rest.firstIndex { $0 == "/" || $0 == "?" || $0 == "#" } ?? rest.endIndex
+        let head = String(self[..<schemeEnd.upperBound])
+        let scheme = url.scheme?.lowercased()
+        guard scheme == "http" || scheme == "https" else {
+            return head + "redacted" + rest[authorityEnd...]
+        }
+        let path = rest[authorityEnd...]
+        guard path.first == "/" else { return self }
+        let segment = path.dropFirst()
+        let segmentEnd = segment.firstIndex { $0 == "/" || $0 == "?" || $0 == "#" } ?? segment.endIndex
+        return head + rest[..<authorityEnd] + "/redacted" + segment[segmentEnd...]
+    }
+
+
     /// This text with the credential values of every URL in it replaced
     /// (``redactingBrowserReplURLCredentials()``). A URL starts at its
     /// scheme (`https://`, any `scheme://`) and runs to whitespace, a

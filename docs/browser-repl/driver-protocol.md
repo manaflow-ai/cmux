@@ -100,7 +100,11 @@ picked, so a session that leaves the tab either cancels a download it
 recorded or is gone before the route is made. A download a session's
 input started whose session left the tab before then (also every
 session, or a tab no session drives any more) is cancelled with no event,
-never saved to the user's download location.
+never saved to the user's download location. That holds also when the
+session left before WebKit turned the navigation into a download: the tab
+keeps the navigation's record naming the session (past its 60-second
+claim window too) until the download claims it or a later navigation in
+the same frame replaces it.
 
 A dialog or file chooser the page opens while it handles a session's
 `input.*` call, the first second of its page-world `frame.evaluate` (the
@@ -340,8 +344,17 @@ each reader where results and events leave the driver: only that creator
 reads it as written; every other session gets its userinfo and
 credential-named query and fragment parameters reading `redacted` (the
 rule network events use), also where another field of the same payload (a
-refusal's reason) repeats it. An event `url` the driver did not type that
-way reaches every session in that form.
+refusal's reason) repeats it. A URL that holds its document rather than
+naming where it is reaches every other session as its scheme alone: a
+`data:`, `blob:` or `javascript:` URL as `data:…` (and so on), an `about:`
+URL as its name without a query or fragment (`about:srcdoc`). A diff
+viewer's URL reaches it without its capability token (`cmux-diff-viewer://redacted/...`,
+`http://127.0.0.1:<port>/redacted/...`). An event
+`url` the driver did not type that way reaches every session in that form.
+A frame the session's domain policy blocks lists in that form even for the
+tab's creator, and an error that names a frame (a `blocked` refusal, a
+`stale` frame that did not answer) names it in that form for every
+session.
 
 | Event | Payload |
 | --- | --- |
@@ -713,7 +726,20 @@ native (`BrowserReplBoundary` in the session, and the driver):
   local file outside those directories, such as a user's tab opened on
   one before the session reached it, and on a tab the session did not
   create whose page is a document of a local file's origin under another
-  URL (an `about:blank` page a file page wrote). A document of an opaque
+  URL (an `about:blank` page a file page wrote). A page cmux serves through
+  its own URL scheme (`cmux-diff-viewer:`, which streams the local files a
+  diff registered), or a document of such a page's origin, counts as a
+  local file outside those directories, whatever they are and with no
+  domain policy in force: the session's reads, input and captures of a
+  frame that shows one are refused in any tab (a user's tab on one, or a
+  frame a script put into a web page, which WebKit loads; the frame gate
+  judges every frame of a web view once one of its frames loaded such a
+  page), a tab the session created never loads one in any frame, and a
+  load, a landed page or a session `fetch` of one is refused. The diff
+  viewer's HTTP form (`http://127.0.0.1:<port>/<token>/...#cmux-diff-viewer`,
+  a loopback server cmux runs for the same files) counts the same way: its
+  whole origin, once cmux registered the server, and any loopback page
+  that names itself `#cmux-diff-viewer`. A document of an opaque
   origin whose URL names no host (a `data:` page or frame, a `blob:` of an
   opaque origin, a sandboxed `about:srcdoc`) is judged there by the
   documents that made it, as under the domain policy below: it is refused

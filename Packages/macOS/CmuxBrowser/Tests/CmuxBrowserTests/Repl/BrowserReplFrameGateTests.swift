@@ -309,6 +309,72 @@ struct BrowserReplFrameGateTests {
         #expect(error?.code == "stale", "files were given to a chooser whose frame shows another document: \(String(describing: error))")
     }
 
+    /// A refusal names the blocked frame, which the session may not read:
+    /// its URL reaches the session as frames.list gives it to any reader
+    /// (``BrowserReplPageURL`` with no creator), never with the credential
+    /// values in it.
+    @Test func aRefusalNamesABlockedFrameWithoutTheCredentialsInItsURL() async throws {
+        let html = """
+            <iframe id=a src="cmux-test://allowed.test/child" style="position:absolute;left:10px;top:10px;width:100px;height:80px;border:0"></iframe>
+            <iframe id=b src="cmux-test://blocked.test/x?access_token=T0KEN&page=2" style="position:absolute;left:200px;top:10px;width:100px;height:80px;border:0"></iframe>
+            """
+        let page = try await FramePage.load(html: html) { frames in frames.count >= 3 && frames.allSatisfy { !$0.url.isEmpty } }
+        let gate = Self.gate()
+        let blocked = try #require(page.frame(host: "blocked.test"))
+        try #require(blocked.url.contains("T0KEN"))
+        _ = try await page.run("document.getElementById('f').focus(); return true", in: blocked)
+        let refusals = [
+            await Self.error { try await gate.checkPointer(at: [CGPoint(x: 250, y: 50)], in: page.webView, frames: page.frames) },
+            await Self.error { try await gate.checkFocus(in: page.webView, frames: page.frames) },
+            await Self.error { try gate.checkCapture(in: page.webView, frames: page.frames) },
+        ]
+        for refusal in refusals {
+            let refusal = try #require(refusal)
+            #expect(refusal.code == "blocked")
+            #expect(!refusal.message.contains("T0KEN"), "a refusal named the blocked frame with its credential: \(refusal.message)")
+            // `cmux-test:` is not a web scheme, so its host is hidden as a
+            // diff viewer's token is; the rest of the URL names the frame.
+            #expect(refusal.message.contains("/x?access_token=redacted&page=2"), "a refusal no longer names the frame: \(refusal.message)")
+        }
+    }
+
+    /// A page of a URL scheme the app serves (cmux's `cmux-diff-viewer:`
+    /// streams local files; `cmux-test:` stands in for it) that a script put
+    /// into a user's web page as a frame: WebKit loads it, and the frame
+    /// gate refuses it as a local page outside the session's directories,
+    /// also with no domain policy in force.
+    @Test func anAppServedFrameInAUsersWebPageIsRefusedWithoutAPolicy() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.setURLSchemeHandler(FramePageSchemeHandler(mainPage: "<p>unused</p>"), forURLScheme: "cmux-test")
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), configuration: configuration)
+        let recorder = OpaquePage.Recorder(recording: true)
+        webView.navigationDelegate = recorder
+        webView.loadHTMLString("<p>web</p>", baseURL: URL(string: "http://page.test/"))
+        _ = try await FramePage.settle(webView) { $0.first?.url == "http://page.test/" }
+        _ = try await webView.callAsyncJavaScript(
+            "const f = document.createElement('iframe'); f.src = 'cmux-test://served.test/diff'; document.body.append(f); return true",
+            arguments: [:], in: nil, contentWorld: .page
+        )
+        let frames = try await FramePage.settle(webView) { frames in frames.count >= 2 && frames[1].url.hasPrefix("cmux-test:") }
+        let served = frames[1]
+        // WebKit loaded the app's page into the web page's frame.
+        let shown = try await webView.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: served.info, contentWorld: .page) as? String
+        try #require(shown?.contains("served.test/diff") == true, "WebKit did not load an app-served frame in a web page: \(String(describing: shown))")
+
+        let gate = BrowserReplFrameGate(world: Self.world)
+        gate.scope = { _ in
+            BrowserReplFrameGate.Scope(sessionID: "s", fileRoots: ["/tmp/session-work"], tab: BrowserReplTabFacts(mainFrameURL: URL(string: "http://page.test/")))
+        }
+        let error = await Self.error {
+            try await gate.callAsyncJavaScript("return document.body.innerText", arguments: [:], in: webView, frame: served, contentWorld: .page)
+        }
+        #expect(error?.code == "blocked", "the app-served frame was read: \(String(describing: error))")
+        // The web page itself stays readable.
+        let main = BrowserReplFrame(frameID: "main", parentFrameID: nil, indexInParent: 0, info: nil, url: "http://page.test/", name: "", crossOrigin: false)
+        #expect(await Self.error { try await gate.callAsyncJavaScript("return 1", arguments: [:], in: webView, frame: main, contentWorld: .page) } == nil)
+        _ = recorder
+    }
+
     /// `window.frames` leaves out frames in shadow trees, so a child's index
     /// in WebKit's frame tree is not its index there. A blocked frame in a
     /// shadow tree must still refuse a point over it.

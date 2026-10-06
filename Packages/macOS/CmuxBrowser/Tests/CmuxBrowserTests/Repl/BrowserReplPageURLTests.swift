@@ -109,4 +109,44 @@ import Testing
         let listed = Self.read(Self.frameRow(), creator: "reader")
         #expect(listed["url"] as? String == Self.signed)
     }
+
+    /// A `data:`, `blob:` or `javascript:` URL holds the document (its
+    /// source, a reference to its bytes, its script), not only an address:
+    /// a blocked frame's, a user's tab's or a history entry's reaches a
+    /// reader that is not the tab's live creator as its scheme alone, also
+    /// where the payload repeats the URL as written (a refusal's text).
+    @Test(arguments: [
+        ("data:text/html,<p>PAYLOAD</p>", "data:\u{2026}"),
+        ("DATA:text/plain;base64,UEFZTE9BRA==", "data:\u{2026}"),
+        ("blob:https://files.example/PAYLOAD-0b7e", "blob:\u{2026}"),
+        ("javascript:alert('PAYLOAD')", "javascript:\u{2026}"),
+        ("about:srcdoc?PAYLOAD#PAYLOAD", "about:srcdoc"),
+    ])
+    func anOpaqueURLReachesOtherReadersAsItsSchemeAlone(raw: String, shown: String) throws {
+        for creator in [nil, "other"] as [String?] {
+            var row = Self.frameRow(raw)
+            row["reason"] = "frame \(raw) is blocked"
+            let listed = Self.read(row, creator: creator)
+            #expect(listed["url"] as? String == shown, "an opaque URL kept its payload: \(String(describing: listed["url"]))")
+            #expect(listed["reason"] as? String == "frame \(shown) is blocked")
+        }
+        #expect(Self.read(Self.frameRow(raw), creator: "reader")["url"] as? String == raw, "the tab's creator lost its own URL")
+    }
+
+    /// A diff viewer's URL names its capability token (the custom scheme's
+    /// host, the HTTP form's first path segment): with it a session could
+    /// load the files the diff registered. It reaches no reader but the
+    /// tab's creator.
+    @Test(arguments: [
+        "cmux-diff-viewer://0123456789abcdef0123456789abcdef/index.html",
+        "http://127.0.0.1:59873/0123456789abcdef0123456789abcdef/index.html#cmux-diff-viewer",
+    ])
+    func aDiffViewersTokenReachesNoReaderButTheCreator(raw: String) throws {
+        for creator in [nil, "other"] as [String?] {
+            let listed = try #require(Self.read(Self.row(raw), creator: creator)["url"] as? String)
+            #expect(!listed.contains("0123456789abcdef"), "a diff viewer's token reached another reader: \(listed)")
+            #expect(listed.contains("index.html"))
+        }
+        #expect(Self.read(Self.row(raw), creator: "reader")["url"] as? String == raw)
+    }
 }

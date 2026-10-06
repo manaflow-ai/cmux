@@ -159,7 +159,10 @@ public struct BrowserReplFileSandbox: Sendable {
             return nil
         }
         switch scheme {
-        case "http", "https", "about", "data", "blob":
+        case "http", "https":
+            guard isAppServed(url) else { return nil }
+            return "\(urlString.redactingBrowserReplURLCredentials()) is a page cmux serves from local files, which a REPL session may not load"
+        case "about", "data", "blob":
             return nil
         case "file":
             let host = url.host(percentEncoded: false) ?? ""
@@ -201,15 +204,81 @@ public struct BrowserReplFileSandbox: Sendable {
     /// `data:` document a file page wrote), whose maker cannot be told; the
     /// caller passes `documentOrigin` only for tabs the session did not
     /// create, whose file pages no session check stood before.
+    ///
+    /// A page of one of cmux's own URL schemes (``isAppServedScheme(_:)``),
+    /// or a document of such a page's origin, is refused the same way, under
+    /// any roots: the scheme's handler streams local files (a diff's) that
+    /// no root of the session granted.
     public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
-        if URL(string: url)?.scheme?.lowercased() == "file" {
+        let scheme = URL(string: url)?.scheme?.lowercased()
+        if scheme == "file" {
             guard let reason = navigationRefusal(url, roots: roots) else { return nil }
             return "the tab shows the local file \(url), which a REPL session may not read: \(reason)"
         }
         if documentOrigin?.lowercased() == "file://" {
             return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
         }
+        return appServedRefusal(url: url, documentOrigin: documentOrigin)
+    }
+
+    /// Why a session may not read a page at `url`, or a document of
+    /// `documentOrigin`, that cmux serves from local files (``isAppServed(_:)``),
+    /// or nil. It is refused in any tab, under any roots and whatever the
+    /// domain policy: no root of the session granted those files.
+    public static func appServedRefusal(url: String, documentOrigin: String?) -> String? {
+        for candidate in [url, documentOrigin].compactMap({ $0 }) {
+            guard let parsed = URL(string: candidate), isAppServed(parsed) else { continue }
+            return "it is a page cmux serves from local files (\(parsed.scheme?.lowercased() ?? "")), which a REPL session may not read or load; open files inside the session's directories with tabs.open"
+        }
         return nil
+    }
+
+    /// Whether cmux itself serves `url` from local files: a URL of one of
+    /// its own schemes (``isAppServedScheme(_:)``), or of a loopback server
+    /// it runs for the same files (``registerAppServedOrigin(of:)``).
+    public static func isAppServed(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        if isAppServedScheme(scheme) { return true }
+        guard scheme == "http" || scheme == "https", let origin = webOrigin(of: url) else { return false }
+        // The diff viewer's page names itself so, also on a server the app
+        // did not register here (a loopback alias of a remote one).
+        if url.fragment == "cmux-diff-viewer", let host = BrowserReplHostName.host(of: url), BrowserReplHostName.isLoopback(host) {
+            return true
+        }
+        return appServedOrigins.contains(origin)
+    }
+
+    /// Records that cmux serves local files at `url`'s origin (the diff
+    /// viewer's HTTP form, `http://127.0.0.1:<port>/<token>/...`): its pages,
+    /// and every document of its origin, are refused to REPL sessions as a
+    /// local file outside their directories is.
+    public static func registerAppServedOrigin(of url: URL) {
+        guard let origin = webOrigin(of: url) else { return }
+        appServedOrigins.insert(origin)
+    }
+
+    /// Ends ``registerAppServedOrigin(of:)`` for `url`'s origin.
+    public static func unregisterAppServedOrigin(of url: URL) {
+        guard let origin = webOrigin(of: url) else { return }
+        appServedOrigins.remove(origin)
+    }
+
+    /// `scheme://host:port` of an http(s) URL, the port always written.
+    private static func webOrigin(of url: URL) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return nil }
+        return "\(scheme)://\(host):\(url.port ?? (scheme == "https" ? 443 : 80))"
+    }
+
+    private static let appServedOrigins = BrowserReplAppServedOrigins()
+
+    /// Whether `scheme` (lowercased) is one of cmux's own URL schemes rather
+    /// than one of the web's, a file's or an opaque document's: a page of
+    /// one was served by a URL scheme handler cmux installs on the web view
+    /// (`cmux-diff-viewer:` streams local files), since WebKit loads no other
+    /// scheme in a frame.
+    public static func isAppServedScheme(_ scheme: String) -> Bool {
+        !["http", "https", "ws", "wss", "file", "about", "data", "blob", "javascript"].contains(scheme)
     }
 
     /// WebKit content rules that keep pages in a session's tabs from loading
@@ -654,3 +723,15 @@ struct BrowserReplFileIdentity: Hashable, Sendable {
 /// Asks the volume `fsid_t` (a `statfs` `f_fsid`) for the object with an
 /// inode number: 0 when it names a path for it, else an `errno`.
 typealias BrowserReplVolumeLookup = @Sendable (fsid_t, UInt64) -> Int32
+
+/// The origins of loopback servers cmux runs that serve local files
+/// (``BrowserReplFileSandbox/registerAppServedOrigin(of:)``). Sessions read
+/// it off the main thread.
+final class BrowserReplAppServedOrigins: @unchecked Sendable {
+    private let lock = NSLock()
+    private var origins: Set<String> = []
+
+    func insert(_ origin: String) { lock.withLock { _ = origins.insert(origin) } }
+    func remove(_ origin: String) { lock.withLock { _ = origins.remove(origin) } }
+    func contains(_ origin: String) -> Bool { lock.withLock { origins.contains(origin) } }
+}

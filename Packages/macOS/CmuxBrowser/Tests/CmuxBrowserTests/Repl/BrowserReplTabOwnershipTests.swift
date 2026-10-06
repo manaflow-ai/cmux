@@ -391,6 +391,88 @@ import Testing
         #expect(Self.cancels(kept), "a download the departed creator's input started went on: \(kept)")
     }
 
+    /// The session leaves (reset, teardown, the tab moved away) after its
+    /// input started a navigation and before WebKit made that navigation a
+    /// download and asked for its claim. The claim still names the session,
+    /// so the download is cancelled; it never goes on to the user's
+    /// download location as one nobody started. Also when the record
+    /// outlived ``BrowserReplTabOwnership/navigationStartLifetime`` by then.
+    @Test(arguments: [false, true])
+    func aDownloadClaimedAfterItsStartingSessionLeftIsCancelled(late: Bool) throws {
+        let start = ContinuousClock.now
+        let claimedAt = start + (late ? .seconds(120) : .seconds(2))
+        let policies: (String) -> BrowserReplDomainPolicy? = { _ in nil }
+        let roots: (String) -> [String]? = { _ in nil }
+        for byResponse in [false, true] {
+            var users = BrowserReplTabOwnership()
+            users.attach(sessionID: "agent")
+            users.setHandledEvents([.download], for: "agent")
+            users.beginInput(sessionID: "agent")
+            users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/file.zip", at: start)
+            users.endInput(sessionID: "agent")
+            users.detach(sessionID: "agent")
+            let taken = byResponse
+                ? users.takeDownloadClaim(responseInFrame: "main", at: claimedAt)
+                : users.takeDownloadClaim(navigation: 1, at: claimedAt)
+            let claim = try #require(taken)
+            #expect(claim.sessionID == "agent", "the claim lost the session whose input started it: \(String(describing: claim.sessionID))")
+            let route = users.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: policies, fileRoots: roots)
+            #expect(Self.cancels(route), "a download the departed session's input started went on: \(route)")
+        }
+        // The user's own download in that tab still keeps the user's location.
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.detach(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "main", at: start)
+        let userTaken = users.takeDownloadClaim(navigation: 2, at: claimedAt)
+        let claim = try #require(userTaken)
+        #expect(claim.sessionID == nil)
+        #expect(users.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: policies, fileRoots: roots) == .user)
+    }
+
+    /// When the last session leaves, the tab's REPL state is dropped; what
+    /// a departed session's input started is kept
+    /// (``BrowserReplTabOwnership/departedNavigations()``), so the
+    /// download that navigation still becomes is claimed for that session
+    /// and cancelled. A later navigation in the frame (the user's) replaces
+    /// the record, and then nothing is kept.
+    @Test func theLastSessionsDepartureKeepsTheNavigationsItsInputStarted() throws {
+        let start = ContinuousClock.now
+        var users = BrowserReplTabOwnership()
+        users.attach(sessionID: "agent")
+        users.setHandledEvents([.download], for: "agent")
+        users.beginInput(sessionID: "agent")
+        users.noteNavigationAction(1, frame: "main", url: "https://allowed.test/file.zip", at: start)
+        users.endInput(sessionID: "agent")
+        users.noteNavigationAction(2, frame: "7", at: start)
+        users.detach(sessionID: "agent")
+        #expect(users.holdsDepartedNavigations)
+
+        var kept = users.departedNavigations()
+        #expect(kept.holdsDepartedNavigations)
+        #expect(kept.creatorSessionID == nil && !kept.isSessionOwned)
+        // Only the departed session's record is kept.
+        #expect(kept.takeDownloadClaim(responseInFrame: "7", at: start) == nil)
+        var probe = kept
+        let taken = probe.takeDownloadClaim(navigation: 1, at: start + .seconds(2))
+        let claim = try #require(taken)
+        #expect(claim.sessionID == "agent")
+        #expect(Self.cancels(probe.downloadRoute(startedBy: claim.sessionID, source: claim.source, policy: { _ in nil }, fileRoots: { _ in nil })))
+        #expect(!probe.holdsDepartedNavigations, "a used claim still kept the tab's record")
+
+        // The user navigates the frame: the record is the user's now.
+        kept.noteNavigationAction(3, frame: "main", at: start + .seconds(3))
+        #expect(!kept.holdsDepartedNavigations)
+        #expect(kept.takeDownloadClaim(responseInFrame: "main", at: start + .seconds(4))?.sessionID == nil)
+
+        // A tab whose sessions started nothing keeps nothing.
+        var quiet = BrowserReplTabOwnership()
+        quiet.attach(sessionID: "agent")
+        quiet.noteNavigationAction(1, frame: "main", at: start)
+        quiet.detach(sessionID: "agent")
+        #expect(!quiet.holdsDepartedNavigations)
+    }
+
     /// Whether `route` ends the download with nobody getting the file: not
     /// the user's location, and no session.
     private static func cancels(_ route: BrowserReplDownloadRoute) -> Bool {

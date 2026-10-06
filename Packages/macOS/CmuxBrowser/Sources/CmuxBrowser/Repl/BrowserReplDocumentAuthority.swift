@@ -213,8 +213,14 @@ public struct BrowserReplDocumentAuthority: Sendable {
             if let reason = policy.blockReason(document: document) {
                 return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: reason))
             }
-            guard judgesLocalDocuments(in: access.tab), let roots = fileRoots,
-                  let reason = BrowserReplFrameGate.localBlockReason(document, roots: roots) else { return .allowed }
+            guard let roots = fileRoots else { return .allowed }
+            // A page cmux serves from local files is refused in any tab (a
+            // web page can frame one); other local documents in the tabs
+            // whose local documents are judged.
+            let reason = judgesLocalDocuments(in: access.tab)
+                ? BrowserReplFrameGate.localBlockReason(document, roots: roots)
+                : BrowserReplFrameGate.appServedBlockReason(document)
+            guard let reason else { return .allowed }
             return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: reason))
         }
     }

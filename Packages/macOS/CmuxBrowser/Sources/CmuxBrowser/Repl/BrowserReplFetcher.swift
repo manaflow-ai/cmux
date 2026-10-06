@@ -126,7 +126,10 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     }
 
     private func reason(_ url: URL) -> String? {
-        lock.withLock { blockReason }?(url.absoluteString)
+        // A loopback server cmux runs for local files (the diff viewer's),
+        // at every hop, whatever the domain policy.
+        if let refusal = BrowserReplFileSandbox.appServedRefusal(url: url.absoluteString, documentOrigin: nil) { return refusal }
+        return lock.withLock { blockReason }?(url.absoluteString)
     }
 
     /// Cancels in-flight requests and breaks the session's strong reference

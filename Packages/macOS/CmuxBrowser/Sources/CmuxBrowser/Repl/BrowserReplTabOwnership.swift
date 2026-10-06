@@ -91,8 +91,13 @@ extension String {
     /// like, so `access_token`, `id_token` and `X-Amz-Signature`) and the
     /// short names URLs use for one (`code`, `sig`, `key`, `otp` and the
     /// like). Other parameters, and the rest of the URL, stay as written.
+    ///
+    /// A URL that holds its document rather than naming where it is
+    /// (``browserReplOpaqueURLForm``: `data:`, `blob:`, `javascript:`,
+    /// `about:`) keeps only what names no content.
     public func redactingBrowserReplURLCredentials() -> String {
-        var rest = Substring(self)
+        if let opaque = browserReplOpaqueURLForm { return opaque }
+        var rest = Substring(browserReplAppServedTokenFree ?? self)
         var result = ""
         // The scheme and authority: drop a userinfo.
         if let schemeEnd = rest.range(of: "://") {
@@ -136,6 +141,22 @@ extension String {
             return parameter
         }
         return rawName + "=redacted"
+    }
+
+    /// This URL as a reader that may not read its document gets it, when
+    /// the URL is the document itself, or a key to it, rather than an
+    /// address: a `data:` URL is the document's source, a `blob:` URL the
+    /// unguessable name of its bytes and a `javascript:` URL its script,
+    /// so each becomes its scheme and an ellipsis (`data:…`); an `about:`
+    /// URL keeps its name (`about:blank`, `about:srcdoc`) without a query
+    /// or fragment. Nil for any other URL.
+    public var browserReplOpaqueURLForm: String? {
+        guard let colon = firstIndex(of: ":") else { return nil }
+        let scheme = self[..<colon].lowercased()
+        if ["data", "blob", "javascript"].contains(scheme) { return scheme + ":\u{2026}" }
+        guard scheme == "about" else { return nil }
+        let name = self[index(after: colon)...].prefix { $0 != "?" && $0 != "#" }
+        return "about:" + name
     }
 
     /// Short query names that carry a credential without saying so in the
@@ -295,13 +316,36 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
         handledEvents.removeValue(forKey: sessionID)
         handlerOrder.removeAll { $0 == sessionID }
         inputSessionIDs.removeAll { $0 == sessionID }
-        for (frame, start) in latestNavigations where start.sessionID == sessionID {
-            latestNavigations[frame]?.sessionID = nil
-        }
+        // A navigation its input started keeps naming it: the download that
+        // navigation may still become is claimed for a session that left,
+        // and so cancelled (downloadRoute), never taken for the user's.
         for index in requestRecipients.indices { requestRecipients[index].sessionIDs.remove(sessionID) }
         guard creatorSessionID == sessionID else { return false }
         creatorSessionID = nil
         return true
+    }
+
+    /// Whether a navigation recorded here was started by the input of a
+    /// session that is no longer attached: the download it may still
+    /// become is that session's, and cancelled (``downloadRoute(startedBy:source:policy:fileRoots:)``).
+    public var holdsDepartedNavigations: Bool {
+        latestNavigations.values.contains { start in
+            start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        }
+    }
+
+    /// The tab's record of what no session drives any more: only the
+    /// navigations a departed session's input started
+    /// (``holdsDepartedNavigations``), no sessions, no creator. The tab
+    /// keeps it when its last session leaves, so a download such a
+    /// navigation becomes later is still claimed for that session; a later
+    /// navigation in the same frame replaces the record as here.
+    public func departedNavigations() -> BrowserReplTabOwnership {
+        var kept = BrowserReplTabOwnership()
+        kept.latestNavigations = latestNavigations.filter { _, start in
+            start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        }
+        return kept
     }
 
     /// The live session that created the tab, when that is not `sessionID`:
@@ -538,9 +582,10 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
 
     /// The session whose input started navigation `navigation`, which
     /// WebKit turned into a download itself (its navigation action), within
-    /// ``navigationStartLifetime``; the record is used up. `nil` when no
-    /// session's input started it (the user's, or the page's own), or when
-    /// a later navigation in its frame replaced it.
+    /// ``navigationStartLifetime`` (or later, when that session has left
+    /// the tab: its download is then cancelled); the record is used up.
+    /// `nil` when no session's input started it (the user's, or the page's
+    /// own), or when a later navigation in its frame replaced it.
     public mutating func takeDownloadStarter(navigation: Int, at now: ContinuousClock.Instant = .now) -> String? {
         takeDownloadClaim(navigation: navigation, at: now)?.sessionID
     }
@@ -572,8 +617,12 @@ public struct BrowserReplTabOwnership: Sendable, Equatable {
     private mutating func take(_ frame: String, at now: ContinuousClock.Instant) -> BrowserReplDownloadClaim? {
         guard let start = latestNavigations[frame] else { return nil }
         latestNavigations[frame]?.sessionID = nil
+        // A record past its lifetime claims nothing for a session still on
+        // the tab; one whose session left still names it, so the download
+        // is cancelled rather than handed to the user.
         let live = now - start.at <= Self.navigationStartLifetime
-        return BrowserReplDownloadClaim(sessionID: live ? start.sessionID : nil, source: start.source)
+        let departed = start.sessionID.map { !attachedSessionIDs.contains($0) } ?? false
+        return BrowserReplDownloadClaim(sessionID: live || departed ? start.sessionID : nil, source: start.source)
     }
 
     /// The session a download goes to (it stays in the temporary directory

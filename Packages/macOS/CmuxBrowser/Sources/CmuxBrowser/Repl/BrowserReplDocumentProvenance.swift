@@ -29,6 +29,16 @@ public indirect enum BrowserReplDocumentMaker: Sendable, Equatable {
 public final class BrowserReplDocumentProvenance {
     /// Makers per frame (`"main"` or the frame's id).
     private var makers: [String: [BrowserReplDocumentMaker]] = [:]
+    /// Whether a frame of the web view was ever navigated to a page cmux
+    /// serves from local files (``BrowserReplFileSandbox/isAppServed(_:)``).
+    private var loadedAppServedPage = false
+
+    /// Whether a frame of `webView` was ever navigated to a page cmux serves
+    /// from local files: the frame gate then judges its frames whatever the
+    /// policy (``BrowserReplFrameGate/isActive(in:)``).
+    public static func hasLoadedAppServedPage(in webView: WKWebView) -> Bool {
+        of(webView, creating: false)?.loadedAppServedPage == true
+    }
 
     static let maximumMakersPerFrame = 16
     static let maximumFrames = 1_024
@@ -66,6 +76,9 @@ public final class BrowserReplDocumentProvenance {
     /// document that started it as a maker of its frame. Call it for every
     /// navigation, also one that is then cancelled or held.
     public static func note(_ action: WKNavigationAction, in webView: WKWebView) {
+        if let url = action.request.url, BrowserReplFileSandbox.isAppServed(url) {
+            of(action.targetFrame?.webView ?? webView, creating: true)?.loadedAppServedPage = true
+        }
         guard let target = action.targetFrame, let url = action.request.url,
               makesOpaqueDocument(url), let key = frameKey(target) else { return }
         let added: [BrowserReplDocumentMaker]

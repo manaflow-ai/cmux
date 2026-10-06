@@ -121,6 +121,67 @@ struct BrowserReplDocumentAuthorityTests {
         #expect(local.verdict(BrowserReplAccess(.document(unknown), in: userTab)).reason != nil)
     }
 
+    /// cmux serves local files to its browser through its own URL schemes
+    /// (`cmux-diff-viewer:` streams the files a diff registered). A page of
+    /// such a scheme is a local page the session's `fs` roots never
+    /// granted: a user's tab that shows one, a frame of one, a document it
+    /// made and a document of its origin are refused as a local file
+    /// outside the session's directories is, whatever the policy.
+    @Test("A page cmux serves through its own URL scheme is judged as a local file outside the session's directories")
+    func appServedPagesAreLocalFilesOutsideTheRoots() throws {
+        let local = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        let address = "cmux-diff-viewer://0123456789abcdef0123456789abcdef/index.html"
+        let userTab = BrowserReplTabFacts(mainFrameURL: URL(string: address))
+        #expect(local.judgesLocalDocuments(in: userTab))
+        let viewer = BrowserReplFrameDocument(url: URL(string: address))
+        #expect(local.verdict(BrowserReplAccess(.document(viewer), in: userTab)).refusal?.code == "blocked",
+                "a user's tab on cmux's own scheme was readable")
+        // The same document recorded by WebKit for a frame (its origin is the scheme's).
+        let framed = BrowserReplFrameDocument(origin: "cmux-diff-viewer://0123456789abcdef0123456789abcdef", place: "cmux-diff-viewer://0123456789abcdef0123456789abcdef")
+        #expect(local.verdict(BrowserReplAccess(.document(framed), in: userTab)).reason != nil)
+        // An about:blank of its origin, and a data: document it made.
+        let inherited = BrowserReplFrameDocument(origin: "cmux-diff-viewer://0123456789abcdef0123456789abcdef", place: "about://")
+        #expect(local.verdict(BrowserReplAccess(.document(inherited), in: userTab)).reason != nil)
+        let made = BrowserReplFrameDocument(origin: "null", place: "data://", makers: [.page(framed)], opaque: "data:text/html,x")
+        #expect(local.verdict(BrowserReplAccess(.document(made), in: userTab)).reason != nil)
+        // The tab's page and a load of it, as for a file outside the roots.
+        #expect(local.verdict(BrowserReplAccess(.tabPage(address), in: userTab)).refusal?.code == "blocked")
+        #expect(local.verdict(BrowserReplAccess(.load(address))).refusal?.code == "blocked")
+        #expect(local.landedPage(address, in: userTab).refusal != nil)
+        // Web pages stay readable.
+        let web = BrowserReplFrameDocument(origin: "https://example.com", place: "https://example.com")
+        #expect(local.verdict(BrowserReplAccess(.document(web), in: userTab)) == .allowed)
+        #expect(local.verdict(BrowserReplAccess(.tabPage("https://example.com/"), in: userTab)) == .allowed)
+    }
+
+    /// The diff viewer's HTTP form: a loopback server the app runs serves
+    /// the same local files at `http://127.0.0.1:<port>/<token>/...#cmux-diff-viewer`.
+    /// Its origin, once the app registers it, is a local page as the custom
+    /// scheme is: refused in any tab, also as a frame of a web page, and to
+    /// the session's own navigations. Another loopback server is a web page.
+    @Test("The diff viewer's loopback HTTP origin is judged as a local file outside the session's directories")
+    func appServedLoopbackOriginsAreLocalFilesOutsideTheRoots() throws {
+        let origin = URL(string: "http://127.0.0.1:59871/0123456789abcdef0123456789abcdef/index.html#cmux-diff-viewer")!
+        BrowserReplFileSandbox.registerAppServedOrigin(of: origin)
+        defer { BrowserReplFileSandbox.unregisterAppServedOrigin(of: origin) }
+        let local = BrowserReplDocumentAuthority(sessionID: "s", fileRoots: roots)
+        let address = origin.absoluteString
+        let userTab = BrowserReplTabFacts(mainFrameURL: origin)
+        #expect(local.verdict(BrowserReplAccess(.tabPage(address), in: userTab)).refusal?.code == "blocked")
+        #expect(local.verdict(BrowserReplAccess(.load("http://127.0.0.1:59871/other.js"))).refusal?.code == "blocked")
+        #expect(local.landedPage(address, in: userTab).refusal != nil)
+        let page = BrowserReplFrameDocument(origin: "http://127.0.0.1:59871", place: "http://127.0.0.1:59871")
+        let webTab = BrowserReplTabFacts(mainFrameURL: URL(string: "https://example.com/"))
+        #expect(local.verdict(BrowserReplAccess(.document(page), in: userTab)).refusal?.code == "blocked")
+        #expect(local.verdict(BrowserReplAccess(.document(page), in: webTab)).refusal?.code == "blocked", "a web page's diff-viewer frame was readable")
+        #expect(BrowserReplFileSandbox.navigationRefusal(address, roots: roots) != nil, "a session could navigate to the diff viewer's server")
+        // Another loopback server stays a web page.
+        let other = BrowserReplFrameDocument(origin: "http://127.0.0.1:59872", place: "http://127.0.0.1:59872")
+        #expect(local.verdict(BrowserReplAccess(.document(other), in: webTab)) == .allowed)
+        #expect(local.verdict(BrowserReplAccess(.tabPage("http://127.0.0.1:59872/"), in: userTab)) == .allowed)
+        #expect(BrowserReplFileSandbox.navigationRefusal("http://127.0.0.1:59872/", roots: roots) == nil)
+    }
+
     @Test("Another live session's tab is denied")
     func otherSessionsTabIsDenied() {
         let authority = BrowserReplDocumentAuthority(sessionID: "s")
