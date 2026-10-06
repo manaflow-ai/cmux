@@ -40,11 +40,9 @@ const PASSTHROUGH: [&str; 6] = [
 /// harness does not silence the Chief for a day.
 const DEFAULT_TURN_LIMIT_MIN: u64 = 180;
 
-/// The native engine's model and effort (`OPTCHAT_CHIEF_MODEL`,
-/// `OPTCHAT_CHIEF_EFFORT`): the Chief is long-horizon agentic work, which
-/// repays more effort than Claude Opus 5.5's default (medium).
+/// The native engine's model (`OPTCHAT_CHIEF_MODEL`); its effort is
+/// `effort::native_effort` (medium, as Taelin runs it).
 const NATIVE_MODEL: &str = "claude-opus-5-5";
-const NATIVE_EFFORT: &str = "high";
 /// Longest one bash command of the native engine may run.
 const BASH_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -246,6 +244,7 @@ fn start(
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
+        db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
@@ -405,11 +404,16 @@ fn start(
         );
     }
 
-    let (model, fallback, route_text): (
+    // The describer of turn images (chief-done.md item 12) is the compactor's
+    // deny-all acpmux model; the Messages API route has none yet, so its log
+    // keeps image references without descriptions.
+    type Route = (
         Arc<dyn CompactModel>,
         Option<Arc<dyn CompactModel>>,
         String,
-    ) = match route {
+        Option<Arc<dyn crate::brain::images::Describe>>,
+    );
+    let (model, fallback, route_text, describer): Route = match route {
         CompactRoute::Api => (
             Arc::new(AnthropicModel::new(&config)),
             config
@@ -420,6 +424,7 @@ fn start(
                 "{} over the Messages API at {}",
                 config.model, config.base_url
             ),
+            None,
         ),
         CompactRoute::Acpmux => {
             // The Claude models are Claude-only: another harness builds with
@@ -434,28 +439,40 @@ fn start(
             let slots = Slots::new(optchat_core::JOBS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let build = |model: Option<&str>| {
+                let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
-                    effort: compactor_effort.clone(),
-                    ..compactor_spec(paths, home, &compactor_harness, compactor_family, model)
+                    effort: compactor_effort.clone().or(spec.effort.clone()),
+                    ..spec
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
                         .with_log(compactor_log.clone())
                         .with_trace(trace.clone()),
-                ) as Arc<dyn CompactModel>
+                )
             };
+            let effort = compactor_effort
+                .clone()
+                .or_else(|| crate::compactor::compactor_effort(compactor_family));
             let text = format!(
-                "{} in deny-all {compactor_harness} sessions through acpmux",
+                "{} at effort {} in deny-all {compactor_harness} sessions through acpmux",
                 compactor_model
                     .as_deref()
-                    .unwrap_or("the harness's default model")
+                    .unwrap_or("the harness's default model"),
+                effort.as_deref().unwrap_or("default")
             );
             let fallback = config
                 .fallback_model
                 .as_deref()
                 .filter(|_| compactor_claude)
-                .map(|m| build(Some(m)));
-            (build(compactor_model.as_deref()), fallback, text)
+                .map(|m| build(Some(m)) as Arc<dyn CompactModel>);
+            let main = build(compactor_model.as_deref());
+            let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
+            (
+                main as Arc<dyn CompactModel>,
+                fallback,
+                text,
+                Some(describer),
+            )
         }
     };
     log(format!(
@@ -559,7 +576,7 @@ fn start(
         Some("native") => {
             let native_config = NativeConfig {
                 model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(env("OPTCHAT_CHIEF_EFFORT").unwrap_or_else(|| NATIVE_EFFORT.into())),
+                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
                 max_tokens: 64_000,
                 server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
                 system: crate::prompt::claude_md(instructions.as_deref()),
@@ -608,6 +625,7 @@ fn start(
         harness,
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),
+        effort: crate::effort::turn_effort(env("OPTCHAT_CHIEF_EFFORT"), family),
         parent: parent_tag(home),
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
@@ -619,8 +637,17 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
-    let persister = crate::persist::Persister::start(paths.chat.clone(), brain_log.clone())
-        .map_err(|e| format!("starting the persister: {e}"))?;
+    let backup = crate::backup::Backup::new(crate::backup::BackupConfig::for_home(
+        paths,
+        &crate::paths::home_id(home),
+    ));
+    let persister = crate::persist::Persister::start(
+        paths.chat.clone(),
+        paths.memory_db.clone(),
+        Some(backup),
+        brain_log.clone(),
+    )
+    .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
         chat.clone(),
         agents.clone(),
@@ -632,6 +659,10 @@ fn start(
     .on_turn_end(Arc::new(move |key: &str| persister.turn_ended(key)))
     .with_trace(trace.clone())
     .with_workspaces(workspaces);
+    let mut brain = brain;
+    if let Some(describer) = describer {
+        brain.set_describer(describer);
+    }
     spawn_probe(model, fallback, system, route, tx.clone());
     let (display_name, title) = LinkConfig::names_from_env();
     daemon::spawn_link(
