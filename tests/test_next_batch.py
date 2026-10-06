@@ -433,6 +433,7 @@ class LocalController(unittest.TestCase):
         build = commands[0]
         self.assertEqual(build[:3], ["cmux-ci", "build", "cmux"])
         self.assertIn("--production", build)
+        self.assertNotIn("--backend-mode", build)  # cmux-ci refuses offline mode for production
         self.assertEqual(build[build.index("--ref") + 1], "c" * 40)
         self.assertEqual([command[1] for command in commands], ["build", "wait", "publish-hq"])
         self.assertTrue(result["ok"])
