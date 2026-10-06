@@ -215,6 +215,19 @@
             "enabled": { "type": "boolean", "default": false, "description": "Enable remote tmux mirroring." }
           }
         },
+        "multiplexer": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "beta": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean", "default": false, "description": "Share one connection per remote tmux host across all of its sessions." }
+              }
+            }
+          }
+        },
         "brokers": {
           "type": "object",
           "description": "Wrapper commands that reach a host on cmux's behalf, each under the name you refer to it by. A broker is named here rather than passed to cmux at connect time, so only commands you have written down can be launched. Use one when a host is reachable through a corporate SSH broker or similar wrapper instead of directly.",

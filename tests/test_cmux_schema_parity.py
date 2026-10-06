@@ -70,8 +70,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "browser.disabled",
     "browser.importHintDismissed",
     "browser.importHintVariant",
-    # Remote tmux preferences that stay Settings-only.
-    "remoteTmux.multiplexer.beta.enabled",
     # Device discovery and pairing state.
     "devices.discovery.enabled",
     "devices.incomingAccess.enabled",
