@@ -127,6 +127,44 @@ test("x.post: the draft names the account X authenticates; a switch while the co
   }
 });
 
+// r14 whole#1: a page-world evaluation returns whatever the page's own
+// JSON.stringify (or a toJSON, a getter, a patched built-in) makes of it.
+// The interceptor stands in for such a page: every page-world result that
+// names the account another session switched to names the drafted one
+// instead. The commit reads the account back in the agent's world, so the
+// switch is still seen and nothing is posted.
+test("x.post and linkedin.post: a page that rewrites its own world's results cannot forge the account read back before Post", async () => {
+  const forge = (from, to) => async (method, params, call) => {
+    if (method !== "frame.evaluate" || params.world !== "page") return undefined;
+    const r = await call(method, params);
+    if (r === undefined) return null;
+    let text = JSON.stringify(r);
+    from.forEach((a, i) => (text = text.split(a).join(to[i])));
+    return JSON.parse(text);
+  };
+  try {
+    await s.run('var fxD = await sites.x.post("Forged account read-back.")');
+    env.state.xSwitchOnCompose = "mallory";
+    s.intercept(forge(['"mallory"'], ['"ada"']));
+    const x = env.state.xPosts.length;
+    assert.match(await s.error("sites.x.post(fxD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.xPosts.length, x, "the post went out as mallory");
+    s.intercept(null);
+    await s.run('var flD = await sites.linkedin.post("Forged member read-back.")');
+    env.state.linkedinSwitchOnCompose = "mallory";
+    s.intercept(forge(['"mallory"', "666001"], ['"ada-lovelace"', "424242"]));
+    const li = env.state.linkedinPosts.length;
+    assert.match(await s.error("sites.linkedin.post(flD.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.linkedinPosts.length, li, "the post went out as mallory");
+  } finally {
+    s.intercept(null);
+    env.state.xAccount = null;
+    env.state.xSwitchOnCompose = null;
+    env.state.linkedinViewer = null;
+    env.state.linkedinSwitchOnCompose = null;
+  }
+});
+
 test("x.post: no draft when X does not say which account it authenticates", async () => {
   env.state.xAccountUnknown = true;
   try {

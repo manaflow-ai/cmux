@@ -97,7 +97,16 @@ export async function createSitesEnv({ signedIn = true, authResponder, gmailRepl
     host.fetchHandlesCookies = true;
     const call = driver.call.bind(driver);
     const auth = [];
+    // s.intercept(fn): fn(method, params, call) sees every driver call
+    // first and answers it when it returns something other than undefined
+    // (a test standing in for a page that controls what its own world
+    // returns, or that changes itself between two calls).
+    let intercept = null;
     driver.call = async (method, params) => {
+      if (intercept) {
+        const r = await intercept(method, params, call);
+        if (r !== undefined) return r;
+      }
       if (method !== "auth.request") return call(method, params);
       auth.push(params);
       if (!authResponder) return call(method, params);
@@ -108,6 +117,9 @@ export async function createSitesEnv({ signedIn = true, authResponder, gmailRepl
       repl,
       auth,
       lines,
+      intercept(fn) {
+        intercept = fn || null;
+      },
       // Evaluates code; returns { output, error, scope }.
       async run(code) {
         lines.length = 0;

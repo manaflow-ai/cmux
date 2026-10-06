@@ -158,3 +158,52 @@ test("the commit protocol fails closed: undeclared writes, no read-back, unread 
     delete globalThis.__protocolPage;
   }
 });
+
+// r14 whole#1: a read-back is plain data read once. A bound field whose
+// value serializes itself (toString, toJSON), answers through a getter or
+// is any other non-plain object counts as unread (`*_unverified`), even
+// when the tool's canon would turn it into the drafted value; nothing is
+// written.
+test("the commit protocol refuses read-backs that are not plain data: toString, toJSON, getters", async () => {
+  const S = globalThis.CmuxBrowserRepl.sites;
+  const acts = [];
+  globalThis.__plainProbe = null;
+  S.register(
+    "plainProbe",
+    (t) => ({
+      send(input, options) {
+        return t.write("plainProbe", "send", input, options, () => ({
+          category: "[9] test",
+          summary: "plain probe",
+          account: { who: "ada" },
+          target: { to: ["bob@example.com"] },
+          canon: { who: (v) => String(v).toLowerCase(), to: (v) => [...v].map(String) },
+          commit: (c) => c.write(() => globalThis.__plainProbe(), () => acts.push("sent")),
+        }));
+      },
+    }),
+    { summary: "test", writes: ["send"] },
+  );
+  const p = env.session("commit-protocol-plain");
+  const forged = {
+    toString: () => ({ who: { toString: () => "ADA" }, to: ["bob@example.com"] }),
+    toJSON: () => ({ who: { toJSON: () => "ada", toString: () => "ada" }, to: ["bob@example.com"] }),
+    getter: () => ({ get who() { return "ada"; }, to: ["bob@example.com"] }),
+    nestedGetter: () => ({ who: "ada", to: Object.defineProperty([], 0, { get: () => "bob@example.com", enumerable: true }) }),
+    date: () => ({ who: "ada", to: [new Date(0)] }),
+  };
+  try {
+    for (const [name, make] of Object.entries(forged)) {
+      await p.run("var plD = await sites.plainProbe.send({})");
+      globalThis.__plainProbe = make;
+      assert.match(await p.error("sites.plainProbe.send(plD.id, { confirm: true })"), /could not read (who|to) back from the site/, `${name} passed as a read-back`);
+    }
+    assert.deepEqual(acts, [], "a non-plain read-back was written");
+    globalThis.__plainProbe = () => ({ who: "Ada", to: ["bob@example.com"] });
+    await p.run("var plOk = await sites.plainProbe.send({})");
+    await p.value("sites.plainProbe.send(plOk.id, { confirm: true })");
+    assert.deepEqual(acts, ["sent"]);
+  } finally {
+    delete globalThis.__plainProbe;
+  }
+});
