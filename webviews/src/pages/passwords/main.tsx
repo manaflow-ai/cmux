@@ -14,6 +14,7 @@ import { PasswordsPage } from "./PasswordsPage";
 import { PasswordsStore } from "./store";
 import "../shared/pageBase.css";
 import "./styles.css";
+import { focusSearchField } from "../shared/searchField";
 
 export function mountPasswordsPage(root: HTMLElement, client: PageClient | null = defaultClient()): PasswordsStore {
   const store = new PasswordsStore(client);
@@ -24,7 +25,7 @@ export function mountPasswordsPage(root: HTMLElement, client: PageClient | null 
         if (command === "reset") store.resetQuery();
         if (command !== "find" && command !== "focusSearch") return;
         if (typeof text === "string") store.setText(text);
-        document.querySelector<HTMLInputElement>(".pw-search")?.focus();
+        focusSearchField(document, ".pw-search");
       },
     });
   }
