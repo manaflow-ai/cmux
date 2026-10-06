@@ -182,7 +182,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 `account_mismatch`, `account_unverified`, `target_mismatch`,
 `target_unverified`, `content_mismatch`, `content_unverified`,
 `commit_unverified`, `reply_unverified`, `account_changed`, `account_unknown`, `tool_changed`,
-`page_changed`, `origin_changed`, `write_requires_draft`, `unsupported`.
+`page_changed`, `origin_changed`, `write_requires_draft`, `unsupported`, `limit`.
 
 | Method | Mechanism | Kind |
 | --- | --- | --- |
@@ -249,6 +249,23 @@ the file back to verify.
 | `googleSlides.replace(url, find, replacement)` | Find and replace, verified through the pptx export. The draft states the match count per slide (slide text and notes, case ignored); the draft also shows the deck's hash; right before Replace all the pptx export is read again and the write fails (`content_mismatch`) unless the deck is unchanged | write |
 | `googleDrive.create(kind, title, { uid })` | `docs.google.com/<kind>/create?authuser=<email>`, with the email of the account at `/u/<uid>/` (default 0) read first, so a sign-in by another session that moves accounts to other indexes cannot put the file in another account; then the title field. Returns `account` | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash, after the sharing check below | delete |
+
+The xlsx and pptx exports (`googleSheets.cells`, `googleSheets.find`,
+`googleSlides.slides`, and the reads before and after their writes) come
+from a file that another person can share, so the reader bounds the ZIP
+before it unzips it in a blank page. An export of more than 10,000
+entries fails with `limit`. Every header, name and data range must lie
+inside the archive, else the read fails with `unexpected` (also for an
+encrypted entry or a compression method other than stored or deflate).
+A wanted entry that declares more than 64 MiB uncompressed, or wanted
+entries that together declare more than 64 MiB (the size of one driver
+result, which carries the text back), fail with `limit` before anything
+is decompressed. Compressed data goes into `DecompressionStream` 16 KiB at
+a time, so one output burst is at most about 16.5 MiB, and the stream is
+cancelled with `limit` as soon as an entry's output passes its declared
+size. An entry whose output is shorter than its declared size fails with
+`unexpected`. So a high-ratio export or a header that lies about its size
+never decompresses more than 64 MiB.
 
 Rule for writes (reference B's confirmation taxonomy, [9] edits others can see):
 every write is a draft, also on a file whose Share button says "Private

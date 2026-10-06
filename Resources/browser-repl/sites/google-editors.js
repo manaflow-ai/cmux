@@ -17,37 +17,103 @@
   const { URL } = root.CmuxBrowserRepl.core;
 
   // Runs in a blank page (for DecompressionStream): unzips base64 bytes and
-  // returns the text of entries whose names match arg.want.
+  // returns the text of entries whose names match arg.want. A shared file's
+  // export is untrusted, so the ZIP is bounded (docs/browser-repl/
+  // site-tools.md, "Editing Google files"): at most arg.limits.entries
+  // entries; every central and local header, name and data range inside the
+  // archive; a wanted entry decompresses to at most its declared size and
+  // arg.limits.entryBytes, and all wanted entries to arg.limits.totalBytes
+  // together. Compressed input goes in 16 KiB at a time (deflate expands
+  // at most about 1,032 times, so one burst is at most about 16.5 MiB) and
+  // the stream is cancelled the moment output passes a limit. A limit
+  // returns code "limit"; a malformed archive "unexpected".
   async function unzipExport(arg) {
+    const lim = arg.limits;
+    const fail = (code, error) => ({ status: 200, code, error });
     const bin = atob(arg.base64);
     const buf = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
-    const r = { status: 200 };
     const view = new DataView(buf.buffer);
+    const bad = (what) => fail("unexpected", `the export is not a valid zip file (${what})`);
     let eocd = -1;
     for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65557); i--) if (view.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-    if (eocd < 0) return { status: r.status, error: "the export is not a zip file" };
+    if (eocd < 0) return fail("unexpected", "the export is not a zip file");
     const count = view.getUint16(eocd + 10, true);
-    let p = view.getUint32(eocd + 16, true);
+    if (count > lim.entries) return fail("limit", `the export holds ${count} entries; the reader reads at most ${lim.entries}`);
+    const cdStart = view.getUint32(eocd + 16, true);
+    if (cdStart > eocd) return bad("central directory outside the archive");
+    let p = cdStart;
     const want = new RegExp(arg.want);
     const out = {};
     const dec = new TextDecoder();
+    let total = 0;
     for (let n = 0; n < count; n++) {
+      if (p + 46 > eocd || view.getUint32(p, true) !== 0x02014b50) return bad(`central header ${n}`);
+      const flags = view.getUint16(p + 8, true);
       const method = view.getUint16(p + 10, true);
       const size = view.getUint32(p + 20, true);
+      const declared = view.getUint32(p + 24, true);
       const nameLen = view.getUint16(p + 28, true);
       const extraLen = view.getUint16(p + 30, true);
       const commentLen = view.getUint16(p + 32, true);
       const local = view.getUint32(p + 42, true);
+      if (p + 46 + nameLen + extraLen + commentLen > eocd) return bad(`central header ${n}`);
       const name = dec.decode(buf.subarray(p + 46, p + 46 + nameLen));
       p += 46 + nameLen + extraLen + commentLen;
       if (!want.test(name)) continue;
+      if (flags & 1) return bad(`${name} is encrypted`);
+      if (local + 30 > cdStart || view.getUint32(local, true) !== 0x04034b50) return bad(`local header of ${name}`);
       const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+      if (start + size > cdStart) return bad(`data of ${name}`);
+      if (declared > lim.entryBytes) return fail("limit", `${name} declares ${declared} bytes; the reader decompresses at most ${lim.entryBytes} bytes per entry`);
+      if (total + declared > lim.totalBytes) return fail("limit", `the export's entries decompress past ${lim.totalBytes} bytes together; the reader decompresses at most that`);
       const data = buf.subarray(start, start + size);
-      out[name] = method === 0 ? dec.decode(data) : await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).text();
+      let bytes;
+      if (method === 0) {
+        bytes = data;
+      } else if (method === 8) {
+        const input = new ReadableStream({
+          offset: 0,
+          pull(controller) {
+            if (this.offset >= data.length) return controller.close();
+            controller.enqueue(data.slice(this.offset, this.offset + 16384));
+            this.offset += 16384;
+          },
+        }, { highWaterMark: 0 });
+        const reader = input.pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+        const chunks = [];
+        let got = 0;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            got += value.length;
+            if (got > declared) {
+              reader.cancel().catch(() => {});
+              return fail("limit", `${name} decompresses past its declared size of ${declared} bytes`);
+            }
+            chunks.push(value);
+          }
+        } catch (e) {
+          return bad(`${name}: ${e && e.message}`);
+        }
+        bytes = new Uint8Array(got);
+        let at = 0;
+        for (const c of chunks) { bytes.set(c, at); at += c.length; }
+      } else {
+        return bad(`${name} uses compression method ${method}`);
+      }
+      if (bytes.length !== declared) return fail("unexpected", `the export is not a valid zip file (${name} declares ${declared} bytes but holds ${bytes.length})`);
+      total += bytes.length;
+      out[name] = dec.decode(bytes);
     }
-    return { status: r.status, files: out };
+    return { status: 200, files: out };
   }
+
+  // Bounds of unzipExport. The total matches the 64 MiB a driver result may
+  // carry (driver-protocol.md, driverCall), which the unzipped text returns
+  // through; one entry may take all of it, so a large real sheet still reads.
+  const UNZIP_LIMITS = Object.freeze({ entries: 10000, entryBytes: 64 * 1024 * 1024, totalBytes: 64 * 1024 * 1024 });
 
   const xmlText = (s) => S.decodeEntities(String(s).replace(/<[^>]*>/g, ""));
   const colIndex = (letters) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
@@ -122,8 +188,8 @@
       async exportParts(name, ref, format, want) {
         const { response } = await g.fetchFile(t, name, g.exportURL(ref, format, name));
         const base64 = t.Buffer.from(await response.arrayBuffer()).toString("base64");
-        const r = await t.withTab("about:blank", (page) => page.evaluate(unzipExport, { base64, want }));
-        if (!r.files) throw new S.SiteError("unexpected", `${name}: ${r.error || "the export could not be read"}`);
+        const r = await t.withTab("about:blank", (page) => page.evaluate(unzipExport, { base64, want, limits: UNZIP_LIMITS }));
+        if (!r.files) throw new S.SiteError(r.code === "limit" ? "limit" : "unexpected", `${name}: ${r.error || "the export could not be read"}`);
         return r.files;
       },
       async workbook(name, ref) {

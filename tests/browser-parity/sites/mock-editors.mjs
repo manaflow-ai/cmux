@@ -7,7 +7,9 @@ import zlib from "node:zlib";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-// A minimal zip writer (deflate), enough for xlsx and pptx exports.
+// A minimal zip writer (deflate), enough for xlsx and pptx exports. An
+// entry is [name, text or bytes, { size }]: `size` overrides the declared
+// uncompressed size (a lying header, for the reader's limit tests).
 export function zip(entries) {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n;
@@ -22,8 +24,9 @@ export function zip(entries) {
   const locals = [];
   const centrals = [];
   let offset = 0;
-  for (const [name, text] of entries) {
+  for (const [name, text, opts = {}] of entries) {
     const data = Buffer.from(text);
+    const declared = opts.size ?? data.length;
     const comp = zlib.deflateRawSync(data);
     const nameBuf = Buffer.from(name);
     const local = Buffer.alloc(30);
@@ -32,7 +35,7 @@ export function zip(entries) {
     local.writeUInt16LE(8, 8);
     local.writeUInt32LE(crc32(data), 14);
     local.writeUInt32LE(comp.length, 18);
-    local.writeUInt32LE(data.length, 22);
+    local.writeUInt32LE(declared, 22);
     local.writeUInt16LE(nameBuf.length, 26);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
@@ -41,7 +44,7 @@ export function zip(entries) {
     central.writeUInt16LE(8, 10);
     central.writeUInt32LE(crc32(data), 16);
     central.writeUInt32LE(comp.length, 20);
-    central.writeUInt32LE(data.length, 24);
+    central.writeUInt32LE(declared, 24);
     central.writeUInt16LE(nameBuf.length, 28);
     central.writeUInt32LE(offset, 42);
     locals.push(local, nameBuf, comp);
@@ -416,7 +419,8 @@ nw.addEventListener("keydown", (e) => {
     if (!file || file.trashed) return { status: 404, text: "" };
     const format = url.searchParams.get("format");
     const type = format === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-    return { status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${file.title}.${format}"` }, body: format === "xlsx" ? xlsx(file) : pptx(file) };
+    // `exportBody`: crafted export bytes a test serves instead.
+    return { status: 200, headers: { "content-type": type, "content-disposition": `attachment; filename="${file.title}.${format}"` }, body: file.exportBody || (format === "xlsx" ? xlsx(file) : pptx(file)) };
   }
   return { files, handle, add, exportHost };
 }
