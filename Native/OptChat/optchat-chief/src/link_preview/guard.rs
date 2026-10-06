@@ -84,13 +84,33 @@ const REFUSED_SUFFIXES: [&str; 7] = [
 /// The URL's own checks (no resolution): scheme, port, credentials, name,
 /// and a literal address's class.
 pub fn check_url(url: &Url) -> Result<(), Refusal> {
-    let _ = (
-        url,
-        REFUSED_SUFFIXES,
-        public_or_refused as fn(IpAddr) -> Result<(), Refusal>,
-        Host::<String>::Ipv4(Ipv4Addr::LOCALHOST),
-    );
-    Ok(())
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(Refusal::Scheme);
+    }
+    // `url` drops a default port, so any port left is another one.
+    if url.port().is_some() {
+        return Err(Refusal::Port);
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(Refusal::Credentials);
+    }
+    match url.host() {
+        Some(Host::Ipv4(a)) => public_or_refused(IpAddr::V4(a)),
+        Some(Host::Ipv6(a)) => public_or_refused(IpAddr::V6(a)),
+        Some(Host::Domain(name)) => {
+            let name = name.to_ascii_lowercase();
+            let name = name.strip_suffix('.').unwrap_or(&name);
+            if name.is_empty()
+                || name == "localhost"
+                || !name.contains('.')
+                || REFUSED_SUFFIXES.iter().any(|s| name.ends_with(s))
+            {
+                return Err(Refusal::Name(name.to_owned()));
+            }
+            Ok(())
+        }
+        None => Err(Refusal::Name("(none)".into())),
+    }
 }
 
 /// `check_url` of a string.
@@ -130,12 +150,10 @@ pub fn resolve_public(host: &str, port: u16) -> Result<Vec<SocketAddr>, Refusal>
 }
 
 pub fn is_public_ip(ip: IpAddr) -> bool {
-    let _ = (
-        ip,
-        is_public_v4 as fn(Ipv4Addr) -> bool,
-        is_public_v6 as fn(Ipv6Addr) -> bool,
-    );
-    true
+    match ip {
+        IpAddr::V4(a) => is_public_v4(a),
+        IpAddr::V6(a) => is_public_v6(a),
+    }
 }
 
 fn is_public_v4(a: Ipv4Addr) -> bool {
@@ -227,10 +245,27 @@ pub fn guarded_get(
     kind: Kind,
     deadline: Instant,
 ) -> Result<(Url, Vec<u8>), Refusal> {
-    let url = parse_checked(url)?;
-    match transport.get(&url, kind, deadline)? {
-        Hop::Body(body) => Ok((url, body)),
-        Hop::Redirect(_) => Err(Refusal::Network("redirects not yet".into())),
+    let mut url = parse_checked(url)?;
+    let mut redirects = 0;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(Refusal::Timeout);
+        }
+        match transport.get(&url, kind, deadline)? {
+            Hop::Body(body) => return Ok((url, body)),
+            Hop::Redirect(location) => {
+                if redirects == MAX_REDIRECTS {
+                    return Err(Refusal::RedirectLimit);
+                }
+                redirects += 1;
+                let next = url.join(&location).map_err(|_| Refusal::Scheme)?;
+                if url.scheme() == "https" && next.scheme() == "http" {
+                    return Err(Refusal::Downgrade);
+                }
+                check_url(&next)?;
+                url = next;
+            }
+        }
     }
 }
 
@@ -241,11 +276,26 @@ pub fn read_html(
     limit: usize,
     deadline: Instant,
 ) -> Result<Vec<u8>, Refusal> {
-    let _ = (limit, deadline, find_ascii_ci(b"", b"x"));
     let mut out = Vec::new();
-    reader
-        .read_to_end(&mut out)
-        .map_err(|e| Refusal::Network(e.to_string()))?;
+    let mut chunk = [0u8; 16 * 1024];
+    while out.len() < limit {
+        if Instant::now() >= deadline {
+            return Err(Refusal::Timeout);
+        }
+        let want = chunk.len().min(limit - out.len());
+        let n = match reader.read(&mut chunk[..want]) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(Refusal::Network(e.to_string())),
+        };
+        let from = out.len().saturating_sub(7);
+        out.extend_from_slice(&chunk[..n]);
+        if let Some(at) = find_ascii_ci(&out[from..], b"</head>") {
+            out.truncate(from + at + 7);
+            break;
+        }
+    }
     Ok(out)
 }
 
@@ -255,12 +305,23 @@ pub fn read_capped(
     limit: usize,
     deadline: Instant,
 ) -> Result<Vec<u8>, Refusal> {
-    let _ = (limit, deadline);
     let mut out = Vec::new();
-    reader
-        .read_to_end(&mut out)
-        .map_err(|e| Refusal::Network(e.to_string()))?;
-    Ok(out)
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        if Instant::now() >= deadline {
+            return Err(Refusal::Timeout);
+        }
+        let n = match reader.read(&mut chunk) {
+            Ok(0) => return Ok(out),
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(Refusal::Network(e.to_string())),
+        };
+        if out.len() + n > limit {
+            return Err(Refusal::TooLarge);
+        }
+        out.extend_from_slice(&chunk[..n]);
+    }
 }
 
 fn find_ascii_ci(haystack: &[u8], needle: &[u8]) -> Option<usize> {

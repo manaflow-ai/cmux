@@ -49,15 +49,60 @@ fn is_fence(line: &str) -> bool {
 /// most [`MAX_PARTS`] parts: when the cards would make more, the last URL
 /// lines stay text. No card at all gives the text unchanged as one part.
 pub fn text_parts(text: &str) -> Vec<Part> {
-    // Not yet: the line rule.
-    vec![Part::Text {
-        text: text.to_owned(),
-        runs: None,
-    }]
+    let mut budget = MAX_PARTS;
+    loop {
+        let (parts, cards) = split_with(text, budget);
+        if parts.len() <= MAX_PARTS || cards == 0 {
+            return parts;
+        }
+        budget = cards - 1;
+    }
 }
 
 /// The split with at most `budget` cards, and how many it made.
 fn split_with(text: &str, budget: usize) -> (Vec<Part>, usize) {
-    let _ = (text, budget, is_fence(""), sole_url(""), MAX_PARTS);
-    (Vec::new(), 0)
+    let mut parts = Vec::new();
+    let mut pending: Vec<&str> = Vec::new();
+    let mut cards = 0;
+    let mut fenced = false;
+    let flush = |pending: &mut Vec<&str>, parts: &mut Vec<Part>| {
+        let start = pending.iter().position(|l| !is_blank(l));
+        let end = pending.iter().rposition(|l| !is_blank(l));
+        if let (Some(start), Some(end)) = (start, end) {
+            parts.push(Part::Text {
+                text: pending[start..=end].join("\n"),
+                runs: None,
+            });
+        }
+        pending.clear();
+    };
+    for line in text.split('\n') {
+        if is_fence(line) {
+            fenced = !fenced;
+        }
+        match sole_url(line) {
+            Some(url) if !fenced && cards < budget => {
+                flush(&mut pending, &mut parts);
+                parts.push(Part::LinkPreview {
+                    url: url.to_owned(),
+                    title: None,
+                    site: None,
+                    image: None,
+                });
+                cards += 1;
+            }
+            _ => pending.push(line),
+        }
+    }
+    if cards == 0 {
+        return (
+            vec![Part::Text {
+                text: text.to_owned(),
+                runs: None,
+            }],
+            0,
+        );
+    }
+    flush(&mut pending, &mut parts);
+    (parts, cards)
 }

@@ -666,7 +666,7 @@ impl Brain {
         }
         match conversation {
             Some(conversation) if !text.is_empty() => {
-                let entry = super::reply_entry(conversation, key, &text);
+                let entry = self.reply_with_previews(conversation, key, &text);
                 self.state.outbox.push(entry);
             }
             Some(_) => {}

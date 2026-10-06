@@ -22,18 +22,48 @@ const TRIES: [(u32, u8); 5] = [(1200, 82), (900, 78), (600, 74), (400, 68), (300
 
 /// `bytes` as a preview JPEG, or None when they are not a readable image.
 pub fn to_jpeg(bytes: &[u8]) -> Option<Picture> {
-    let _ = (
-        bytes,
-        TRIES,
-        MAX_PREVIEW_IMAGE_BYTES,
-        on_white as fn(&DynamicImage) -> RgbImage,
-    );
-    let _ = (
-        ImageReader::<Cursor<&[u8]>>::new,
-        ImageFormat::Png,
-        Limits::default(),
-        FilterType::Triangle,
-    );
+    let mut reader = ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    if !matches!(
+        reader.format(),
+        Some(ImageFormat::Jpeg | ImageFormat::Png | ImageFormat::Gif | ImageFormat::WebP)
+    ) {
+        return None;
+    }
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(12_000);
+    limits.max_image_height = Some(12_000);
+    limits.max_alloc = Some(256 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader.decode().ok()?;
+    let rgb = on_white(&image);
+    for (side, quality) in TRIES {
+        let scaled = if rgb.width().max(rgb.height()) > side {
+            DynamicImage::ImageRgb8(rgb.clone())
+                .resize(side, side, FilterType::Triangle)
+                .to_rgb8()
+        } else {
+            rgb.clone()
+        };
+        let mut jpeg = Vec::new();
+        let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
+        encoder
+            .encode(
+                scaled.as_raw(),
+                scaled.width(),
+                scaled.height(),
+                image::ExtendedColorType::Rgb8,
+            )
+            .ok()?;
+        if !jpeg.is_empty() && jpeg.len() as u64 <= MAX_PREVIEW_IMAGE_BYTES {
+            return Some(Picture {
+                jpeg,
+                width: scaled.width(),
+                height: scaled.height(),
+            });
+        }
+    }
     None
 }
 

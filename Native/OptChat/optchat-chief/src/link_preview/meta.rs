@@ -20,14 +20,20 @@ pub struct PageMeta {
 
 /// The metadata of `html`, the page at `page` (its final URL).
 pub fn page_meta(html: &str, page: &Url) -> PageMeta {
-    let _ = (
-        html,
-        page,
-        label("", 1),
-        MAX_LINK_SITE_CHARS,
-        MAX_LINK_TITLE_CHARS,
-    );
-    PageMeta::default()
+    let tags = meta_tags(html);
+    let tag = |names: &[&str]| names.iter().find_map(|n| tags.get(*n).cloned());
+    let title = tag(&["og:title", "twitter:title"])
+        .or_else(|| title_tag(html))
+        .map(|t| strip_site(&t, tags.get("og:site_name").map(String::as_str)))
+        .and_then(|t| label(&t, MAX_LINK_TITLE_CHARS));
+    let site = page.host_str().and_then(|host| {
+        let host = host.strip_prefix("www.").unwrap_or(host);
+        label(host, MAX_LINK_SITE_CHARS)
+    });
+    let image = tag(&["og:image", "og:image:url", "twitter:image"])
+        .and_then(|src| page.join(src.trim()).ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https"));
+    PageMeta { title, site, image }
 }
 
 /// Display text: whitespace runs collapsed, control characters gone, at
@@ -54,15 +60,45 @@ fn label(text: &str, max: usize) -> Option<String> {
 /// "GitHub - manaflow-ai/cmux: ..." shows as "manaflow-ai/cmux: ...": a
 /// leading or trailing site name with a separator goes.
 pub fn strip_site(title: &str, site: Option<&str>) -> String {
-    let _ = site;
+    let Some(site) = site.filter(|s| !s.is_empty()) else {
+        return title.to_owned();
+    };
+    for sep in [" - ", " | ", " · ", " — ", ": "] {
+        if let Some(rest) = title.strip_prefix(&format!("{site}{sep}")) {
+            return rest.to_owned();
+        }
+        if let Some(rest) = title.strip_suffix(&format!("{sep}{site}")) {
+            return rest.to_owned();
+        }
+    }
     title.to_owned()
 }
 
 /// `<meta property|name="..." content="...">` (any attribute order and
 /// quoting), entities decoded; the first value of a name wins.
 pub fn meta_tags(html: &str) -> HashMap<String, String> {
-    let _ = (html, attributes(""));
-    HashMap::new()
+    let mut out = HashMap::new();
+    let lower = html.to_ascii_lowercase();
+    let mut at = 0;
+    while let Some(found) = lower[at..].find("<meta") {
+        let start = at + found + 5;
+        let Some(len) = lower[start..].find('>') else {
+            break;
+        };
+        let attrs = attributes(&html[start..start + len]);
+        at = start + len + 1;
+        let name = attrs
+            .get("property")
+            .or_else(|| attrs.get("name"))
+            .map(|n| n.to_ascii_lowercase());
+        if let (Some(name), Some(content)) = (name, attrs.get("content")) {
+            let content = decode(content).trim().to_owned();
+            if !content.is_empty() {
+                out.entry(name).or_insert(content);
+            }
+        }
+    }
+    out
 }
 
 /// The attributes of a tag's inside: `key=value`, `key="value"`,
@@ -120,8 +156,12 @@ fn attributes(tag: &str) -> HashMap<String, String> {
 
 /// The text of the first `<title>`, entities decoded; None when empty.
 pub fn title_tag(html: &str) -> Option<String> {
-    let _ = (html, decode(""));
-    None
+    let lower = html.to_ascii_lowercase();
+    let open = lower.find("<title")?;
+    let start = open + lower[open..].find('>')? + 1;
+    let end = start + lower[start..].find("</title")?;
+    let title = decode(&html[start..end]).trim().to_owned();
+    (!title.is_empty()).then_some(title)
 }
 
 /// The common HTML entities, decimal and hex references included.

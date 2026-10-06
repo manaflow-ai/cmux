@@ -17,7 +17,8 @@ use std::sync::Arc;
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use guard::{HttpTransport, Transport};
+use guard::{HttpTransport, Kind, Transport, guarded_get};
+use picture::Picture;
 
 /// Longest fetch of one preview: the page, then its image.
 pub const TIMEOUT: Duration = Duration::from_secs(8);
@@ -27,7 +28,7 @@ pub const TIMEOUT: Duration = Duration::from_secs(8);
 pub struct Fetched {
     pub title: Option<String>,
     pub site: Option<String>,
-    pub picture: Option<picture::Picture>,
+    pub picture: Option<Picture>,
 }
 
 /// Fetches the preview of one URL by `deadline` (None: no preview).
@@ -58,9 +59,19 @@ impl HttpFetcher {
 
 impl Fetcher for HttpFetcher {
     fn fetch(&self, url: &str, deadline: Instant) -> Option<Fetched> {
-        // Not yet: page and image.
-        let _ = (url, deadline, &self.transport);
-        None
+        let (page, body) = guarded_get(&*self.transport, url, Kind::Html, deadline).ok()?;
+        let html = String::from_utf8_lossy(&body);
+        let meta = meta::page_meta(&html, &page);
+        let picture = meta.image.and_then(|image| {
+            let (_, bytes) =
+                guarded_get(&*self.transport, image.as_str(), Kind::Image, deadline).ok()?;
+            picture::to_jpeg(&bytes)
+        });
+        Some(Fetched {
+            title: meta.title,
+            site: meta.site,
+            picture,
+        })
     }
 }
 
@@ -73,7 +84,30 @@ pub fn fetch_all(
     urls: Vec<(usize, String)>,
     timeout: Duration,
 ) -> Vec<(usize, Fetched)> {
-    // Not yet: the concurrent fetch.
-    let _ = (fetcher, urls, timeout, channel::<()>);
-    Vec::new()
+    let deadline = Instant::now() + timeout;
+    let (tx, rx) = channel();
+    let mut started = 0;
+    for (index, url) in urls {
+        let (fetcher, tx) = (fetcher.clone(), tx.clone());
+        let spawned = std::thread::Builder::new()
+            .name("optchat-link-preview".into())
+            .spawn(move || {
+                let _ = tx.send((index, fetcher.fetch(&url, deadline)));
+            });
+        if spawned.is_ok() {
+            started += 1;
+        }
+    }
+    drop(tx);
+    let mut out = Vec::new();
+    for _ in 0..started {
+        let left = deadline.saturating_duration_since(Instant::now());
+        match rx.recv_timeout(left) {
+            Ok((index, Some(fetched))) => out.push((index, fetched)),
+            Ok((_, None)) => {}
+            Err(_) => break,
+        }
+    }
+    out.sort_by_key(|(index, _)| *index);
+    out
 }

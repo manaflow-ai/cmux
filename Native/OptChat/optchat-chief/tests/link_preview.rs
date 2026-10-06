@@ -279,15 +279,15 @@ fn redirects_are_followed_five_times_at_most() {
     .unwrap();
     assert_eq!(url.as_str(), "https://example.org/5");
     assert_eq!(body, b"<title>five</title>");
-    let mut chain: Vec<(&'static str, Hop)> = vec![
+    let chain: Vec<(&'static str, Hop)> = vec![
         ("https://example.com/0", Hop::Redirect("/1".into())),
         ("https://example.com/1", Hop::Redirect("/2".into())),
         ("https://example.com/2", Hop::Redirect("/3".into())),
         ("https://example.com/3", Hop::Redirect("/4".into())),
         ("https://example.com/4", Hop::Redirect("/5".into())),
         ("https://example.com/5", Hop::Redirect("/6".into())),
+        ("https://example.com/6", Hop::Body(Vec::new())),
     ];
-    chain.push(("https://example.com/6", Hop::Body(Vec::new())));
     assert_eq!(
         guarded_get(
             &Table::new(chain),
