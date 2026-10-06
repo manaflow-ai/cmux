@@ -1,6 +1,5 @@
 import AppKit
 import CmuxBrowser
-import UniformTypeIdentifiers
 import WebKit
 
 /// Builds the AppKit events the REPL driver sends to WebKit.
@@ -335,50 +334,5 @@ final class BrowserReplOnce {
         guard let continuation else { return }
         self.continuation = nil
         continuation.resume(returning: value)
-    }
-}
-
-/// Converts a REPL tab's virtual clipboard (`clipboard.read` /
-/// `clipboard.write` items) to and from the private pasteboard that
-/// `BrowserReplPasteboardRedirect` (CmuxBrowser) runs WebKit's Copy, Cut and
-/// Paste against.
-@MainActor
-enum BrowserReplClipboardItems {
-    /// Writes the tab's clipboard items (`{ type, base64 }`, MIME types or
-    /// raw pasteboard types) to `pasteboard` as one item.
-    static func write(_ items: [[String: Any]], to pasteboard: NSPasteboard) {
-        pasteboard.writeBrowserReplClipboardItems(items)
-    }
-
-    /// Reads `pasteboard`'s first item back as tab clipboard items. Types
-    /// with a MIME type use it; WebKit's custom web data keeps its pasteboard
-    /// type so a later paste in a page restores it.
-    static func read(_ pasteboard: NSPasteboard) -> [[String: Any]] {
-        guard let item = pasteboard.pasteboardItems?.first else { return [] }
-        var result: [[String: Any]] = []
-        var seen = Set<String>()
-        for type in item.types {
-            guard let mime = mimeType(for: type), !seen.contains(mime), let data = item.data(forType: type) else { continue }
-            seen.insert(mime)
-            result.append(["type": mime, "base64": data.base64EncodedString()])
-        }
-        return result
-    }
-
-    private static let customWebData = "com.apple.WebKit.custom-pasteboard-data"
-
-    private static func mimeType(for type: NSPasteboard.PasteboardType) -> String? {
-        switch type {
-        case .string: return "text/plain"
-        case .html: return "text/html"
-        case .rtf: return "text/rtf"
-        case .URL: return "text/uri-list"
-        case .png: return "image/png"
-        case .tiff: return "image/tiff"
-        default:
-            if type.rawValue == customWebData { return customWebData }
-            guard let uti = UTType(type.rawValue), !uti.isDynamic else { return nil }
-            return uti.preferredMIMEType
-        }
     }
 }

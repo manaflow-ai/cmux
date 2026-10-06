@@ -1,41 +1,39 @@
 public import WebKit
 import ObjectiveC
 
-/// Keeps page scripts in a tab a REPL session created from writing the
-/// system clipboard, and puts what they write on the tab's own clipboard.
+/// The page side of a REPL tab's virtual clipboard: in a tab a session
+/// created, page scripts read and write only the tab's clipboard, never the
+/// system clipboard (the one the terminal pastes from), also while an
+/// agent's click, key or page-world script gives them a user gesture.
 ///
-/// An agent's click, key press or evaluated script gives the page a user
-/// gesture, and a page holding one may write the system clipboard (the one
-/// the terminal pastes from) through two WebKit paths, neither of which the
-/// pasteboard redirect sees or can tell apart by tab:
+/// - The asynchronous Clipboard API (`navigator.clipboard`, `Clipboard`,
+///   `ClipboardItem`) is switched off at the engine for the web view
+///   (WebKit's `AsyncClipboardAPIEnabled` feature on its `WKPreferences`), in
+///   every document of the tab, a frame's initial empty document included.
+/// - Script paste (`execCommand("paste")`) is switched off at the engine too
+///   (`DOMPasteAccessRequestsEnabled`): WebKit then never asks the app for a
+///   page's paste access, so no page script reads the system clipboard. A
+///   person's Command-V or Edit menu Paste is not a script paste and keeps
+///   working.
+/// - `execCommand("copy" | "cut")` has no engine switch: WebKit lets any
+///   page script run it in a user gesture. `page-clipboard.js` replaces
+///   `execCommand` in the page's world of every frame before the page's
+///   scripts run and sends the copy to the tab's clipboard through a script
+///   message handler (``messageHandlerName``); it also supplies a
+///   `navigator.clipboard` and `ClipboardItem` whose writes land there, so a
+///   page's Copy button still works for the agent. ``agentWorldGuardSource``
+///   does the same for a session's agent world.
 ///
-/// - The asynchronous Clipboard API (`navigator.clipboard.write`,
-///   `writeText`, a `ClipboardItem` whose data settles later). WebKit's UI
-///   process writes those through `+[NSPasteboard generalPasteboard]`, also
-///   off the main thread. This is switched off at the engine for the web view
-///   (WebKit's `AsyncClipboardAPIEnabled` feature on its `WKPreferences`):
-///   `navigator.clipboard`, `Clipboard` and `ClipboardItem` do not exist in
-///   any document of the tab, including a frame's initial empty document and
-///   a document that was already loaded when the guard was installed.
-/// - `document.execCommand("copy" | "cut")`. WebKit's UI process writes those
-///   by name (`+[NSPasteboard pasteboardWithName:]`) while it handles the web
-///   process's message, which does not say which page sent it, and WebKit
-///   has no preference that refuses the command to page script while a
-///   gesture is in progress. `page-clipboard.js` replaces `execCommand` in
-///   the page's world of every frame before the page's scripts run.
-///
-/// `page-clipboard.js` also supplies a `navigator.clipboard` and
-/// `ClipboardItem` whose writes reach the tab's clipboard through a script
-/// message handler (``messageHandlerName``), so a page's Copy button still
-/// works for the agent (`page.clipboard.readText()`).
-///
-/// Residual: WebKit gives user scripts to a document when it commits, not to
-/// a frame's initial empty document (an iframe whose `src` is still loading
-/// or is a `javascript:` URL, a window a page opened before its first load
-/// commits). Same-origin page script can call that document's own
-/// `execCommand("copy")` while it holds a gesture, and WebKit's command then
-/// writes the system clipboard. Measured on macOS 27.0 (26A428); there is no
-/// WebKit setting or UI-process hook that closes it.
+/// Residual (no WebKit API closes it; measured on macOS 27.0, 26A428):
+/// WebKit gives user scripts to a document when it commits, not to a
+/// frame's initial empty document (an iframe whose `src` is still loading or
+/// is a `javascript:` URL, a window a page opened before its first load
+/// commits). Same-origin script, the page's or the agent's, can call that
+/// document's own `execCommand("copy")` while it holds a gesture, and
+/// WebKit's Copy then writes the system clipboard. WebKit has no per-web-view
+/// pasteboard, no setting that refuses script copy in a gesture, and no
+/// delegate that sees a pasteboard write, so only a process-wide pasteboard
+/// hook could stop it, and cmux has none for the clipboard.
 @MainActor
 public struct BrowserReplPageClipboard {
     /// The source of `Resources/browser-repl/page-clipboard.js`.
@@ -52,10 +50,48 @@ public struct BrowserReplPageClipboard {
     /// At most this many base64 characters in one write (about 48 MB of data).
     static let maximumBase64Characters = 64 << 20
     private static let asyncClipboardFeature = "AsyncClipboardAPIEnabled"
+    private static let domPasteRequestsFeature = "DOMPasteAccessRequestsEnabled"
     nonisolated(unsafe) private static var installedKey: UInt8 = 0
 
+    /// Whether the guard is installed on `webView`'s user content
+    /// controller: the web view shows a tab a session created (or did), whose
+    /// Copy, Cut and Paste are the tab's virtual clipboard's.
+    public static func isInstalled(on webView: WKWebView) -> Bool {
+        objc_getAssociatedObject(webView.configuration.userContentController, &installedKey) != nil
+    }
+
+    /// Script for the start of a session's agent world in every frame (before
+    /// any agent code there): its `execCommand("copy" | "cut" | "paste")`
+    /// returns false, so code in that world never runs WebKit's own
+    /// clipboard commands with the gesture of an agent's click. The agent
+    /// uses `page.clipboard` instead.
+    public static let agentWorldGuardSource = """
+    (() => {
+      const NativeDocument = globalThis.Document;
+      const native = NativeDocument && NativeDocument.prototype.execCommand;
+      if (!native) return;
+      const apply = Reflect.apply;
+      const toPrimitiveString = String;
+      const toLowerCase = String.prototype.toLowerCase;
+      const routed = new Proxy(native, {
+        apply(target, thisArg, args) {
+          const command = args.length ? toPrimitiveString(args[0]) : "";
+          if (typeof command !== "string") return false;
+          const name = apply(toLowerCase, command, []);
+          if (name === "copy" || name === "cut" || name === "paste") return false;
+          return apply(target, thisArg, [command, args[1], args[2]]);
+        },
+      });
+      try {
+        Object.defineProperty(NativeDocument.prototype, "execCommand", { value: routed, writable: false, enumerable: true, configurable: false });
+      } catch {}
+    })();
+
+    """
+
     /// Installs the guard on `webView`, once per user content controller:
-    /// switches WebKit's asynchronous Clipboard API off and adds
+    /// switches WebKit's asynchronous Clipboard API and DOM paste requests
+    /// off and adds
     /// ``shim`` in the page's world of every frame with its
     /// message handler. It stays for the web view's life; documents loaded
     /// from now on get the script, and the API is off in every document at
@@ -68,15 +104,18 @@ public struct BrowserReplPageClipboard {
     ///   - onWrite: receives the web view a page wrote from and its items
     ///     (`[["type": String, "base64": String]]`); returns whether a tab's
     ///     clipboard took them. A refusal rejects the page's write.
-    /// - Returns: whether WebKit's asynchronous Clipboard API is off. When it
-    ///   is not, the guard is incomplete and the caller must fail closed.
+    /// - Returns: whether WebKit's asynchronous Clipboard API and DOM paste
+    ///   requests are off. When they are not, the guard is incomplete and the
+    ///   caller must fail closed.
     @discardableResult
     public func install(
         on webView: WKWebView,
         refusing: (@MainActor (_ webView: WKWebView, _ frame: WKFrameInfo) -> String?)? = nil,
         onWrite: @escaping @MainActor (_ webView: WKWebView, _ items: [[String: Any]]) -> Bool
     ) -> Bool {
-        let off = Self.disableAsyncClipboardAPI(in: webView.configuration.preferences)
+        let preferences = webView.configuration.preferences
+        let off = Self.disableAsyncClipboardAPI(in: preferences)
+            && Self.disableAsyncClipboardAPI(in: preferences, featureKey: Self.domPasteRequestsFeature)
         let controller = webView.configuration.userContentController
         if objc_getAssociatedObject(controller, &Self.installedKey) == nil {
             objc_setAssociatedObject(controller, &Self.installedKey, true as NSNumber, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
@@ -104,23 +143,24 @@ public struct BrowserReplPageClipboard {
         """
     }
 
-    /// Whether this WebKit can switch its asynchronous Clipboard API off, the
-    /// half of the guard that also covers documents ``shim`` never reaches.
+    /// Whether this WebKit can switch its asynchronous Clipboard API and DOM
+    /// paste requests off, the parts of the guard that also cover documents
+    /// ``shim`` never reaches.
     /// When it cannot, ``install(on:onWrite:)`` leaves the page a native
     /// `navigator.clipboard` there, so a caller must not hand such a web view
     /// to a session as one it created (the driver's `tabs.open` fails with
     /// `unsupported`).
     public static var isSupported: Bool {
-        isSupported(featureKey: asyncClipboardFeature)
+        isSupported(featureKey: asyncClipboardFeature) && isSupported(featureKey: domPasteRequestsFeature)
     }
 
     static func isSupported(featureKey: String) -> Bool {
         disableAsyncClipboardAPI(in: WKPreferences(), featureKey: featureKey)
     }
 
-    /// Switches WebKit's asynchronous Clipboard API off in `preferences`.
-    /// Returns `false` when WebKit's feature list does not have it, or it
-    /// stays on.
+    /// Switches WebKit's feature `featureKey` (by default the asynchronous
+    /// Clipboard API) off in `preferences`. Returns `false` when WebKit's
+    /// feature list does not have it, or it stays on.
     @discardableResult
     static func disableAsyncClipboardAPI(in preferences: WKPreferences, featureKey: String = asyncClipboardFeature) -> Bool {
         guard let feature = feature(named: featureKey) else { return false }

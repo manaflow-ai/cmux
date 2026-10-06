@@ -3101,21 +3101,6 @@
       },
       "ms": 567
     },
-    "edge.trusted-paste": {
-      "value": {
-        "paste": {
-          "text": "beta",
-          "bold": true,
-          "types": [
-            "text/html",
-            "text/plain"
-          ]
-        },
-        "committed": "beta",
-        "copied": "ab"
-      },
-      "ms": 624
-    },
     "edge.context-options": {
       "value": {
         "configured": {

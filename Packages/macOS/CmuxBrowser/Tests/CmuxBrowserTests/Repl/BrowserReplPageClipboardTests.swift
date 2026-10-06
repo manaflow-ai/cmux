@@ -5,7 +5,7 @@ import Testing
 
 @testable import CmuxBrowser
 
-extension BrowserReplPasteboardRedirectTests {
+extension BrowserReplPasteboardTests {
     /// Page scripts in a tab a REPL session created (the Clipboard API, a
     /// `ClipboardItem` whose data arrives later, `execCommand("copy")`) must
     /// never write the system clipboard, at any time: an agent's click gives
@@ -20,8 +20,8 @@ extension BrowserReplPasteboardRedirectTests {
     /// stand-in and the person's clipboard stays untouched. The real one is
     /// only read (its change count).
     ///
-    /// Nested in the redirect suite: the stand-in replaces process-wide
-    /// lookups, so these tests must not run alongside the redirect's.
+    /// Nested in the pasteboard suite: the stand-in replaces process-wide
+    /// lookups, so these tests must not run alongside the drag hook tests.
     @MainActor
     @Suite("Page scripts", .serialized)
     struct PageScripts {
@@ -120,6 +120,43 @@ extension BrowserReplPasteboardRedirectTests {
             }
             #expect(routed.count == 1, "the tab's clipboard did not get exactly one write")
             #expect(texts == [action.text])
+        }
+
+        /// The page owns its world's built-ins: replacing the string methods
+        /// the routing script would use to read the command name must not
+        /// turn `execCommand("copy")` back into WebKit's own Copy.
+        @Test func aPageThatReplacesStringBuiltInsStillCopiesOnlyToTheTabClipboard() async throws {
+            let shim = try Self.shim()
+            let system = NSPasteboard.general
+            let systemBefore = system.changeCount
+            var routed: [[[String: Any]]] = []
+            var outcome: (done: String?, standInChanged: Bool)?
+            try await Self.withStandInSystemPasteboard { standIn in
+                let standInBefore = standIn.changeCount
+                let webView = try await Self.load(Self.page) { webView in
+                    BrowserReplPageClipboard(shim: shim).install(on: webView) { _, items in
+                        routed.append(items)
+                        return true
+                    }
+                }
+                _ = try await webView.callAsyncJavaScript(
+                    """
+                    String.prototype.toLowerCase = function () { return "not-a-command"; };
+                    String.prototype.toUpperCase = function () { return "NOT-A-COMMAND"; };
+                    Array.prototype.slice = function () { return []; };
+                    return true
+                    """,
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                try await Self.click("exec-copy", in: webView)
+                let done = try await Self.waitForDone(in: webView)
+                try await Self.settle { !routed.isEmpty || standIn.changeCount != standInBefore }
+                outcome = (done, standIn.changeCount != standInBefore)
+            }
+            let result = try #require(outcome)
+            #expect(!result.standInChanged, "execCommand(\"copy\") with replaced string built-ins wrote the system pasteboard")
+            #expect(system.changeCount == systemBefore)
+            #expect(routed.count == 1, "the copy did not reach the tab's clipboard")
         }
 
         /// The guard's first half is WebKit's own switch for the asynchronous

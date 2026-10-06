@@ -687,11 +687,13 @@ final class BrowserReplTabAttachment {
         }
     }
 
-    /// Keeps the page's scripts from writing the system clipboard in a tab a
-    /// session created (``BrowserReplPageClipboard``): WebKit's asynchronous
-    /// Clipboard API is off and `page-clipboard.js` sends the page's Clipboard
-    /// API and `execCommand("copy" | "cut")` writes to the tab's clipboard
-    /// (``clipboard``). The guard stays on the web view for its life,
+    /// Keeps the page's scripts off the system clipboard in a tab a session
+    /// created (``BrowserReplPageClipboard``): WebKit's asynchronous
+    /// Clipboard API and script paste are off and `page-clipboard.js` sends
+    /// the page's Clipboard API and `execCommand("copy" | "cut")` writes to
+    /// the tab's clipboard (``clipboard``). The guard also marks the web view
+    /// as one whose `cmux browser press` Meta+C, Meta+X and Meta+V run
+    /// nothing. The guard stays on the web view for its life,
     /// also after the session leaves: a page loaded while the session drove
     /// the tab never gets the system clipboard. Writes after that fail.
     ///
@@ -780,8 +782,8 @@ final class BrowserReplTabAttachment {
     /// Delivers the key-up of each held key and the button-up of each held
     /// button at the last mouse position (or ends the drag), as trusted
     /// events. Only the driver calls this, for a session that ends, inside
-    /// that session's input guards: the clipboard quarantine and the frame
-    /// gate (`WebKitBrowserReplDriver.releaseHeldInput`).
+    /// that session's input guard, the frame gate
+    /// (`WebKitBrowserReplDriver.releaseHeldInput`).
     func deliverRelease(_ held: HeldInput) {
         guard !held.isEmpty, let webView = panel?.webView as? CmuxWebView else { return }
         if held.drag != nil { webView.automationDragCapture = nil }
@@ -1115,7 +1117,7 @@ final class BrowserReplTabAttachment {
         }
         let id = makeID("d")
         if let command = clipboardCommandsInFlight.last {
-            // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
+            // Held, the dialog would keep the clipboard shortcut open.
             // Answer it as a dialog nobody handles is answered, and report it.
             respond(false, nil)
             emit(.dialogOpened, [
@@ -1137,10 +1139,10 @@ final class BrowserReplTabAttachment {
         return true
     }
 
-    /// Copy, Cut and Paste commands (`copy`, `cut`, `paste`) WebKit is running
-    /// in this tab, until WebKit reports each done. A JavaScript dialog that
-    /// opens meanwhile is dismissed at once and reported with
-    /// `dismissedDuring`, never held.
+    /// Virtual Copy, Cut and Paste shortcuts (`copy`, `cut`, `paste`) running
+    /// in this tab, until each returns. A JavaScript dialog that opens
+    /// meanwhile is dismissed at once and reported with `dismissedDuring`,
+    /// never held, so a handler's dialog cannot hold the shortcut.
     var clipboardCommandsInFlight: [String] = []
 
     func clipboardCommandFinished(_ command: String) {

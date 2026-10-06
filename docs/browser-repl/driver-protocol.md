@@ -126,9 +126,7 @@ When a session ends, the driver releases what it left pressed in each tab
 it drives, and only that: each key it holds gets its key-up (last pressed
 first) and its press in progress its button-up at the last mouse position,
 or the drag it started ends. The page sees them as trusted events, so they
-go through the session's input guards: the general-pasteboard quarantine
-of a call that gives the page a user gesture (see "Guards") and, under a
-domain policy, the frame
+go through the session's input guards: under a domain policy, the frame
 gate, which keeps blocked frames inert while they land. When the guards
 refuse them (the tab shows a page the policy blocks, or a local file
 outside the session's directories), nothing is sent and the keys and press
@@ -164,13 +162,11 @@ resend is also how a Command shortcut's Edit menu command (select all, copy,
 cut, paste, undo, redo; bold, italic and underline in the REPL) is run: only
 once WebKit has sent the key back (no page handled it; a page that cancels
 the keydown gets no command as well), on the web view itself. In a tab a
-session created and is attached to, `cmux browser press` Meta+C, Meta+X
-and Meta+V run on the tab's clipboard as the REPL's do, never the system
-pasteboard, under the same guards: the creating session's domain policy
-refuses them while a frame it blocks holds the focus, before and after the
-command (`BrowserReplFrameGate.guardingFocus`), and what Copy or Cut took
-lands only while that session still holds the tab; a refused one changes
-nothing (the press has already returned). In any other tab they run the
+session created (one with the page clipboard guard), `cmux browser press`
+Meta+C, Meta+X and Meta+V run nothing: that tab's clipboard is its
+session's virtual one, `cmux browser press` carries no session, and as
+agent input it never reaches the system pasteboard (the press has already
+returned). In any other tab they run the
 web view's own Copy, Cut and Paste. A key whose outcome WebKit has not reported within 5 s runs nothing.
 
 ## Hibernated and crashed tabs
@@ -341,7 +337,7 @@ way reaches every session in that form.
 | --- | --- |
 | `cookies.get` / `cookies.set` | `{ urls?, targetId? }`, `{ cookies, targetId? }`. They use the store of the target tab (a private tab's, or the session's proxy store, is not the user's profile), which the runtime names on every call a page makes; without `targetId`, the session's `session.configure({ proxy })` store, else the active tab's. A URL the domain policy blocks fails with `blocked`; `cookies.get` leaves out the cookies of blocked sites and `cookies.set` refuses one, and also refuses a cookie with a Domain attribute (`.example.com`) unless an allowed pattern covers every subdomain it reaches (`*.example.com`) and no prohibited host is among them (see "Guards") |
 | `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (without `targetId`, the store `cookies.get` uses) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared |
-| `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`, held by the session that created the tab while it is attached: any other session, and every session in a user's tab (also a kept one), gets `unsupported`. It empties when that session ends, and a Copy or Cut still running then, or a page script's write after it, never lands, so a session that drives a kept tab later never reads what the creator or the page put there. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. They run only in tabs a session created: in a user's tab `input.key` refuses them with `unsupported` before any key reaches the page. Until the engine reports the command done, a JavaScript dialog in that tab is answered as an unhandled one is (`dialog.respond` with `accept: false`) and reported with `dismissedDuring`, never held. On WebKit, which has no per-view pasteboard, the general-pasteboard lookups WebKit itself makes (its pasteboard IPC answered through WebCore) get a private pasteboard from the start of one command until WebKit reports it done or 5 s pass; lookups by any other code, `NSPasteboard.general` included, get the system pasteboard. The tab's clipboard takes the private pasteboard only when the command finished in time. At 5 s the driver ends the tab's web content process (`tab.crashed`) in the same main-thread turn that ends the redirect, and the call fails with `timeout`: WebKit handles no message from that process afterwards, so a Copy or Cut the page would finish late never writes the system clipboard. It ends the process only when every other tab in it was created by the same session and no popup window of cmux's shares it (popups share their opener's process); otherwise the shortcut falls back to script (the selection's text, or inserting the clipboard's text, without clipboard events). A session that detaches, or a tab that closes, during the command does not change that. If another tab or a popup window joins the process during a command, the private pasteboard stays until WebKit finishes or 5 s more pass, when the driver ends the process anyway (its pages crash). A caller that stops waiting shortens none of these times. A Paste also runs through WebKit only while the private pasteboard's change count is below the system's, so WebKit's read grant, which compares change counts, can never cover the system clipboard; otherwise it falls back to inserting text. Commands run one at a time across all tabs, because WebKit's pasteboard requests do not say which web view they serve, so two tabs' commands at once would share one private pasteboard. For the same reason a copy in another web view during a command (a person's, or a page's in a user's tab) reaches the private pasteboard; WebKit's own Copy or Cut writes it at most once and a Paste never, so a command whose pasteboard was written more often fails with `stale` and leaves the tab's clipboard unchanged. A Copy or Cut can also write nothing itself (its page cancels the event and sets no data, a Cut of text the page cannot edit), so its one write must be shown to be the page's own: before the command a listener in every frame of the tab, in a content world of its own, sees the trusted `copy` or `cut` event, notes whether WebKit's default action writes the selection, and puts a random marker type on the event's `clipboardData`, which WebKit writes with the page's data when the page cancels the event. A write that neither the default action nor a cancelled event carrying the marker accounts for (no listener saw the event, the page cleared the marker) fails the command with `stale`. The page sees the marker type in its handler, and a cancelled event's marker (a random value used once) stays among WebKit's custom data on the tab's clipboard. Another web view never reads the private pasteboard: a web content process reads the general pasteboard only after the UI process grants it access at the change count it looks up then, and a paste another web view starts (a person's Command-V, Edit menu or context menu Paste, a paste callout, a drop) makes that lookup from a call by the app into WebKit, while the commanded tab's reads and writes come on WebKit's own run-loop turn and its grant while the driver starts the command. Such a lookup, or WebKit's read of `+generalPasteboard` before it lets a page read its own origin's clipboard data without asking, diverts the command: from then until it ends every WebKit lookup gets an extra private pasteboard emptied at each lookup, so that other paste reads nothing and the command fails with `stale` (a Paste may have pasted nothing). A page's script paste in another web view (`execCommand("paste")` in a gesture) asks the UI process for that grant too: with its own origin's data on the tab's clipboard WebKit reads `+generalPasteboard` first, which diverts the command, and otherwise WebKit shows its paste callout, which only the person can answer. WebKit keeps one grant per pasteboard name, for the processes it granted at one change count, and a grant at an equal count is extended instead of replaced, so a command never runs at a change count at which WebKit may still hold a grant: the driver notes every count a private pasteboard showed WebKit (a Paste's, a diverted or timed-out command's, each emptied private pasteboard of a diversion or quarantine) and every count WebKit's lookups of the system pasteboard returned, and clears the command's private pasteboard (keeping its contents) past them before the command starts; a Paste that starts at an unnoted count is granted there, which replaces every earlier grant, so the notes are dropped then. A command that cannot get past them within 256 clears, or a Paste whose count would no longer be below the system's, falls back to script. Residual: another page of the commanded tab's own web content process shares its grant, and one that reads without asking again (WebKit asks once per user gesture) could read the tab's clipboard while the command runs; that process runs only tabs that session created. Items that name a local file (a file URL, also a `file:` URL as `text/uri-list` or another URL type, a filename list, an alias, a Finder node or a file promise) are left out when the tab's clipboard is put on the private pasteboard for a Paste, so WebKit never hands the page a local file. A command waits up to 5 s for the one before it, which ends by then (10 s when its process could not be ended at once), then gets its own 5 s; one that cannot start fails with `timeout`, names the tab it waited for, and does not run. While a command runs, another web view's copy uses the private pasteboard too. Writes a page's own scripts make (the asynchronous Clipboard API, `execCommand("copy")`) are outside this redirect; the page clipboard guard (see "Guards") sends them to this clipboard |
+| `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`, held by the session that created the tab while it is attached: any other session, and every session in a user's tab (also a kept one), gets `unsupported`. It empties when that session ends, and a Copy or Cut still running then, or a page script's write after it, never lands, so a session that drives a kept tab later never reads what the creator or the page put there. No pasteboard is ever involved: Meta+C, Meta+X and Meta+V (`input.key`) run on this clipboard only, never WebKit's Copy, Cut or Paste. The driver finds the frame that holds the focus (each document's focused frame element, from the main frame), and a script in its own content world runs in that frame's document, through the frame gate, which under a domain policy authorizes the document and checks in the same script turn that the script still runs in it. In that turn the script dispatches a `copy`, `cut` or `paste` `ClipboardEvent` with a `DataTransfer` at the focused element (Paste: every type of the clipboard; images as files) and, unless a handler cancelled it, does the default action: Copy and Cut take the selection after the handlers (text, and HTML outside form fields), Cut deletes it from an editable target, Paste inserts the text through the engine's `insertText`. A cancelled Copy or Cut takes what the handler set. Copy or Cut with nothing selected empties the clipboard without an event. The events are dispatched, so `isTrusted` is false and an editor that accepts only a trusted paste ignores it. So the clipboard takes only what that document's event produced, and a paste reaches only the document the gate checked, wherever the page moves the focus meanwhile; a focus in a blocked frame fails with `blocked`, a focus the driver cannot place (a frame in a shadow tree) or one that moved into a child frame meanwhile with `stale`. They run only in tabs a session created: in a user's tab `input.key` refuses them with `unsupported` before any key reaches the page. Until the shortcut returns, a JavaScript dialog in that tab is answered as an unhandled one is (`dialog.respond` with `accept: false`) and reported with `dismissedDuring`, never held; a handler that runs long only delays the call. Writes a page's own scripts make (the asynchronous Clipboard API, `execCommand("copy")`) reach this clipboard through the page clipboard guard (see "Guards") |
 
 ## Guards
 
@@ -697,11 +693,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   parent's focused element, also inside a shadow tree, is its frame element,
   found by the frame's own position in `window.frames`; a frame that cannot
   answer, or whose element cannot be told, counts as focused). Meta+C,
-  Meta+X and Meta+V check the focus again after the key, on a fresh tree
-  right before WebKit's Copy, Cut or Paste runs (the page's key handlers
-  can move the focus into a blocked frame meanwhile), and Copy and Cut
-  once more after it, before the tab's clipboard takes what they copied;
-  either fails with `blocked` and leaves the tab's clipboard unchanged.
+  Meta+X and Meta+V check the focus again after the key, on a fresh tree,
+  and then run only in the document the frame gate authorizes, in the same
+  script turn as its document check (see `clipboard.read`), so the page
+  moving the focus into a blocked frame meanwhile never hands that frame
+  the clipboard or its selection to the clipboard.
   The input itself is a point or a key for the whole tab, so the page could
   move a blocked frame under the point, or the focus into it, between a
   check and the event. While `input.mouse`, `input.drag`, `input.key` or
@@ -824,86 +820,73 @@ native (`BrowserReplBoundary` in the session, and the driver):
   policy: no page loads its subresources under the previous rules. A page
   already loaded keeps running meanwhile, so its own script can still
   start subresource loads under the previous rules until they are replaced.
-- Page clipboard: in a tab a session created, no page script writes the
-  system clipboard. An agent's click, key or evaluated script gives the
-  page a user gesture, and WebKit lets a page holding one write the system
-  clipboard through the asynchronous Clipboard API (WebKit's UI process
-  writes it through `+[NSPasteboard generalPasteboard]`, also off the main
-  thread) and through `execCommand("copy")` or `"cut"` (written by name,
-  `+pasteboardWithName:`, while WebKit handles the web process's message).
-  Neither message says which page sent it, so the pasteboard redirect
-  cannot route them by tab, and WebKit has no setting that refuses
-  `execCommand("copy")` to a page in a gesture. So once a session creates
-  the tab (or a popup of one), the driver turns WebKit's
-  `AsyncClipboardAPIEnabled` feature off for that web view (`tabs.open`
-  fails with `unsupported` on a WebKit without that switch, and a web view
-  where it does not take gets an empty document with no script; no
-  `navigator.clipboard`, `Clipboard` or `ClipboardItem` in any of its
-  documents, already-loaded ones included) and adds
-  `Resources/browser-repl/page-clipboard.js` at document start in the page
-  world of every frame. That script supplies a `navigator.clipboard` and
-  `ClipboardItem` whose writes (a promised item once it settles) reach the
-  tab's clipboard through a script message handler; they need no transient
-  activation, since they reach only that tab and WebKit resets the page's
-  activation after each script the driver evaluates, also between an agent
-  click's press and release. It rejects their reads with `NotAllowedError`,
-  and replaces `execCommand` so `copy` and `cut` fire the page's handlers with a
-  `DataTransfer` and put what they set, or the selection, on the tab's
-  clipboard; WebKit's own command never runs from page script there. The
-  guard stays on the web view for its life, also after the session leaves
-  (later writes then fail). Residual, measured on macOS 27.0 (26A428): WebKit
-  gives user scripts to a document when it commits, not to a frame's
-  initial empty document (an iframe whose `src` is still loading or is a
-  `javascript:` URL, a window the page opened before its first load
-  commits). Same-origin page script that reaches such a document while it
-  holds a gesture can call that document's own `execCommand("copy")`, and
-  WebKit writes the system clipboard. No fix is known within WebKit's API:
-  `WKUserScript` has no option to match such documents (its private
-  initializers take URL patterns, an associated URL, a content world and
-  deferral only), no WebKit preference refuses `execCommand("copy")` to a
-  page in a gesture (`JavaScriptCanAccessClipboard` only widens it), no UI
-  delegate method is called for a page's copy, and the UI process's
-  pasteboard write runs in a handler whose only per-page argument (the IPC
-  connection) no Objective-C hook can see, so the redirect cannot route it
-  by page or process.
+- Page clipboard: in a tab a session created, page scripts read and write
+  only the tab's virtual clipboard, never the system clipboard, also while
+  an agent's click, key or evaluated script gives them a user gesture.
+  WebKit has no per-web-view pasteboard (its Copy, Cut and Paste name the
+  general pasteboard, which the UI process looks up process-wide), no
+  setting that refuses `execCommand("copy")` to a page in a gesture
+  (`JavaScriptCanAccessClipboard` only widens it; there is no clipboard
+  access policy among `WKPreferences`' features or selectors), and no UI
+  delegate method that sees a pasteboard write (checked on macOS 27.0,
+  26A428). So once a session creates the tab (or a popup of one), the
+  driver turns WebKit's `AsyncClipboardAPIEnabled` and
+  `DOMPasteAccessRequestsEnabled` features off for that web view
+  (`tabs.open` fails with `unsupported` on a WebKit without both switches,
+  and a web view where they do not take gets an empty document with no
+  script): no document of the tab, already-loaded ones and initial empty
+  ones included, has a native `navigator.clipboard`, `Clipboard` or
+  `ClipboardItem`, and no page script can paste (WebKit never asks the app
+  for paste access; a person's Command-V is not a script paste). It also
+  adds `Resources/browser-repl/page-clipboard.js` at document start in the
+  page world of every frame. That script supplies a `navigator.clipboard`
+  and `ClipboardItem` whose writes (a promised item once it settles) reach
+  the tab's clipboard through a script message handler; they need no
+  transient activation, since they reach only that tab and WebKit resets
+  the page's activation after each script the driver evaluates, also
+  between an agent click's press and release. It rejects their reads with
+  `NotAllowedError`, and replaces `execCommand` so `copy` and `cut` fire
+  the page's handlers with a `DataTransfer` and put what they set, or the
+  selection, on the tab's clipboard, and `paste` returns false; it reads
+  the command name with built-ins it captured before the page's scripts
+  ran and hands WebKit only that string, so a page that replaces `String`
+  or `String.prototype.toLowerCase` cannot turn a name it does not see as
+  `copy` into WebKit's Copy. The guard stays on the web view for its life,
+  also after the session leaves (later writes then fail). In a session's
+  agent world the page agent's install starts with the same `execCommand`
+  replacement (`BrowserReplPageClipboard.agentWorldGuardSource`, in every
+  tab), whose `copy`, `cut` and `paste` return false, so a listener the
+  agent registered cannot run WebKit's Copy with the gesture of its click.
+  Residual, measured on macOS 27.0 (26A428): WebKit gives user scripts to
+  a document when it commits, not to a frame's initial empty document (an
+  iframe whose `src` is still loading or is a `javascript:` URL, a window
+  the page opened before its first load commits). Same-origin script, the
+  page's or the agent's, that reaches such a document while it holds a
+  gesture (a person's, or one an agent's input gave) can call that
+  document's own `execCommand("copy")`, and WebKit writes the system
+  clipboard. Only a process-wide pasteboard hook could stop that, and cmux
+  keeps none for the clipboard (the drag pasteboard's, see `input.drag`,
+  covers only the drag pasteboard's name). `WKUserScript` has no option to
+  match such documents (its private initializers take URL patterns, an
+  associated URL, a content world and deferral only).
   Script the agent runs in its own world (`frame.evaluate` with `world:
   "agent"`, and the runtime's reads and element actions there, such as
   `focus` and `dispatchEvent`) runs without a user gesture (WebKit's
   `_callAsyncJavaScript` with `withUserGesture: NO`; a WebKit without it
-  fails such calls with `unsupported`): `execCommand` is the native one in
-  that world, and a page handler such a script sets off would hold the
-  gesture too. So does every script the driver runs for itself, in its own
-  worlds or the agent's (the frame gate's checks and the scripts it gates,
-  capture masks, secret and focus checks, `tab.info`, frame names and
-  boxes, waits, selection reads, the sign-in fill, the page agent's
-  install): agent code can have replaced a getter they read, and a page
-  handler they set off would hold the gesture.
-  The page clipboard guard covers the page's world only, and a user's tab
-  has none, since its pages keep the browser's clipboard. An agent's
-  trusted input (`input.mouse`, `input.drag`, `input.key`,
-  `input.insertText`) and its page-world `frame.evaluate` give the tab a
-  gesture, which page script and code in the agent's world (a listener the
-  agent registered, which keeps WebKit's own `execCommand`) can use, and
-  which WebKit honors for up to 10 s after (a timer set within 1 s, a fetch
-  started in the gesture that settles within 10 s; measured on macOS 27.0,
-  26A428). So in every tab, from the start of such a call until 11 s after
-  it, the general-pasteboard lookups WebKit makes (by name and through
-  `+generalPasteboard`, for any web view) get a private pasteboard that is
-  emptied at every lookup: an `execCommand("copy")` or Clipboard API write
-  reaches nobody, the session included, and a read finds nothing (the page
-  clipboard guard's writes to the tab's clipboard are not pasteboard
-  writes and still land). A write the page starts then stays there however
-  late its data arrives (a `ClipboardItem` whose promise the page settles
-  after the quarantine): WebKit writes only while the general pasteboard's
-  change count is the one it read when the page called `write`, and the
-  private pasteboard's count is kept below the system's, which only grows,
-  so WebKit refuses the late write. While the system's count is below 2
-  (nothing was copied yet in the login session) no such call runs; it fails
-  with `unsupported`. WebKit does not say which web view wrote, so a
-  copy or paste the person makes in another web view of cmux during that
-  time does nothing (the terminal, text fields and other code keep the
-  system clipboard). A command the session runs in its own tab (Meta+C)
-  keeps its private pasteboard meanwhile.
+  fails such calls with `unsupported`), and so does every script the
+  driver runs for itself, in its own worlds or the agent's (the frame
+  gate's checks and the scripts it gates, the clipboard shortcuts, capture
+  masks, secret and focus checks, `tab.info`, frame names and boxes, waits,
+  the sign-in fill, the page agent's install): agent code can have
+  replaced a getter they read, and a page handler they set off would hold
+  the gesture.
+  A user's tab has no page clipboard guard: its pages keep the browser's
+  clipboard. An agent's trusted input (`input.mouse`, `input.drag`,
+  `input.key`, `input.insertText`) and its page-world `frame.evaluate` give
+  that tab a user gesture, with which the page's own scripts (and the
+  agent's page-world script) can write the system clipboard, as with a
+  person's click (accepted). The agent's clipboard shortcuts and
+  `page.clipboard` are refused there (`unsupported`).
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.clear` on a tab that shows a blocked page (its scope is that
@@ -1051,9 +1034,8 @@ when present.
 - The driver's own scripts run in private worlds that no session's
   `source` reaches: the frame gate's document, focus and frame-box probes,
   frame binding's child reports, `tab.info`, frame names, load waits, the
-  screenshot's viewport read and the selection reads of the clipboard
-  fallback (`cmux-driver`), capture masks (`cmux-capture-mask`) and the
-  copy listener (`cmux-repl-copy-probe`). What reads the session's own
+  screenshot's viewport read and the clipboard shortcuts (`cmux-driver`)
+  and capture masks (`cmux-capture-mask`). What reads the session's own
   handles runs in the session's world: element actions, the press check,
   `frame.contentFrame(s)`, `frame.ownerBox`, `input.setFiles`, the file
   chooser's element and the rich-text check of `input.insertText` (that

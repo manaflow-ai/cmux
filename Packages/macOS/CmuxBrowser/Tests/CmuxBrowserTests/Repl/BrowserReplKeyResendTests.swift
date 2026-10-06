@@ -61,6 +61,7 @@ struct BrowserReplKeyResendTests {
         // WebKit's own `copy:` and `paste:`, which Swift does not see.
         @objc(copy:) func countCopy(_ sender: Any?) { commands.append("copy:") }
         @objc(paste:) func countPaste(_ sender: Any?) { commands.append("paste:") }
+        @objc(cut:) func countCut(_ sender: Any?) { commands.append("cut:") }
     }
 
     private final class Loaded: NSObject, WKNavigationDelegate {
@@ -159,27 +160,23 @@ struct BrowserReplKeyResendTests {
         #expect(webView.commands.isEmpty, "an editing command ran for a shortcut the page handled")
     }
 
-    // The app routes the command (a tab a REPL session created runs Copy,
-    // Cut and Paste on its own clipboard); a routed command does not also run
-    // the web view's action, which would use the system pasteboard.
-    @Test func anAppRouteRunsAnEditingShortcutInsteadOfTheWebView() async throws {
+    // `cmux browser press` carries no REPL session: in a tab a session
+    // created (one with the page clipboard guard) its Meta+C, Meta+X and
+    // Meta+V must reach neither the system pasteboard (the web view's own
+    // copy:, cut:, paste:) nor any session's virtual clipboard. A person's
+    // Command-C in that tab is not a `cmux browser press` and keeps the
+    // web view's own action.
+    @Test func cmuxBrowserPressRunsNoClipboardCommandInASessionTab() async throws {
         let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
-        var routed: [String] = []
-        WKWebView.automationEditingCommandRoute = { view, command in
-            guard view === webView else { return false }
-            routed.append(command)
-            return command != "selectAll:"
-        }
-        defer { WKWebView.automationEditingCommandRoute = nil }
-        // Two shortcuts in a row: WebKit reports both when its key queue
-        // empties, and the app's drop of each resend tells them apart.
+        BrowserReplPageClipboard(shim: try BrowserReplPasteboardTests.PageScripts.shim()).install(on: webView) { _, _ in true }
         try await Self.withAppDroppingResends {
+            try press(["Meta", "c"], in: webView)
+            try press(["Meta", "x"], in: webView)
             try press(["Meta", "v"], in: webView)
             try press(["Meta", "a"], in: webView)
-            try await settle(webView, keys: 4)
+            try await settle(webView, keys: 8)
         }
-        #expect(routed == ["paste:", "selectAll:"])
-        #expect(webView.commands == ["selectAll:"], "a routed Paste also ran the web view's own paste:")
+        #expect(webView.commands == ["selectAll:"], "cmux browser press ran a clipboard command in a session's tab: \(webView.commands)")
     }
 
     // The mobile browser stream replays a person's keys from their phone

@@ -1,7 +1,7 @@
 {
  "meta": {
   "backend": "cmux-dev",
-  "recordedAt": "2026-10-04T14:05:06.803Z"
+  "recordedAt": "2026-10-06T00:30:48.638Z"
  },
  "cases": {
   "page.goto.basic": {
@@ -3073,6 +3073,14 @@
     "after": "Count 2"
    },
    "ms": 1056
+  },
+  "edge.trusted-paste": {
+   "value": {
+    "paste": "untrusted",
+    "committed": "",
+    "copied": "ab"
+   },
+   "ms": 570
   }
  }
 }

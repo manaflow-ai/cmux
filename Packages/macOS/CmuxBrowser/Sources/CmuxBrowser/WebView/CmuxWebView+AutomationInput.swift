@@ -127,7 +127,7 @@ private final class DragCaptureKey: NSObject, @unchecked Sendable {
 /// for WebKit: each capture has its own uniquely named pasteboard, and while
 /// its window is open (``openPasteboardWindow()``, around the automated
 /// `mouseDragged` events that may start the drag) WebKit's lookups of the
-/// drag pasteboard get it (``BrowserReplPasteboardRedirect``). The window
+/// drag pasteboard get it (``BrowserReplDragPasteboardRedirect``). The window
 /// closes when WebKit starts the drag, which it does after writing the
 /// data, or at ``closePasteboardWindow()``. A drag WebKit starts after its
 /// window closed carries no data to the drop.
@@ -155,9 +155,9 @@ public final class BrowserAutomationDragCapture: NSObject {
     /// or WebKit could write this drag's data to the other one's pasteboard.
     public func openPasteboardWindow() async -> Bool {
         guard !finished else { return false }
-        let opened = await BrowserReplPasteboardRedirect.shared.openDragWindow(pasteboard)
+        let opened = await BrowserReplDragPasteboardRedirect.shared.openDragWindow(pasteboard)
         if opened, finished {
-            BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+            BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard)
             return false
         }
         return opened
@@ -165,7 +165,7 @@ public final class BrowserAutomationDragCapture: NSObject {
 
     /// Closes this drag's pasteboard window, if it is open.
     public func closePasteboardWindow() {
-        BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+        BrowserReplDragPasteboardRedirect.shared.closeDragWindow(pasteboard)
     }
 
     /// Ends the capture: closes its window and empties and releases its
