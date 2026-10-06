@@ -155,3 +155,44 @@ fn a_large_or_unreadable_type_sends_its_preview_and_none_sends_only_the_referenc
             .contains("not readable")
     );
 }
+
+/// Never answers: the host stops while the description is still running.
+struct StuckDescriber;
+
+impl Describe for StuckDescriber {
+    fn describe(&self, _: Vec<Value>) -> Result<String, String> {
+        loop {
+            std::thread::park();
+        }
+    }
+}
+
+#[test]
+fn a_description_the_host_stopped_before_is_written_after_the_restart() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_describer(Arc::new(StuckDescriber));
+    h.owner
+        .lock()
+        .unwrap()
+        .attachments
+        .insert((HASH.into(), "original".into()), "QUJD".into());
+    h.connect();
+    h.say_parts("user_local", vec![image("image/png", 3, false), text("what does this say?")]);
+    h.settle();
+    assert!(h.log().iter().all(|(kind, _)| kind != "note"), "no description yet");
+    // The host stops (the stuck description dies with it) and starts again.
+    let Harness { dir, owner, .. } = h;
+    let mut h = Harness::in_dir(dir, default_script(), owner);
+    h.brain.set_describer(Arc::new(FixedDescriber("A harbor notice.")));
+    h.connect();
+    while !h.log().iter().any(|(kind, _)| kind == "note") {
+        h.step();
+    }
+    let notes: Vec<_> = h.log().into_iter().filter(|(kind, _)| kind == "note").collect();
+    assert_eq!(
+        notes,
+        vec![("note".to_owned(), "image sha256:0123456789ab \"shot.png\" shows: A harbor notice.".to_owned())],
+        "written once, after the restart"
+    );
+    assert!(h.brain.state().undescribed.is_empty());
+}

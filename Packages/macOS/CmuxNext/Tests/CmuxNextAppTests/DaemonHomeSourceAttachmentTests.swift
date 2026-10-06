@@ -35,6 +35,7 @@ import UniformTypeIdentifiers
             let records = Mutex<[String: Record]>([:])
             let chunks = Mutex(0)
             let refuseWith = Mutex<String?>(nil)
+            let reads = Mutex(0)
         }
 
         let state: State
@@ -95,6 +96,7 @@ import UniformTypeIdentifiers
                         return ok("{}")
                     }
                 case "conversation-attachment-read":
+                    state.reads.withLock { $0 += 1 }
                     let hash = request["hash"]?.stringValue ?? ""
                     let variant = request["variant"]?.stringValue ?? "original"
                     let offset = request["offset"]?.doubleValue.map { Int($0) } ?? 0
@@ -141,11 +143,15 @@ import UniformTypeIdentifiers
         return (url, data as Data)
     }
 
-    func connectedSource(_ owner: Owner) async throws -> (DaemonHomeSource, DaemonConnection) {
+    func connectedSource(_ owner: Owner, cache: URL? = nil,
+                         cacheLimit: Int = DaemonHomeSource.defaultAttachmentCacheLimit) async throws -> (DaemonHomeSource, DaemonConnection) {
         let connection = DaemonConnection(endpoint: DaemonEndpoint(socketPath: owner.socket.path))
         try await connection.start()
         let me = Participant(id: ParticipantID("user_local"), kind: .human, displayName: "Me")
-        let source = DaemonHomeSource(me: me)
+        let source = DaemonHomeSource(
+            me: me,
+            attachmentCache: cache ?? FileManager.default.temporaryDirectory.appendingPathComponent("dhs-cache-\(UUID().uuidString)"),
+            attachmentCacheLimit: cacheLimit)
         source.connectionChanged(connection)
         return (source, connection)
     }
@@ -205,5 +211,41 @@ import UniformTypeIdentifiers
         await #expect(throws: HomeRejection.invalid("type_refused")) {
             _ = try await source.upload(AttachmentUpload(conversation: ConversationID("conv_A"), fileURL: file, ref: ref))
         }
+    }
+
+    /// The fetch cache stays under its limit: the least recently used files
+    /// go first, never the one a fetch is returning, and an evicted variant
+    /// is read from the owner again.
+    @Test func theFetchCacheEvictsTheLeastRecentlyUsedFilesPastItsLimit() async throws {
+        let owner = try Owner()
+        defer { owner.socket.stop() }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("dhs-\(UUID().uuidString)")
+        let cache = directory.appendingPathComponent("cache")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let image = try Self.png(width: 40, height: 30, in: directory, name: "shot.png")
+        let preview = Data("preview-jpeg".utf8)
+        let previewURL = directory.appendingPathComponent("preview.jpg")
+        try preview.write(to: previewURL)
+        let ref = AttachmentRef(hash: Owner.hex(image.data), name: "shot.png", mimeType: "image/png", byteCount: image.data.count,
+                                width: 40, height: 30,
+                                preview: AttachmentDerivedImage(hash: Owner.hex(preview), mimeType: "image/jpeg", byteCount: preview.count))
+        // Room for the preview, not for the original as well.
+        let (source, connection) = try await connectedSource(owner, cache: cache, cacheLimit: image.data.count)
+        defer { Task { await connection.close() } }
+        _ = try await source.upload(AttachmentUpload(conversation: ConversationID("conv_A"), fileURL: image.url, ref: ref,
+                                                     previewURL: previewURL))
+        let location = AttachmentLocation(conversation: ConversationID("conv_A"))
+        let original = try await source.fetch(ref, at: location, variant: .original)
+        #expect(FileManager.default.fileExists(atPath: original.path))
+        let shown = try await source.fetch(ref, at: location, variant: .preview)
+        #expect(FileManager.default.fileExists(atPath: shown.path), "the file a fetch returns stays")
+        #expect(!FileManager.default.fileExists(atPath: original.path), "the least recently used file goes")
+        let size = try FileManager.default.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.fileSizeKey])
+            .reduce(0) { $0 + ((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        #expect(size <= image.data.count)
+        let readsBefore = owner.state.reads.withLock { $0 }
+        _ = try await source.fetch(ref, at: location, variant: .original)
+        #expect(owner.state.reads.withLock { $0 } > readsBefore, "an evicted variant is read again")
     }
 }
