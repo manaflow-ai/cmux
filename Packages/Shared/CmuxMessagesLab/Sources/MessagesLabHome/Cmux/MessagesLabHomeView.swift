@@ -19,7 +19,9 @@ public final class MessagesLabHomeView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, wake: any ChatWakeScheduler) {
         MessagesLabHomeView.liveFormatting()
         controller = ChatController(wake: wake)
-        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller)
+        // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
+        projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
+                                    linkPreviews: HomeLinkPreviews())
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
@@ -93,6 +95,26 @@ public final class MessagesLabHomeView: NSView {
             // The placeholder, waveform and chips are drawn once with the palette.
             demo.compose.rescale()
         }
+    }
+
+    /// A click (or Space/Return with the keyboard) on the header's name
+    /// pill: cmux shows the Chief's settings sidebar there.
+    public var onNamePill: () -> Void {
+        get { controller.host.paneHeader.onContact }
+        set { controller.host.paneHeader.onContact = newValue }
+    }
+
+    /// The header avatar's text (one or two characters, an emoji); nil
+    /// shows the conversation's initials.
+    public var avatarText: String? {
+        get { projection.initialsOverride }
+        set { projection.initialsOverride = newValue }
+    }
+
+    /// The name pill's VoiceOver help (what a click on it does).
+    public func setNamePillHelp(_ help: String) {
+        controller.host.paneHeader.pill.setAccessibilityHelp(help)
+        controller.host.paneHeader.pill.refusesFirstResponder = false
     }
 
     /// The field's text view (the pane's primary input).

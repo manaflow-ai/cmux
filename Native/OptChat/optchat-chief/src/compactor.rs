@@ -139,7 +139,9 @@ pub struct CompactorSpec {
     /// every node.
     pub codex_home: PathBuf,
     pub model: Option<String>,
-    /// acpmux's `effort`; None (the harness default) until verified live.
+    /// acpmux's `effort` (`COMPACTOR_EFFORT` by default on a Claude or
+    /// codex harness, `OPTCHAT_COMPACTOR_EFFORT` overrides); None leaves the
+    /// harness's own default.
     pub effort: Option<String>,
     /// Longest one prompt may take.
     pub timeout: Duration,
@@ -981,6 +983,12 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         "CLAUDE_CONFIG_DIR".to_owned(),
         paths.compactor_config.display().to_string(),
     );
+    // One sticky subrouter account for every node of this Chief, so nodes
+    // read each other's cached context (claude-sr; harmless elsewhere).
+    env.insert(
+        SUBROUTER_SESSION_KEY_ENV.to_owned(),
+        codex_cache_key(home, "compact"),
+    );
     for key in [
         "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
         "CLAUDE_CODE_DISABLE_CLAUDE_MDS",
@@ -1008,6 +1016,22 @@ pub fn compactor_presets(paths: &Paths, home: &Path, harness: &str, family: Fami
         .collect()
 }
 
+/// The compactor's effort (section 4.2: the reference runs Claude Sonnet at
+/// medium effort; at low effort it overshot the size limit much more).
+/// acpmux maps `effort` onto Claude Code's `--effort` and codex's
+/// `reasoning_effort`, both of which take `medium`.
+pub const COMPACTOR_EFFORT: &str = "medium";
+
+/// The default effort of `family`'s compactor sessions: `COMPACTOR_EFFORT`
+/// on a Claude or codex harness; another harness keeps its own default (its
+/// effort names are not known here).
+pub fn compactor_effort(family: Family) -> Option<String> {
+    match family {
+        Family::Claude | Family::Codex => Some(COMPACTOR_EFFORT.to_owned()),
+        Family::Other => None,
+    }
+}
+
 /// How the compactor's sessions start for `home`.
 pub fn compactor_spec(
     paths: &Paths,
@@ -1026,13 +1050,19 @@ pub fn compactor_spec(
         family,
         codex_home: paths.compactor_codex.clone(),
         model: model.map(str::to_owned),
-        effort: None,
+        effort: compactor_effort(family),
         timeout: CALL_TIMEOUT,
         chief: home_id(home),
     }
 }
 
 pub use crate::codex_home::*;
+
+/// `sr claude proxy` sends this as `X-Subrouter-Session` (subrouter PR 511):
+/// the subrouter keeps every process with one key on one sticky account, so
+/// fresh per-turn Claude Code processes of one Chief share its prompt cache.
+/// Earlier `sr` builds ignore it.
+pub const SUBROUTER_SESSION_KEY_ENV: &str = "SUBROUTER_SESSION_KEY";
 
 /// Which model builds the compactor's nodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

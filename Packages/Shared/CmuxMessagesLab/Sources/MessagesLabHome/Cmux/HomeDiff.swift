@@ -33,13 +33,13 @@ struct HomeDiff: Equatable {
 
     static func plan(old: [TranscriptItem], new: [TranscriptItem], oldSummary: ConversationSummary?,
                      newSummary: ConversationSummary?, aliases: [IdempotencyKey: ID], me: ParticipantID,
-                     media: HomeMapping.Media = { _ in nil }) -> HomeDiff {
+                     media: HomeMapping.Media = { _ in nil }, links: HomeMapping.Links = { _ in nil }) -> HomeDiff {
         var d = HomeDiff()
         let oldIndex = Dictionary(old.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { a, _ in a })
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media) }
+        func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links) }
 
         // Older page: the new messages before the first shown one.
         var head = 0
@@ -59,7 +59,7 @@ struct HomeDiff: Equatable {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
-                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), into: &d) }
+                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), into: &d) }
             } else {
                 d.actions.append(.receive(msg(item)))
             }
@@ -82,27 +82,36 @@ struct HomeDiff: Equatable {
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
                                 newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
-        if o.editedAt != n.editedAt, !n.isRetracted, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
+        // MessagesLab's `.edit` replaces one text bubble: a text that shows as
+        // several (Messages' link rule) before or after the edit is a rebuild.
+        let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
+        if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
             d.actions.append(.edit(id, text))
         } else if o.parts != n.parts {
             return false
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
-        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, into: &d) }
+        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), into: &d) }
         return true
     }
 
     /// One tapback per participant and part: the reducer replaces a changed
     /// one and toggles a removed one off.
-    private static func react(from old: [CmuxHomeCore.Reaction], to new: [CmuxHomeCore.Reaction], id: ID, into d: inout HomeDiff) {
+    /// Which HomeStore part each MessagesLab part shows (`HomeMapping.projectedParts`).
+    private static func owners(_ item: TranscriptItem, _ summary: ConversationSummary?) -> [Int] {
+        HomeMapping.projectedParts(item, summary: summary).owners
+    }
+
+    private static func react(from old: [CmuxHomeCore.Reaction], to new: [CmuxHomeCore.Reaction], id: ID, owners: [Int],
+                              into d: inout HomeDiff) {
         struct Slot: Hashable { var author: ParticipantID; var part: Int }
         let before = Dictionary(old.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         let after = Dictionary(new.map { (Slot(author: $0.author, part: $0.partIndex), $0.kind) }, uniquingKeysWith: { _, b in b })
         for slot in Set(before.keys).union(after.keys).sorted(by: { ($0.author.rawValue, $0.part) < ($1.author.rawValue, $1.part) }) {
             let a = before[slot], b = after[slot]
             guard a != b else { continue }
-            let ref = PartRef(messageId: id, partIndex: slot.part)
+            let ref = PartRef(messageId: id, partIndex: HomeMapping.projectedIndex(slot.part, owners))
             if let b { d.actions.append(.react(ref, HomeMapping.kind(b), by: slot.author.rawValue)) }
             else if let a { d.actions.append(.react(ref, HomeMapping.kind(a), by: slot.author.rawValue)) }
         }

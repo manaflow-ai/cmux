@@ -93,19 +93,10 @@ final class QuitCoordinator {
         return .terminateLater
     }
 
-    /// Interactive and menu quits ask about unsaved documents; signal,
-    /// power-off, update and scripted quits save them unattended (a scripted
-    /// quit has already refused if a save failed, `QuitUnsavedStep.refusal`).
+    /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
-        switch origin {
-        case .interactive, .explicit:
-            let scope: CmuxDialogScope = sheetWindow().map { .window($0) } ?? .app
-            return await QuitUnsavedStep.resolveInteractive(unsaved, scope: scope)
-        case .scripted, .powerOff, .signal:
-            await RecoveryDraftStore.shared.writePending()
-            _ = await QuitUnsavedStep.saveUnattended(unsaved)
-            return true
-        }
+        let window = sheetWindow()
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app)
     }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the

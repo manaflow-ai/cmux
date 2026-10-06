@@ -38,8 +38,10 @@ oracle)
   app="$build/MessagesLabAppKitNative.app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
   files=( "$src"/appkit-native/Sources/*.swift )
-  for f in Model Engine PagedSource Pager Layout Transcript Recycler RowDrawing Springs Morph Shapes Fixture Header WindowView Replay; do
-    files+=( "$src/catalyst/Sources/$f.swift" )
+  for f in Model Engine PagedSource Pager Layout Transcript Recycler RowDrawing Springs Morph Shapes Fixture Header WindowView Replay \
+           ComposeAttachments LinkPreviews LinkGuard LongText TiledBubble MediaCache; do
+    # Later upstream files (ComposeAttachments 2f22022, LinkPreviews cd2bc08, LongText and TiledBubble 2a0805d, LinkGuard and MediaCache 93cf61f).
+    [[ -f "$src/catalyst/Sources/$f.swift" ]] && files+=( "$src/catalyst/Sources/$f.swift" )
   done
   files+=( "$src"/appkit-port/Sources/Shim/{UIKitNames,RoundedRect,LayerViews}.swift "$src"/tools/diff-harness/{Harness,LiveProbes}.swift )
   xcrun swiftc -swift-version 5 -Onone -D APPKIT_NATIVE -target arm64-apple-macos26.0 -lsqlite3 \
@@ -112,6 +114,19 @@ enum LiveProbes {
     }
 }
 SWIFT
+      # FlashCheck's compose checks (2f22022 on) attach files with Host.swift's
+      # AttachmentFactory; Host.swift is not vendored, so the enum comes along.
+      if grep -q "AttachmentFactory" "$up/FlashCheck.swift" && ! grep -q "enum AttachmentFactory" "$up/FlashCheck.swift"; then
+        { printf '@testable import MessagesLabHome\nimport Foundation\nimport ImageIO\nimport UniformTypeIdentifiers\n'
+          awk '/^enum AttachmentFactory/{p=1} p{print} p&&/^}/{exit}' "$ml/appkit-native/Sources/Host.swift"; } > "$up/AttachmentFactory.swift"
+      fi
+      # FlashCheck's wake probe (2a0805d on) reads SelfTest.threadCPU; SelfTest.swift is a
+      # MessagesLab driver (not vendored), so only that function comes along.
+      if grep -q "SelfTest\.threadCPU" "$up/FlashCheck.swift" && ! grep -q "class SelfTest\|enum SelfTest" "$up/FlashCheck.swift"; then
+        { printf 'import Foundation\nimport Darwin\nenum SelfTest {\n'
+          awk '/static func threadCPU/{p=1} p{print} p&&/^    }$/{exit}' "$ml/appkit-native/Sources/SelfTest.swift"
+          printf '}\n'; } > "$up/SelfTestCPU.swift"
+      fi
       cp "$pkg/Harness/HomeCoverageCheck.swift" "$up/HomeCoverageCheck.swift"
     fi
     (cd "$pkg" && MESSAGESLAB_FIXTURES="$out/fixtures" MESSAGESLAB_HARNESS_OUT="$out/vendored" swift test --filter UpstreamHarnessTests)

@@ -1,4 +1,4 @@
-# MessagesLab commit 69f4256 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
+# MessagesLab commit 48db8a7 (appkit-native variant). upstream path<TAB>vendored path (relative to this package). Patches/<vendored file name>.patch holds each blocker edit. A third column pins that file to its own commit (partial roll-ins).
 catalyst/Sources/Model.swift	Sources/MessagesLabHome/Vendor/catalyst/Model.swift
 catalyst/Sources/Engine.swift	Sources/MessagesLabHome/Vendor/catalyst/Engine.swift
 catalyst/Sources/Layout.swift	Sources/MessagesLabHome/Vendor/catalyst/Layout.swift
@@ -12,6 +12,12 @@ catalyst/Sources/Fixture.swift	Sources/MessagesLabHome/Vendor/catalyst/Fixture.s
 catalyst/Sources/Header.swift	Sources/MessagesLabHome/Vendor/catalyst/Header.swift
 catalyst/Sources/WindowView.swift	Sources/MessagesLabHome/Vendor/catalyst/WindowView.swift
 catalyst/Sources/Replay.swift	Sources/MessagesLabHome/Vendor/catalyst/Replay.swift
+catalyst/Sources/LinkPreviews.swift	Sources/MessagesLabHome/Vendor/catalyst/LinkPreviews.swift
+catalyst/Sources/ComposeAttachments.swift	Sources/MessagesLabHome/Vendor/catalyst/ComposeAttachments.swift
+catalyst/Sources/LinkGuard.swift	Sources/MessagesLabHome/Vendor/catalyst/LinkGuard.swift
+catalyst/Sources/LongText.swift	Sources/MessagesLabHome/Vendor/catalyst/LongText.swift
+catalyst/Sources/TiledBubble.swift	Sources/MessagesLabHome/Vendor/catalyst/TiledBubble.swift
+catalyst/Sources/MediaCache.swift	Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
 appkit-port/Sources/Shim/UIKitNames.swift	Sources/MessagesLabHome/Vendor/appkit-port/UIKitNames.swift
 appkit-port/Sources/Shim/RoundedRect.swift	Sources/MessagesLabHome/Vendor/appkit-port/RoundedRect.swift
 appkit-port/Sources/Shim/LayerViews.swift	Sources/MessagesLabHome/Vendor/appkit-port/LayerViews.swift

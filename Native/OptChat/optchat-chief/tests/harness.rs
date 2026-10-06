@@ -543,7 +543,7 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let id = optchat_chief::paths::home_id(&home);
     let key = format!("optchat-{id}-turn");
     let codex = turn_preset(&paths, &home, "codex", Family::Codex, true, "SYS").unwrap();
-    assert_eq!(codex.name, format!("optchat-chief-{id}"));
+    assert_eq!(codex.name, format!("optchat-chief-codex-{id}"));
     assert_eq!(codex.env["CODEX_PROMPT_CACHE_KEY"], key);
     assert!(
         codex.args.is_empty(),
@@ -558,8 +558,40 @@ fn a_codex_turn_preset_carries_the_chiefs_turn_cache_key() {
     let claude = turn_preset(&paths, &home, "claude-sr", Family::Claude, false, "SYS").unwrap();
     assert_eq!(claude.system_prompt.as_deref(), Some("SYS"));
     assert!(!claude.env.contains_key("CODEX_PROMPT_CACHE_KEY"));
+    // claude-sr: one sticky subrouter account per Chief (subrouter PR 511),
+    // so a turn reads the prompt cache the previous turn wrote.
+    assert_eq!(
+        claude.env.get("SUBROUTER_SESSION_KEY").map(String::as_str),
+        Some(format!("optchat-{id}-turn").as_str())
+    );
     assert_eq!(
         turn_preset(&paths, &home, "pi", Family::Other, false, "SYS"),
         None
     );
+}
+
+/// Taelin: "opus 5.5 medium is the one I use, it scores better". Turns run
+/// at medium effort on both engines unless `OPTCHAT_CHIEF_EFFORT` names
+/// another; on acpmux a harness of another family keeps its own default
+/// (its effort names are not known).
+#[test]
+fn turns_run_at_medium_effort_on_both_engines() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::effort::{native_effort, turn_effort};
+    assert_eq!(turn_effort(None, Family::Claude).as_deref(), Some("medium"));
+    assert_eq!(turn_effort(None, Family::Codex).as_deref(), Some("medium"));
+    assert_eq!(turn_effort(None, Family::Other), None);
+    assert_eq!(
+        turn_effort(Some("high".into()), Family::Other).as_deref(),
+        Some("high")
+    );
+    assert_eq!(native_effort(None), "medium");
+    assert_eq!(native_effort(Some("high".into())), "high");
+    // The turn session gets the setting's effort.
+    let mut h = harness_with(settings);
+    h.connect();
+    h.say("user_local", "hello");
+    h.settle();
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.specs[0].effort.as_deref(), Some("medium"));
 }

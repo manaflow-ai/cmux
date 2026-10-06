@@ -174,7 +174,7 @@ impl ProviderEngine {
                 }
                 open.insert("engine".into(), Value::String(self.engine.clone()));
                 announce();
-                let opened = self.provider.call(method, &Value::Object(open))?;
+                let opened = self.provider.open_tab(self.subscription, &Value::Object(open))?;
                 if let Some(target) = opened.get("targetId").and_then(Value::as_str) {
                     self.created_tabs().insert(target.to_owned());
                     self.provider.opened(self.subscription, target);
