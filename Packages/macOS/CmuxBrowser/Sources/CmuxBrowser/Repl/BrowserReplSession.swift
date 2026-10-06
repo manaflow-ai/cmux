@@ -1840,8 +1840,9 @@ public final class BrowserReplSession: @unchecked Sendable {
             if op == "load", let path = args["path"] as? String {
                 // The file, under any name, never loads in a tab
                 // (BrowserReplSecretSources): a tab would show its values
-                // as pixels no mask covers. Protected once opened, before
-                // its values are known to be readable.
+                // as pixels no mask covers. Protected in the same hold of
+                // the file navigation lock as the open, before its values
+                // are known to be readable.
                 let opened: (BrowserReplFileIdentity) -> Void = { BrowserReplSecretSources.shared.protect($0) }
                 switch self.fileSystem.perform("readFile", arguments: ["path": path], copyContents: nil, opened: opened) {
                 case .failure(let error):

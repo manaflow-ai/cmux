@@ -401,16 +401,17 @@ final class BrowserReplSecretSources: @unchecked Sendable {
     private let lock = NSLock()
     private var identities: Set<BrowserReplFileIdentity> = []
 
-    /// Protects `identity` under ``BrowserReplFileSandbox/pathChangeLock``,
-    /// which a file navigation holds from its check until its load started
-    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``), so the
-    /// protection lands before a navigation's check or after its load
-    /// began, never between. `secrets.load` calls it once the file is open
-    /// and before any of it is read. The caller must not hold that lock.
+    /// Protects `identity`. The caller holds
+    /// ``BrowserReplFileSandbox/pathChangeLock``, which a file navigation
+    /// holds from its check until its load started
+    /// (``BrowserReplFileSandbox/withPinnedFileAccess(_:roots:_:)``), and has
+    /// held it since it opened the file: `secrets.load`'s read tells it
+    /// the identity in the same hold as the open
+    /// (``BrowserReplFileSystem``'s `readFile` with `opened`), so a
+    /// navigation runs wholly before the open or after the protection,
+    /// never between them.
     func protect(_ identity: BrowserReplFileIdentity) {
-        BrowserReplFileSandbox.pathChangeLock.withLock {
-            _ = lock.withLock { identities.insert(identity) }
-        }
+        _ = lock.withLock { identities.insert(identity) }
     }
 
     /// Whether the file at `path` (links followed) is one `secrets.load` read.

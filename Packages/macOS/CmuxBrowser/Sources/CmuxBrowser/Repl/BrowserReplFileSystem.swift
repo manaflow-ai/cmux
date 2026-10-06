@@ -129,7 +129,9 @@ public struct BrowserReplFileSystem: Sendable {
     ///   (`ERR_FS_FILE_TOO_LARGE`); an error it throws fails the copy and
     ///   leaves no file.
     /// - Parameter opened: Told the identity of the file `readFile` opened
-    ///   (`secrets.load` protects that file from the browser).
+    ///   (`secrets.load` protects that file from the browser), in the same
+    ///   hold of ``BrowserReplFileSandbox/pathChangeLock`` as the open; it
+    ///   must not take that lock.
     func perform(
         _ operation: String,
         arguments: [String: Any],
@@ -183,13 +185,8 @@ public struct BrowserReplFileSystem: Sendable {
             return (try? location.status()) != nil
         case "readFile":
             let display = try raw("path")
-            let (file, size) = try openFile(try locate(.read), display: display)
+            let (file, size) = try openFile(try locate(.read), display: display, opened: opened)
             guard size <= Self.maxReadFileBytes else { throw Self.fileTooLarge(size) }
-            if let opened {
-                var info = stat()
-                guard fstat(file.fd, &info) == 0 else { throw Self.posixError(errno, syscall: "fstat", display: display) }
-                opened(BrowserReplFileIdentity(info))
-            }
             do {
                 return try readAll(file, display: display).browserReplBase64EncodedString(isCancelled: isCancelled)
             } catch is CancellationError {
@@ -436,8 +433,8 @@ public struct BrowserReplFileSystem: Sendable {
 
         /// Runs `sink` on `directory`'s descriptor while it is inside its
         /// root (``BrowserReplFileSystem/withinRoot(_:root:syscall:display:_:)``).
-        func withinRoot<T>(syscall: String, display: String, _ sink: (Int32) throws -> T) throws -> T {
-            try BrowserReplFileSystem.withinRoot(directory, root: root, syscall: syscall, display: display, sink)
+        func withinRoot<T>(syscall: String, display: String, alwaysLocked: Bool = false, _ sink: (Int32) throws -> T) throws -> T {
+            try BrowserReplFileSystem.withinRoot(directory, root: root, syscall: syscall, display: display, alwaysLocked: alwaysLocked, sink)
         }
     }
 
@@ -446,16 +443,20 @@ public struct BrowserReplFileSystem: Sendable {
     /// once `directory` is still `root` or below it, or throws `EACCES`
     /// without running it: another session that shares the tree moved the
     /// directory out of the root since the walk opened it. With no root
-    /// (a file the sandbox lets the session read by its path) `sink` runs
-    /// as it is. The caller must not hold the lock.
+    /// (a file the sandbox lets the session read by its path), or for the
+    /// root itself, `sink` runs as it is, under the lock only when
+    /// `alwaysLocked`. The caller must not hold the lock.
     static func withinRoot<T>(
         _ directory: BrowserReplDescriptor,
         root: BrowserReplDescriptor?,
         syscall: String,
         display: String,
+        alwaysLocked: Bool = false,
         _ sink: (Int32) throws -> T
     ) throws -> T {
-        guard let root, root !== directory else { return try sink(directory.fd) }
+        guard let root, root !== directory else {
+            return alwaysLocked ? try BrowserReplFileSandbox.pathChangeLock.withLock { try sink(directory.fd) } : try sink(directory.fd)
+        }
         return try BrowserReplFileSandbox.pathChangeLock.withLock {
             guard isInside(directory, root: root) else { throw movedOutOfRoot(syscall: syscall, display: display) }
             return try sink(directory.fd)
@@ -738,11 +739,30 @@ public struct BrowserReplFileSystem: Sendable {
     /// Opens the regular file at `location` for reading and returns its
     /// size. `O_NONBLOCK` keeps a FIFO from waiting for a writer; anything
     /// but a regular file then fails (`EISDIR` for a directory, `EINVAL`).
-    private func openFile(_ location: Location, display: String, syscall: String = "open") throws -> (BrowserReplDescriptor, Int) {
+    ///
+    /// - Parameter opened: Told the identity of the regular file opened
+    ///   (one ``maxReadFileBytes`` or smaller) in the same hold of
+    ///   ``BrowserReplFileSandbox/pathChangeLock`` as the open, also for a
+    ///   file directly in a root: a file navigation checks and starts its
+    ///   load under that lock, so it runs wholly before the open or after
+    ///   `opened` returned, never between (`secrets.load` protects the file
+    ///   there, ``BrowserReplSecretSources``). It must not take that lock.
+    private func openFile(
+        _ location: Location,
+        display: String,
+        syscall: String = "open",
+        opened: ((BrowserReplFileIdentity) -> Void)? = nil
+    ) throws -> (BrowserReplDescriptor, Int) {
         guard let name = location.name else { throw Self.isDirectoryError }
-        let (descriptor, number) = try location.withinRoot(syscall: syscall, display: display) { fd in
-            let opened = openat(fd, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | O_NOCTTY)
-            return (opened, errno)
+        let (descriptor, number) = try location.withinRoot(syscall: syscall, display: display, alwaysLocked: opened != nil) { fd in
+            let descriptor = openat(fd, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC | O_NOCTTY)
+            let number = errno
+            var info = stat()
+            if let opened, descriptor >= 0, fstat(descriptor, &info) == 0,
+               info.st_mode & S_IFMT == S_IFREG, Int(info.st_size) <= Self.maxReadFileBytes {
+                opened(BrowserReplFileIdentity(info))
+            }
+            return (descriptor, number)
         }
         guard descriptor >= 0 else {
             if number == ENXIO || number == EOPNOTSUPP { throw Self.notRegularFile(display, syscall: syscall) }
