@@ -22,6 +22,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var billingPlanRequestID = UUID()
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     /// True only after the current account's billing endpoint returned a
@@ -185,6 +186,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
 
     func signOut() async {
         await browserSignIn.signOut()
+        billingPlanRequestID = UUID()
         isProActive = false
         isProStatusKnown = false
         canManageBilling = false
@@ -194,6 +196,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// caller's deadline expires, matching the browser flow contract.
     func signOut(timeout: TimeInterval) async {
         await browserSignIn.signOut(timeout: timeout)
+        billingPlanRequestID = UUID()
         isProActive = false
         isProStatusKnown = false
         canManageBilling = false
@@ -206,6 +209,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     func refreshBillingPlan() async {
+        let requestID = UUID()
+        billingPlanRequestID = requestID
         isProStatusKnown = false
         guard coordinator.currentUser != nil else {
             isProActive = false
@@ -216,12 +221,15 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        guard let tokens = try? await coordinator.currentTokens() else { return }
+        guard let tokens = try? await coordinator.currentTokens(),
+              billingPlanRequestID == requestID,
+              !Task.isCancelled else { return }
         request.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(tokens.refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
+            guard billingPlanRequestID == requestID, !Task.isCancelled else { return }
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
                 isProActive = false
@@ -238,6 +246,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
             isProStatusKnown = true
             canManageBilling = decoded.billingManagement == .stripe
         } catch {
+            guard billingPlanRequestID == requestID, !Task.isCancelled else { return }
             isProActive = false
             canManageBilling = false
         }
