@@ -14,6 +14,18 @@
       "title" : "AllowedSignInMethods",
       "type" : "array"
     },
+    "announcements.enabled" : {
+      "default" : true,
+      "description" : "Short cards from the cmux team above Settings, shown when the pointer is over the sidebar.",
+      "title" : "Show Announcements",
+      "type" : "boolean"
+    },
+    "announcements.fetch" : {
+      "default" : true,
+      "description" : "Off: cmux never asks the network for announcements. The request carries no identifiers.",
+      "title" : "Download Announcements",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -25,6 +37,18 @@
       ],
       "title" : "When Quitting",
       "type" : "string"
+    },
+    "app.warnBeforeClosingAgentSession" : {
+      "default" : true,
+      "description" : "Ask before closing a terminal tab whose agent is still working.",
+      "title" : "Warn Before Closing a Working Agent",
+      "type" : "boolean"
+    },
+    "app.warnBeforeClosingTab" : {
+      "default" : true,
+      "description" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once.",
+      "title" : "Warn Before Closing a Running Program",
+      "type" : "boolean"
     },
     "appearance.backdropArt" : {
       "default" : "none",
@@ -133,6 +157,27 @@
       "title" : "Interface Size",
       "type" : "number"
     },
+    "appearance.metrics.columnGap" : {
+      "description" : "appearance.metrics.columnGap",
+      "maximum" : 24,
+      "minimum" : 0,
+      "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.sidebarWidth" : {
+      "description" : "appearance.metrics.sidebarWidth",
+      "maximum" : 420,
+      "minimum" : 160,
+      "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.titlebarHeight" : {
+      "description" : "appearance.metrics.titlebarHeight",
+      "maximum" : 56,
+      "minimum" : 24,
+      "title" : "Titlebar Height",
+      "type" : "number"
+    },
     "appearance.saturation" : {
       "default" : 1,
       "description" : "Increase or reduce the tint color intensity.",
@@ -229,6 +274,18 @@
       "title" : "Docked Columns Opacity",
       "type" : "number"
     },
+    "appearance.surfaces.editor.color" : {
+      "description" : "appearance.surfaces.editor.color",
+      "title" : "Code Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.editor.opacity" : {
+      "description" : "appearance.surfaces.editor.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Code Editor Opacity",
+      "type" : "number"
+    },
     "appearance.surfaces.home.color" : {
       "description" : "appearance.surfaces.home.color",
       "title" : "Home Color",
@@ -251,6 +308,18 @@
       "maximum" : 1,
       "minimum" : 0,
       "title" : "Internal Pages Opacity",
+      "type" : "number"
+    },
+    "appearance.surfaces.markdown.color" : {
+      "description" : "appearance.surfaces.markdown.color",
+      "title" : "Markdown Editor Color",
+      "type" : "string"
+    },
+    "appearance.surfaces.markdown.opacity" : {
+      "description" : "appearance.surfaces.markdown.opacity",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Markdown Editor Opacity",
       "type" : "number"
     },
     "appearance.surfaces.newTabPage.color" : {
@@ -330,6 +399,18 @@
       "title" : "Theme",
       "type" : "string"
     },
+    "browser.customSearchEngine.search" : {
+      "default" : "",
+      "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
+      "title" : "Custom Search Address",
+      "type" : "string"
+    },
+    "browser.customSearchEngine.suggest" : {
+      "default" : "",
+      "description" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text.",
+      "title" : "Custom Suggestions Address",
+      "type" : "string"
+    },
     "browser.defaultEngine" : {
       "default" : "chromium",
       "description" : "New browser tabs open in this engine.",
@@ -368,11 +449,102 @@
       "title" : "Never Hibernate",
       "type" : "array"
     },
+    "browser.links.cmdClick" : {
+      "default" : "backgroundTab",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Command-Click",
+      "type" : "string"
+    },
+    "browser.links.cmdShiftClick" : {
+      "default" : "foregroundTab",
+      "description" : "Shift-middle-click does the same.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Command-Click",
+      "type" : "string"
+    },
+    "browser.links.middleClick" : {
+      "default" : "backgroundTab",
+      "description" : "Chromium tabs use the Command-Click setting.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Middle-Click",
+      "type" : "string"
+    },
+    "browser.links.optionClick" : {
+      "default" : "download",
+      "description" : "Chromium tabs always download.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Option-Click",
+      "type" : "string"
+    },
+    "browser.links.shiftClick" : {
+      "default" : "newWindow",
+      "description" : "In Chromium tabs, Download keeps Chrome's default.",
+      "enum" : [
+        "backgroundTab",
+        "foregroundTab",
+        "newWindow",
+        "currentTab",
+        "download"
+      ],
+      "title" : "Shift-Click",
+      "type" : "string"
+    },
     "browser.newTabPage" : {
       "default" : "",
       "description" : "An address such as https://example.com. Empty opens a blank page.",
       "title" : "New Tab Page",
       "type" : "string"
+    },
+    "browser.omnibar.calculator" : {
+      "default" : true,
+      "description" : "Shows the answer to arithmetic you type. Return copies it.",
+      "title" : "Calculator Answers",
+      "type" : "boolean"
+    },
+    "browser.omnibar.inlineAutocomplete" : {
+      "default" : true,
+      "description" : "Completes a site you typed before or visit often.",
+      "title" : "Complete Addresses Inline",
+      "type" : "boolean"
+    },
+    "browser.omnibar.maxRows" : {
+      "default" : 8,
+      "description" : "browser.omnibar.maxRows",
+      "maximum" : 15,
+      "minimum" : 3,
+      "title" : "Suggestions Shown",
+      "type" : "number"
+    },
+    "browser.omnibar.remoteSuggestions" : {
+      "default" : true,
+      "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
+      "title" : "Search Suggestions",
+      "type" : "boolean"
     },
     "browser.remoteLocalhost" : {
       "default" : true,
@@ -380,10 +552,75 @@
       "title" : "Open localhost on the Workspace's Machine",
       "type" : "boolean"
     },
+    "browser.searchEngine" : {
+      "default" : "google",
+      "description" : "The address bar searches here and asks it for suggestions.",
+      "enum" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "title" : "Search Engine",
+      "type" : "string"
+    },
     "browser.showBookmarksBar" : {
       "default" : false,
       "description" : "A row of bookmarks under each browser toolbar.",
       "title" : "Show Bookmarks Bar",
+      "type" : "boolean"
+    },
+    "diff.diffIndicators" : {
+      "default" : "bars",
+      "description" : "diff.diffIndicators",
+      "enum" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "title" : "Change Markers",
+      "type" : "string"
+    },
+    "diff.expandUnchanged" : {
+      "default" : false,
+      "description" : "diff.expandUnchanged",
+      "title" : "Expand Unchanged Lines",
+      "type" : "boolean"
+    },
+    "diff.layout" : {
+      "default" : "unified",
+      "description" : "diff.layout",
+      "enum" : [
+        "split",
+        "unified"
+      ],
+      "title" : "Layout",
+      "type" : "string"
+    },
+    "diff.lineNumbers" : {
+      "default" : true,
+      "description" : "diff.lineNumbers",
+      "title" : "Line Numbers",
+      "type" : "boolean"
+    },
+    "diff.showBackgrounds" : {
+      "default" : true,
+      "description" : "diff.showBackgrounds",
+      "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.wordDiffs" : {
+      "default" : false,
+      "description" : "diff.wordDiffs",
+      "title" : "Highlight Word Changes",
+      "type" : "boolean"
+    },
+    "diff.wordWrap" : {
+      "default" : false,
+      "description" : "diff.wordWrap",
+      "title" : "Wrap Lines",
       "type" : "boolean"
     },
     "DisableAutoUpdate" : {
@@ -1028,6 +1265,12 @@
       "title" : "RestrictToManagedTeam",
       "type" : "boolean"
     },
+    "shortcuts.showModifierHoldHints" : {
+      "default" : true,
+      "description" : "Hold Command or Control for 0.30 seconds to show shortcut hints.",
+      "title" : "Show Shortcuts When Holding a Modifier",
+      "type" : "boolean"
+    },
     "sidebar.border" : {
       "default" : false,
       "description" : "A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it.",
@@ -1141,6 +1384,16 @@
       "description" : "status.runNotifyWhenVisible",
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
+    },
+    "tabs.barOrder" : {
+      "default" : "aboveToolbar",
+      "description" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.",
+      "enum" : [
+        "aboveToolbar",
+        "belowToolbar"
+      ],
+      "title" : "Tab Bar and Browser Toolbar",
+      "type" : "string"
     },
     "tabs.barPosition" : {
       "default" : "top",

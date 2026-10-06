@@ -47,13 +47,15 @@ enum AgentSessionWorkspace {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
-                let tab = services.agentTabs.openLinked(session: session, in: pane.id, of: daemon.store)
+                // A workspace store tab bound to the session (agent-session-tabs-v1),
+                // so it is saved and restored with the workspace like any tab.
+                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true)
+                let created = try await pending.value()
                 // Selected wherever the workspace is shown later, never shown now.
                 for window in services.windows.controllers {
-                    window.state.selection.select(tab, in: pane.id)
+                    window.state.selection.select(created.key, in: pane.id)
                 }
-                if let controller = services.paneController(for: pane) { controller.apply(controller.snapshot()) }
-                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
+                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
                 return nil
             } catch {
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")

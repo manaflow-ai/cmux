@@ -12,9 +12,12 @@ mod agent_hooks;
 mod apps;
 pub mod backoff;
 mod browser;
+pub mod browser_host;
 mod browser_provider;
+pub mod cloud_conversations;
 mod conversation_search;
 mod conversation_store;
+pub mod daemon_env;
 mod debug_spans;
 pub mod diagnostics;
 mod event_bus;
@@ -45,6 +48,7 @@ pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
 mod remote_relay_state;
+mod request_origin;
 pub mod resource;
 mod resource_api;
 mod resource_mutation;
@@ -118,8 +122,8 @@ pub use mux::{
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
 pub use remote_relay_state::{
-    CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
-    RevocationClock,
+    BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
+    RelayLock, RelayStateError, RevocationClock,
 };
 pub use resource_api::{ResourceMachineRequest, ResourceMachineService};
 pub use resource_selector::{ResolvedResourcePath, ResourceSelectors, ResourceTarget};

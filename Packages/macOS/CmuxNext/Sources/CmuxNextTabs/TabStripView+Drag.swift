@@ -5,11 +5,11 @@ import QuartzCore
 extension TabStripView {
     // MARK: - Drag reorder
 
-    func beginDrag(_ press: Press) {
+    func beginDrag(_ press: TabStripPress) {
         guard let index = displayed.firstIndex(where: { $0.id == press.id }), let m = motion[press.id] else { return }
         let local = convert(press.start, to: tabsClip)
         let contentX = local.x + scroll.value
-        drag = Drag(
+        drag = TabStripDrag(
             id: press.id,
             grabOffset: contentX - m.x.value,
             originalIndex: index,

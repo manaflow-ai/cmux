@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
 
@@ -22,6 +23,7 @@ final class HomeHostView: NSView {
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
+    private var firstPage: Task<Void, Never>?
 
     init(services: AppServices, conversation: String) {
         let service = services.home
@@ -30,7 +32,6 @@ final class HomeHostView: NSView {
         sidebar = HomeChiefSidebar(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         super.init(frame: .zero)
         sidebar.isHidden = true
-        addSubview(sidebar)
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         transcript.onNamePill = { [weak self] in self?.toggleSidebar() }
         transcript.avatarText = HomeChiefSidebar.readAvatar(HomeBrainHost.muxHome(tag: services.environment.tag))
@@ -66,13 +67,35 @@ final class HomeHostView: NSView {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
-        // Paste, drop and the picker attach files through the store; the view
-        // owns its conversation's binding (refusals, Cancel Upload).
+        // The first-run rows run the same registry actions as the sidebar's
+        // New Terminal Tab and New Agent Chat, and show their shortcuts.
+        let registry = services.registry
+        transcript.onFirstRunAction = { action in
+            let id: ActionID = switch action {
+            case .openTerminal: Self.openTerminalAction
+            case .startAgent: Self.startAgentAction
+            }
+            _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
+        }
+        transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
+                                        agent: registry.shortcutDisplay(for: Self.startAgentAction),
+                                        tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
+        // The first-run panel waits for the first page, so a conversation
+        // with history never flashes it (at once when the page is cached).
+        transcript.holdsFirstRun = true
+        let binding = transcript.binding
+        // task-owner: lives as long as this view; ends when the first page is in
+        firstPage = Task { [weak self] in
+            await binding.opened()
+            self?.transcript.holdsFirstRun = false
+        }
         wantsLayer = true
         message.alignment = .center
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
+        // Above the transcript, so it slides in over it.
+        addSubview(sidebar)
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
             for await (available, online) in Observations({ (service.isAvailable, service.homeStore.isOnline) }) {
@@ -84,6 +107,11 @@ final class HomeHostView: NSView {
         }
     }
 
+    static let openTerminalAction: ActionID = "newSurface"
+    static let startAgentAction: ActionID = "palette.newAgentChat"
+    /// Ctrl-1 to 9 (a numbered family, shown as `⌃1…9`).
+    static let selectTabByNumberAction: ActionID = "selectSurfaceByNumber"
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
@@ -91,6 +119,7 @@ final class HomeHostView: NSView {
         availability?.cancel()
         engineWatch?.cancel()
         if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
+        firstPage?.cancel()
         transcript.stop()
     }
 

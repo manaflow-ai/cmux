@@ -19,7 +19,7 @@ extension NSScrollView {
         let clip = contentView
         let origin = NSPoint(x: clip.bounds.minX, y: y)
         if animated, Motion.animatesMovement {
-            Motion.animate(.move, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
+            Motion.animate(.move, in: clip, { clip.animator().setBoundsOrigin(origin) }, completion: { [weak self] in
                 self?.reflectScrolledClipView(clip)
                 moved()
             })

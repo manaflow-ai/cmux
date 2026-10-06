@@ -218,7 +218,7 @@ pub(crate) fn drain_pending_changes(
     Ok(())
 }
 
-fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
+pub(super) fn is_ephemeral(connection: &Connection, workspace_id: &str) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
             "SELECT ephemeral FROM workspace_state WHERE workspace_id = ?1",
@@ -302,6 +302,12 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                 record["engine"] = json!(engine);
             }
             None => record["url"] = json!(url),
+        }
+        // A conversation tab reopens as one, from this record.
+        if let Some(conversation) =
+            super::conversation_tabs_store::tab_conversation_wire(connection, tab_id)?
+        {
+            record["conversation"] = conversation;
         }
     }
     Ok(Some(record))

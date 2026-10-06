@@ -162,7 +162,8 @@ async fn a_valid_daemon_hello_reaches_the_remote_entry_stamped_as_the_token_inst
         lines.read_line(&mut stamp).await.unwrap();
         assert_eq!(
             stamp,
-            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"}}\n"
+            "{\"link_peer\":{\"install\":\"inst_mac\",\"user\":\"42\",\"team\":\"team_a\"},\"check\":\"link_token\"}\n",
+            "the accepted token is stamped as the stream's control-plane check"
         );
         drop(peer);
     };

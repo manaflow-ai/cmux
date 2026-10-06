@@ -1,7 +1,7 @@
 public import CoreGraphics
 
-/// A rect in one window's overlay coordinates (the shown layout root,
-/// y-down). Plain numbers, so the shared vectors read as JSON.
+/// A rect in one window's content-view coordinates, flipped (origin
+/// top-left, y down). Plain numbers, so the shared vectors read as JSON.
 public nonisolated struct AgentCursorRect: Codable, Equatable, Hashable, Sendable {
     public var x: Double
     public var y: Double
@@ -27,7 +27,8 @@ public nonisolated struct AgentCursorRect: Codable, Equatable, Hashable, Sendabl
 /// an input event arrives. A value, so the rules replay from JSON
 /// (schemas/agent-cursor-visibility/vectors.json) with no AppKit.
 ///
-/// Every rect of a window is in that window's overlay coordinates.
+/// Every rect of a window is in that window's content-view coordinates,
+/// flipped (the space of the window-level cursor host).
 public nonisolated struct AgentCursorVisibilitySnapshot: Codable, Equatable, Sendable {
     /// Where the target tab lives; nil when no tab has the target id (closed).
     public var tab: TabLocation?
@@ -56,7 +57,7 @@ public nonisolated struct AgentCursorVisibilitySnapshot: Codable, Equatable, Sen
         public var screen: String?
         public var minimized: Bool
         public var onActiveSpace: Bool
-        /// The overlay plane's bounds (the shown layout root).
+        /// The window content view's bounds (the cursor host's space).
         public var overlay: AgentCursorRect
         /// The workspace the window shows; nil while it shows none.
         public var shownWorkspace: String?

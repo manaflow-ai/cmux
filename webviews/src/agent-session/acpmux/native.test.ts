@@ -128,7 +128,7 @@ describe("postNative", () => {
     (globalThis as any).window ??= globalThis;
     expect(fields(await rejection(postNative("git.status", { cwd: "/repo" })))).toMatchObject({
       name: "NativeError",
-      message: "Native bridge is unavailable",
+      message: "The app is not connected to this pane.",
       code: "native.not_connected",
       origin: "native",
     });

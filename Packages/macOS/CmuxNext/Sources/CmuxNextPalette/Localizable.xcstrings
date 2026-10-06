@@ -4068,127 +4068,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Setting"
+            "value": "Change Settings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定を切り替え"
+            "value": "設定を変更"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل إعداد"
+            "value": "تغيير الإعدادات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prebaci postavku"
+            "value": "Promijeni postavke"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå indstilling til/fra"
+            "value": "Skift indstillinger"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Einstellung umschalten"
+            "value": "Einstellungen ändern"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar ajuste"
+            "value": "Cambiar ajustes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Activer/désactiver un réglage"
+            "value": "Modifier les réglages"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva impostazione"
+            "value": "Modifica impostazioni"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកការកំណត់"
+            "value": "ប្ដូរការកំណត់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "설정 전환"
+            "value": "설정 변경"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå innstilling av/på"
+            "value": "Endre innstillinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz ustawienie"
+            "value": "Zmień ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar Ajuste"
+            "value": "Alterar Ajustes"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить настройку"
+            "value": "Изменить настройки"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับการตั้งค่า"
+            "value": "เปลี่ยนการตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ayarı Aç/Kapat"
+            "value": "Ayarları Değiştir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути параметр"
+            "value": "Змінити налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt cài đặt"
+            "value": "Thay đổi cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换设置"
+            "value": "更改设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換設定"
+            "value": "變更設定"
           }
         }
       }
@@ -6295,127 +6295,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Settings"
+            "value": "Change Settings"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定"
+            "value": "設定を変更"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "الإعدادات"
+            "state": "needs_review",
+            "value": "تغيير الإعدادات"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Postavke"
+            "state": "needs_review",
+            "value": "Promijeni postavke"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Indstillinger"
+            "state": "needs_review",
+            "value": "Skift indstillinger"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Einstellungen"
+            "state": "needs_review",
+            "value": "Einstellungen ändern"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajustes"
+            "state": "needs_review",
+            "value": "Cambiar ajustes"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Réglages"
+            "state": "needs_review",
+            "value": "Modifier les réglages"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Impostazioni"
+            "state": "needs_review",
+            "value": "Modifica impostazioni"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការកំណត់"
+            "value": "ប្ដូរការកំណត់"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "설정"
+            "state": "needs_review",
+            "value": "설정 변경"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Innstillinger"
+            "state": "needs_review",
+            "value": "Endre innstillinger"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ustawienia"
+            "state": "needs_review",
+            "value": "Zmień ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ajustes"
+            "state": "needs_review",
+            "value": "Alterar Ajustes"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Настройки"
+            "state": "needs_review",
+            "value": "Изменить настройки"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "การตั้งค่า"
+            "state": "needs_review",
+            "value": "เปลี่ยนการตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ayarlar"
+            "state": "needs_review",
+            "value": "Ayarları Değiştir"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Налаштування"
+            "state": "needs_review",
+            "value": "Змінити налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài đặt"
+            "value": "Thay đổi cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "设置"
+            "state": "needs_review",
+            "value": "更改设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "設定"
+            "state": "needs_review",
+            "value": "變更設定"
           }
         }
       }

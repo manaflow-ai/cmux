@@ -197,17 +197,23 @@ fn home_and_conversation_results_live_daemon() {
         .expect("the home workspace is in the raw tree");
     let tab = client
         .new_conversation_tab(NewConversationTabRequest {
+            agent_session: Optional::Missing,
             cols: Optional::Missing,
-            conversation: id.clone(),
+            conversation: Optional::Value(id.clone()),
             mutation_id: Optional::Value("live-tab".into()),
             origin: Optional::Value("sdk-live".into()),
-            owner: "local".into(),
+            owner: Optional::Value("local".into()),
+            page: Optional::Missing,
             pane: Optional::Missing,
             rows: Optional::Missing,
+            transaction: Optional::Missing,
             workspace: Optional::Value(raw_home),
         })
         .unwrap();
-    assert_eq!((tab.conversation.conversation.as_str(), tab.replayed), (id.as_str(), false));
+    assert_eq!(
+        (tab.conversation.conversation.as_deref(), tab.replayed),
+        (Some(id.as_str()), false)
+    );
     let tab_id = tab.tab_resource_id.into_option().expect("a tab resource id");
 
     // The declared connection reads the canonical kind; another reads browser.

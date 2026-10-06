@@ -25,7 +25,7 @@ struct DebugWindowListTests {
         return (rep.pixelsWide, rep.pixelsHigh)
     }
 
-    @Test func aPopoverAndASheetAreListedAndSnapshotted() async throws {
+    @Test(.requiresGUISession) func aPopoverAndASheetAreListedAndSnapshotted() async throws {
         _ = NSApplication.shared
         let services = ActionBindingCoverageTests.boundServices()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-window-list-\(UUID().uuidString)")

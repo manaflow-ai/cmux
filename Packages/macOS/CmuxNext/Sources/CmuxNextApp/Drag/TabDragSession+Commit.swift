@@ -45,7 +45,7 @@ extension TabDragSession {
         switch drag.source.item {
         case .tab(let id):
             guard let (tab, _) = services.locateTab(id) else {
-                // A session-local tab (an agent pane) is not a daemon tab
+                // A session-local tab (an internal page) is not a daemon tab
                 // and cannot move; say so instead of snapping back silently.
                 if outcome != .cancel { services.registry.refuse(RefusalStrings.sessionLocalTab(id)) }
                 return settle(false)

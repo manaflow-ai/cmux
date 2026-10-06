@@ -2,11 +2,14 @@ import Foundation
 
 /// A surface with unsaved state that the quit must save or discard (R96
 /// quit hook). One participant per document: two tabs on one file share
-/// `quitParticipantID` ("file:<canonical path>"). Register it with
-/// `QuitUnsavedRegistry.shared.register(_:)`; write its recovery draft on
-/// every edit through `RecoveryDraftStore.shared`.
+/// `quitParticipantID`, `file:<host id>:<canonical path>` (host id "local"
+/// for this Mac; build it with `QuitParticipantID.file(host:path:)`).
+/// Register it with `QuitUnsavedRegistry.shared.register(_:)`, which refuses
+/// any other id; write its recovery draft on every edit through
+/// `RecoveryDraftStore.shared` with the same id.
 @MainActor
 public protocol QuitUnsavedParticipant: AnyObject {
+    /// `file:<host id>:<canonical path>`; also the recovery draft's id.
     var quitParticipantID: String { get }
     /// Shown in the quit dialog, e.g. "notes.md (api)".
     var quitTitle: String { get }

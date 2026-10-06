@@ -31,6 +31,14 @@ public enum Intent: Sendable, Hashable {
     /// `set-row-heights` (`rows-v1`): every row of `column`, in permille.
     /// A row divider release (plans/cmux-next/rows.md Z1).
     case setRowHeights(column: ColumnID, heights: [RowHeightValue])
+    /// A tab the client is creating (an agent chat tab, `new-conversation-tab`): `provisional`
+    /// shows at the end of `pane` until the daemon's tab replaces it (the intent settles) or the
+    /// creation fails. Its id and surface come from a ``ProvisionalTab``,
+    /// so neither can name a daemon tab.
+    case createTab(pane: PaneID, provisional: TabSnapshot)
+    /// `bind-conversation-tab-session`: agent chat tab `surface` shows acpmux `session` (the
+    /// compare-and-swap's new value) until the daemon's record has it or refuses it.
+    case bindAgentSession(surface: SurfaceID, session: String)
 }
 
 /// One row's height in permille (`set-row-heights` `heights[]`).

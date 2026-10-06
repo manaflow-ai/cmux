@@ -2,7 +2,8 @@ import Foundation
 
 /// The words every cmux dialog shares. Callers pass their own titles,
 /// lines and specific button names.
-public nonisolated enum CmuxDialogStrings {
+public nonisolated struct CmuxDialogStrings {
+    public nonisolated init() {}
     public static var ok: String { String(localized: "dialog.ok", defaultValue: "OK", bundle: .module) }
     public static var cancel: String { String(localized: "dialog.cancel", defaultValue: "Cancel", bundle: .module) }
     /// The line that names the web origin that asked.

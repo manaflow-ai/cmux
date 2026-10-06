@@ -33,6 +33,13 @@
   const AUTHOR_SHADOW_HOSTS = new Set(["article", "aside", "blockquote", "body", "div", "footer", "h1", "h2", "h3", "h4",
     "h5", "h6", "header", "main", "nav", "p", "section", "span"]);
   const HTML_NS = "http://www.w3.org/1999/xhtml";
+  // A Chromium isolated world has no such switch: the host walks the
+  // browser's DOM and hands each closed root to this world
+  // (adoptClosedRoot, cdp/closed_roots.rs).
+  const closedRoots = new WeakMap();
+  const adoptClosedRoot = (host, root) => {
+    if (host && root && global.ShadowRoot && root instanceof global.ShadowRoot && root.host === host) closedRoots.set(host, root);
+  };
   const shadowRootDescriptor = global.Element && Object.getOwnPropertyDescriptor(global.Element.prototype, "shadowRoot");
   if (shadowRootDescriptor && shadowRootDescriptor.get && shadowRootDescriptor.configurable) {
     const read = shadowRootDescriptor.get;
@@ -40,7 +47,7 @@
       configurable: true,
       enumerable: shadowRootDescriptor.enumerable,
       get() {
-        const root = read.call(this);
+        const root = read.call(this) || closedRoots.get(this);
         if (!root) return null;
         const name = this.localName || "";
         return this.namespaceURI === HTML_NS && (name.includes("-") || AUTHOR_SHADOW_HOSTS.has(name)) ? root : null;
@@ -1237,6 +1244,7 @@
     annotate,
     clearAnnotations,
     injected,
+    adoptClosedRoot,
   };
   Object.defineProperty(global, KEY, { value: agent, enumerable: false, configurable: true, writable: false });
   // The Swift driver resolves handles for input.setFiles through this name.

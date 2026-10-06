@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextAgentCursor
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -17,12 +16,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var layoutView: LayoutRootView!
     /// Layout plus the bottom screen bar; what the window shows.
     private(set) var contentView: WorkspaceContentView!
+    private(set) var emptyView: EmptyWorkspaceView?
     private(set) var screenBar: ScreenBarController!
-    /// Agent cursors drawn in this content's overlay plane
-    /// (plans/cmux-next/agent-cursor.md). Drivers publish through
-    /// `agentCursor.publisher`; placement comes from the visibility source.
-    /// With no input events it draws nothing.
-    private(set) var agentCursor: AgentCursorStack?
     /// The workspace theme: only this content area, under the window's
     /// room theme.
     let themeScope = ThemeScope(level: .workspace)
@@ -33,6 +28,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
+    private var settlingObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -66,22 +62,32 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         layoutView = LayoutRootView(model: layoutModel, contentProvider: self)
-        if let planeLayer = layoutView.overlayPlane.layer {
-            agentCursor = AgentCursorStack(hostLayer: planeLayer, resolver: services.agentCursorVisibility.resolver(for: self))
-            agentCursor?.model.onUntrack = { [weak services] target in services?.agentCursorVisibility.untrack(target) }
-        }
-        observe()
         screenBar = ScreenBarController(content: self)
         contentView = WorkspaceContentView(layoutView: layoutView, bar: screenBar.view)
+        let fallbackCreate = emptyWorkspaceRepair.create
+        emptyWorkspaceRepair.createFirst = { [weak services, weak daemon] key in
+            guard let services, let daemon, let workspace = daemon.store.workspaces.first(where: { $0.key == key }) else { throw DaemonError.notConnected }
+            if services.agentTabs.canHost(on: daemon) {
+                return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services)
+            }
+            return try await fallbackCreate(key)
+        }
+        emptyView = EmptyWorkspaceView(
+            onNew: { [weak self] in self?.newFromEmptyState() },
+            onImportAndSync: { [weak services] in services?.onboarding.show(step: .projects) }
+        )
         themeScope.root(contentView)
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }
+        // Observation applies the first snapshot synchronously, including the empty-state view.
+        observe()
     }
 
     func teardown() {
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
+        settlingObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -103,6 +109,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         connectionObservation = Task { [weak self] in
             for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
                 self?.repairIfEmpty()
+            }
+        }
+        // A first terminal or a close that starts or ends while the
+        // workspace is empty decides whether it offers its actions.
+        let repair = emptyWorkspaceRepair
+        settlingObservation = Task { [weak self] in
+            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+                self?.updateEmptyState()
             }
         }
         // Panes with an unread notification draw the attention ring.
@@ -128,11 +142,38 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let rows = daemon.supports(DaemonCapabilities.shared.rows)
         if layoutModel.acceptsRowOps != rows { layoutModel.acceptsRowOps = rows }
         layoutModel.apply(screens: result.screens)
+        // The view mounts the panes in this turn: a workspace shown now
+        // draws its first frame with them, not one blank frame.
+        layoutView.syncWithModel()
+        updateEmptyState()
         repairIfEmpty()
         sendTopology()
     }
 
-    /// A workspace with no pane gets one terminal, focused when it lands.
+    /// A workspace with no pane shows actions; an explicit New creates the
+    /// first terminal and focuses it when the daemon reports the surface.
+    /// One that is settling (its first terminal on the way, or closing)
+    /// shows nothing: its actions would flash for a frame before the tab
+    /// strip and terminal land, or before it closes.
+    private func updateEmptyState() {
+        let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
+        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
+    }
+
+    private func newFromEmptyState() {
+        guard let key = workspace.key else {
+            services.windows.newWorkspace(in: state)
+            return
+        }
+        emptyWorkspaceRepair.createFirstTab(key) { [weak self] surface in
+            guard let self else { return }
+            focus.expect(.surface(String(surface.rawValue)))
+            applyCurrent()
+        }
+    }
+
+    /// A lost terminal gets one replacement, focused when it lands.
     private func repairIfEmpty() {
         emptyWorkspaceRepair.check(workspace) { [weak self] surface in
             guard let self else { return }
@@ -172,12 +213,20 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         let controller = PaneController(pane: model, daemon: daemon, layoutPaneID: pane, services: services, state: state)
         controller.workspace = self
         panes[pane] = controller
+        services.paneMounts.changed()
         sendTopology()
+        // Settings… asked before any window had a pane waits for the first one (R82). It opens
+        // its tab after this layout pass, never inside it.
+        if panes.count == 1, services.settingsWindow.isWaiting {
+            let settings = services.settingsWindow
+            Task { settings.windowDidShowContent() }
+        }
         return controller.view
     }
 
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
         panes.removeValue(forKey: pane)?.teardown()
+        services.paneMounts.changed()
     }
 
     func panePresenceDidChange(_ pane: LayoutPaneID, presence: PanePresence) {

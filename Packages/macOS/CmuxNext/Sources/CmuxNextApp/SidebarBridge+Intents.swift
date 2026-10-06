@@ -105,7 +105,8 @@ extension SidebarBridge {
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .activateItemAccessory(let id):
             // One click on the update badge installs the staged update (R114).
-            if model.itemInfo[id]?.accessory == .update || model.layout.item(id)?.ref == .builtIn(.settings) {
+            let isUpdate = if case .update = model.itemInfo[id]?.accessory { true } else { false }
+            if isUpdate || model.layout.item(id)?.ref == .builtIn(.settings) {
                 services.updater.installClicked()
             }
         case .layout(let op):
@@ -192,7 +193,8 @@ extension SidebarBridge {
     func resync() {
         guard let state else { return }
         model.sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id),
-                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document))
+                                       profile: state.profileID, hidesHome: Self.hidesHome(services.sidebarLayout.document),
+                                       selection: state.selection)
         model.profiles = Self.profiles(services.machines.local.store)
     }
 

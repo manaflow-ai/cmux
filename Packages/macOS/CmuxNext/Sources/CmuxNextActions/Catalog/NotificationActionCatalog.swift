@@ -6,7 +6,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "feed.show",
                 title: String(localized: "action.feed.show", defaultValue: "Show Feed", bundle: .module),
-                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command]),
+                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
                 category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
                 cliName: "feed show", mainMenu: .window
             ),

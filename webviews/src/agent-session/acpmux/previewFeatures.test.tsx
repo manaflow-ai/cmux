@@ -46,8 +46,8 @@ const { createRoot } = await import("react-dom/client");
 const { AcpmuxApp } = await import("./App");
 
 /// Preview features (Settings > Advanced > Labs, `labs.previewFeatures`, off by default): the
-/// session coverage label and the sidebar's Pull requests placeholder show only once the app turns
-/// them on, and leave again when it turns them off.
+/// session coverage label shows only once the app turns them on, and leaves again when it turns
+/// them off.
 test("preview features stay hidden until the app turns them on", async () => {
   const host = dom.window as unknown as {
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
@@ -56,10 +56,6 @@ test("preview features stay hidden until the app turns them on", async () => {
   host.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "test" }) };
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
-  const rail = () =>
-    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button")].map((button) =>
-      button.getAttribute("aria-label"),
-    );
   const coverage = () => container.querySelector(".acpmux-session-coverage");
   try {
     await act(async () => root.render(createElement(AcpmuxApp)));
@@ -79,15 +75,12 @@ test("preview features stay hidden until the app turns them on", async () => {
     );
     expect(container.querySelector(".acpmux-header")).not.toBeNull();
     expect(coverage()).toBeNull();
-    expect(rail()).not.toContain("Pull requests");
 
     await act(async () => host.cmuxAcpmuxBridge!.applyPreview?.(true));
     expect(coverage()).not.toBeNull();
-    expect(rail()).toContain("Pull requests");
 
     await act(async () => host.cmuxAcpmuxBridge!.applyPreview?.(false));
     expect(coverage()).toBeNull();
-    expect(rail()).not.toContain("Pull requests");
   } finally {
     await act(async () => root.unmount());
   }

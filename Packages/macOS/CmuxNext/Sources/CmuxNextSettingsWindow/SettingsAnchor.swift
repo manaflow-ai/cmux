@@ -1,10 +1,10 @@
 public import CmuxNextActions
 public import CmuxNextSettings
+import Foundation
 
-/// A place on a Settings page that search and deep links scroll to: a
-/// schema row, a custom card, an action button or a section header. `id` is
-/// the view's scroll id (`.id(_:)`), unique across every section, so the
-/// one-page layout can hold every anchor at once.
+/// A place in Settings that a deep link opens (`openSettings setting:`): a schema row, a custom
+/// card, an action button or a section header. The React page opens its section, and a schema
+/// row is also focused (`#/settings/<section>?focus=<key>`).
 public struct SettingsAnchor: Hashable, Sendable {
     public let section: SettingsSection
     public let id: String
@@ -14,7 +14,7 @@ public struct SettingsAnchor: Hashable, Sendable {
         self.id = id
     }
 
-    /// A schema row; its id is the cmux-next.json key (`tabs.newTabKind`).
+    /// A schema row; its id is the cmux.json key (`tabs.newTabKind`).
     public static func setting(_ descriptor: SettingDescriptor) -> SettingsAnchor {
         SettingsAnchor(section: descriptor.section, id: descriptor.id)
     }
@@ -28,25 +28,47 @@ public struct SettingsAnchor: Hashable, Sendable {
         SettingsAnchor(section: section, id: "action.\(section.rawValue).\(action.rawValue)")
     }
 
-    /// The section's header on the one page.
+    /// The section's header.
     public static func header(_ section: SettingsSection) -> SettingsAnchor {
         SettingsAnchor(section: section, id: "section.\(section.rawValue)")
     }
 
     public var isHeader: Bool { id == Self.header(section).id }
+
+    /// The anchor `key` names (the deep link `openSettings setting:`): a
+    /// cmux.json key path (`tabs.newTabKind`), a card (`theme` or
+    /// `card.theme`), a section header (`section.keyboard`), or an action
+    /// button (`importFromBrowser`, or its anchor id). Nil when Settings
+    /// shows no such thing.
+    public init?(key: String) {
+        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return nil }
+        let path = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        if let descriptor = SettingsSchema.descriptor(for: path), descriptor.isShownInCmuxNext {
+            self = .setting(descriptor)
+            return
+        }
+        if let card = SettingsCardID.allCases.first(where: { $0.anchorID == key || $0.rawValue == key }) {
+            self = .card(card)
+            return
+        }
+        for section in SettingsSection.allCases {
+            if key == SettingsAnchor.header(section).id {
+                self = .header(section)
+                return
+            }
+            for action in SettingsSchema.actions(in: section)
+            where key == action.rawValue || key == SettingsAnchor.action(action, in: section).id {
+                self = .action(action, in: section)
+                return
+            }
+        }
+        return nil
+    }
 }
 
-/// A request to scroll to an anchor. `serial` changes on every request, so
-/// opening the same row twice scrolls and highlights it again.
-public struct SettingsJump: Hashable, Sendable {
-    public let anchor: SettingsAnchor
-    public let serial: Int
-    /// Rows found by search or a deep link light up; a sidebar click on the
-    /// one page only scrolls.
-    public let highlights: Bool
-}
-
-/// The custom cards search indexes beside the schema rows.
+/// The custom parts of a section that a deep link can name beside the schema rows (the page draws
+/// them from the host lists).
 public enum SettingsCardID: String, CaseIterable, Sendable {
     case theme, terminal, accounts, rooms, browserProfiles, machines, advanced
 
@@ -60,32 +82,6 @@ public enum SettingsCardID: String, CaseIterable, Sendable {
         case .rooms, .browserProfiles: .rooms
         case .machines: .machines
         case .advanced: .advanced
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .theme: SettingsWindowStrings.themePickerTitle
-        case .terminal: SettingsWindowStrings.ghosttyConfig
-        case .accounts: SettingsSection.accounts.title
-        case .rooms: SettingsSection.rooms.title
-        case .browserProfiles: SettingsWindowStrings.browserProfilesTitle
-        case .machines: SettingsSection.machines.title
-        case .advanced: SettingsWindowStrings.settingsFile
-        }
-    }
-
-    /// Words search matches besides the title and the section's title
-    /// (English, like the schema's keywords).
-    var keywords: [String] {
-        switch self {
-        case .theme: ["theme", "themes", "colors", "colours", "color scheme", "ghostty", "space theme", "room theme", "workspace theme", "terminal theme"]
-        case .terminal: ["ghostty", "config", "font", "cursor", "keybinds", "shell integration", "shell"]
-        case .accounts: ["accounts", "sign in", "login", "provider", "coderouter", "claude", "codex"]
-        case .rooms: ["spaces", "space", "rooms", "room", "profiles"]
-        case .browserProfiles: ["browser", "profiles", "profile", "cookies", "logins", "new profile", "extensions"]
-        case .machines: ["machines", "ssh", "cloud", "remote", "devbox", "server"]
-        case .advanced: ["advanced", "cmux-next.json", "settings file", "show in finder", "reset all", "problems", "diagnostics"]
         }
     }
 }

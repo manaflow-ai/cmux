@@ -72,6 +72,16 @@ sheet behind a `Sessions` button. To reach it
 from another machine, set `websocket.listen` to a non-loopback address and put a tunnel or
 firewall in front.
 
+### Remote connections (`webRoots`, `webAskingModes`)
+
+A WebSocket connection other than the app's own pane (the dashboard, a paired or relayed
+device, a peer daemon) works only inside folders that are known projects (the cwds of local
+sessions) or listed in `webRoots`, and only in modes that ask before they act: the reviewed
+per-harness table in `src/server/remote_guard.rs` plus what `webAskingModes` adds, for example
+`"webAskingModes": {"myharness": ["ask"]}`. Both live in `config.json` and are never written over
+a WebSocket. **Warning: a mode that you add to `webAskingModes` lets paired devices start that
+mode without a per-action prompt.** See `plans/cmux-next/acp-remote-guard.md`.
+
 ## CLI
 
 Five everyday commands, three groups for the rest:
@@ -717,7 +727,10 @@ in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist t
 so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
 discovered `claude-sr` launcher is checked at daemon start (`sr claude proxy --version`) and
 dropped, with a log line, when the installed subrouter cannot run it; `claude` then has no
-fallback instead of failing over into a launcher that dies at once.
+fallback instead of failing over into a launcher that dies at once. When a subrouter server is
+known, the launcher instead becomes a copy of `claude` routed through that server, but only when
+`claude` is acpmux's own adapter: `claude-sr` never becomes an ACP adapter, and the pool never
+falls back onto one.
 
 ## Claude Code: native stdio backend
 
@@ -785,7 +798,7 @@ Harnesses found on PATH join the configured ones at every start: `claude`, `code
 }
 ```
 
-When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH.
+When no config exists, harnesses are imported from `~/.acpx/config.json` (its `agents` block) and from adapters on PATH. `claude` and `claude-sr` are reserved for acpmux's own Claude Code adapter (`claude-stdio`): when `claude` or `sr` is on PATH, an `~/.acpx` entry of that name is ignored. Only `config.json` rebinds them.
 
 - `permissionPolicy`: `ask` routes `session/request_permission` to attached clients and waits.
   `approve-all`, `approve-reads`, `approve-edits` (reads and edits auto, shell asks), and `deny-all` answer locally. Per-session override with

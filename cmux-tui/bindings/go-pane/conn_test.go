@@ -455,3 +455,33 @@ func TestPendingCallsFailOnClose(t *testing.T) {
 	}
 	<-client.Done()
 }
+
+// An event published as soon as the subscriber holds its ok must reach it:
+// the ok is the subscriber's signal that the stream is live (seen as a 5 s
+// timeout in TestSubscribeEvents under load, runs 37253130359 and 37235779249).
+func TestEventPublishedRightAfterTheSubscribeReplyIsDelivered(t *testing.T) {
+	tp := newTestProvider(t)
+	c := pair(t, tp)
+	published := make(chan error, 1)
+	afterSubscribeReply = func() {
+		published <- tp.Publish("test.tick.fired", json.RawMessage(`{"n":1}`))
+	}
+	t.Cleanup(func() { afterSubscribeReply = nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sub, err := c.Subscribe(ctx, "test.tick.fired", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := <-published; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case ev := <-sub.Events():
+		if string(ev.Data) != `{"n":1}` {
+			t.Fatalf("event %+v %s", ev, ev.Data)
+		}
+	case <-ctx.Done():
+		t.Fatal("the event published right after the subscribe reply was lost")
+	}
+}

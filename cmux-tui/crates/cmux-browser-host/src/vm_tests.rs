@@ -30,20 +30,46 @@ const MINI_RUNTIME: &str = r#"
 "#;
 
 struct FakeHost {
+    /// Cells whose fetches the VM cancelled.
+    cancelled: Mutex<Vec<u64>>,
     calls: Mutex<Vec<(String, Value)>>,
     natives: Mutex<Vec<(String, Value)>>,
 }
 
 impl VmHost for FakeHost {
     fn driver_call(&self, method: &str, params: Value) -> Result<Value, DriverError> {
-        self.calls.lock().unwrap().push((method.to_owned(), params));
+        self.calls.lock().unwrap().push((method.to_owned(), params.clone()));
         match method {
             "tab.info" => Ok(json!({"url": "https://a.test/", "title": "A"})),
             "tab.navigate" => {
                 Err(DriverError::new(crate::protocol::ErrorCode::Forbidden, "blocked by policy"))
             }
+            "net.fetch" => Ok(json!({"url": params["url"], "status": 200, "bodyBase64": "aGk="})),
+            "frame.evaluate" => Ok(serde_json::from_str(ORDERED).unwrap()),
             _ => Err(DriverError::unsupported_method(method)),
         }
+    }
+
+    fn driver_call_reply(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<crate::driver::Reply, DriverError> {
+        if method == "frame.evaluate" {
+            self.calls.lock().unwrap().push((method.to_owned(), params));
+            let raw = serde_json::value::RawValue::from_string(ORDERED.to_owned()).unwrap();
+            return Ok(crate::driver::Reply::Json(raw));
+        }
+        self.driver_call(method, params).map(crate::driver::Reply::Value)
+    }
+
+    fn cancel_fetches(&self, cell: u64) {
+        self.cancelled.lock().unwrap().push(cell);
+    }
+
+    fn mask_bytes(&self, bytes: &[u8]) -> Vec<u8> {
+        let text = String::from_utf8_lossy(bytes).replace("SECRET", "<s>");
+        text.into_bytes()
     }
 
     fn native(&self, name: &str, args: Value) -> Result<Value, String> {
@@ -56,9 +82,16 @@ impl VmHost for FakeHost {
     }
 }
 
+/// A page value in the page's key order (scenario 32's search results, with
+/// nested objects and arrays).
+const ORDERED: &str = r#"{"title":"cmux","url":"https://example.com/cmux","snippet":"s","nested":{"z":1,"a":[{"y":2,"b":3}]}}"#;
+
 fn session(memory_limit: usize) -> (VmSession, Arc<FakeHost>) {
-    let host =
-        Arc::new(FakeHost { calls: Mutex::new(Vec::new()), natives: Mutex::new(Vec::new()) });
+    let host = Arc::new(FakeHost {
+        cancelled: Mutex::new(Vec::new()),
+        calls: Mutex::new(Vec::new()),
+        natives: Mutex::new(Vec::new()),
+    });
     let config = VmConfig {
         session_id: "t".into(),
         cwd: std::env::temp_dir()
@@ -207,14 +240,54 @@ fn fs_is_sandboxed_to_the_session_root() {
     assert_eq!(lines(&out), vec![r#"["aGk=",["a.txt:file"],true,"EACCES","EACCES"]"#]);
 }
 
+/// A file the driver reported through `download.finished` is readable
+/// (driver-protocol.md, native fs contract); its neighbours and writes to it
+/// stay outside the session's files.
 #[test]
-fn fetch_answers_through_the_result_callback() {
+fn reported_downloads_are_readable_and_nothing_else_outside() {
+    let dir = std::env::temp_dir().join(format!("vm-download-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("guid-1");
+    let other = dir.join("guid-2");
+    std::fs::write(&file, "report body").unwrap();
+    std::fs::write(&other, "not reported").unwrap();
     let (vm, _) = session(0);
+    let script = format!(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         return [fs('readFile', {{path: {file:?}}}).ok || fs('readFile', {{path: {file:?}}}).error.code,\n\
+         fs('readFile', {{path: {other:?}}}).error.code,\n\
+         fs('writeFile', {{path: {file:?}, base64: ''}}).error.code];",
+        file = file.display().to_string(),
+        other = other.display().to_string(),
+    );
+    let before = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(lines(&before), vec![r#"["EACCES","EACCES","EACCES"]"#]);
+    vm.event(
+        "download.finished",
+        json!({"targetId": "T", "downloadId": "guid-1", "path": file.display().to_string()}),
+    );
+    let after = vm.eval(&script, Duration::from_secs(5));
+    assert_eq!(after.error, None, "{after:?}");
+    assert_eq!(lines(&after), vec![r#"["cmVwb3J0IGJvZHk=","EACCES","EACCES"]"#]);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "report body");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn native_fetch_is_the_gates_net_fetch() {
+    let (vm, host) = session(0);
     let out = vm.eval(
-        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][1]).code;",
+        "testNative.fetch(99, JSON.stringify({url: 'https://a.test/', targetId: 'T'})); for (let i = 0; i < 100 && !results.length; i++) await new Promise((r) => setTimeout(r, 10)); return JSON.parse(results[0][2]).status;",
         Duration::from_secs(5),
     );
-    assert_eq!(lines(&out), vec!["\"unsupported\""]);
+    assert_eq!(lines(&out), vec!["200"], "{out:?}");
+    let calls = host.calls.lock().unwrap();
+    assert!(
+        calls.iter().any(|(m, p)| m == "net.fetch"
+            && p["url"] == "https://a.test/"
+            && p["targetId"] == "T"),
+        "{calls:?}"
+    );
 }
 
 #[test]
@@ -326,4 +399,55 @@ fn secrets_load_reads_the_file_natively_and_passes_the_map() {
     let (name, args) = natives.last().unwrap();
     assert_eq!(name, "secrets");
     assert_eq!(args, &json!({"op": "load", "args": {"object": {"a.test": {"k": "v-1"}}}}));
+}
+
+#[test]
+fn files_the_vm_writes_and_reads_are_masked() {
+    let (vm, _) = session(0);
+    // "x SECRET y" and "z SECRET" in base64.
+    let out = vm.eval(
+        "const n = testNative; const fs = (op, a) => JSON.parse(n.fs(op, JSON.stringify(a)));\n\
+         fs('writeFile', {path: 'm.txt', base64: 'eCBTRUNSRVQgeQ=='});\n\
+         return [fs('readFile', {path: 'm.txt'}).ok];",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None, "{out:?}");
+    // "x <s> y" in base64: the value never reaches the file or the VM.
+    assert_eq!(lines(&out), vec![r#"["eCA8cz4geQ=="]"#]);
+}
+
+/// a9 raw_value: a script value reaches agent code in the page's key order,
+/// nested objects and arrays included (scenario 32's search results).
+#[test]
+fn script_values_keep_the_page_key_order() {
+    let (vm, _) = session(0);
+    let out = vm.eval(
+        "const r = await driver('frame.evaluate', {targetId: 'T', source: '() => 1'}); \
+         return [Object.keys(r), Object.keys(r.nested), Object.keys(r.nested.a[0])].map((k) => k.join(',')).join('|');",
+        Duration::from_secs(5),
+    );
+    assert_eq!(out.error, None);
+    assert_eq!(lines(&out), vec!["\"title,url,snippet,nested|z,a|y,b\""]);
+}
+
+/// Classic main: a cell's timeout cancels the fetches that cell started; the
+/// VM names the cell on each fetch it sends.
+#[test]
+fn a_cell_timeout_cancels_the_fetches_it_started() {
+    let (vm, host) = session(0);
+    let out = vm.eval(
+        "testNative.fetch(1, JSON.stringify({url: 'https://a.test/x'})); await new Promise(() => {});",
+        Duration::from_millis(300),
+    );
+    assert!(out.error.as_deref().is_some_and(|e| e.contains("timed out")), "{:?}", out.error);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while host.cancelled.lock().unwrap().is_empty() {
+        assert!(Instant::now() < deadline, "the cell's fetches were not cancelled");
+        std::thread::yield_now();
+    }
+    let calls = host.calls.lock().unwrap();
+    let fetch = calls.iter().find(|(m, _)| m == "net.fetch").expect("the fetch ran");
+    let cell = fetch.1["cell"].as_u64().expect("the VM names the fetch's cell");
+    assert!(cell > 0);
+    assert_eq!(*host.cancelled.lock().unwrap(), vec![cell]);
 }

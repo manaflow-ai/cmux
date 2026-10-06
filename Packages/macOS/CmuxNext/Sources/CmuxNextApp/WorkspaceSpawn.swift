@@ -22,9 +22,15 @@ struct WorkspaceSpawn: Sendable {
     /// Runs once the daemon reports the workspace and its window lists it
     /// (after the slot is applied), with the window's sidebar.
     var onListed: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+    /// A person's new workspace (sidebar +, the New tile, Cmd-N, first
+    /// launch, a new window) opens on the New Tab page; scripts and a spawn
+    /// with a `command` get a terminal. Also a terminal where the page
+    /// cannot run (a Cloud machine, a build without the agent page).
+    var opensNewTabPage = false
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
-         profile: ProfileID? = nil) {
+         profile: ProfileID? = nil, newTabPage: Bool = false) {
+        opensNewTabPage = newTabPage
         self.cwd = cwd
         self.name = name
         self.command = command
@@ -56,6 +62,7 @@ struct WorkspaceSpawn: Sendable {
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             env = object.compactMapValues { $0 as? String }
         }
+        opensNewTabPage = invocation.origin == .user && command == nil
     }
 
     /// The name of a workspace opened in `directory`: the folder's name
@@ -69,13 +76,12 @@ struct WorkspaceSpawn: Sendable {
 }
 
 extension WindowManager {
-    /// Creates a workspace with one terminal and returns its id. The
-    /// terminal gets this app's launch identity plus `CMUX_WORKSPACE_ID` and
-    /// `CMUX_SURFACE_ID` (its reserved terminal id), so `cmux` and agent
-    /// hooks inside it know where they run.
-    /// On a Cloud machine (`daemon`), the terminal gets no Mac environment
-    /// (only the placement keys) and starts in the machine's own default
-    /// directory.
+    /// Creates a workspace with one terminal, or on the New Tab page
+    /// (`opensNewTabPage`), and returns its id. The terminal gets this app's
+    /// launch identity plus `CMUX_WORKSPACE_ID` and `CMUX_SURFACE_ID` (its
+    /// reserved terminal id), so `cmux` and agent hooks inside it know where
+    /// they run. On a Cloud machine (`daemon`), it gets no Mac environment
+    /// (only the placement keys) and starts in the machine's default directory.
     /// `windowID` claims the workspace for that window before the command
     /// is sent (`claimNew`), so it lands there, or opens that window, in the
     /// step that first mirrors it; nil leaves it to reconcile (the most
@@ -116,6 +122,7 @@ extension WindowManager {
         let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
+        if let page = try await WorkspaceCreation.newTabPage(spawn, key, cwd: cwd, on: daemon, repair: repair, tabs: services.agentTabs) { return page }
         return try await WorkspaceCreation.create(key, name: spawn.name, on: connection, repair: repair) { created in
             _ = try await connection.request(CreateTerminalRequest(
                 workspace: .key(created), command: spawn.command, cwd: cwd,

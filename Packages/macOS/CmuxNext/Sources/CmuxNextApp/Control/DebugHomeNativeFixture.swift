@@ -47,8 +47,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(result == .accepted), "result": .string(result.rawValue), "via": .string(via.rawValue)])
     }
 
-    /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll,
-    /// text, dy}: drives the shown Home through its own entry points (the
+    /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
+    /// | menu | geometry, text, dy, mine}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key.
@@ -58,6 +58,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         }
         let ok: Bool
         switch params["action"]?.stringValue ?? "" {
+        case "menu":
+            let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
+            return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
+        case "geometry":
+            return .object(["ok": .bool(true), "geometry": .object(view.debugGeometry().mapValues { .number($0) })])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
@@ -67,7 +72,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "tapback": ok = view.debugTapbackNewestIncoming()
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video or scroll")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu or geometry")])
         }
         return .object(["ok": .bool(ok)])
     }

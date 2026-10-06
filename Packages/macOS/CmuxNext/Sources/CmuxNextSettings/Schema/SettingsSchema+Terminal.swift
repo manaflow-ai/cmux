@@ -1,7 +1,8 @@
-extension SettingsSchema {
+/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
+nonisolated enum TerminalSettingsSchema {
     /// `terminal.fontFamily` and `terminal.fontSize` (Ghostty overrides,
     /// `TerminalFontSetting`).
-    static var terminal: [SettingDescriptor] {
+    static var descriptors: [SettingDescriptor] {
         let font = SettingsText.keyed("settings.group.terminalFont", "Font")
         let ghostty = SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty config")
         return [

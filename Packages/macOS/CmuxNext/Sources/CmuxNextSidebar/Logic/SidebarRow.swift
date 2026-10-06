@@ -36,6 +36,8 @@ public nonisolated struct SidebarRow: Hashable, Sendable {
     public var groupColor: GroupColor?
     /// Kind of tab represented by this row, when applicable.
     public var tabKind: SidebarTabKind? = nil
+    /// A machine header standing for the only machine: titled "Projects".
+    public var titlesProjects = false
 
     public var maxY: CGFloat { y + height }
 }

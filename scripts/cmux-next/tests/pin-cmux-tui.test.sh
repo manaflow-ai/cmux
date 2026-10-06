@@ -14,6 +14,10 @@ git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=m
 git_q init "$TMP/src"
 mkdir -p "$TMP/src/cmux-tui" "$TMP/src/scripts/cmux-next"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$TMP/src/scripts/cmux-next/"
+mkdir -p "$TMP/src/scripts/ci"
+cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$TMP/src/scripts/ci/"
+cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$TMP/src/scripts/cmux-next/"
+echo reducer > "$TMP/src/scripts/cmux-next/build-layout-reducer-ffi.sh"
 echo one > "$TMP/src/cmux-tui/a"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m one
@@ -81,4 +85,14 @@ out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || stat
 printf '%s\ncloud_server_url=https://example.com/cmux-cloud\ncloud_server_sha256=%s\n' "$good" "$(printf 'c%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
 out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh cloud-server-path --pin)
 [[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-cloud ]] || { printf 'cloud-server-path --pin printed %s\n' "$out" >&2; exit 1; }
+# The browser host pin fields go together the same way, and browser-host-path
+# names the file fetch puts beside the pinned binary.
+printf '%s\nbrowser_host_sha256=%s\n' "$good" "$(printf 'd%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+status=0
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh show 2>&1) || status=$?
+[[ "$status" == 1 ]] && grep -q 'browser_host_url= and browser_host_sha256= go together' <<<"$out" \
+  || { printf 'a half browser_host pin was not refused (exit %s):\n%s\n' "$status" "$out" >&2; exit 1; }
+printf '%s\nbrowser_host_url=https://example.com/cmux-browser-host\nbrowser_host_sha256=%s\n' "$good" "$(printf 'd%.0s' {1..64})" > "$pin_dir/cmux-tui.pin"
+out=$(cd "$TMP/job" && bash scripts/cmux-next/pin-cmux-tui.sh browser-host-path --pin)
+[[ "$out" == */cmux-tui/target/hosted/$(printf 'a%.0s' {1..40})/cmux-browser-host ]] || { printf 'browser-host-path --pin printed %s\n' "$out" >&2; exit 1; }
 printf 'pin-cmux-tui tests: ok\n'

@@ -23,10 +23,12 @@ import Testing
         }
     }
 
-    @Test func aReadyUpdateIsOneCardAndTheBadge() {
+    /// Lawrence 2026-10-05 ("more minimal"): no card, only the Settings
+    /// row control labelled Restart to Update.
+    @Test func aReadyUpdateIsTheSettingsControlAndNoCard() {
         let flow = ready()
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .ready(version: "1.0.0-nightly.9"))
-        #expect(flow.showsSettingsBadge(preferences: prefs))
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.restartToUpdate)
     }
 
     @Test func oneClickInstallsWhenNothingRuns() {
@@ -60,7 +62,8 @@ import Testing
         _ = flow.handle(.blockersChanged(UpdateBlockers(busyAgents: 1)), preferences: prefs)
         _ = flow.handle(.installRequested, preferences: prefs)
         #expect(flow.handle(.later, preferences: prefs).isEmpty)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .ready(version: "1.0.0-nightly.9"))
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.showsSettingsBadge(preferences: prefs))
         #expect(flow.handle(.blockersChanged(.none), preferences: prefs).isEmpty)
     }
 
@@ -125,27 +128,24 @@ import Testing
         #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
     }
 
-    @Test func aCheckTheUserAskedForShowsTheDownloadThenTheReadyCard() {
+    @Test func aCheckTheUserAskedForShowsTheDownloadThenTheSettingsControl() {
         var flow = UpdateFlow()
         _ = flow.handle(.checkRequested, preferences: prefs)
         _ = flow.handle(.sparkle(.downloading(progress: 0.25)), preferences: prefs)
         #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .downloading(progress: 0.25))
         _ = flow.handle(.sparkle(.ready(version: "3")), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .ready(version: "3"))
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.restartToUpdate)
         #expect(!flow.userAsked)
     }
 
-    @Test func notifyModesAndQuietHoursHideTheCard() {
+    @Test func silentHidesTheSettingsControl() {
         let flow = ready()
-        let badge = UpdatePreferences(notify: .badge)
-        #expect(flow.card(preferences: badge, minuteOfDay: noon) == nil)
-        #expect(flow.showsSettingsBadge(preferences: badge))
+        #expect(flow.showsSettingsBadge(preferences: UpdatePreferences(notify: .badge)))
         let silent = UpdatePreferences(notify: .silent)
         #expect(flow.card(preferences: silent, minuteOfDay: noon) == nil)
         #expect(!flow.showsSettingsBadge(preferences: silent))
-        let night = UpdatePreferences(quietHours: UpdateQuietHours(start: 22 * 60, end: 7 * 60))
-        #expect(flow.card(preferences: night, minuteOfDay: 23 * 60) == nil)
-        #expect(flow.card(preferences: night, minuteOfDay: noon) == .ready(version: "1.0.0-nightly.9"))
+        #expect(flow.settingsBadgeTitle(preferences: silent) == nil)
     }
 
     @Test func quietHoursHideNothingTheUserAskedFor() {
@@ -198,24 +198,18 @@ import Testing
         walk(UpdateFlow(), depth: 5)
     }
 
-    /// `updates.downloadAutomatically` off: the found update is a card;
-    /// one click downloads, shows the progress, and installs once staged.
+    /// `updates.downloadAutomatically` off: the found update is the
+    /// Settings row control; one click downloads, shows the progress, and
+    /// installs once staged.
     @Test func anUpdateThatWaitsForTheClickDownloadsThenInstalls() {
         var flow = UpdateFlow()
         _ = flow.handle(.sparkle(.available(version: "5")), preferences: prefs)
-        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .available(version: "5"))
-        #expect(flow.showsSettingsBadge(preferences: prefs))
+        #expect(flow.card(preferences: prefs, minuteOfDay: noon) == nil)
+        #expect(flow.settingsBadgeTitle(preferences: prefs) == UpdaterStrings.availableNoVersion)
         #expect(flow.handle(.installRequested, preferences: prefs) == [.download])
         _ = flow.handle(.sparkle(.downloading(progress: 0.5)), preferences: prefs)
         #expect(flow.card(preferences: prefs, minuteOfDay: noon) == .downloading(progress: 0.5))
         #expect(flow.handle(.sparkle(.ready(version: "5")), preferences: prefs) == [.install])
     }
 
-    @Test func quietHoursAndNotifyModesHideAnAvailableUpdateToo() {
-        var flow = UpdateFlow()
-        _ = flow.handle(.sparkle(.available(version: "5")), preferences: prefs)
-        #expect(flow.card(preferences: UpdatePreferences(notify: .badge), minuteOfDay: noon) == nil)
-        let night = UpdatePreferences(quietHours: UpdateQuietHours(start: 0, end: 1439))
-        #expect(flow.card(preferences: night, minuteOfDay: noon) == nil)
-    }
 }

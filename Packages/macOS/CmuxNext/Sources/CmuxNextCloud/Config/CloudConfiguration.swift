@@ -30,6 +30,18 @@ public struct CloudConfiguration: Sendable, Equatable {
     public var callbackScheme: String
     public var bundleID: String?
     public var isDebugBuild: Bool
+    /// Where a Cloud machine's link socket comes from.
+    public var linkSource: LinkSource = .legacy
+
+    public enum LinkSource: Sendable, Equatable {
+        /// `/api/vm` attach endpoint and a `cmux-tui remote connect` process
+        /// (frozen, contract 2.5).
+        case legacy
+        /// The Cloud app server's `cloud.machine.connect` carrier socket
+        /// (contract 2.3). Debug builds with `CMUX_CLOUD_LINK=app` only,
+        /// until the machine list comes from the app server too.
+        case appServer
+    }
 
     /// Existing Stack token Keychain service (`<bundle id>.auth`); changing it
     /// signs every user out (inventory.md "Auth").
@@ -87,7 +99,8 @@ public struct CloudConfiguration: Sendable, Equatable {
             backend: backend, apiBaseURL: api, authWebOrigin: web, stackBaseURL: stackBase,
             stackProjectID: value("CMUX_STACK_PROJECT_ID") ?? developmentProjectID,
             stackPublishableClientKey: value("CMUX_STACK_PUBLISHABLE_CLIENT_KEY") ?? developmentClientKey,
-            isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild)
+            isProductionAuth: false, callbackScheme: scheme, bundleID: bundleID, isDebugBuild: isDebugBuild,
+            linkSource: value("CMUX_CLOUD_LINK")?.lowercased() == "app" ? .appServer : .legacy)
     }
 
     /// This process's configuration.

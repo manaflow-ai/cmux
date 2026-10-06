@@ -1647,7 +1647,7 @@ fn cleared_history_stays_cleared_after_daemon_reconnect() {
     let host_pid = records[0].1.host_pid as libc::pid_t;
     // SAFETY: the durable record identifies this harness's live terminal host.
     assert_eq!(unsafe { libc::kill(host_pid, libc::SIGSTOP) }, 0);
-    std::thread::sleep(Duration::from_millis(50));
+    wait_until_stopped(host_pid);
     let resume_host = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(250));
         // SAFETY: this resumes the same host stopped immediately above.
@@ -4094,185 +4094,6 @@ fn shutdown_daemon_with_end_terminals_leaves_no_terminal_host() {
     wait_for_no_host_records(&harness.host_root());
 }
 
-/// `shutdown-daemon` with `end_terminals` and `keep_layout` ends every host
-/// but keeps each placed terminal's tab: the next owner shows the same
-/// screens, splits, ratios and tab identities, each tab dead so a frontend
-/// can start a new shell in it. A terminal without a tab still ends
-/// outright.
-#[test]
-fn shutdown_daemon_end_terminals_keep_layout_keeps_tabs_across_restart() {
-    let mut harness = RecoveryHarness::start("shutdown-keep-layout");
-    request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 1, "cmd": "run", "argv": ["/bin/cat"], "new_workspace": true, "name": "kept",
-        }),
-    );
-    let kept_workspace = |tree: &serde_json::Value| {
-        tree["workspaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|workspace| workspace["name"] == "kept")
-            .cloned()
-            .expect("the kept workspace is missing")
-    };
-    let tree = request(&harness.socket, serde_json::json!({"id": 2, "cmd": "list-workspaces"}));
-    let pane = kept_workspace(&tree)["screens"][0]["panes"][0]["id"].as_u64().unwrap();
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 3, "cmd": "split", "pane": pane, "dir": "right"}),
-    );
-    let (detached, _) = run_cat_workspace(&harness.socket, 4, "detached");
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 5, "cmd": "set-terminal-keep", "terminal_id": detached, "keep": true}),
-    );
-    let tree = request(&harness.socket, serde_json::json!({"id": 6, "cmd": "list-workspaces"}));
-    let detached_surface = tree["workspaces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|workspace| workspace["name"] == "detached")
-        .and_then(first_tab)
-        .and_then(|tab| tab["surface"].as_u64())
-        .unwrap();
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 7, "cmd": "close-surface", "surface": detached_surface}),
-    );
-    wait_for_host_records(&harness.host_root(), 3);
-    let tree = request(&harness.socket, serde_json::json!({"id": 8, "cmd": "list-workspaces"}));
-    let before = kept_workspace(&tree);
-    // Numeric pane and split handles are per owner; compare durable ids and
-    // the split shape (direction and ratio).
-    let layout = |workspace: &serde_json::Value| {
-        workspace["screens"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|screen| {
-                let shape = serde_json::json!({
-                    "type": screen["layout"]["type"],
-                    "dir": screen["layout"]["dir"],
-                    "ratio": screen["layout"]["ratio"],
-                });
-                let tabs = screen["panes"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|pane| {
-                        (
-                            pane["resource_id"].clone(),
-                            pane["tabs"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .map(|tab| tab["tab_resource_id"].clone())
-                                .collect::<Vec<_>>(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                (screen["resource_id"].clone(), shape, tabs)
-            })
-            .collect::<Vec<_>>()
-    };
-    let expected = layout(&before);
-    assert_eq!(expected[0].2.len(), 2, "the split did not make a second pane: {before}");
-
-    let identify = request(&harness.socket, serde_json::json!({"id": 9, "cmd": "identify"}));
-    assert!(
-        identify["capabilities"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|capability| capability == "end-terminals-keep-layout-v1"),
-        "{identify}"
-    );
-    let accepted = request(
-        &harness.socket,
-        serde_json::json!({
-            "id": 10,
-            "cmd": "shutdown-daemon",
-            "pid": identify["pid"],
-            "generation": identify["generation"],
-            "end_terminals": true,
-            "keep_layout": true,
-        }),
-    );
-    assert_eq!(accepted["accepted"], true);
-    assert_eq!(accepted["ended_terminals"], 3);
-    let mut daemon = harness.child.take().unwrap();
-    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
-    while daemon.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < deadline, "daemon did not exit after shutdown");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    wait_for_no_host_records(&harness.host_root());
-
-    harness.restart();
-    let tree = request(&harness.socket, serde_json::json!({"id": 11, "cmd": "list-workspaces"}));
-    let after = kept_workspace(&tree);
-    assert_eq!(after["resource_id"], before["resource_id"]);
-    assert_eq!(layout(&after), expected, "the layout changed across the restart: {after}");
-    for screen in after["screens"].as_array().unwrap() {
-        for pane in screen["panes"].as_array().unwrap() {
-            for tab in pane["tabs"].as_array().unwrap() {
-                assert_eq!(tab["dead"], true, "a kept tab came back live: {tab}");
-                // The workspace store's keep-layout record, with the shell's
-                // directory recorded by the session host before it ended.
-                assert!(
-                    tab["relaunch"]["cwd"].is_string(),
-                    "a kept tab has no relaunch record: {tab}"
-                );
-            }
-        }
-    }
-    // A frontend restarts a kept tab by opening a new tab next to it and
-    // closing the dead one, which has no runtime surface after the restart.
-    let kept_surface = after["screens"][0]["panes"][1]["tabs"][0]["surface"].as_u64().unwrap();
-    let pane = after["screens"][0]["panes"][1]["id"].as_u64().unwrap();
-    request(&harness.socket, serde_json::json!({"id": 13, "cmd": "new-tab", "pane": pane}));
-    request(
-        &harness.socket,
-        serde_json::json!({"id": 14, "cmd": "close-surface", "surface": kept_surface}),
-    );
-    let tree = request(&harness.socket, serde_json::json!({"id": 15, "cmd": "list-workspaces"}));
-    let tabs = kept_workspace(&tree)["screens"][0]["panes"][1]["tabs"].clone();
-    assert_eq!(tabs.as_array().unwrap().len(), 1, "{tabs}");
-    assert_eq!(tabs[0]["dead"], false, "{tabs}");
-    assert!(tabs[0]["relaunch"].is_null(), "a new tab carries a relaunch record: {tabs}");
-    let resolved = request_response(
-        &harness.socket,
-        serde_json::json!({"id": 12, "cmd": "resolve-terminal", "terminal_id": detached}),
-    );
-    assert_ne!(
-        resolved["data"]["lifecycle"], "running",
-        "the unplaced terminal survived: {resolved}"
-    );
-}
-
-/// Without `end_terminals`, `keep_layout` is refused: it only describes how
-/// terminals end.
-#[test]
-fn shutdown_daemon_keep_layout_requires_end_terminals() {
-    let harness = RecoveryHarness::start("shutdown-keep-layout-alone");
-    let identify = request(&harness.socket, serde_json::json!({"id": 1, "cmd": "identify"}));
-    let response = request_response(
-        &harness.socket,
-        serde_json::json!({
-            "id": 2,
-            "cmd": "shutdown-daemon",
-            "pid": identify["pid"],
-            "generation": identify["generation"],
-            "keep_layout": true,
-        }),
-    );
-    assert_eq!(response["ok"], false, "{response}");
-    let ping = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "ping"}));
-    assert_eq!(ping["ok"], true);
-}
-
 #[test]
 fn ctrl_d_exits_shell_and_detaches_terminal_topology() {
     let harness = RecoveryHarness::start("ctrl-d-exit");
@@ -5318,7 +5139,7 @@ fn template_terminal_host_is_adopted_by_a_fresh_identity_daemon() {
         &harness.socket,
         serde_json::json!({"id": 8, "cmd": "send", "surface": adopted_surface, "text": format!("{typed}\n")}),
     );
-    assert!(wait_for_screen(&harness.socket, adopted_surface, &typed).contains(&typed));
+    assert_screen_shows(&harness.socket, adopted_surface, &typed, &terminal_id);
     request(
         &harness.socket,
         serde_json::json!({"id": 9, "cmd": "close-terminal", "terminal_id": terminal_id, "terminal_incarnation": incarnation}),
@@ -5571,3 +5392,6 @@ use process_support::*;
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
+
+#[path = "terminal_host_recovery/keep_layout.rs"]
+mod keep_layout;

@@ -6,16 +6,27 @@
 //! crate, with no local adapters: the link names its channel
 //! ([`HostLink::channel`]), the connector closes by channel id and drains
 //! [`ConnectorEvent`]s for callers that hold no link handle (the serve loop,
-//! `cmux.terminal.connector.close`), and the link's bytes move on its
-//! carrier socket ([`cmux_terminal_iface::DataPlane::Socket`]), which the
-//! daemon dials, because the app host has no frame stream for this server.
+//! `cmux.terminal.connector.close`), and the in-process link's bytes move on
+//! its carrier socket ([`cmux_terminal_iface::DataPlane::Socket`]), which an
+//! in-process caller dials.
+//!
+//! On the wire (an app server under the app host), the data plane is
+//! frames ([`frames`]): after a user connect with the host's open token the
+//! server opens a link with the host op `cmux.terminal.connector.open`, and
+//! one [`pump::Pump`] per link moves bytes between the carrier socket
+//! ([`port`]) and the host's `data`/`credit`/`end` lines.
 //!
 //! One handle per channel: a connect while a live handle holds the target's
 //! channel is `invalid` ([`ALREADY_CONNECTED`]). A link close through the
 //! handle applies at the server's next drain, so the handle's `end` frame
 //! comes only after that drain ([`link::CloudHostLink`]).
 
+mod frame_wire;
+pub mod frames;
 mod link;
+mod open;
+pub mod port;
+pub mod pump;
 
 use crate::api::{ControlPlane, Origin, codes};
 use crate::link::ops::connect;
@@ -28,6 +39,7 @@ use cmux_terminal_iface::{
 use link::CloudHostLink;
 use std::collections::BTreeMap;
 
+pub(crate) use frame_wire::is_frame_line;
 pub(crate) use link::LinkHandle;
 
 /// The refusal of a second handle for a channel that has a live one.

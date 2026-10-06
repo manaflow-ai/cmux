@@ -26,6 +26,12 @@ final class SettingsPageProvider: PageProvider {
     /// The theme picker's write (level, spec or nil) and its spec check (R82 commit 4).
     var setTheme: (@MainActor (_ level: String, _ spec: String?) throws -> Void)?
     var acceptsTheme: (@MainActor (String) -> Bool)?
+    /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
+    /// they left it.
+    var pickFolders: (@MainActor () async -> [String]?)?
+    /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
+    /// and whether it can run now.
+    var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -75,6 +81,25 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
+        case "cmux.settings.folders.add":
+            // A folder list row's Add (picker.pinned, files.roots): the person chooses in the
+            // native cmux picker, so the write is theirs even for a user-only key.
+            let descriptor = try descriptor(params)
+            guard descriptor.kind == .folderList else { throw PageError.invalidParams("\(descriptor.id) is not a folder list") }
+            guard let pickFolders else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
+            guard let chosen = await pickFolders(), !chosen.isEmpty else { return ["added": []] }
+            let current = (descriptor.effectiveValue(in: settings.snapshot.root)?.arrayValue ?? []).compactMap(\.stringValue)
+            let added = chosen.filter { !current.contains($0) }
+            if !added.isEmpty {
+                // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
+                try await write(descriptor, .array((current + added).map(JSONValue.string)), by: .user)
+            }
+            return ["added": .array(added.map(JSONValue.string))]
+        case "cmux.settings.section.actions":
+            guard let name = params["section"]?.stringValue, let section = SettingsSection(rawValue: name) else {
+                throw PageError.invalidParams("section is required")
+            }
+            return sectionActions?(section) ?? .array([])
         case "cmux.settings.file.reveal":
             NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
             return .object([:])

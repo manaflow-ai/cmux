@@ -136,11 +136,12 @@
 }
 
 .keys-col-when {
-  width: 22%;
+  width: 20%;
 }
 
+/* Wide enough for "Ghostty default" and its translations (nxdog47 cut it). */
 .keys-col-source {
-  width: 10%;
+  width: max(12%, 9.5em);
 }
 
 .keys-col-actions {

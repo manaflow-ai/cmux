@@ -113,6 +113,10 @@ impl OpRouter for MuxRouter {
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        // An app's call has origin app (request-origin.md): gate A2 refuses
+        // the operations that need the user.
+        crate::request_origin::require_origin(op, crate::request_origin::RequestOrigin::App)
+            .map_err(|e| json!({ "code": e.code, "message": e.message, "details": e.details, "retryable": e.retryable }))?;
         let message = request(op, params, idempotency_key)?;
         let parsed = resource_router::parse_resource_request(&message)
             .map_err(|e| answer(op, json!({ "ok": false, "error": e })).unwrap_err())?;

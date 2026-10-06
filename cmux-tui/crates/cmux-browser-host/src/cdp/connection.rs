@@ -5,6 +5,7 @@
 //! for every inbound message and [`CdpConnection::close`] when the stream ends.
 
 use crate::protocol::{DriverError, ErrorCode};
+use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::io;
@@ -29,7 +30,32 @@ pub struct CdpEvent {
 /// blocking [`CdpConnection::call`] there: the reply would never be read.
 pub type CdpEventHandler = Arc<dyn Fn(CdpEvent) + Send + Sync>;
 
-type Reply = Result<Value, DriverError>;
+/// A reply's `result` as the browser sent it: parsed once, by the caller,
+/// into a `Value` or a typed struct (a script value stays text, a9 raw_value).
+type Reply = Result<Box<RawValue>, DriverError>;
+
+/// One inbound message. A reply's result is kept as text; an event's
+/// params are parsed.
+#[derive(serde::Deserialize)]
+struct Inbound<'a> {
+    id: Option<u64>,
+    #[serde(borrow)]
+    result: Option<&'a RawValue>,
+    error: Option<Value>,
+    method: Option<String>,
+    #[serde(rename = "sessionId")]
+    session_id: Option<String>,
+    params: Option<Value>,
+}
+
+fn parse<T: serde::de::DeserializeOwned>(method: &str, raw: &RawValue) -> Result<T, DriverError> {
+    serde_json::from_str(raw.get()).map_err(|e| {
+        DriverError::invalid(format!("{method}: the browser sent an unexpected reply: {e}"))
+    })
+}
+
+/// A call's waiter and the session the call went to.
+type Waiter = (Option<String>, mpsc::SyncSender<Reply>);
 
 /// A sent call waiting for its reply.
 struct Pending {
@@ -41,7 +67,9 @@ struct Pending {
 pub struct CdpConnection {
     wire: Box<dyn CdpWire>,
     next_id: AtomicU64,
-    pending: Mutex<HashMap<u64, mpsc::SyncSender<Reply>>>,
+    /// Waiters by call id, with the session each call went to (a session
+    /// that detaches never answers; its calls fail at once).
+    pending: Mutex<HashMap<u64, Waiter>>,
     handler: Mutex<Option<CdpEventHandler>>,
     on_close: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     closed: Mutex<Option<String>>,
@@ -103,8 +131,21 @@ impl CdpConnection {
         params: Value,
         timeout: Duration,
     ) -> Result<Value, DriverError> {
+        self.call_typed(session_id, method, params, timeout)
+    }
+
+    /// [`CdpConnection::call`] with the reply parsed straight into `T` (a
+    /// struct that keeps a script value as [`RawValue`] text).
+    pub fn call_typed<T: serde::de::DeserializeOwned>(
+        &self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+    ) -> Result<T, DriverError> {
         let pending = self.send(session_id, method, params)?;
-        self.wait(pending, timeout)
+        let raw = self.wait(pending, timeout)?;
+        parse(method, &raw)
     }
 
     /// Sends several methods back to back, then waits for every reply.
@@ -125,8 +166,9 @@ impl CdpConnection {
         sent.into_iter()
             .map(|pending| {
                 let pending = pending?;
+                let method = pending.method.clone();
                 let left = deadline.saturating_duration_since(std::time::Instant::now());
-                self.wait(pending, left)
+                parse(&method, &self.wait(pending, left)?)
             })
             .collect()
     }
@@ -142,7 +184,10 @@ impl CdpConnection {
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::sync_channel(1);
-        self.pending.lock().unwrap_or_else(PoisonError::into_inner).insert(id, tx);
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(id, (session_id.map(str::to_owned), tx));
         // A close that ran between the check above and the insert drained
         // `pending` before this waiter was in it.
         if let Some(reason) = self.closed_reason() {
@@ -176,7 +221,7 @@ impl CdpConnection {
         Ok(Pending { id, method: method.to_owned(), rx })
     }
 
-    fn wait(&self, pending: Pending, timeout: Duration) -> Result<Value, DriverError> {
+    fn wait(&self, pending: Pending, timeout: Duration) -> Reply {
         match pending.rx.recv_timeout(timeout) {
             Ok(reply) => reply,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -195,35 +240,59 @@ impl CdpConnection {
 
     /// Handles one inbound message from the transport.
     pub fn receive(&self, message: &str) {
-        let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
+        let Ok(inbound) = serde_json::from_str::<Inbound<'_>>(message) else {
             return;
         };
-        if let Some(id) = object.get("id").and_then(Value::as_u64) {
+        if let Some(id) = inbound.id {
             let waiter = self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
-            if let Some(waiter) = waiter {
-                let reply = match object.remove("error") {
-                    Some(error) => Err(protocol_error(&error)),
-                    None => Ok(object.remove("result").unwrap_or_else(|| json!({}))),
+            if let Some((_, waiter)) = waiter {
+                let reply = match (inbound.error, inbound.result) {
+                    (Some(error), _) => Err(protocol_error(&error)),
+                    (None, Some(result)) => Ok(result.to_owned()),
+                    (None, None) => RawValue::from_string("{}".to_owned())
+                        .map_err(|e| DriverError::invalid(e.to_string())),
                 };
                 let _ = waiter.try_send(reply);
             }
             return;
         }
-        let Some(Value::String(method)) = object.remove("method") else {
+        let Some(method) = inbound.method else {
             return;
         };
+        if method == "Target.detachedFromTarget"
+            && let Some(session) =
+                inbound.params.as_ref().and_then(|p| p.get("sessionId")).and_then(Value::as_str)
+        {
+            self.fail_session(session);
+        }
         let event = CdpEvent {
-            session_id: object
-                .get("sessionId")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .or_else(|| self.root_alias.clone()),
+            session_id: inbound.session_id.or_else(|| self.root_alias.clone()),
             method,
-            params: object.remove("params").unwrap_or_else(|| json!({})),
+            params: inbound.params.unwrap_or_else(|| json!({})),
         };
         let handler = self.handler.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(handler) = handler {
             handler(event);
+        }
+    }
+
+    /// A session detached (its target closed or crashed): Chromium never
+    /// answers the calls sent to it, so they fail now with a typed error
+    /// instead of at their deadline.
+    fn fail_session(&self, session: &str) {
+        let waiters: Vec<_> = {
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let ids: Vec<u64> = pending
+                .iter()
+                .filter(|(_, (on, _))| on.as_deref() == Some(session))
+                .map(|(id, _)| *id)
+                .collect();
+            ids.into_iter().filter_map(|id| pending.remove(&id)).collect()
+        };
+        for (_, waiter) in waiters {
+            let _ = waiter.try_send(Err(DriverError::closed(format!(
+                "Target closed: CDP session {session} detached"
+            ))));
         }
     }
 
@@ -237,7 +306,7 @@ impl CdpConnection {
         }
         let waiters: Vec<_> =
             self.pending.lock().unwrap_or_else(PoisonError::into_inner).drain().collect();
-        for (_, waiter) in waiters {
+        for (_, (_, waiter)) in waiters {
             let _ = waiter.try_send(Err(DriverError::closed(reason.to_owned())));
         }
         let hook = self.on_close.lock().unwrap_or_else(PoisonError::into_inner).take();
@@ -437,6 +506,42 @@ mod tests {
         let later =
             conn.call(None, "Browser.getVersion", json!({}), Duration::from_secs(5)).unwrap_err();
         assert_eq!(later.code, ErrorCode::Closed);
+    }
+
+    /// A detached session never answers: its pending calls fail at once
+    /// (Closed), not at their deadline; other sessions' calls stay pending.
+    #[test]
+    fn a_detached_session_fails_its_pending_calls_at_once() {
+        let (conn, wire) = connection();
+        let call_on = |session: &'static str| {
+            let conn = conn.clone();
+            thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let result = conn.call(
+                    Some(session),
+                    "Runtime.evaluate",
+                    json!({}),
+                    Duration::from_secs(20),
+                );
+                (result, started.elapsed())
+            })
+        };
+        let detached = call_on("S1");
+        wait_for_sent(&wire, 1);
+        let other = call_on("S2");
+        let sent = wait_for_sent(&wire, 2);
+        conn.receive(
+            &json!({"method": "Target.detachedFromTarget", "params": {"sessionId": "S1"}})
+                .to_string(),
+        );
+        let (result, took) = detached.join().unwrap();
+        let error = result.unwrap_err();
+        assert_eq!(error.code, ErrorCode::Closed, "{error}");
+        assert!(took < Duration::from_secs(10), "it waited for its deadline: {took:?}");
+        let other_id = sent.iter().find(|m| m["sessionId"] == "S2").unwrap()["id"].clone();
+        assert_eq!(conn.pending.lock().unwrap().len(), 1, "the other session's call is pending");
+        conn.receive(&json!({"id": other_id, "result": {"ok": true}}).to_string());
+        assert_eq!(other.join().unwrap().0.unwrap(), json!({"ok": true}));
     }
 
     #[test]

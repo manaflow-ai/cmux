@@ -208,6 +208,32 @@ public final class MessagesLabHomeView: NSView {
         return true
     }
 
+    /// Automation (DEBUG socket): the context menu at the newest text bubble
+    /// (mine or incoming), built by the right-click's path
+    /// (`ChatController.menu(at:)`): item titles, "-" for a separator,
+    /// "[palette]" for a tapback row.
+    public func debugMenuTitles(mine: Bool) -> [String]? {
+        guard let hit = controller.demo?.lastTextRow(mine: mine),
+              let menu = controller.menu(at: CGPoint(x: hit.body.midX, y: hit.body.midY)) else { return nil }
+        return menu.items.map { $0.isSeparatorItem ? "-" : $0.submenu != nil ? "[palette]" : $0.title }
+    }
+
+    /// Automation (DEBUG socket): the field's height and, for the newest
+    /// receipt row with a row under it, its top to that row's body (macOS 27
+    /// Messages: 31 pt and 20 pt).
+    public func debugGeometry() -> [String: Double] {
+        guard let demo = controller.demo else { return [:] }
+        var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
+        let rows = demo.model.rows
+        for i in stride(from: rows.count - 2, through: 0, by: -1) where !rows[i].ghost {
+            guard case .receipt = rows[i].spec.kind, let next = (i + 1..<rows.count).first(where: { !rows[$0].ghost }) else { continue }
+            out["receiptToNextBody"] = Double(demo.layout.contentTop(next) - demo.layout.contentTop(i))
+            out["receiptHeight"] = Double(rows[i].spec.height)
+            break
+        }
+        return out
+    }
+
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
     /// through the click's path (`ChatIntents.toggleVideo`).
     public func debugToggleNewestVideo() -> Bool {

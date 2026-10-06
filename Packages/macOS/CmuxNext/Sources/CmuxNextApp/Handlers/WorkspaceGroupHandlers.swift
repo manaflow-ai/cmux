@@ -43,7 +43,7 @@ enum WorkspaceGroupHandlers {
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
-            newPersonalWorkspace(in: try context.group(invocation).id, context)
+            newPersonalWorkspace(in: try context.group(invocation).id, newTabPage: invocation.origin == .user, context)
         })
         registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
         registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
@@ -99,12 +99,14 @@ enum WorkspaceGroupHandlers {
     }
 
     /// New workspace in the window's room, then into personal group `id`.
-    private static func newPersonalWorkspace(in id: WorkspaceGroupID, _ context: AppActionContext) {
+    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) {
         let windows = context.services.windows!
         let target = windows.targetWindow(preferring: windows.active?.state.id)
         let local = context.services.machines.local
         Task {
-            guard let key = try? await windows.createWorkspace(WorkspaceSpawn(), into: target), let session = local.store.registryID else { return }
+            var spawn = WorkspaceSpawn()
+            spawn.opensNewTabPage = newTabPage
+            guard let key = try? await windows.createWorkspace(spawn, into: target), let session = local.store.registryID else { return }
             let workspace = WorkspaceKey(rawValue: key), resource = local.store.personalStateID(session: session, key: workspace)
             local.send("set-personal-workspace") {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))

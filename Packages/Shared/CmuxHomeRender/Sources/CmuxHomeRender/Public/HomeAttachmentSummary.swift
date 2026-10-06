@@ -4,7 +4,8 @@ import Foundation
 /// The localized inbox preview of an attachment-only message
 /// (`InboxRow.previewAttachments`): "Photo", "2 photos", "Video",
 /// "Voice message", "File". The owner sends no text for these.
-public enum HomeAttachmentSummary {
+public struct HomeAttachmentSummary {
+    public init() {}
     public static func label(_ preview: AttachmentPreview) -> String {
         let n = max(1, preview.count)
         switch (preview.kind, n) {

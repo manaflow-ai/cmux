@@ -72,6 +72,8 @@ public nonisolated enum ActionMainMenu: String, CaseIterable, Sendable, Hashable
     case file
     case edit
     case view
+    /// Servers the user runs things on (Add Server…, the server panel).
+    case server
     case window
     case help
     /// DEV and NIGHTLY only (`DevTools`): debug-only actions.
