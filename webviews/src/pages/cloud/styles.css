@@ -569,7 +569,7 @@ select {
   display: grid;
   place-items: start center;
   padding: 48px 16px;
-  background: color-mix(in srgb, CanvasText 12%, transparent);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
   overflow-y: auto;
 }
 

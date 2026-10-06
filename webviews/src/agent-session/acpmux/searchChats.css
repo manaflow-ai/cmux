@@ -10,7 +10,7 @@
   inset: 0;
   border: 0;
   padding: 0;
-  background: color-mix(in srgb, var(--agent-shadow, #000) 60%, transparent);
+  background: var(--cmux-scrim, rgb(0 0 0 / 12%));
   cursor: default;
 }
 .acpmux-search {
