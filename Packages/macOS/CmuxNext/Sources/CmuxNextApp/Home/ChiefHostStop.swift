@@ -6,10 +6,17 @@ import Foundation
 /// keeps it running, so any build reattaches to the same Chief.
 nonisolated enum ChiefHostStop {
     /// Sends SIGTERM to the host that holds the Chief home's lock; returns
-    /// its pid, or nil when none runs (red-test stub).
+    /// its pid, or nil when none runs. The pid comes from the lock's text and
+    /// counts only while the lock is held and the process is an
+    /// `optchat-chief`, so a stale text never names another process.
     @discardableResult
     static func stop(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost) -> pid_t? {
-        nil
+        let lock = home.root.appendingPathComponent("state/host.lock")
+        guard ChiefMigration.lockHeld(at: lock),
+              let text = try? String(contentsOf: lock, encoding: .utf8),
+              let pid = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
+              pid > 1, isChiefHost(pid), kill(pid, SIGTERM) == 0 else { return nil }
+        return pid
     }
 
     /// Whether `pid` runs an `optchat-chief` executable.

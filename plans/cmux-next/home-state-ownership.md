@@ -81,7 +81,7 @@ A copy is never a writer: the owner's snapshots and events overwrite every cache
 
 | event | Chief / local conversations | memory and host | client state (draft, sends, scroll) |
 | --- | --- | --- | --- |
-| app quit, relaunch | owner keeps running (detached); history unchanged | host keeps running (it outlives the app) | restored from the app Home cache |
+| app quit, relaunch | owner keeps running (detached); history unchanged | a quit that keeps sessions keeps the host and the Chief's acpmux (any build reattaches); Quit, end sessions stops the host (`ChiefHostStop`, by the pid in its held lock), and a host whose acpmux daemon shut down stops and never starts another (the next Home open starts both) | restored from the app Home cache |
 | app crash | as quit | as quit | the cache holds what it held at the last write (a draft written per keystroke batch, a send before it is sent) |
 | daemon restart (keep-layout or not) | the build daemon's restart touches no conversation; a Chief owner restart reloads its SQLite file (nothing in memory but typing and bindings) | host reconnects, re-reads the token, catches up from `logged_seq` | unchanged; pending sends resend under the same key |
 | a new DEV tag build | opens the same Chief home: same owner, same history | the running host keeps serving; its launch exits at once | the cache is per Chief home and account, so the new tag shows the same drafts and sends |
