@@ -112,13 +112,23 @@ public nonisolated struct AcpmuxQuit {
         case agentsStillRunning([String])
     }
 
+    /// Which sessions an end keeps running. A tag's acpmux keeps the Home
+    /// Chief's; the Chief home's own acpmux, where every session is the
+    /// Chief's, keeps none, so End Sessions leaves no Chief agent behind.
+    public enum Keep: Sendable, Equatable { case chief, nothing }
+
+    /// The session ids an end with `keep` keeps, from `_acpmux/sessions`.
+    public static func keptSessions(_ result: [String: Any], keep: Keep) -> [String] {
+        keep == .chief ? AcpmuxSessionCensus.chiefSessionIDs(result) : []
+    }
+
     /// Quit Everything: ends every agent except the Home Chief's
     /// (`_acpmux/shutdown endAgents keepSessions`) and waits for the daemon
     /// to exit (kernel exit event, bounded). With no usable socket the
     /// result comes from `AcpmuxQuitProof`, never from the missing socket
     /// alone: a shutdown that already started is `shutdownInProgress`
     /// unless `waitForShutdown` (Retry) sees it end with no agent left.
-    @concurrent public static func endAgents(_ environment: AcpmuxEnvironment?, waitForShutdown: Bool = false,
+    @concurrent public static func endAgents(_ environment: AcpmuxEnvironment?, keep: Keep = .chief, waitForShutdown: Bool = false,
                                              within: Duration = .seconds(10)) async -> EndResult {
         guard let environment else { return .noDaemon }
         let socket = environment.socketPath
@@ -129,8 +139,8 @@ public nonisolated struct AcpmuxQuit {
         let chief: [String]
         do {
             status = try await AcpmuxStatusClient.status(socketPath: socket)
-            chief = AcpmuxSessionCensus.chiefSessionIDs(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value)
-            AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) }
+            chief = keptSessions(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value, keep: keep)
+            if keep == .chief { AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) } }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
             return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
