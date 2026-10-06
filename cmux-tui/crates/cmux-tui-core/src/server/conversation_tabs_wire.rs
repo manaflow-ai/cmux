@@ -297,3 +297,7 @@ mod agent_session_bind_tests;
 #[cfg(test)]
 #[path = "conversation_tab_transaction_tests.rs"]
 mod conversation_tab_transaction_tests;
+
+#[cfg(test)]
+#[path = "page_tabs_tests.rs"]
+mod page_tabs_tests;
