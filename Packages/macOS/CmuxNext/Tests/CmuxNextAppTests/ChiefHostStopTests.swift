@@ -22,28 +22,29 @@ import Testing
         return process
     }
 
-    @Test func endingSessionsStopsTheHostThatHoldsTheChiefHomesLock() throws {
+    @Test func endingSessionsStopsTheHostThatHoldsTheChiefHomesLock() async throws {
         let (home, lockFile) = try Self.home()
         let host = try Self.sleeper()
         try Data("\(host.processIdentifier)\n1\nflock\n".utf8).write(to: lockFile)
         let held = try #require(ChiefMigration.HostLock(path: lockFile), "the host holds its lock")
         defer { held.release() }
-        let stopped = ChiefHostStop.stop(home: home, isChiefHost: { $0 == host.processIdentifier })
+        let pid = host.processIdentifier
+        let stopped = await ChiefHostStop.stop(home: home, isChiefHost: { $0 == pid })
         #expect(stopped == host.processIdentifier)
         host.waitUntilExit()
         #expect(host.terminationReason == .uncaughtSignal)
     }
 
-    @Test func nothingIsStoppedWithoutAHostHoldingTheLock() throws {
+    @Test func nothingIsStoppedWithoutAHostHoldingTheLock() async throws {
         let (home, lockFile) = try Self.home()
         let other = try Self.sleeper()
         defer { other.terminate() }
         // A stale lock text naming a live process that is not the host.
         try Data("\(other.processIdentifier)\n1\nflock\n".utf8).write(to: lockFile)
-        #expect(ChiefHostStop.stop(home: home, isChiefHost: { _ in true }) == nil, "no host holds the lock")
+        #expect(await ChiefHostStop.stop(home: home, isChiefHost: { _ in true }) == nil, "no host holds the lock")
         let held = try #require(ChiefMigration.HostLock(path: lockFile))
         defer { held.release() }
-        #expect(ChiefHostStop.stop(home: home, isChiefHost: { _ in false }) == nil, "the pid is not an optchat-chief host")
+        #expect(await ChiefHostStop.stop(home: home, isChiefHost: { _ in false }) == nil, "the pid is not an optchat-chief host")
         #expect(other.isRunning)
     }
 }

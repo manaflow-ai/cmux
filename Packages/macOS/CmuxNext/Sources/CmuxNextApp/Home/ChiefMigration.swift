@@ -65,7 +65,7 @@ nonisolated enum ChiefMigration {
 
     /// Runs the move for `home`. Idempotent: a finished move is recorded in
     /// `<home>/migration.json`, and the owner skips what it already holds.
-    static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old], tool: (any ChiefMemoryTool)? = nil) async throws -> Outcome {
+    @concurrent static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old], tool: (any ChiefMemoryTool)? = nil) async throws -> Outcome {
         let record = home.root.appendingPathComponent(recordName)
         if home.isolated || FileManager.default.fileExists(atPath: record.path) { return .nothingToDo }
         let blocking = olds.filter { lockHeld(at: $0.muxHome.appendingPathComponent("state/host.lock")) }.map(\.tag)
@@ -77,7 +77,8 @@ nonisolated enum ChiefMigration {
         let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("chief-migration-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: scratch) }
-        let sources = olds.compactMap { readSource($0, tool: tool, scratch: scratch) }
+        var sources: [ChiefMigrationSource] = []
+        for old in olds { if let source = await readSource(old, tool: tool, scratch: scratch) { sources.append(source) } }
         let plan = ChiefMigrationPlan.make(sources)
         var outcome = Outcome.nothingToDo
         if !plan.items.isEmpty {
@@ -89,7 +90,7 @@ nonisolated enum ChiefMigration {
                 try writeRecord(record, olds: olds, status: "refused: \(message)")
                 return .refused(message)
             }
-            let entries = try writeMemory(home: home, plan: plan, sources: sources, conversation: conversation,
+            let entries = try await writeMemory(home: home, plan: plan, sources: sources, conversation: conversation,
                                           loggedSeq: result.conversation.lastSeq, tool: tool, scratch: scratch)
             outcome = .done(messages: plan.items.count, memoryEntries: entries)
         }
@@ -108,7 +109,7 @@ nonisolated enum ChiefMigration {
     /// takes it in once, at attach).
     static func writeMemory(home: ChiefHome, plan: ChiefMigrationPlan, sources: [ChiefMigrationSource],
                             conversation: String, loggedSeq: UInt64, tool: (any ChiefMemoryTool)? = nil,
-                            scratch: URL? = nil) throws -> Int {
+                            scratch: URL? = nil) async throws -> Int {
         let fm = FileManager.default
         let optchat = home.root.appendingPathComponent("optchat", isDirectory: true)
         let chat = optchat.appendingPathComponent("chat", isDirectory: true)
@@ -155,7 +156,7 @@ nonisolated enum ChiefMigration {
             try append(ChiefMigrationPlan.logLine(i: entries.count + offset, kind: "user", text: item.message.text, date: date), day: date, in: main)
         }
         if let tool, staging != chat, entries.count + plan.unlogged.count > 0 {
-            try tool.importText(muxHome: home.muxHome, from: staging)
+            try await tool.importText(muxHome: home.muxHome, from: staging)
         }
         try writeHostState(optchat: optchat, conversation: conversation, loggedSeq: loggedSeq)
         return entries.count + plan.unlogged.count
