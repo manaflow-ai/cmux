@@ -9,7 +9,7 @@ public import Foundation
 extension UpdaterService {
     /// The card above Settings, or nil.
     public var card: UpdateCard? {
-        flow.card(preferences: preferences, minuteOfDay: minuteOfDay)
+        flow.card
     }
 
     /// The badge on the Settings item.
@@ -119,28 +119,6 @@ extension UpdaterService {
                 self?.syncFlowPhase()
             }
         }
-        scheduleQuietBoundary()
-    }
-
-    /// Re-evaluates the card at the next quiet-hours boundary (one-shot
-    /// timer on the injected clock; none without quiet hours).
-    func scheduleQuietBoundary() {
-        quietTimer?.cancel()
-        let date = now()
-        minuteOfDay = Self.minuteOfDay(date)
-        guard let quiet = preferences.quietHours else { return }
-        let second = Calendar.current.component(.second, from: date)
-        let wait = max(1, quiet.minutesToNextBoundary(from: minuteOfDay) * 60 - second)
-        let timer = quietTimer ?? DemandTimer(owner: "updates.quietHours", clock: clock)
-        quietTimer = timer
-        timer.schedule(after: .seconds(wait)) { [weak self] in
-            await self?.scheduleQuietBoundary()
-        }
-    }
-
-    static func minuteOfDay(_ date: Date) -> Int {
-        let parts = Calendar.current.dateComponents([.hour, .minute], from: date)
-        return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
     }
 }
 

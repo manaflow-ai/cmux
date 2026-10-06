@@ -181,6 +181,7 @@
         "CmuxNextFeed",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextMallocZone",
         "CmuxNextMobile",
@@ -295,6 +296,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBridge",
       "targets": [
         "CmuxNextDaemon",
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
@@ -309,6 +311,7 @@
       "targets": [
         "CmuxNextBridge",
         "CmuxNextDaemon",
+        "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
@@ -911,7 +914,9 @@
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
-      "packages": [],
+      "packages": [
+        "CmuxAgentBrands"
+      ],
       "reads": []
     },
     "CmuxNextTabs": {
@@ -919,6 +924,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTabs",
       "targets": [
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextResources",
         "CmuxNextWakeups"
       ],
@@ -930,6 +936,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTabsTests",
       "targets": [
+        "CmuxNextIcons",
         "CmuxNextResources",
         "CmuxNextTabs",
         "CmuxNextWakeups"

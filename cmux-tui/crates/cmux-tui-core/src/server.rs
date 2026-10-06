@@ -117,6 +117,7 @@ mod browser_profiles;
 pub(crate) mod clipboard_read;
 mod close_tabs_command;
 mod cloud_conversations;
+mod conversation_attachments;
 mod conversation_tabs_wire;
 mod conversations;
 mod frontend_browser_history;
@@ -1933,6 +1934,10 @@ enum Command {
     CloudInboxUnsubscribe,
     CloudConversationSubscribe(cloud_conversations::TargetParams),
     CloudConversationUnsubscribe(cloud_conversations::TargetParams),
+    /// Local conversation attachments (`local-attachments-v1`,
+    /// server/conversation_attachments.rs).
+    ConversationAttachmentUpload(conversation_attachments::UploadParams),
+    ConversationAttachmentRead(conversation_attachments::ReadParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -7504,8 +7509,12 @@ fn handle_resource_connection_message(
                 !crate::resource_router::requires_connection_context(request.envelope.operation),
                 "connection-owned operation fell through to the transport-independent router"
             );
+            let operation = request.envelope.operation;
             match crate::resource_router::handle_parsed_resource_request(mux, request) {
-                Ok(response) => writer.send_control(&response).is_ok(),
+                Ok(response) => {
+                    activity::note_resource_input(mux, client, operation, &response);
+                    writer.send_control(&response).is_ok()
+                }
                 Err(error) => {
                     let response =
                         crate::resource_router::malformed_resource_response(message, error);
@@ -14253,6 +14262,8 @@ fn handle_command_with_cancellation(
         Command::CloudConversationUnsubscribe(params) => {
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
+        Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
+        Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::CreateProfile {
             name,
             profile,
