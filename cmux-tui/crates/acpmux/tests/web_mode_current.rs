@@ -23,20 +23,23 @@ fn dir(tag: &str) -> PathBuf {
     std::fs::canonicalize(&d).unwrap()
 }
 
-/// The fake agent under the claude family (asking: default, plan), a second
-/// claude profile and the opencode family (no row: the Web never drives it)
-/// as handoff targets; its starting mode `normal` is in no row.
+/// The fake agent under the claude family (asking: default, plan), and as
+/// handoff targets under `target` (asking: strict, from config) and the
+/// opencode family (no row: the Web never drives it); its starting mode
+/// `normal` is in no row.
 fn hub(d: &Path, store_root: Option<&Path>) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "fopencode": {"argv": ["python3", FAKE], "family": "opencode"},
-            "fclaude2": {"argv": ["python3", FAKE], "family": "claude"},
+            "ftarget": {"argv": ["python3", FAKE], "family": "target"},
             "fnomode": {"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}},
         },
         "defaultHarness": "fclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
+        // A handoff target family whose row lists the fake's `strict`.
+        "webAskingModes": {"target": ["strict"]},
     }))
     .unwrap();
     cfg.store.mode = if store_root.is_some() { StoreMode::Local } else { StoreMode::Memory };
@@ -244,14 +247,14 @@ async fn a_web_handoff_start_moves_a_new_target_to_an_asking_mode_first() {
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::new(&hub, Origin::Local);
-    let (id, target) = web_handoff(&mut web, &d, "k-new", "fclaude2").await;
+    let (id, target) = web_handoff(&mut web, &d, "k-new", "ftarget").await;
     // The target starts in the harness's own mode, which does not ask.
     let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
     assert_eq!(info["result"]["modes"]["currentModeId"], json!("normal"), "{info}");
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
     assert_eq!(r["result"]["outcome"], json!("started"), "{r}");
     let info = local.call("_acpmux/info", json!({"sessionId": target})).await;
-    assert_eq!(info["result"]["modes"]["currentModeId"], json!("default"), "{info}");
+    assert_eq!(info["result"]["modes"]["currentModeId"], json!("strict"), "{info}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -284,7 +287,7 @@ async fn a_web_handoff_start_whose_target_does_not_resolve_is_refused() {
     let hub = hub(&d, None);
     let mut web = Client::new(&hub, Origin::Web);
     let mut local = Client::new(&hub, Origin::Local);
-    let (id, target) = web_handoff(&mut web, &d, "k-gone", "fclaude2").await;
+    let (id, target) = web_handoff(&mut web, &d, "k-gone", "ftarget").await;
     let r = local.call("_acpmux/kill", json!({"sessionId": target, "purge": true})).await;
     assert!(r.get("error").is_none(), "{r}");
     let r = web.call("_acpmux/handoff_start", start(&id)).await;
