@@ -847,7 +847,7 @@ fn a_session_that_ended_starts_no_fetch() {
         for fetch in running {
             let _ = fetch.join().unwrap();
         }
-        assert_eq!(refused.code, ErrorCode::Closed, "{refused}");
+        assert_eq!(refused.code, ErrorCode::Cancelled, "{refused}");
         assert_eq!(most, 16, "a fetch reached the engine after the session ended");
     });
 }
@@ -991,7 +991,7 @@ fn a_cell_timeout_cancels_its_fetches_and_frees_their_slots() {
         gate.cancel_fetches(1);
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the cell timed out");
-            assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
             assert_eq!(
                 error.message,
                 "fetch: cancelled because the cell that started it timed out"
@@ -1023,8 +1023,8 @@ fn a_cell_timeout_fails_its_queued_fetches() {
         }
         gate.cancel_fetches(1);
         let error = queued.join().unwrap().expect_err("the cell timed out");
-        assert_eq!(error.code, ErrorCode::Timeout, "{error}");
-        assert_eq!(error.message, CELL_TIMED_OUT_TEXT);
+        assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+        assert_eq!(error.message, CELL_TIMED_OUT_TEXT, "classic's text stays");
         assert_eq!(methods(&driver).iter().filter(|m| *m == "net.fetch").count(), 16);
         driver.release_fetches();
         for fetch in running {
@@ -1065,7 +1065,8 @@ fn the_session_end_cancels_running_fetches() {
         gate.end_session();
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the session ended");
-            assert_eq!(error.code, ErrorCode::Closed, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+            assert_eq!(error.message, "fetch: the session ended");
         }
         assert_eq!(cancels(&driver), 4);
     });
