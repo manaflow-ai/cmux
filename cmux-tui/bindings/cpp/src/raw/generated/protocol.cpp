@@ -386,6 +386,278 @@ Result<Base64> Codec<Base64>::decode(const Json& value) {
     return Base64{std::move(decoded).value()};
 }
 
+Result<Json> Codec<Bookmark>::encode(const Bookmark& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_browser_profile_id = encode_value(value.browser_profile_id);
+    if (!encoded_browser_profile_id) return std::move(encoded_browser_profile_id).error();
+    object.emplace("browser_profile_id", std::move(encoded_browser_profile_id).value());
+    auto encoded_created_ms = encode_value(value.created_ms);
+    if (!encoded_created_ms) return std::move(encoded_created_ms).error();
+    object.emplace("created_ms", std::move(encoded_created_ms).value());
+    if (value.favicon_key) {
+        auto encoded = encode_value(*value.favicon_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("favicon_key", std::move(encoded).value());
+    }
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_index = encode_value(value.index);
+    if (!encoded_index) return std::move(encoded_index).error();
+    object.emplace("index", std::move(encoded_index).value());
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (value.last_used_ms) {
+        auto encoded = encode_value(*value.last_used_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("last_used_ms", std::move(encoded).value());
+    }
+    auto encoded_parent = encode_value(value.parent);
+    if (!encoded_parent) return std::move(encoded_parent).error();
+    object.emplace("parent", std::move(encoded_parent).value());
+    if (value.source_key) {
+        auto encoded = encode_value(*value.source_key);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("source_key", std::move(encoded).value());
+    }
+    auto encoded_title = encode_value(value.title);
+    if (!encoded_title) return std::move(encoded_title).error();
+    object.emplace("title", std::move(encoded_title).value());
+    if (value.url) {
+        auto encoded = encode_value(*value.url);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("url", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    Bookmark result{};
+    const Json* field_browser_profile_id = value.find("browser_profile_id");
+    if (!field_browser_profile_id) {
+        return make_error(ErrorCode::decode, "missing required field 'browser_profile_id'");
+    }
+    if (field_browser_profile_id) {
+        auto decoded = decode_value<std::string>(*field_browser_profile_id);
+        if (!decoded) return std::move(decoded).error();
+        result.browser_profile_id = std::move(decoded).value();
+    }
+    const Json* field_created_ms = value.find("created_ms");
+    if (!field_created_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'created_ms'");
+    }
+    if (field_created_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_created_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.created_ms = std::move(decoded).value();
+    }
+    const Json* field_favicon_key = value.find("favicon_key");
+    if (field_favicon_key) {
+        auto decoded = decode_value<std::string>(*field_favicon_key);
+        if (!decoded) return std::move(decoded).error();
+        result.favicon_key = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<std::string>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_index = value.find("index");
+    if (!field_index) {
+        return make_error(ErrorCode::decode, "missing required field 'index'");
+    }
+    if (field_index) {
+        auto decoded = decode_value<std::uint64_t>(*field_index);
+        if (!decoded) return std::move(decoded).error();
+        result.index = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_last_used_ms = value.find("last_used_ms");
+    if (field_last_used_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_last_used_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.last_used_ms = std::move(decoded).value();
+    }
+    const Json* field_parent = value.find("parent");
+    if (!field_parent) {
+        return make_error(ErrorCode::decode, "missing required field 'parent'");
+    }
+    if (field_parent) {
+        auto decoded = decode_value<std::string>(*field_parent);
+        if (!decoded) return std::move(decoded).error();
+        result.parent = std::move(decoded).value();
+    }
+    const Json* field_source_key = value.find("source_key");
+    if (field_source_key) {
+        auto decoded = decode_value<std::string>(*field_source_key);
+        if (!decoded) return std::move(decoded).error();
+        result.source_key = std::move(decoded).value();
+    }
+    const Json* field_title = value.find("title");
+    if (!field_title) {
+        return make_error(ErrorCode::decode, "missing required field 'title'");
+    }
+    if (field_title) {
+        auto decoded = decode_value<std::string>(*field_title);
+        if (!decoded) return std::move(decoded).error();
+        result.title = std::move(decoded).value();
+    }
+    const Json* field_url = value.find("url");
+    if (field_url) {
+        auto decoded = decode_value<std::string>(*field_url);
+        if (!decoded) return std::move(decoded).error();
+        result.url = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<BookmarkChangeResult>::encode(const BookmarkChangeResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bookmark = encode_value(value.bookmark);
+    if (!encoded_bookmark) return std::move(encoded_bookmark).error();
+    object.emplace("bookmark", std::move(encoded_bookmark).value());
+    auto encoded_changed = encode_value(value.changed);
+    if (!encoded_changed) return std::move(encoded_changed).error();
+    object.emplace("changed", std::move(encoded_changed).value());
+    auto encoded_replayed = encode_value(value.replayed);
+    if (!encoded_replayed) return std::move(encoded_replayed).error();
+    object.emplace("replayed", std::move(encoded_replayed).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<BookmarkChangeResult> Codec<BookmarkChangeResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    BookmarkChangeResult result{};
+    const Json* field_bookmark = value.find("bookmark");
+    if (!field_bookmark) {
+        return make_error(ErrorCode::decode, "missing required field 'bookmark'");
+    }
+    if (field_bookmark) {
+        auto decoded = decode_value<Bookmark>(*field_bookmark);
+        if (!decoded) return std::move(decoded).error();
+        result.bookmark = std::move(decoded).value();
+    }
+    const Json* field_changed = value.find("changed");
+    if (!field_changed) {
+        return make_error(ErrorCode::decode, "missing required field 'changed'");
+    }
+    if (field_changed) {
+        auto decoded = decode_value<bool>(*field_changed);
+        if (!decoded) return std::move(decoded).error();
+        result.changed = std::move(decoded).value();
+    }
+    const Json* field_replayed = value.find("replayed");
+    if (!field_replayed) {
+        return make_error(ErrorCode::decode, "missing required field 'replayed'");
+    }
+    if (field_replayed) {
+        auto decoded = decode_value<bool>(*field_replayed);
+        if (!decoded) return std::move(decoded).error();
+        result.replayed = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "bookmark" && key != "changed" && key != "replayed") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<BookmarkImportNode>::encode(const BookmarkImportNode& value) {
+    (void)value;
+    Json::Object object;
+    if (value.children) {
+        auto encoded = encode_value(*value.children);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("children", std::move(encoded).value());
+    }
+    if (value.created_ms) {
+        auto encoded = encode_value(*value.created_ms);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("created_ms", std::move(encoded).value());
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_title = encode_value(value.title);
+    if (!encoded_title) return std::move(encoded_title).error();
+    object.emplace("title", std::move(encoded_title).value());
+    if (value.url) {
+        auto encoded = encode_value(*value.url);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("url", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<BookmarkImportNode> Codec<BookmarkImportNode>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    BookmarkImportNode result{};
+    const Json* field_children = value.find("children");
+    if (field_children) {
+        auto decoded = decode_value<std::vector<std::shared_ptr<BookmarkImportNode>>>(*field_children);
+        if (!decoded) return std::move(decoded).error();
+        result.children = std::move(decoded).value();
+    }
+    const Json* field_created_ms = value.find("created_ms");
+    if (field_created_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_created_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.created_ms = std::move(decoded).value();
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_title = value.find("title");
+    if (!field_title) {
+        return make_error(ErrorCode::decode, "missing required field 'title'");
+    }
+    if (field_title) {
+        auto decoded = decode_value<std::string>(*field_title);
+        if (!decoded) return std::move(decoded).error();
+        result.title = std::move(decoded).value();
+    }
+    const Json* field_url = value.find("url");
+    if (field_url) {
+        auto decoded = decode_value<std::string>(*field_url);
+        if (!decoded) return std::move(decoded).error();
+        result.url = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<BrowserFrame>::encode(const BrowserFrame& value) {
     (void)value;
     Json::Object object;
@@ -1995,6 +2267,11 @@ Result<Json> Codec<ConversationTabRecord>::encode(const ConversationTabRecord& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("owner", std::move(encoded).value());
     }
+    if (value.page) {
+        auto encoded = encode_value(*value.page);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -2019,6 +2296,12 @@ Result<ConversationTabRecord> Codec<ConversationTabRecord>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_owner);
         if (!decoded) return std::move(decoded).error();
         result.owner = std::move(decoded).value();
+    }
+    const Json* field_page = value.find("page");
+    if (field_page) {
+        auto decoded = decode_value<std::string>(*field_page);
+        if (!decoded) return std::move(decoded).error();
+        result.page = std::move(decoded).value();
     }
     return result;
 }
@@ -6122,6 +6405,214 @@ Result<RunResult> Codec<RunResult>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<SavedTabGroupMember>::encode(const SavedTabGroupMember& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.cwd.is_absent()) {
+        auto encoded = encode_value(value.cwd);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("cwd", std::move(encoded).value());
+    }
+    if (!value.engine.is_absent()) {
+        auto encoded = encode_value(value.engine);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("engine", std::move(encoded).value());
+    }
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    if (!value.profile_id.is_absent()) {
+        auto encoded = encode_value(value.profile_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("profile_id", std::move(encoded).value());
+    }
+    if (!value.terminal_id.is_absent()) {
+        auto encoded = encode_value(value.terminal_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_id", std::move(encoded).value());
+    }
+    if (!value.title.is_absent()) {
+        auto encoded = encode_value(value.title);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("title", std::move(encoded).value());
+    }
+    if (value.url) {
+        auto encoded = encode_value(*value.url);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("url", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<SavedTabGroupMember> Codec<SavedTabGroupMember>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SavedTabGroupMember result{};
+    const Json* field_cwd = value.find("cwd");
+    if (field_cwd) {
+        if (field_cwd->is_null()) {
+            result.cwd = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_cwd);
+            if (!decoded) return std::move(decoded).error();
+            result.cwd = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_engine = value.find("engine");
+    if (field_engine) {
+        if (field_engine->is_null()) {
+            result.engine = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_engine);
+            if (!decoded) return std::move(decoded).error();
+            result.engine = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<std::string>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_profile_id = value.find("profile_id");
+    if (field_profile_id) {
+        if (field_profile_id->is_null()) {
+            result.profile_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_profile_id);
+            if (!decoded) return std::move(decoded).error();
+            result.profile_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (field_terminal_id) {
+        if (field_terminal_id->is_null()) {
+            result.terminal_id = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_id);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_title = value.find("title");
+    if (field_title) {
+        if (field_title->is_null()) {
+            result.title = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_title);
+            if (!decoded) return std::move(decoded).error();
+            result.title = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_url = value.find("url");
+    if (field_url) {
+        auto decoded = decode_value<std::string>(*field_url);
+        if (!decoded) return std::move(decoded).error();
+        result.url = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "cwd" && key != "engine" && key != "kind" && key != "profile_id" && key != "terminal_id" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<SavedTabGroupRecord>::encode(const SavedTabGroupRecord& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_color = encode_value(value.color);
+    if (!encoded_color) return std::move(encoded_color).error();
+    object.emplace("color", std::move(encoded_color).value());
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_members = encode_value(value.members);
+    if (!encoded_members) return std::move(encoded_members).error();
+    object.emplace("members", std::move(encoded_members).value());
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    auto encoded_room = encode_value(value.room);
+    if (!encoded_room) return std::move(encoded_room).error();
+    object.emplace("room", std::move(encoded_room).value());
+    auto encoded_updated_at_ms = encode_value(value.updated_at_ms);
+    if (!encoded_updated_at_ms) return std::move(encoded_updated_at_ms).error();
+    object.emplace("updated_at_ms", std::move(encoded_updated_at_ms).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<SavedTabGroupRecord> Codec<SavedTabGroupRecord>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SavedTabGroupRecord result{};
+    const Json* field_color = value.find("color");
+    if (!field_color) {
+        return make_error(ErrorCode::decode, "missing required field 'color'");
+    }
+    if (field_color) {
+        auto decoded = decode_value<std::string>(*field_color);
+        if (!decoded) return std::move(decoded).error();
+        result.color = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<std::string>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_members = value.find("members");
+    if (!field_members) {
+        return make_error(ErrorCode::decode, "missing required field 'members'");
+    }
+    if (field_members) {
+        auto decoded = decode_value<std::vector<SavedTabGroupMember>>(*field_members);
+        if (!decoded) return std::move(decoded).error();
+        result.members = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    const Json* field_room = value.find("room");
+    if (!field_room) {
+        return make_error(ErrorCode::decode, "missing required field 'room'");
+    }
+    if (field_room) {
+        auto decoded = decode_value<std::string>(*field_room);
+        if (!decoded) return std::move(decoded).error();
+        result.room = std::move(decoded).value();
+    }
+    const Json* field_updated_at_ms = value.find("updated_at_ms");
+    if (!field_updated_at_ms) {
+        return make_error(ErrorCode::decode, "missing required field 'updated_at_ms'");
+    }
+    if (field_updated_at_ms) {
+        auto decoded = decode_value<std::uint64_t>(*field_updated_at_ms);
+        if (!decoded) return std::move(decoded).error();
+        result.updated_at_ms = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "color" && key != "id" && key != "members" && key != "name" && key != "room" && key != "updated_at_ms") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<Screen>::encode(const Screen& value) {
     (void)value;
     Json::Object object;
@@ -8443,6 +8934,369 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_title);
         if (!decoded) return std::move(decoded).error();
         result.title = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<TabGroupEndedTerminal>::encode(const TabGroupEndedTerminal& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_terminal_id = encode_value(value.terminal_id);
+    if (!encoded_terminal_id) return std::move(encoded_terminal_id).error();
+    object.emplace("terminal_id", std::move(encoded_terminal_id).value());
+    if (value.terminal_incarnation) {
+        auto encoded = encode_value(*value.terminal_incarnation);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminal_incarnation", std::move(encoded).value());
+    } else {
+        object.emplace("terminal_incarnation", Json(nullptr));
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TabGroupEndedTerminal> Codec<TabGroupEndedTerminal>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TabGroupEndedTerminal result{};
+    const Json* field_terminal_id = value.find("terminal_id");
+    if (!field_terminal_id) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_id'");
+    }
+    if (field_terminal_id) {
+        auto decoded = decode_value<std::string>(*field_terminal_id);
+        if (!decoded) return std::move(decoded).error();
+        result.terminal_id = std::move(decoded).value();
+    }
+    const Json* field_terminal_incarnation = value.find("terminal_incarnation");
+    if (!field_terminal_incarnation) {
+        return make_error(ErrorCode::decode, "missing required field 'terminal_incarnation'");
+    }
+    if (field_terminal_incarnation) {
+        if (field_terminal_incarnation->is_null()) {
+            result.terminal_incarnation.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_terminal_incarnation);
+            if (!decoded) return std::move(decoded).error();
+            result.terminal_incarnation = std::move(decoded).value();
+        }
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "terminal_id" && key != "terminal_incarnation") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<TabGroupOutcome>::encode(const TabGroupOutcome& value) {
+    (void)value;
+    Json::Object object;
+    if (value.group) {
+        auto encoded = encode_value(*value.group);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("group", std::move(encoded).value());
+    } else {
+        object.emplace("group", Json(nullptr));
+    }
+    if (value.pane) {
+        auto encoded = encode_value(*value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    } else {
+        object.emplace("pane", Json(nullptr));
+    }
+    auto encoded_surfaces = encode_value(value.surfaces);
+    if (!encoded_surfaces) return std::move(encoded_surfaces).error();
+    object.emplace("surfaces", std::move(encoded_surfaces).value());
+    if (value.workspace) {
+        auto encoded = encode_value(*value.workspace);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("workspace", std::move(encoded).value());
+    } else {
+        object.emplace("workspace", Json(nullptr));
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TabGroupOutcome> Codec<TabGroupOutcome>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TabGroupOutcome result{};
+    const Json* field_group = value.find("group");
+    if (!field_group) {
+        return make_error(ErrorCode::decode, "missing required field 'group'");
+    }
+    if (field_group) {
+        if (field_group->is_null()) {
+            result.group.reset();
+        } else {
+            auto decoded = decode_value<TabGroupRecord>(*field_group);
+            if (!decoded) return std::move(decoded).error();
+            result.group = std::move(decoded).value();
+        }
+    }
+    const Json* field_pane = value.find("pane");
+    if (!field_pane) {
+        return make_error(ErrorCode::decode, "missing required field 'pane'");
+    }
+    if (field_pane) {
+        if (field_pane->is_null()) {
+            result.pane.reset();
+        } else {
+            auto decoded = decode_value<Id>(*field_pane);
+            if (!decoded) return std::move(decoded).error();
+            result.pane = std::move(decoded).value();
+        }
+    }
+    const Json* field_surfaces = value.find("surfaces");
+    if (!field_surfaces) {
+        return make_error(ErrorCode::decode, "missing required field 'surfaces'");
+    }
+    if (field_surfaces) {
+        auto decoded = decode_value<std::vector<Id>>(*field_surfaces);
+        if (!decoded) return std::move(decoded).error();
+        result.surfaces = std::move(decoded).value();
+    }
+    const Json* field_workspace = value.find("workspace");
+    if (!field_workspace) {
+        return make_error(ErrorCode::decode, "missing required field 'workspace'");
+    }
+    if (field_workspace) {
+        if (field_workspace->is_null()) {
+            result.workspace.reset();
+        } else {
+            auto decoded = decode_value<Id>(*field_workspace);
+            if (!decoded) return std::move(decoded).error();
+            result.workspace = std::move(decoded).value();
+        }
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "group" && key != "pane" && key != "surfaces" && key != "workspace") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<TabGroupRecord>::encode(const TabGroupRecord& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_collapsed = encode_value(value.collapsed);
+    if (!encoded_collapsed) return std::move(encoded_collapsed).error();
+    object.emplace("collapsed", std::move(encoded_collapsed).value());
+    auto encoded_color = encode_value(value.color);
+    if (!encoded_color) return std::move(encoded_color).error();
+    object.emplace("color", std::move(encoded_color).value());
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    if (value.saved_id) {
+        auto encoded = encode_value(*value.saved_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("saved_id", std::move(encoded).value());
+    } else {
+        object.emplace("saved_id", Json(nullptr));
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TabGroupRecord> Codec<TabGroupRecord>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TabGroupRecord result{};
+    const Json* field_collapsed = value.find("collapsed");
+    if (!field_collapsed) {
+        return make_error(ErrorCode::decode, "missing required field 'collapsed'");
+    }
+    if (field_collapsed) {
+        auto decoded = decode_value<bool>(*field_collapsed);
+        if (!decoded) return std::move(decoded).error();
+        result.collapsed = std::move(decoded).value();
+    }
+    const Json* field_color = value.find("color");
+    if (!field_color) {
+        return make_error(ErrorCode::decode, "missing required field 'color'");
+    }
+    if (field_color) {
+        auto decoded = decode_value<std::string>(*field_color);
+        if (!decoded) return std::move(decoded).error();
+        result.color = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<std::string>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    const Json* field_saved_id = value.find("saved_id");
+    if (!field_saved_id) {
+        return make_error(ErrorCode::decode, "missing required field 'saved_id'");
+    }
+    if (field_saved_id) {
+        if (field_saved_id->is_null()) {
+            result.saved_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_saved_id);
+            if (!decoded) return std::move(decoded).error();
+            result.saved_id = std::move(decoded).value();
+        }
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "collapsed" && key != "color" && key != "id" && key != "name" && key != "saved_id") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
+Result<Json> Codec<TabGroupRun>::encode(const TabGroupRun& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_collapsed = encode_value(value.collapsed);
+    if (!encoded_collapsed) return std::move(encoded_collapsed).error();
+    object.emplace("collapsed", std::move(encoded_collapsed).value());
+    auto encoded_color = encode_value(value.color);
+    if (!encoded_color) return std::move(encoded_color).error();
+    object.emplace("color", std::move(encoded_color).value());
+    auto encoded_count = encode_value(value.count);
+    if (!encoded_count) return std::move(encoded_count).error();
+    object.emplace("count", std::move(encoded_count).value());
+    auto encoded_id = encode_value(value.id);
+    if (!encoded_id) return std::move(encoded_id).error();
+    object.emplace("id", std::move(encoded_id).value());
+    auto encoded_name = encode_value(value.name);
+    if (!encoded_name) return std::move(encoded_name).error();
+    object.emplace("name", std::move(encoded_name).value());
+    if (value.pane) {
+        auto encoded = encode_value(*value.pane);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("pane", std::move(encoded).value());
+    }
+    if (value.saved_id) {
+        auto encoded = encode_value(*value.saved_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("saved_id", std::move(encoded).value());
+    } else {
+        object.emplace("saved_id", Json(nullptr));
+    }
+    auto encoded_start = encode_value(value.start);
+    if (!encoded_start) return std::move(encoded_start).error();
+    object.emplace("start", std::move(encoded_start).value());
+    auto encoded_surfaces = encode_value(value.surfaces);
+    if (!encoded_surfaces) return std::move(encoded_surfaces).error();
+    object.emplace("surfaces", std::move(encoded_surfaces).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<TabGroupRun> Codec<TabGroupRun>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TabGroupRun result{};
+    const Json* field_collapsed = value.find("collapsed");
+    if (!field_collapsed) {
+        return make_error(ErrorCode::decode, "missing required field 'collapsed'");
+    }
+    if (field_collapsed) {
+        auto decoded = decode_value<bool>(*field_collapsed);
+        if (!decoded) return std::move(decoded).error();
+        result.collapsed = std::move(decoded).value();
+    }
+    const Json* field_color = value.find("color");
+    if (!field_color) {
+        return make_error(ErrorCode::decode, "missing required field 'color'");
+    }
+    if (field_color) {
+        auto decoded = decode_value<std::string>(*field_color);
+        if (!decoded) return std::move(decoded).error();
+        result.color = std::move(decoded).value();
+    }
+    const Json* field_count = value.find("count");
+    if (!field_count) {
+        return make_error(ErrorCode::decode, "missing required field 'count'");
+    }
+    if (field_count) {
+        auto decoded = decode_value<std::uint64_t>(*field_count);
+        if (!decoded) return std::move(decoded).error();
+        result.count = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        auto decoded = decode_value<std::string>(*field_id);
+        if (!decoded) return std::move(decoded).error();
+        result.id = std::move(decoded).value();
+    }
+    const Json* field_name = value.find("name");
+    if (!field_name) {
+        return make_error(ErrorCode::decode, "missing required field 'name'");
+    }
+    if (field_name) {
+        auto decoded = decode_value<std::string>(*field_name);
+        if (!decoded) return std::move(decoded).error();
+        result.name = std::move(decoded).value();
+    }
+    const Json* field_pane = value.find("pane");
+    if (field_pane) {
+        auto decoded = decode_value<Id>(*field_pane);
+        if (!decoded) return std::move(decoded).error();
+        result.pane = std::move(decoded).value();
+    }
+    const Json* field_saved_id = value.find("saved_id");
+    if (!field_saved_id) {
+        return make_error(ErrorCode::decode, "missing required field 'saved_id'");
+    }
+    if (field_saved_id) {
+        if (field_saved_id->is_null()) {
+            result.saved_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_saved_id);
+            if (!decoded) return std::move(decoded).error();
+            result.saved_id = std::move(decoded).value();
+        }
+    }
+    const Json* field_start = value.find("start");
+    if (!field_start) {
+        return make_error(ErrorCode::decode, "missing required field 'start'");
+    }
+    if (field_start) {
+        auto decoded = decode_value<std::uint64_t>(*field_start);
+        if (!decoded) return std::move(decoded).error();
+        result.start = std::move(decoded).value();
+    }
+    const Json* field_surfaces = value.find("surfaces");
+    if (!field_surfaces) {
+        return make_error(ErrorCode::decode, "missing required field 'surfaces'");
+    }
+    if (field_surfaces) {
+        auto decoded = decode_value<std::vector<Id>>(*field_surfaces);
+        if (!decoded) return std::move(decoded).error();
+        result.surfaces = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "collapsed" && key != "color" && key != "count" && key != "id" && key != "name" && key != "pane" && key != "saved_id" && key != "start" && key != "surfaces") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -12436,6 +13290,60 @@ Result<CloseTabGroupRequest> Codec<CloseTabGroupRequest>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<CloseTabGroupResult>::encode(const CloseTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_closed = encode_value(value.closed);
+    if (!encoded_closed) return std::move(encoded_closed).error();
+    object.emplace("closed", std::move(encoded_closed).value());
+    auto encoded_group = encode_value(value.group);
+    if (!encoded_group) return std::move(encoded_group).error();
+    object.emplace("group", std::move(encoded_group).value());
+    if (value.terminals) {
+        auto encoded = encode_value(*value.terminals);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("terminals", std::move(encoded).value());
+    }
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<CloseTabGroupResult> Codec<CloseTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    CloseTabGroupResult result{};
+    const Json* field_closed = value.find("closed");
+    if (!field_closed) {
+        return make_error(ErrorCode::decode, "missing required field 'closed'");
+    }
+    if (field_closed) {
+        auto decoded = decode_value<std::vector<Id>>(*field_closed);
+        if (!decoded) return std::move(decoded).error();
+        result.closed = std::move(decoded).value();
+    }
+    const Json* field_group = value.find("group");
+    if (!field_group) {
+        return make_error(ErrorCode::decode, "missing required field 'group'");
+    }
+    if (field_group) {
+        auto decoded = decode_value<std::string>(*field_group);
+        if (!decoded) return std::move(decoded).error();
+        result.group = std::move(decoded).value();
+    }
+    const Json* field_terminals = value.find("terminals");
+    if (field_terminals) {
+        auto decoded = decode_value<std::vector<TabGroupEndedTerminal>>(*field_terminals);
+        if (!decoded) return std::move(decoded).error();
+        result.terminals = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "closed" && key != "group" && key != "terminals") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<CloseTabsRequest>::encode(const CloseTabsRequest& value) {
     (void)value;
     Json::Object object;
@@ -15263,6 +16171,49 @@ Result<DeleteBookmarkRequest> Codec<DeleteBookmarkRequest>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<DeleteBookmarkResult>::encode(const DeleteBookmarkResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_deleted = encode_value(value.deleted);
+    if (!encoded_deleted) return std::move(encoded_deleted).error();
+    object.emplace("deleted", std::move(encoded_deleted).value());
+    auto encoded_replayed = encode_value(value.replayed);
+    if (!encoded_replayed) return std::move(encoded_replayed).error();
+    object.emplace("replayed", std::move(encoded_replayed).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<DeleteBookmarkResult> Codec<DeleteBookmarkResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    DeleteBookmarkResult result{};
+    const Json* field_deleted = value.find("deleted");
+    if (!field_deleted) {
+        return make_error(ErrorCode::decode, "missing required field 'deleted'");
+    }
+    if (field_deleted) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_deleted);
+        if (!decoded) return std::move(decoded).error();
+        result.deleted = std::move(decoded).value();
+    }
+    const Json* field_replayed = value.find("replayed");
+    if (!field_replayed) {
+        return make_error(ErrorCode::decode, "missing required field 'replayed'");
+    }
+    if (field_replayed) {
+        auto decoded = decode_value<bool>(*field_replayed);
+        if (!decoded) return std::move(decoded).error();
+        result.replayed = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "deleted" && key != "replayed") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<DeleteBrowserProfileRequest>::encode(const DeleteBrowserProfileRequest& value) {
     (void)value;
     Json::Object object;
@@ -15399,6 +16350,49 @@ Result<DeleteSavedTabGroupRequest> Codec<DeleteSavedTabGroupRequest>::decode(con
         auto decoded = decode_value<std::string>(*field_saved);
         if (!decoded) return std::move(decoded).error();
         result.saved = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<DeleteSavedTabGroupResult>::encode(const DeleteSavedTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_deleted = encode_value(value.deleted);
+    if (!encoded_deleted) return std::move(encoded_deleted).error();
+    object.emplace("deleted", std::move(encoded_deleted).value());
+    auto encoded_saved = encode_value(value.saved);
+    if (!encoded_saved) return std::move(encoded_saved).error();
+    object.emplace("saved", std::move(encoded_saved).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<DeleteSavedTabGroupResult> Codec<DeleteSavedTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    DeleteSavedTabGroupResult result{};
+    const Json* field_deleted = value.find("deleted");
+    if (!field_deleted) {
+        return make_error(ErrorCode::decode, "missing required field 'deleted'");
+    }
+    if (field_deleted) {
+        auto decoded = decode_value<bool>(*field_deleted);
+        if (!decoded) return std::move(decoded).error();
+        result.deleted = std::move(decoded).value();
+    }
+    const Json* field_saved = value.find("saved");
+    if (!field_saved) {
+        return make_error(ErrorCode::decode, "missing required field 'saved'");
+    }
+    if (field_saved) {
+        auto decoded = decode_value<std::string>(*field_saved);
+        if (!decoded) return std::move(decoded).error();
+        result.saved = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "deleted" && key != "saved") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -15911,7 +16905,7 @@ Result<ImportBookmarksRequest> Codec<ImportBookmarksRequest>::decode(const Json&
         return make_error(ErrorCode::decode, "missing required field 'nodes'");
     }
     if (field_nodes) {
-        auto decoded = decode_value<std::vector<JsonValue>>(*field_nodes);
+        auto decoded = decode_value<std::vector<BookmarkImportNode>>(*field_nodes);
         if (!decoded) return std::move(decoded).error();
         result.nodes = std::move(decoded).value();
     }
@@ -15949,6 +16943,61 @@ Result<ImportBookmarksRequest> Codec<ImportBookmarksRequest>::decode(const Json&
             if (!decoded) return std::move(decoded).error();
             result.source_key = Field<std::string>(std::move(decoded).value());
         }
+    }
+    return result;
+}
+
+Result<Json> Codec<ImportBookmarksResult>::encode(const ImportBookmarksResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_count = encode_value(value.count);
+    if (!encoded_count) return std::move(encoded_count).error();
+    object.emplace("count", std::move(encoded_count).value());
+    auto encoded_replayed = encode_value(value.replayed);
+    if (!encoded_replayed) return std::move(encoded_replayed).error();
+    object.emplace("replayed", std::move(encoded_replayed).value());
+    auto encoded_root_ids = encode_value(value.root_ids);
+    if (!encoded_root_ids) return std::move(encoded_root_ids).error();
+    object.emplace("root_ids", std::move(encoded_root_ids).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<ImportBookmarksResult> Codec<ImportBookmarksResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ImportBookmarksResult result{};
+    const Json* field_count = value.find("count");
+    if (!field_count) {
+        return make_error(ErrorCode::decode, "missing required field 'count'");
+    }
+    if (field_count) {
+        auto decoded = decode_value<std::uint64_t>(*field_count);
+        if (!decoded) return std::move(decoded).error();
+        result.count = std::move(decoded).value();
+    }
+    const Json* field_replayed = value.find("replayed");
+    if (!field_replayed) {
+        return make_error(ErrorCode::decode, "missing required field 'replayed'");
+    }
+    if (field_replayed) {
+        auto decoded = decode_value<bool>(*field_replayed);
+        if (!decoded) return std::move(decoded).error();
+        result.replayed = std::move(decoded).value();
+    }
+    const Json* field_root_ids = value.find("root_ids");
+    if (!field_root_ids) {
+        return make_error(ErrorCode::decode, "missing required field 'root_ids'");
+    }
+    if (field_root_ids) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_root_ids);
+        if (!decoded) return std::move(decoded).error();
+        result.root_ids = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "count" && key != "replayed" && key != "root_ids") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -16116,6 +17165,49 @@ Result<ListBookmarksRequest> Codec<ListBookmarksRequest>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<ListBookmarksResult>::encode(const ListBookmarksResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_bookmarks = encode_value(value.bookmarks);
+    if (!encoded_bookmarks) return std::move(encoded_bookmarks).error();
+    object.emplace("bookmarks", std::move(encoded_bookmarks).value());
+    auto encoded_bookmarks_revision = encode_value(value.bookmarks_revision);
+    if (!encoded_bookmarks_revision) return std::move(encoded_bookmarks_revision).error();
+    object.emplace("bookmarks_revision", std::move(encoded_bookmarks_revision).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<ListBookmarksResult> Codec<ListBookmarksResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ListBookmarksResult result{};
+    const Json* field_bookmarks = value.find("bookmarks");
+    if (!field_bookmarks) {
+        return make_error(ErrorCode::decode, "missing required field 'bookmarks'");
+    }
+    if (field_bookmarks) {
+        auto decoded = decode_value<std::vector<Bookmark>>(*field_bookmarks);
+        if (!decoded) return std::move(decoded).error();
+        result.bookmarks = std::move(decoded).value();
+    }
+    const Json* field_bookmarks_revision = value.find("bookmarks_revision");
+    if (!field_bookmarks_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'bookmarks_revision'");
+    }
+    if (field_bookmarks_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_bookmarks_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.bookmarks_revision = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "bookmarks" && key != "bookmarks_revision") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<ListClientsRequest>::encode(const ListClientsRequest& value) {
     (void)value;
     Json::Object object;
@@ -16206,6 +17298,37 @@ Result<ListSavedTabGroupsRequest> Codec<ListSavedTabGroupsRequest>::decode(const
     return result;
 }
 
+Result<Json> Codec<ListSavedTabGroupsResult>::encode(const ListSavedTabGroupsResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_saved_groups = encode_value(value.saved_groups);
+    if (!encoded_saved_groups) return std::move(encoded_saved_groups).error();
+    object.emplace("saved_groups", std::move(encoded_saved_groups).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<ListSavedTabGroupsResult> Codec<ListSavedTabGroupsResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ListSavedTabGroupsResult result{};
+    const Json* field_saved_groups = value.find("saved_groups");
+    if (!field_saved_groups) {
+        return make_error(ErrorCode::decode, "missing required field 'saved_groups'");
+    }
+    if (field_saved_groups) {
+        auto decoded = decode_value<std::vector<SavedTabGroupRecord>>(*field_saved_groups);
+        if (!decoded) return std::move(decoded).error();
+        result.saved_groups = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "saved_groups") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<ListTabGroupsRequest>::encode(const ListTabGroupsRequest& value) {
     (void)value;
     Json::Object object;
@@ -16216,6 +17339,37 @@ Result<ListTabGroupsRequest> Codec<ListTabGroupsRequest>::decode(const Json& val
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ListTabGroupsRequest result{};
+    return result;
+}
+
+Result<Json> Codec<ListTabGroupsResult>::encode(const ListTabGroupsResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_groups = encode_value(value.groups);
+    if (!encoded_groups) return std::move(encoded_groups).error();
+    object.emplace("groups", std::move(encoded_groups).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<ListTabGroupsResult> Codec<ListTabGroupsResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ListTabGroupsResult result{};
+    const Json* field_groups = value.find("groups");
+    if (!field_groups) {
+        return make_error(ErrorCode::decode, "missing required field 'groups'");
+    }
+    if (field_groups) {
+        auto decoded = decode_value<std::vector<TabGroupRun>>(*field_groups);
+        if (!decoded) return std::move(decoded).error();
+        result.groups = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "groups") result.additional_properties.emplace(key, item);
+    }
     return result;
 }
 
@@ -17959,6 +19113,11 @@ Result<Json> Codec<NewConversationTabRequest>::encode(const NewConversationTabRe
         if (!encoded) return std::move(encoded).error();
         object.emplace("owner", std::move(encoded).value());
     }
+    if (!value.page.is_absent()) {
+        auto encoded = encode_value(value.page);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page", std::move(encoded).value());
+    }
     if (!value.pane.is_absent()) {
         auto encoded = encode_value(value.pane);
         if (!encoded) return std::move(encoded).error();
@@ -18044,6 +19203,16 @@ Result<NewConversationTabRequest> Codec<NewConversationTabRequest>::decode(const
             auto decoded = decode_value<std::string>(*field_owner);
             if (!decoded) return std::move(decoded).error();
             result.owner = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_page = value.find("page");
+    if (field_page) {
+        if (field_page->is_null()) {
+            result.page = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_page);
+            if (!decoded) return std::move(decoded).error();
+            result.page = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_pane = value.find("pane");
@@ -20301,6 +21470,49 @@ Result<RemoveTabsFromTabGroupRequest> Codec<RemoveTabsFromTabGroupRequest>::deco
     return result;
 }
 
+Result<Json> Codec<RemoveTabsFromTabGroupResult>::encode(const RemoveTabsFromTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_groups = encode_value(value.groups);
+    if (!encoded_groups) return std::move(encoded_groups).error();
+    object.emplace("groups", std::move(encoded_groups).value());
+    auto encoded_surfaces = encode_value(value.surfaces);
+    if (!encoded_surfaces) return std::move(encoded_surfaces).error();
+    object.emplace("surfaces", std::move(encoded_surfaces).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<RemoveTabsFromTabGroupResult> Codec<RemoveTabsFromTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    RemoveTabsFromTabGroupResult result{};
+    const Json* field_groups = value.find("groups");
+    if (!field_groups) {
+        return make_error(ErrorCode::decode, "missing required field 'groups'");
+    }
+    if (field_groups) {
+        auto decoded = decode_value<std::vector<std::string>>(*field_groups);
+        if (!decoded) return std::move(decoded).error();
+        result.groups = std::move(decoded).value();
+    }
+    const Json* field_surfaces = value.find("surfaces");
+    if (!field_surfaces) {
+        return make_error(ErrorCode::decode, "missing required field 'surfaces'");
+    }
+    if (field_surfaces) {
+        auto decoded = decode_value<std::vector<Id>>(*field_surfaces);
+        if (!decoded) return std::move(decoded).error();
+        result.surfaces = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "groups" && key != "surfaces") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<RenamePaneRequest>::encode(const RenamePaneRequest& value) {
     (void)value;
     Json::Object object;
@@ -21157,6 +22369,49 @@ Result<SaveTabGroupRequest> Codec<SaveTabGroupRequest>::decode(const Json& value
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<SaveTabGroupResult>::encode(const SaveTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_group = encode_value(value.group);
+    if (!encoded_group) return std::move(encoded_group).error();
+    object.emplace("group", std::move(encoded_group).value());
+    auto encoded_saved = encode_value(value.saved);
+    if (!encoded_saved) return std::move(encoded_saved).error();
+    object.emplace("saved", std::move(encoded_saved).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<SaveTabGroupResult> Codec<SaveTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SaveTabGroupResult result{};
+    const Json* field_group = value.find("group");
+    if (!field_group) {
+        return make_error(ErrorCode::decode, "missing required field 'group'");
+    }
+    if (field_group) {
+        auto decoded = decode_value<std::string>(*field_group);
+        if (!decoded) return std::move(decoded).error();
+        result.group = std::move(decoded).value();
+    }
+    const Json* field_saved = value.find("saved");
+    if (!field_saved) {
+        return make_error(ErrorCode::decode, "missing required field 'saved'");
+    }
+    if (field_saved) {
+        auto decoded = decode_value<std::string>(*field_saved);
+        if (!decoded) return std::move(decoded).error();
+        result.saved = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "group" && key != "saved") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -23825,6 +25080,49 @@ Result<UngroupTabGroupRequest> Codec<UngroupTabGroupRequest>::decode(const Json&
     return result;
 }
 
+Result<Json> Codec<UngroupTabGroupResult>::encode(const UngroupTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_group = encode_value(value.group);
+    if (!encoded_group) return std::move(encoded_group).error();
+    object.emplace("group", std::move(encoded_group).value());
+    auto encoded_surfaces = encode_value(value.surfaces);
+    if (!encoded_surfaces) return std::move(encoded_surfaces).error();
+    object.emplace("surfaces", std::move(encoded_surfaces).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<UngroupTabGroupResult> Codec<UngroupTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    UngroupTabGroupResult result{};
+    const Json* field_group = value.find("group");
+    if (!field_group) {
+        return make_error(ErrorCode::decode, "missing required field 'group'");
+    }
+    if (field_group) {
+        auto decoded = decode_value<std::string>(*field_group);
+        if (!decoded) return std::move(decoded).error();
+        result.group = std::move(decoded).value();
+    }
+    const Json* field_surfaces = value.find("surfaces");
+    if (!field_surfaces) {
+        return make_error(ErrorCode::decode, "missing required field 'surfaces'");
+    }
+    if (field_surfaces) {
+        auto decoded = decode_value<std::vector<Id>>(*field_surfaces);
+        if (!decoded) return std::move(decoded).error();
+        result.surfaces = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "group" && key != "surfaces") result.additional_properties.emplace(key, item);
+    }
+    return result;
+}
+
 Result<Json> Codec<UnpinWorkspaceRequest>::encode(const UnpinWorkspaceRequest& value) {
     (void)value;
     Json::Object object;
@@ -23921,6 +25219,49 @@ Result<UnsaveTabGroupRequest> Codec<UnsaveTabGroupRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<UnsaveTabGroupResult>::encode(const UnsaveTabGroupResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_group = encode_value(value.group);
+    if (!encoded_group) return std::move(encoded_group).error();
+    object.emplace("group", std::move(encoded_group).value());
+    auto encoded_unsaved = encode_value(value.unsaved);
+    if (!encoded_unsaved) return std::move(encoded_unsaved).error();
+    object.emplace("unsaved", std::move(encoded_unsaved).value());
+    for (const auto& [key, item] : value.additional_properties) {
+        object.try_emplace(key, item);
+    }
+    return Json(std::move(object));
+}
+
+Result<UnsaveTabGroupResult> Codec<UnsaveTabGroupResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    UnsaveTabGroupResult result{};
+    const Json* field_group = value.find("group");
+    if (!field_group) {
+        return make_error(ErrorCode::decode, "missing required field 'group'");
+    }
+    if (field_group) {
+        auto decoded = decode_value<std::string>(*field_group);
+        if (!decoded) return std::move(decoded).error();
+        result.group = std::move(decoded).value();
+    }
+    const Json* field_unsaved = value.find("unsaved");
+    if (!field_unsaved) {
+        return make_error(ErrorCode::decode, "missing required field 'unsaved'");
+    }
+    if (field_unsaved) {
+        auto decoded = decode_value<bool>(*field_unsaved);
+        if (!decoded) return std::move(decoded).error();
+        result.unsaved = std::move(decoded).value();
+    }
+    for (const auto& [key, item] : *source.value()) {
+        if (key != "group" && key != "unsaved") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -31311,8 +32652,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand118FieldRequirements{{
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand122FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand122FieldRequirements{{
     {"agent_session", 0U, "agent-session-tabs-v1"},
+    {"page", 0U, "page-tabs-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand124FieldRequirements{{
@@ -31750,7 +33092,7 @@ Result<JsonValue> Client::add_screens_to_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::add_tabs_to_tab_group(
+Result<TabGroupOutcome> Client::add_tabs_to_tab_group(
     const AddTabsToTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -31758,7 +33100,7 @@ Result<JsonValue> Client::add_tabs_to_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("add-tabs-to-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
 Result<ApplyLayoutResult> Client::apply_layout(
@@ -32034,7 +33376,7 @@ Result<EmptyResult> Client::close_surface(
     return decode_value<EmptyResult>(response.value());
 }
 
-Result<JsonValue> Client::close_tab_group(
+Result<CloseTabGroupResult> Client::close_tab_group(
     const CloseTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32042,7 +33384,7 @@ Result<JsonValue> Client::close_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("close-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<CloseTabGroupResult>(response.value());
 }
 
 Result<JsonValue> Client::close_tabs(
@@ -32309,7 +33651,7 @@ Result<CopyResult> Client::copy(
     return decode_value<CopyResult>(response.value());
 }
 
-Result<JsonValue> Client::create_bookmark(
+Result<BookmarkChangeResult> Client::create_bookmark(
     const CreateBookmarkRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32317,7 +33659,7 @@ Result<JsonValue> Client::create_bookmark(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("create-bookmark", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<BookmarkChangeResult>(response.value());
 }
 
 Result<JsonValue> Client::create_browser_profile(
@@ -32375,7 +33717,7 @@ Result<JsonValue> Client::create_surface_with_receipt(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::create_tab_group(
+Result<TabGroupOutcome> Client::create_tab_group(
     const CreateTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32383,7 +33725,7 @@ Result<JsonValue> Client::create_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("create-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
 Result<TerminalPlacement> Client::create_terminal(
@@ -32419,7 +33761,7 @@ Result<JsonValue> Client::create_workspace_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::delete_bookmark(
+Result<DeleteBookmarkResult> Client::delete_bookmark(
     const DeleteBookmarkRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32427,7 +33769,7 @@ Result<JsonValue> Client::delete_bookmark(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("delete-bookmark", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<DeleteBookmarkResult>(response.value());
 }
 
 Result<JsonValue> Client::delete_browser_profile(
@@ -32474,7 +33816,7 @@ Result<JsonValue> Client::delete_saved_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::delete_saved_tab_group(
+Result<DeleteSavedTabGroupResult> Client::delete_saved_tab_group(
     const DeleteSavedTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32482,7 +33824,7 @@ Result<JsonValue> Client::delete_saved_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("delete-saved-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<DeleteSavedTabGroupResult>(response.value());
 }
 
 Result<JsonValue> Client::delete_workspace_group(
@@ -32639,7 +33981,7 @@ Result<IdsResult> Client::ids(
     return decode_value<IdsResult>(response.value());
 }
 
-Result<JsonValue> Client::import_bookmarks(
+Result<ImportBookmarksResult> Client::import_bookmarks(
     const ImportBookmarksRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32647,7 +33989,7 @@ Result<JsonValue> Client::import_bookmarks(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("import-bookmarks", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<ImportBookmarksResult>(response.value());
 }
 
 Result<JsonValue> Client::import_session_organization(
@@ -32683,7 +34025,7 @@ Result<ListAgentsResult> Client::list_agents(
     return decode_value<ListAgentsResult>(response.value());
 }
 
-Result<JsonValue> Client::list_bookmarks(
+Result<ListBookmarksResult> Client::list_bookmarks(
     const ListBookmarksRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32691,7 +34033,7 @@ Result<JsonValue> Client::list_bookmarks(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("list-bookmarks", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<ListBookmarksResult>(response.value());
 }
 
 Result<ListClientsResult> Client::list_clients(
@@ -32738,7 +34080,7 @@ Result<JsonValue> Client::list_saved_screen_groups(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::list_saved_tab_groups(
+Result<ListSavedTabGroupsResult> Client::list_saved_tab_groups(
     const ListSavedTabGroupsRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32746,10 +34088,10 @@ Result<JsonValue> Client::list_saved_tab_groups(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("list-saved-tab-groups", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<ListSavedTabGroupsResult>(response.value());
 }
 
-Result<JsonValue> Client::list_tab_groups(
+Result<ListTabGroupsResult> Client::list_tab_groups(
     const ListTabGroupsRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32757,7 +34099,7 @@ Result<JsonValue> Client::list_tab_groups(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("list-tab-groups", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<ListTabGroupsResult>(response.value());
 }
 
 Result<ListTerminalsResult> Client::list_terminals(
@@ -32848,7 +34190,7 @@ Result<MintTerminalRendererResult> Client::mint_terminal_renderer_by_terminal(
     return decode_value<MintTerminalRendererResult>(response.value());
 }
 
-Result<JsonValue> Client::move_bookmark(
+Result<BookmarkChangeResult> Client::move_bookmark(
     const MoveBookmarkRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32856,7 +34198,7 @@ Result<JsonValue> Client::move_bookmark(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-bookmark", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<BookmarkChangeResult>(response.value());
 }
 
 Result<JsonValue> Client::move_browser_profile(
@@ -32925,7 +34267,7 @@ Result<EmptyResult> Client::move_tab(
     return decode_value<EmptyResult>(response.value());
 }
 
-Result<JsonValue> Client::move_tab_group(
+Result<TabGroupOutcome> Client::move_tab_group(
     const MoveTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32933,10 +34275,10 @@ Result<JsonValue> Client::move_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
-Result<JsonValue> Client::move_tab_group_to_column(
+Result<TabGroupOutcome> Client::move_tab_group_to_column(
     const MoveTabGroupToColumnRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32944,10 +34286,10 @@ Result<JsonValue> Client::move_tab_group_to_column(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-tab-group-to-column", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
-Result<JsonValue> Client::move_tab_group_to_new_workspace(
+Result<TabGroupOutcome> Client::move_tab_group_to_new_workspace(
     const MoveTabGroupToNewWorkspaceRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32955,10 +34297,10 @@ Result<JsonValue> Client::move_tab_group_to_new_workspace(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-tab-group-to-new-workspace", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
-Result<JsonValue> Client::move_tab_group_to_split(
+Result<TabGroupOutcome> Client::move_tab_group_to_split(
     const MoveTabGroupToSplitRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -32966,7 +34308,7 @@ Result<JsonValue> Client::move_tab_group_to_split(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("move-tab-group-to-split", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
 Result<JsonValue> Client::move_tab_to_column(
@@ -33354,7 +34696,7 @@ Result<JsonValue> Client::remove_screens_from_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::remove_tabs_from_tab_group(
+Result<RemoveTabsFromTabGroupResult> Client::remove_tabs_from_tab_group(
     const RemoveTabsFromTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -33362,7 +34704,7 @@ Result<JsonValue> Client::remove_tabs_from_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("remove-tabs-from-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<RemoveTabsFromTabGroupResult>(response.value());
 }
 
 Result<EmptyResult> Client::rename_pane(
@@ -33431,7 +34773,7 @@ Result<JsonValue> Client::reopen_saved_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::reopen_saved_tab_group(
+Result<TabGroupOutcome> Client::reopen_saved_tab_group(
     const ReopenSavedTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -33439,7 +34781,7 @@ Result<JsonValue> Client::reopen_saved_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("reopen-saved-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
 Result<ReportAgentResult> Client::report_agent(
@@ -33519,7 +34861,7 @@ Result<JsonValue> Client::save_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::save_tab_group(
+Result<SaveTabGroupResult> Client::save_tab_group(
     const SaveTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -33527,7 +34869,7 @@ Result<JsonValue> Client::save_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("save-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<SaveTabGroupResult>(response.value());
 }
 
 Result<EmptyResult> Client::scroll_surface(
@@ -34010,7 +35352,7 @@ Result<JsonValue> Client::ungroup_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::ungroup_tab_group(
+Result<UngroupTabGroupResult> Client::ungroup_tab_group(
     const UngroupTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -34018,7 +35360,7 @@ Result<JsonValue> Client::ungroup_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("ungroup-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<UngroupTabGroupResult>(response.value());
 }
 
 Result<JsonValue> Client::unpin_workspace(
@@ -34054,7 +35396,7 @@ Result<JsonValue> Client::unsave_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::unsave_tab_group(
+Result<UnsaveTabGroupResult> Client::unsave_tab_group(
     const UnsaveTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -34062,10 +35404,10 @@ Result<JsonValue> Client::unsave_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("unsave-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<UnsaveTabGroupResult>(response.value());
 }
 
-Result<JsonValue> Client::update_bookmark(
+Result<BookmarkChangeResult> Client::update_bookmark(
     const UpdateBookmarkRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -34073,7 +35415,7 @@ Result<JsonValue> Client::update_bookmark(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("update-bookmark", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<BookmarkChangeResult>(response.value());
 }
 
 Result<JsonValue> Client::update_browser_profile(
@@ -34131,7 +35473,7 @@ Result<JsonValue> Client::update_screen_group(
     return decode_value<JsonValue>(response.value());
 }
 
-Result<JsonValue> Client::update_tab_group(
+Result<TabGroupOutcome> Client::update_tab_group(
     const UpdateTabGroupRequest& request, RequestOptions options) {
     auto encoded = encode_value(request);
     if (!encoded) return std::move(encoded).error();
@@ -34139,7 +35481,7 @@ Result<JsonValue> Client::update_tab_group(
     if (!parameters) return std::move(parameters).error();
     auto response = core_.request("update-tab-group", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
-    return decode_value<JsonValue>(response.value());
+    return decode_value<TabGroupOutcome>(response.value());
 }
 
 Result<JsonValue> Client::update_workspace_group(

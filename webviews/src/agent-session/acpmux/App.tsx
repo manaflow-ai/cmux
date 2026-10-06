@@ -41,6 +41,7 @@ import { harnessProfiles } from "./harnessProfiles";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
+import { installTooltips } from "../../ui/titleTooltips";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -51,7 +52,6 @@ import type { ComposerAttachment } from "./attachments";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
-import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, undoPrompt, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
@@ -134,7 +134,7 @@ declare global {
       /// The app's shortcuts as the user bound them, keyed by action id (shortcuts.ts).
       applyShortcuts?(labels: Record<string, string>): void;
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
-      /// default): the session coverage label and the sidebar's Pull requests view.
+      /// default): the session coverage label.
       applyPreview?(on: boolean): void;
       /// Scrolls to a turn a `cmux://session/<id>#turn-<turnId>` link names (links.ts), once its row
       /// renders; gives up quietly after a few seconds.
@@ -156,16 +156,6 @@ declare global {
     cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
-}
-
-/** Who mock mode is signed in as, for the sidebar's account row. */
-const MOCK_ACCOUNT: SidebarAccount = { name: "Leo", detail: "Max" };
-
-/** The host's `account`, kept only when its fields are strings. */
-function hostAccount(value: unknown): SidebarAccount | undefined {
-  const account = value as { name?: unknown; detail?: unknown } | undefined;
-  if (typeof account?.name !== "string" || !account.name) return undefined;
-  return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
 }
 
 function emptySnapshot(): AcpmuxSnapshot {
@@ -896,14 +886,9 @@ function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   );
 }
 
-/** Whether the pane is wide enough to show the session list beside the transcript. */
-const WIDE_PANE = "(min-width: 640px)";
-function wideSidebar(): boolean {
-  return window.matchMedia?.(WIDE_PANE).matches ?? true;
-}
-
 export function AcpmuxApp() {
   const [queryClient] = useState(createPaneQueryClient);
+  useEffect(() => installTooltips(document), []);
   return (
     <QueryClientProvider client={queryClient}>
       <AcpmuxPane />
@@ -1168,43 +1153,12 @@ function AcpmuxPane() {
     [turnCheckpoint, turnKey],
   );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
-  /// Who is signed in, when the host says: the sidebar's account row.
-  const [account, setAccount] = useState<SidebarAccount>();
-  /// The main cmux sidebar already owns agent chat rows. Keep this secondary list collapsed until
-  /// the user explicitly asks for it with the pane toggle, regardless of pane width.
-  const [sidebar, setSidebar] = useState<"open" | "closed">("closed");
   const [newTab, setNewTab] = useState<NewTabHost | undefined>();
   // A prewarmed spare page gets its real context when Cmd-T adopts it; the generation remounts the screen.
   const newTabGeneration = useNewTabAdoption(setNewTab);
-  const sidebarToggle = useRef<HTMLButtonElement>(null);
-  // Escape and the scrim close the narrow-pane overlay and give focus back to its toggle.
-  const closeOverlay = useCallback(() => {
-    setSidebar("closed");
-    sidebarToggle.current?.focus();
-  }, []);
-  // Crossing the width threshold closes the optional list so it never appears just because the
-  // pane became wide. The user can reopen it with the same toggle in either layout.
-  const [wide, setWide] = useState(wideSidebar);
-  useEffect(() => {
-    const query = window.matchMedia?.(WIDE_PANE);
-    if (!query?.addEventListener) return;
-    // The width may have crossed the threshold between the first render and this subscription.
-    setWide(query.matches);
-    const onChange = () => {
-      setWide(query.matches);
-      setSidebar("closed");
-    };
-    query.addEventListener("change", onChange);
-    return () => query.removeEventListener("change", onChange);
-  }, []);
-  // Picking a session closes the narrow-pane overlay. Stable so unchanged sidebar rows skip rendering.
+  // Agent chats live in the window's one sidebar (Projects and Recents); the pane opens what it picks.
   const selectSession = useCallback((sessionId: string) => {
-    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
     void callNative("chat.select", { sessionId });
-  }, []);
-  const newChat = useCallback(() => {
-    setSidebar((current) => (current === "open" && !wideSidebar() ? "closed" : current));
-    void callNative("chat.new").catch(() => undefined);
   }, []);
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
@@ -1231,19 +1185,6 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
-  // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
-  useEffect(() => {
-    if (sidebar !== "open" || wide) return;
-    const list = document.getElementById("acpmux-sidebar");
-    (
-      list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("[aria-current=page]")
-    )?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeOverlay();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [sidebar, wide, closeOverlay]);
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   // Escape that no menu, picker or palette took hides the Quick Composer, keeping its draft.
@@ -1296,6 +1237,18 @@ function AcpmuxPane() {
     prompt.current.focus();
     return true;
   });
+  const freshChatRef = useRef(freshChat);
+  freshChatRef.current = freshChat;
+  // New chat always lands in a focused composer. An empty chat is already a new chat, so
+  // another click focuses it instead of starting a duplicate session.
+  const newChat = useCallback(() => {
+    const focusPrompt = () => requestAnimationFrame(() => prompt.current?.focus());
+    if (freshChatRef.current) {
+      focusPrompt();
+      return;
+    }
+    void callNative("chat.new").then(focusPrompt, () => undefined);
+  }, []);
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -1480,7 +1433,6 @@ function AcpmuxPane() {
           prompt?: string;
           harness?: string;
           adopt?: unknown;
-          account?: unknown;
           surface?: unknown;
           linkScheme?: unknown;
           sessionMustExist?: boolean;
@@ -1514,7 +1466,6 @@ function AcpmuxPane() {
               ? "expanded"
               : "compact",
           );
-        setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         // The app's host owns the socket (`acpmux-bridge`); the page never gets an endpoint or token.
         const bridge = host.transport === "acpmux-bridge";
         if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
@@ -1772,8 +1723,6 @@ function AcpmuxPane() {
     ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
       | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
       | undefined) ?? DefaultComposerChips;
-  const sidebarShown = sidebar === "open";
-  const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
   const sourceHarness = snapshot.summary?.harness?.split(/[-_]/)[0];
@@ -1791,8 +1740,6 @@ function AcpmuxPane() {
     handoffTargets.length > 0;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   const showNewTab = newTab !== undefined && !snapshot.sessionId && snapshot.rows.length === 0;
-  // The page's recent sessions stand in for the optional session list, which opens on demand.
-  const shellSidebar = sidebar;
   const openFromNewTab = (kind: TabKind, text: string, cwd?: string) => {
     if (kind !== "agent") {
       void callNative("tab.open", cwd ? { kind, text, cwd } : { kind, text });
@@ -1967,24 +1914,7 @@ function AcpmuxPane() {
     );
   return (
     <ShortcutsContext.Provider value={shortcuts}>
-      <section className="acpmux-shell" data-sidebar={shellSidebar}>
-        <SessionSidebar
-          sessions={snapshot.sessions}
-          selectedId={snapshot.sessionId}
-          onSelect={selectSession}
-          onNewChat={newChat}
-          account={account}
-          preview={preview}
-        />
-        {sidebar === "open" && (
-          <button
-            type="button"
-            className="acpmux-sidebar-scrim"
-            aria-label={t("sidebar.closeOverlay")}
-            tabIndex={-1}
-            onClick={closeOverlay}
-          />
-        )}
+      <section className="acpmux-shell">
         <div className="acpmux-main" data-new-chat={freshChat && !showNewTab ? "" : undefined}>
           {showNewTab && newTab.layout === "b" ? (
             <NewTabScreen
@@ -2004,7 +1934,7 @@ function AcpmuxPane() {
                 cwd: newTab.cwd,
                 leave: () => setNewTab(undefined),
                 selectSession,
-                showAllChats: () => setSidebar("open"),
+                showAllChats: () => searchEvent("toggle"),
               })}
             />
           ) : showNewTab ? (
@@ -2028,7 +1958,7 @@ function AcpmuxPane() {
                 setNewTab(undefined);
                 selectSession(sessionId);
               }}
-              onShowAll={() => setSidebar("open")}
+              onShowAll={() => searchEvent("toggle")}
               onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onBrowseProject={() => callNative<{ cwd?: string }>("project.browse").then((result) => result?.cwd)}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
@@ -2038,16 +1968,6 @@ function AcpmuxPane() {
               <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
                 <header className="acpmux-header">
                   <div>
-                    <button
-                      type="button"
-                      className="acpmux-sidebar-toggle"
-                      ref={sidebarToggle}
-                      aria-label={t("sidebar.sessions")}
-                      title={t("sidebar.sessions")}
-                      aria-controls="acpmux-sidebar"
-                      aria-expanded={sidebarShown}
-                      onClick={toggleSidebar}
-                    />
                     <strong className="acpmux-title">{header.title}</strong>
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
@@ -2107,7 +2027,8 @@ function AcpmuxPane() {
                 ) : freshChat ? (
                   <EmptyState
                     project={projectName(snapshot.summary?.cwd)}
-                    onNew={newChat}
+                    // A generic New picks the kind on the New Tab page; only "New chat" starts a chat.
+                    onNew={() => void callNative("action.run", { id: "newTab.page" }).catch(() => undefined)}
                     onImport={() => void callNative("onboarding.importAndSync").catch(() => undefined)}
                   />
                 ) : (

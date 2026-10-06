@@ -48,6 +48,12 @@ public struct ResourceReport: Sendable, Equatable {
 
     public static let empty = ResourceReport()
 
+    /// The per-tab rows under a workspace's total: its heaviest tabs, or none
+    /// for a lone tab, whose numbers are the total.
+    public func breakdown(_ limit: Int) -> [TabResourceReport] {
+        tabs.count > 1 ? topConsumers(limit) : []
+    }
+
     /// The heaviest tabs first: CPU (to 0.1%), then memory, then input order.
     public func topConsumers(_ limit: Int) -> [TabResourceReport] {
         let ranked = tabs.enumerated().filter(\.element.available).sorted { lhs, rhs in

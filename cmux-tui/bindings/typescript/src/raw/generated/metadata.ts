@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e. */
+/* cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e" as const;
+export const SDK_IR_SHA256 = "e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1464,6 +1464,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "agent-session-tabs-v1"
       },
+      "page": {
+        "since": null,
+        "capability": "page-tabs-v1"
+      },
       "transaction": {
         "since": null,
         "capability": "conversation-tab-transaction-v1"
@@ -1471,7 +1475,7 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": [
-      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), or agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), never both. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
+      "Send conversation and owner (owner is local or cloud; conversation is a conv_ id), agent_session (agent-session-tabs-v1: host install:<id>, optional session and harness), or page (page-tabs-v1: 1 to 64 lowercase letters, digits or '-', '_', '.'): exactly one source. pane and workspace are exclusive (workspace: its active pane, or its first pane when empty). origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true, the same pair with another source or target fails with idempotency.conflict, and a retry after that tab closed fails with error_code frontend_browser_key_closed. See spec/commands.md."
     ]
   },
   "new-frontend-browser-tab": {
@@ -3617,6 +3621,189 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "name": "string"
     }
   },
+  "Bookmark": {
+    "additional_properties": true,
+    "fields": {
+      "browser_profile_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "created_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "favicon_key": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "description": "`bm_` and 32 lowercase hex digits.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "index": {
+        "description": "Dense 0-based position among the node's siblings.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "description": "Known values: url, folder. Other values are future kinds.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "last_used_ms": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "parent": {
+        "description": "`bar`, `other`, or a folder's id.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "source_key": {
+        "description": "Folders only.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "url nodes.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BookmarkChangeResult": {
+    "additional_properties": true,
+    "fields": {
+      "bookmark": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Bookmark"
+        }
+      },
+      "changed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "replayed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BookmarkImportNode": {
+    "additional_properties": false,
+    "fields": {
+      "children": {
+        "description": "A folder's nodes.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "BookmarkImportNode"
+          },
+          "kind": "array"
+        }
+      },
+      "created_ms": {
+        "description": "Defaults to now.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "description": "url or folder.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "Required for a url node; refused for a folder.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "BrowserFrame": {
     "additional_properties": false,
     "fields": {
@@ -4636,7 +4823,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "fields": {
       "agent_session": {
         "capability": "agent-session-tabs-v1",
-        "description": "Agent session source (agent-session-tabs-v1); exclusive with conversation and owner.",
+        "description": "Agent session source (agent-session-tabs-v1); exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -4655,6 +4842,16 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "owner": {
         "description": "Conversation source: local or cloud.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "capability": "page-tabs-v1",
+        "description": "Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources.",
         "nullable": false,
         "presence": "optional",
         "type": {
@@ -7636,6 +7833,133 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "SavedTabGroupMember": {
+    "additional_properties": true,
+    "fields": {
+      "cwd": {
+        "description": "kind terminal.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "engine": {
+        "description": "kind browser. Known values: webkit, cef.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profile_id": {
+        "description": "kind browser.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "description": "kind terminal.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "title": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "description": "kind browser.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SavedTabGroupRecord": {
+    "additional_properties": true,
+    "fields": {
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "members": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "SavedTabGroupMember"
+          },
+          "kind": "array"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "room": {
+        "description": "The room whose bar shows the saved group (`default` for groups saved by these commands).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "updated_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "Screen": {
     "additional_properties": false,
     "fields": {
@@ -9088,6 +9412,204 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupEndedTerminal": {
+    "additional_properties": true,
+    "fields": {
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_incarnation": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupOutcome": {
+    "additional_properties": true,
+    "fields": {
+      "group": {
+        "description": "Null when the command left no group.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "TabGroupRecord"
+        }
+      },
+      "pane": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "surfaces": {
+        "description": "Members in strip order.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
+        }
+      },
+      "workspace": {
+        "description": "The workspace of the group's pane.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupRecord": {
+    "additional_properties": true,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "description": "May be empty: the group shows only its color.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "saved_id": {
+        "description": "The linked saved group.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TabGroupRun": {
+    "additional_properties": true,
+    "fields": {
+      "collapsed": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "color": {
+        "description": "Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pane": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "Id"
+        }
+      },
+      "saved_id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "start": {
+        "description": "Strip index of the first member.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "surfaces": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "Id"
+          },
+          "kind": "array"
         }
       }
     },
@@ -10728,7 +11250,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "apply-layout": {
@@ -11802,8 +12324,41 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "closed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        },
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "terminals": {
+          "description": "With end_terminals: the member terminals the close ended.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabGroupEndedTerminal"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "close-tabs": {
@@ -12905,7 +13460,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "BookmarkChangeResult"
     }
   },
   "create-browser-profile": {
@@ -13391,7 +13946,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "create-terminal": {
@@ -13756,8 +14311,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "deleted": {
+          "description": "The deleted node's id first, then its descendants.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "delete-browser-profile": {
@@ -13865,8 +14442,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "deleted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "delete-workspace-group": {
@@ -14253,7 +14848,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "items": {
               "kind": "ref",
-              "name": "JsonValue"
+              "name": "BookmarkImportNode"
             },
             "kind": "array"
           }
@@ -14297,8 +14892,39 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "count": {
+          "description": "Nodes in the request, descendants included.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "replayed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "root_ids": {
+          "description": "Top-level nodes written; in replace mode the kept folder first.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "import-session-organization": {
@@ -14421,8 +15047,30 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "bookmarks": {
+          "description": "The whole tree in depth-first pre-order: the bar tree, then the other tree.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Bookmark"
+            },
+            "kind": "array"
+          }
+        },
+        "bookmarks_revision": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "list-clients": {
@@ -14489,8 +15137,21 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "saved_groups": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "SavedTabGroupRecord"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "list-tab-groups": {
@@ -14500,8 +15161,21 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "groups": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "TabGroupRun"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "list-terminals": {
@@ -14705,7 +15379,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "BookmarkChangeResult"
     }
   },
   "move-browser-profile": {
@@ -14977,7 +15651,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-column": {
@@ -15042,7 +15716,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-new-workspace": {
@@ -15089,7 +15763,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-group-to-split": {
@@ -15143,7 +15817,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "move-tab-to-column": {
@@ -15777,6 +16451,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "owner": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "page": {
+          "capability": "page-tabs-v1",
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -17448,8 +18132,33 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "groups": {
+          "description": "Ids of the groups the tabs left.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "surfaces": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "rename-pane": {
@@ -17743,7 +18452,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "report-agent": {
@@ -18124,8 +18833,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "saved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "scroll-surface": {
@@ -20196,8 +20923,29 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surfaces": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "Id"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "unpin-workspace": {
@@ -20275,8 +21023,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     },
     "result": {
-      "kind": "ref",
-      "name": "JsonValue"
+      "additional_properties": true,
+      "fields": {
+        "group": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "unsaved": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "update-bookmark": {
@@ -20350,7 +21116,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "BookmarkChangeResult"
     }
   },
   "update-browser-profile": {
@@ -20686,7 +21452,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     },
     "result": {
       "kind": "ref",
-      "name": "JsonValue"
+      "name": "TabGroupOutcome"
     }
   },
   "update-workspace-group": {

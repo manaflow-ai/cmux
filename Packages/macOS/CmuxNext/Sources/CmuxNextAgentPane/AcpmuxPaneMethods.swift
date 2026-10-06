@@ -162,6 +162,19 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
+    /// The methods that copy a session's content into a new session the pane then controls: a
+    /// fork, and the handoff steps (prepare captures the source and makes the target, draft edits
+    /// what it carries, start sends it, discard closes the target). From a session in the pane's
+    /// scope they keep the rules above; from any other they use the click's scope credit, the same
+    /// as an attach that brings a session in (``AgentPaneUserGestures/consumeScope()``). The fork
+    /// and prepare name the source (`sessionId`); the others name the handoff (`handoffId`), whose
+    /// source the relay reads off the daemon's handoff records (``AcpmuxPaneSessions``).
+    /// `_acpmux/handoff_get` only reads a record, like the other reads of a read-only view.
+    public static let sourceScoped: Set<String> = [
+        "acp.session.fork", "_acpmux/handoff_prepare", "_acpmux/handoff_draft", "_acpmux/handoff_start",
+        "_acpmux/handoff_discard",
+    ]
+
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
     /// `rootRequested`: the host offered the user to add the refused folder as a root.
     public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {

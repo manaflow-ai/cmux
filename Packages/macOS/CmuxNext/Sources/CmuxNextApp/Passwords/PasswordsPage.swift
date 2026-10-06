@@ -6,7 +6,8 @@ import Foundation
 extension PageDescriptor {
     /// The Passwords page (plans/cmux-next/passwords.md 1.4): cmux-page://cmux.passwords/. It
     /// calls only its own namespace; it runs no registry action and no native op.
-    static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", namespaces: ["cmux.passwords."])
+    static let passwords = PageDescriptor(id: "cmux.passwords", resource: "passwords", namespaces: ["cmux.passwords."],
+                                          ownsSearchField: true)
 }
 
 extension InternalPageID {

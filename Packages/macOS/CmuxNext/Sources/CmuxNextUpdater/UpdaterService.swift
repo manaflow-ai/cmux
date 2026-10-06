@@ -296,7 +296,8 @@ public final class UpdaterService {
             lastProbeError: lastProbeError,
             channelSwitchTarget: identity.channelSwitchTarget,
             testFeedURL: testFeedURL,
-            card: card
+            card: card,
+            badge: settingsBadgeTitle
         )
     }
 

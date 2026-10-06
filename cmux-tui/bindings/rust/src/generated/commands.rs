@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e.
+// cmux-tui mux protocol 12, IR e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -40,7 +40,7 @@ pub struct AddTabsToTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type AddTabsToTabGroupResult = T::JsonValue;
+pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -401,7 +401,16 @@ pub struct CloseTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type CloseTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloseTabGroupResult {
+    pub closed: Vec<T::Id>,
+    pub group: String,
+    /// With end_terminals: the member terminals the close ended.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminals: Option<Vec<T::TabGroupEndedTerminal>>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -750,7 +759,7 @@ pub struct CreateBookmarkRequest {
 }
 
 #[rustfmt::skip]
-pub type CreateBookmarkResult = T::JsonValue;
+pub type CreateBookmarkResult = T::BookmarkChangeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -879,7 +888,7 @@ pub struct CreateTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type CreateTabGroupResult = T::JsonValue;
+pub type CreateTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -969,7 +978,14 @@ pub struct DeleteBookmarkRequest {
 }
 
 #[rustfmt::skip]
-pub type DeleteBookmarkResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteBookmarkResult {
+    /// The deleted node's id first, then its descendants.
+    pub deleted: Vec<String>,
+    pub replayed: bool,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1016,7 +1032,13 @@ pub struct DeleteSavedTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type DeleteSavedTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteSavedTabGroupResult {
+    pub deleted: bool,
+    pub saved: String,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1160,7 +1182,7 @@ pub struct ImportBookmarksRequest {
     pub index: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub mutation_id: Optional<String>,
-    pub nodes: Vec<T::JsonValue>,
+    pub nodes: Vec<T::BookmarkImportNode>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
     pub parent: String,
@@ -1171,7 +1193,16 @@ pub struct ImportBookmarksRequest {
 }
 
 #[rustfmt::skip]
-pub type ImportBookmarksResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportBookmarksResult {
+    /// Nodes in the request, descendants included.
+    pub count: u64,
+    pub replayed: bool,
+    /// Top-level nodes written; in replace mode the kept folder first.
+    pub root_ids: Vec<String>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1214,7 +1245,14 @@ pub struct ListBookmarksRequest {
 }
 
 #[rustfmt::skip]
-pub type ListBookmarksResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListBookmarksResult {
+    /// The whole tree in depth-first pre-order: the bar tree, then the other tree.
+    pub bookmarks: Vec<T::Bookmark>,
+    pub bookmarks_revision: u64,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1256,7 +1294,12 @@ pub struct ListSavedTabGroupsRequest {
 }
 
 #[rustfmt::skip]
-pub type ListSavedTabGroupsResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListSavedTabGroupsResult {
+    pub saved_groups: Vec<T::SavedTabGroupRecord>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1264,7 +1307,12 @@ pub struct ListTabGroupsRequest {
 }
 
 #[rustfmt::skip]
-pub type ListTabGroupsResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListTabGroupsResult {
+    pub groups: Vec<T::TabGroupRun>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1338,7 +1386,7 @@ pub struct MoveBookmarkRequest {
 }
 
 #[rustfmt::skip]
-pub type MoveBookmarkResult = T::JsonValue;
+pub type MoveBookmarkResult = T::BookmarkChangeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1426,7 +1474,7 @@ pub struct MoveTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type MoveTabGroupResult = T::JsonValue;
+pub type MoveTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1445,7 +1493,7 @@ pub struct MoveTabGroupToColumnRequest {
 }
 
 #[rustfmt::skip]
-pub type MoveTabGroupToColumnResult = T::JsonValue;
+pub type MoveTabGroupToColumnResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1460,7 +1508,7 @@ pub struct MoveTabGroupToNewWorkspaceRequest {
 }
 
 #[rustfmt::skip]
-pub type MoveTabGroupToNewWorkspaceResult = T::JsonValue;
+pub type MoveTabGroupToNewWorkspaceResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1475,7 +1523,7 @@ pub struct MoveTabGroupToSplitRequest {
 }
 
 #[rustfmt::skip]
-pub type MoveTabGroupToSplitResult = T::JsonValue;
+pub type MoveTabGroupToSplitResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1649,6 +1697,8 @@ pub struct NewConversationTabRequest {
     pub origin: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub owner: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub page: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2064,7 +2114,14 @@ pub struct RemoveTabsFromTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type RemoveTabsFromTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RemoveTabsFromTabGroupResult {
+    /// Ids of the groups the tabs left.
+    pub groups: Vec<String>,
+    pub surfaces: Vec<T::Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2150,7 +2207,7 @@ pub struct ReopenSavedTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type ReopenSavedTabGroupResult = T::JsonValue;
+pub type ReopenSavedTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2244,7 +2301,13 @@ pub struct SaveTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type SaveTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SaveTabGroupResult {
+    pub group: String,
+    pub saved: String,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2819,7 +2882,13 @@ pub struct UngroupTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type UngroupTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UngroupTabGroupResult {
+    pub group: String,
+    pub surfaces: Vec<T::Id>,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2855,7 +2924,13 @@ pub struct UnsaveTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type UnsaveTabGroupResult = T::JsonValue;
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UnsaveTabGroupResult {
+    pub group: String,
+    pub unsaved: bool,
+    #[serde(flatten)]
+    pub additional: BTreeMap<String, serde_json::Value>,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2876,7 +2951,7 @@ pub struct UpdateBookmarkRequest {
 }
 
 #[rustfmt::skip]
-pub type UpdateBookmarkResult = T::JsonValue;
+pub type UpdateBookmarkResult = T::BookmarkChangeResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2978,7 +3053,7 @@ pub struct UpdateTabGroupRequest {
 }
 
 #[rustfmt::skip]
-pub type UpdateTabGroupResult = T::JsonValue;
+pub type UpdateTabGroupResult = T::TabGroupOutcome;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3699,6 +3774,9 @@ impl CmuxClient {
     pub fn new_conversation_tab(&mut self, request: NewConversationTabRequest) -> Result<NewConversationTabResult> {
         if !request.agent_session.is_missing() {
             self.require_capability_field("new-conversation-tab", "agent-session-tabs-v1")?;
+        }
+        if !request.page.is_missing() {
+            self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;

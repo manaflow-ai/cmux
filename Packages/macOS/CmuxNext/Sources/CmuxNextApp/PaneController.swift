@@ -106,9 +106,16 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
         let workspaceID = store.workspace(containing: pane.handle)?.id
         var items = pane.tabs.filter { !pendingClosed.contains($0.id) }.map { tab -> StripTabItem in
-            let untitled = tab.agentSession != nil ? AgentPaneModel.tabTitle
+            // A new tab page is "New Tab" until it becomes a chat (then the chat's title).
+            let untitled = tab.agentSession != nil
+                ? services.agentTabs.pageTabs.ids.contains(tab.id) ? Strings.untitledBrowser : AgentPaneModel.tabTitle
                 : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
             var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled)
+            if tab.page != nil, let page = services.pages.storeTabItem(tab) {
+                // A page tab names and badges itself like the page it shows.
+                item.title = page.title
+                item.icon = page.icon
+            }
             item.groupID = tab.tabGroup.map { TabGroupID($0.rawValue) }
             if !DesignSettings.shared.attention.showsOnTab { item.isUnread = false }
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
@@ -291,6 +298,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
+        case .conversation where tab.page != nil:
+            return services.pages.view(forStoreTab: tab, in: daemon.store, window: state.flatMap { services.windows.controller(for: $0.id) })
+                .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil

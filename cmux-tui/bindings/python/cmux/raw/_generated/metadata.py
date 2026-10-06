@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'c791daea9e2a658f8293f260b364a89979c93c5813028768c8d545339bc50b5e'
+IR_SHA256 = 'e7378f301e13dc99c91f765a4ddec09f27222945fc11c0179dd2159e46194326'
 
 
 @dataclass(frozen=True)
@@ -1646,6 +1646,7 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
             'owner': CommandFieldMetadata(None, None),
+            'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),

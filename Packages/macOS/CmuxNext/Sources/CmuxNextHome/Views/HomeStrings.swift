@@ -80,11 +80,19 @@ enum HomeStrings {
     }
     static var playVideo: String { String(localized: "home.video.play", defaultValue: "Play Video", bundle: .module) }
     static var pauseVideo: String { String(localized: "home.video.pause", defaultValue: "Pause Video", bundle: .module) }
-    static var firstRunTitle: String {
-        String(localized: "home.firstRun.title", defaultValue: "Chief runs your agents on this Mac.", bundle: .module)
+    static var firstRunLead: String {
+        String(localized: "home.firstRun.lead", defaultValue: "Ask Chief below, or start something new.", bundle: .module)
     }
-    static var firstRunBody: String {
-        String(localized: "home.firstRun.body", defaultValue: "Ask it to start work, check on your agents, or answer what they need.", bundle: .module)
+    static var firstRunOpenTerminal: String {
+        String(localized: "home.firstRun.openTerminal", defaultValue: "Open a terminal", bundle: .module)
+    }
+    static var firstRunStartAgent: String {
+        String(localized: "home.firstRun.startAgent", defaultValue: "Start an agent", bundle: .module)
+    }
+    /// The keyboard hint under the first-run rows; `keys` is the tab family's
+    /// shortcut as the registry shows it (`⌃1…9`).
+    static func firstRunTabsHint(_ keys: String) -> String {
+        String(format: String(localized: "home.firstRun.tabsHint", defaultValue: "%@ switches tabs.", bundle: .module), keys)
     }
     static var memoryDeviceOnly: String {
         String(localized: "home.chief.memoryScope.deviceOnly", defaultValue: "This Chief remembers on this device only.", bundle: .module)

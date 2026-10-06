@@ -52,8 +52,9 @@ pub struct Gate {
     fetches: Mutex<fetch::FetchSlots>,
     /// Signalled when a fetch slot frees or the session ends.
     fetch_slot_free: std::sync::Condvar,
-    /// HOST-FETCH-CORS relaxations (policy op "corsLog"), kept apart from
-    /// the blocked-request log the runtime shows as blockedNavigations().
+    /// The host fetch log (policy op "corsLog"): HOST-FETCH-CORS
+    /// relaxations and redirect hops whose address never arrived; kept apart
+    /// from the blocked-request log the runtime shows as blockedNavigations().
     cors_log: Mutex<Vec<Value>>,
     /// The newest requests the filter refused (URL, reason), so a fetch
     /// that failed on a redirect hop can say which hop and why. Not the
