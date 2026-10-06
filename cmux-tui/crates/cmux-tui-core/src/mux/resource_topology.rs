@@ -3016,7 +3016,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
-                mutation.origin != super::terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
+                mutation.origin != terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
             )?;
             (target, plan)
         } else {
@@ -3590,7 +3590,8 @@ impl Mux {
             registry,
             state,
             &mut projected,
-            notifications, close_emptied_workspaces,
+            notifications,
+            close_emptied_workspaces,
         )? {
             (delta, changed_screens, workspace_was_active) =
                 (emptied.delta, emptied.changed_screens, emptied.was_active);

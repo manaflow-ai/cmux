@@ -24,6 +24,12 @@
         "reason": "Linux font metrics render the printed text image 1 px taller (400x38 instead of 400x37)."
       }
     },
+    "host-headless": {
+      "05-input": {
+        "keys": ["select-all-delete", "trusted-types"],
+        "reason": "Meta+A is not select-all on Linux (Chromium uses Ctrl+A there; the CDP driver sends macOS editing commands only on macOS), so the field keeps its text and fires change on blur; the goldens are macOS behavior."
+      }
+    },
     "oracle": {
       "05-input": {
         "keys": ["select-all-delete", "trusted-types"],

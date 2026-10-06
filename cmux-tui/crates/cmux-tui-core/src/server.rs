@@ -257,6 +257,12 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertised only while this owner's unplaced-terminal reaper runs (the
+/// owner was started with `--terminal-reap-grace-seconds`). Without it a
+/// detached terminal lives until it is ended or the session ends, so a
+/// client that closes a tab should end the terminal (`close-terminal`)
+/// instead of only detaching it (`close-surface`).
+pub const TERMINAL_REAPER_ACTIVE_CAPABILITY: &str = "terminal-reaper-active-v1";
 /// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
 /// every terminal ends but the placed ones keep their tabs, so the next
 /// owner shows the same screens, splits and tabs, each dead until a

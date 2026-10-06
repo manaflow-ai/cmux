@@ -321,9 +321,9 @@ public final class AgentPaneView: NSView {
         motionObservation = nil
         if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
         if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
-        reduceMotionObserver = nil
-        reduceMotionOverrideObserver = nil
+        (reduceMotionObserver, reduceMotionOverrideObserver) = (nil, nil)
         dictation.close()
+        model.shell.terminateAll()
         if let gestureMonitor { NSEvent.removeMonitor(gestureMonitor) }
         gestureMonitor = nil
         if let connection = model.transport.connection { model.transport.close(connection: connection) }

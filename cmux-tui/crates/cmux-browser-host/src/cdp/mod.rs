@@ -14,6 +14,7 @@ mod cookies;
 mod cors;
 mod dispatch;
 mod downloads;
+mod drag;
 mod driver;
 mod evaluate;
 mod fetch;
