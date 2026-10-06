@@ -12,7 +12,7 @@ import os
 /// The host is the executable named by `CMUX_NEXT_MUX_HOST` (the TypeScript
 /// `mux`, or a local optchat-chief build), else the OptChat Chief that DEV
 /// and NIGHTLY builds bundle as Contents/Resources/bin/optchat-chief
-/// (scripts/cmux-next/bundle-optchat-chief.sh; cmux-tui/crates/optchat-chief,
+/// (scripts/cmux-next/bundle-optchat-chief.sh; Native/OptChat/optchat-chief,
 /// chief-done.md check 7: every Chief turn follows OptChat). The bundled
 /// Chief starts only on DEV and NIGHTLY (`bundledChiefAllowed`, the
 /// DevTools channel rule); Release and RC never bundle or start it: Home

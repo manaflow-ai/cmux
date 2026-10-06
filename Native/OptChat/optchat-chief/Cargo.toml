@@ -6,7 +6,7 @@ description = "An OptChat Chief for cmux-next Home: the brain-host contract of m
 license = "MIT"
 publish = false
 
-# Its own workspace (not a cmux-tui member): the Chief ships in the app bundle, on its own lockfile.
+# Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
 [workspace]
 
 [lib]
@@ -21,11 +21,11 @@ path = "src/main.rs"
 optchat-core = { path = "../optchat-core" }
 optchat-host = { path = "../optchat-host" }
 # The daemon client (local-conversations-v1 over the session socket).
-cmux-sdk = { path = "../../bindings/rust" }
+cmux-sdk = { path = "../../../cmux-tui/bindings/rust" }
 # Wire types of the conversation owner, and the pure ports of mux/host's wake
 # rule, turn folding and acpmux types.
-cmux-conversation = { path = "../cmux-conversation" }
-cmux-chief = { path = "../cmux-chief" }
+cmux-conversation = { path = "../../../cmux-tui/crates/cmux-conversation" }
+cmux-chief = { path = "../../../cmux-tui/crates/cmux-chief" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Rebuilds src/optchat-wasm from cmux-tui/crates/optchat-wasm (Rust) on the build host: Cargo never runs on
+# Rebuilds src/optchat-wasm from Native/OptChat/optchat-wasm (Rust) on the build host: Cargo never runs on
 # the laptop. Needs the wasm32-unknown-unknown target and wasm-bindgen-cli 0.2.129 there.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$(git rev-parse --show-toplevel)"
-rel="cmux-tui/crates/optchat-wasm"
+rel="Native/OptChat/optchat-wasm"
 nx-remote --cwd "$rel" --fetch "$rel/pkg" -- bash -c \
   'umask 022; cargo build --release --target wasm32-unknown-unknown && wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/optchat_wasm.wasm'
 job="$(ls -t "$root/artifacts/nx-remote" | head -1)"

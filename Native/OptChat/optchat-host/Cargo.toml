@@ -6,7 +6,7 @@ description = "OptChat I/O for the MacBook and Mac mini placements: file store, 
 license = "MIT"
 publish = false
 
-# Its own workspace (not a cmux-tui member): the Chief ships in the app bundle, on its own lockfile.
+# Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
 [workspace]
 
 [dependencies]

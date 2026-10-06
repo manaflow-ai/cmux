@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the OptChat Chief brain host (cmux-tui/crates/optchat-chief, its own
+# Build the OptChat Chief brain host (Native/OptChat/optchat-chief, its own
 # Cargo workspace and lockfile) for the cmux-next app bundle, the same way build-acpmux.sh builds acpmux:
 # only on CI or a fleet build (CMUX_FLEET_BUILD_TAG), into an immutable,
 # commit-addressed cache that a later local reload may reuse. It never runs
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-crate="$repo_root/cmux-tui/crates/optchat-chief"
+crate="$repo_root/Native/OptChat/optchat-chief"
 
 usage() {
   sed -n '2,12p' "$0" | sed 's/^# //'
