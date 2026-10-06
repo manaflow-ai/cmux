@@ -98,6 +98,16 @@ entries, which only the person (user origin) reads, as `tab.info
 unroutedEvents` (that tab's entries) on a tab they may use. Engine or app
 events named `host.policyLog` are dropped: only the host writes that log.
 
+cmux-next shared headless browser, `session.configure` (item 4d): the user
+agent and extra headers are set per tab before its first request (a popup
+starts with its opener's) on the tabs the session created and did not keep;
+`tab.keep` and the session's end restore the browser's own. `proxy` opens a
+private browser context (its own cookie jar) for the tabs the session opens
+afterwards, popups included; it closes at the session's end unless a tab in
+it was kept (then at host exit). Not yet: proxy credentials and
+`permissions` (both answer `unsupported`); `cookies.*` without `targetId`
+still use the profile's store, not the proxy store.
+
 When the last session leaves a tab, the driver releases what the sessions
 left pressed: each held key gets its key-up (last pressed first) and each
 held mouse button its button-up at the last mouse position, or the drag it
