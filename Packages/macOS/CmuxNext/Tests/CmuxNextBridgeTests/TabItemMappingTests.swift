@@ -62,3 +62,25 @@ struct AgentSessionTabItemTests {
         #expect(item.title == "Chat")
     }
 }
+
+/// A new terminal is titled before its shell reports a title (#17485):
+/// it shows the folder the shell titles it with, not a generic name that
+/// the shell's first title replaces a frame later.
+@MainActor
+struct UntitledTerminalTabTitleTests {
+    private func terminal(cwd: String?) throws -> TabModel {
+        let cwd = cwd.map { #","cwd":"\#($0)""# } ?? ""
+        let line = #"{"surface":3,"kind":"terminal","title":""\#(cwd)}"#
+        return TabModel(try JSONDecoder().decode(TabSnapshot.self, from: Data(line.utf8)))
+    }
+
+    @Test func anUntitledTerminalShowsItsFolder() throws {
+        let home = NSHomeDirectory()
+        #expect(TabItemMapping.shared.item(try terminal(cwd: home), fallbackTitle: "Terminal").title == "~")
+        #expect(TabItemMapping.shared.item(try terminal(cwd: home + "/src"), fallbackTitle: "Terminal").title == "~/src")
+    }
+
+    @Test func anUntitledTerminalWithoutAFolderKeepsTheFallback() throws {
+        #expect(TabItemMapping.shared.item(try terminal(cwd: nil), fallbackTitle: "Terminal").title == "Terminal")
+    }
+}
