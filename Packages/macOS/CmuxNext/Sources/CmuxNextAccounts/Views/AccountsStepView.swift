@@ -48,10 +48,10 @@ public struct AccountsStepView: View {
         .onAppear { model.refresh() }
     }
 
-    /// The newest failure of any row, else why CodeRouter is unreachable.
+    /// The newest failure of any row.
     private var lastProblem: String? {
         for row in rows { if case .failed(let message) = row.outcome { return message } }
-        return model.isSignedInToCmux ? model.codeRouterProblem.map(AccountsStrings.codeRouterUnavailable) : nil
+        return nil
     }
 }
 
