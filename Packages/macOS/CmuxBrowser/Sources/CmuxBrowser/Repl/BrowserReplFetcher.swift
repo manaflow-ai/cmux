@@ -41,6 +41,18 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         )
     }
 
+    /// The most one request sends, its URL, method, headers and decoded body
+    /// together: one call's ``BrowserReplResource/requestBytes`` limit of the
+    /// session's resource ledger, 64 MiB.
+    public static let maxRequestBytes = BrowserReplResourceLimits.standard.each(.requestBytes) ?? maxRequestBodyBytes
+
+    private static func requestTooLarge(atLeast count: Int) -> BrowserReplDriverError {
+        BrowserReplDriverError(
+            code: "invalid",
+            message: "fetch: the request (URL, headers and body) is more than \(count) bytes; a fetch sends at most 64 MiB"
+        )
+    }
+
     /// The most response body bytes one fetcher's requests hold at once, 128 MiB.
     public static let defaultMaxBufferedBytes = 128 << 20
 
@@ -173,7 +185,18 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         )
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = (request["method"] as? String)?.uppercased() ?? "GET"
+        // The URL, method and headers count toward the request's size with
+        // the decoded body, under one call's request limit of the session's
+        // ledger, so the 1 MiB the pre-parse bound leaves for them cannot
+        // grow into the body's room.
+        var requestBytes = urlString.utf8.count + (urlRequest.httpMethod?.utf8.count ?? 0)
         if let headers = request["headers"] as? [[String]] {
+            for pair in headers where pair.count == 2 {
+                requestBytes += pair[0].utf8.count + pair[1].utf8.count
+            }
+            guard requestBytes <= Self.maxRequestBytes else {
+                return (.failure(Self.requestTooLarge(atLeast: requestBytes)), 0)
+            }
             for pair in headers where pair.count == 2 {
                 urlRequest.addValue(pair[1], forHTTPHeaderField: pair[0])
                 info.callerHeaders.append(pair[0])
@@ -185,6 +208,9 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
             let decodedAtLeast = max(0, body.utf8.count / 4 * 3 - padding)
             guard decodedAtLeast <= Self.maxRequestBodyBytes else {
                 return (.failure(Self.requestBodyTooLarge(atLeast: decodedAtLeast)), 0)
+            }
+            guard requestBytes + decodedAtLeast <= Self.maxRequestBytes else {
+                return (.failure(Self.requestTooLarge(atLeast: requestBytes + decodedAtLeast)), 0)
             }
             if let data = Data(base64Encoded: body) { urlRequest.httpBody = data }
         }

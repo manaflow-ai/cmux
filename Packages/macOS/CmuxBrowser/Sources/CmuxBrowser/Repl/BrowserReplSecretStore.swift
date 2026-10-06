@@ -305,11 +305,22 @@ public final class BrowserReplSecretStore: @unchecked Sendable {
         guard groups.count <= maximumPatterns else {
             throw invalid("secrets.load: \(groups.count) domain patterns, past the \(maximumPatterns) the store can hold")
         }
+        // Each (name, pattern) pair registers a name or adds a domain to
+        // one, so more pairs than the store holds at once is refused before
+        // the scans below run on the session's thread.
+        var entryCount = 0
+        for rawEntries in groups.values {
+            entryCount += (rawEntries as? [String: Any])?.count ?? 0
+            guard entryCount <= maximumPatterns else {
+                throw invalid("secrets.load: more than \(maximumPatterns) name and domain pattern pairs, the most the store can hold")
+            }
+        }
         if !allowWeak {
             // One pass of a constant check per value, before anything is
-            // registered.
+            // registered, asking `isCancelled` between patterns.
             var weakNames: Set<String> = []
             for rawEntries in groups.values {
+                if isCancelled() { throw CancellationError() }
                 for (name, raw) in rawEntries as? [String: Any] ?? [:] {
                     if let value = ((raw as? [String: Any])?["value"] ?? raw) as? String, Self.isWeak(value) { weakNames.insert(name) }
                 }

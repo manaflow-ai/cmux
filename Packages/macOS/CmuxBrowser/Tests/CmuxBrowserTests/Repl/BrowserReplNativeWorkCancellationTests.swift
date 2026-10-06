@@ -83,10 +83,11 @@ struct BrowserReplNativeWorkCancellationTests {
         var group: [String: Any] = [:]
         for index in 0..<200 { group[String(format: "k%03d", index)] = "value-\(index)-s3cr3t" }
         var checks = 0
-        // The start and the group pass; the next check is cancelled.
+        // The start, the weak-value check's group, the group and its first
+        // entry pass; the next check is cancelled.
         let cancelled = { () -> Bool in
             checks += 1
-            return checks > 3
+            return checks > 4
         }
         #expect(throws: CancellationError.self) { try store.load(["example.com": group], isCancelled: cancelled) }
         let loaded = store.describe().count
