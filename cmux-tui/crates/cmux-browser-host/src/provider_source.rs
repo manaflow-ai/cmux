@@ -4,12 +4,12 @@
 //! the app's tab id to the page's CDP target id and back.
 
 use crate::cdp::CdpDriver;
-use crate::driver::{Driver, EventSink};
+use crate::driver::{Driver, EventSink, Reply};
 use crate::lease::{LeaseCaller, LeaseError, LeaseOp};
 use crate::protocol::{DriverError, DriverEvent};
-use crate::provider::{LeaseState, TabAnnounce};
+use crate::provider::LeaseState;
 use crate::provider_link::ProviderDriver;
-use crate::tab_source::{TabCall, TabSource};
+use crate::tab_source::{TabCall, TabRow, TabSource};
 use serde_json::Value;
 use std::sync::{Arc, PoisonError};
 
@@ -207,8 +207,24 @@ impl TabSource for ProviderSource {
         self.0.unsubscribe(id);
     }
 
-    fn tab_list(&self, engine: &str) -> Vec<TabAnnounce> {
-        self.0.tab_list(Some(engine))
+    /// The app's announced tabs. `windowId` names the workspace, the
+    /// profile is the data store, a visible tab is the active one; the app
+    /// announces live tabs only.
+    fn tab_rows(&self, engine: &str) -> Vec<TabRow> {
+        self.0
+            .tab_list(Some(engine))
+            .into_iter()
+            .map(|tab| TabRow {
+                target_id: tab.target_id,
+                title: tab.title,
+                url: tab.url,
+                active: tab.visible,
+                window_id: Value::String(tab.workspace),
+                state: "live".to_owned(),
+                data_store: tab.profile,
+                opener: None,
+            })
+            .collect()
     }
 
     fn tab_engine(&self, target_id: &str) -> Option<String> {
@@ -231,7 +247,7 @@ impl TabSource for ProviderSource {
         Driver::call(&*self.0, method, params)
     }
 
-    fn tab_call(&self, call: &TabCall<'_>) -> Result<Value, DriverError> {
+    fn tab_call(&self, call: &TabCall<'_>) -> Result<Reply, DriverError> {
         if call.engine == "cef" && !matches!(call.method, "tabs.close" | "tabs.activate") {
             self.0.drive_tab(call.session, call.target_id);
             self.0.call_cef(call.method, call.target_id, call.params, call.agent_source)
@@ -241,6 +257,7 @@ impl TabSource for ProviderSource {
         } else {
             Driver::call(&*self.0, call.method, call.params)
         }
+        .map(Reply::Value)
     }
 
     /// CEF tabs take the session's filter on their relays (for the tabs the

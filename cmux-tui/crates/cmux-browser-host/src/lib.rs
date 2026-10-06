@@ -16,6 +16,10 @@ pub mod driver;
 pub mod engines;
 pub mod fs_sandbox;
 pub mod gate;
+#[cfg(unix)]
+pub mod headless_routes;
+#[cfg(unix)]
+pub mod headless_source;
 pub mod host;
 pub mod idle_exit;
 pub mod lease;
