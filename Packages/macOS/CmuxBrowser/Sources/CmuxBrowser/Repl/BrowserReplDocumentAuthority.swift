@@ -182,6 +182,14 @@ public struct BrowserReplDocumentAuthority: Sendable {
         guard let subject = access.subject else { return .allowed }
         switch subject {
         case .load(let url):
+            // A local file outside the session's directories, whatever the
+            // policy: navigation refuses one before it loads, and a load the
+            // page starts (seen as a network event while the frame still
+            // shows its old document) must not name it either.
+            if let roots = fileRoots,
+               let reason = BrowserReplFileSandbox.localPageRefusal(url: url, documentOrigin: nil, roots: roots) {
+                return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: reason))
+            }
             guard let reason = policy.blockReason(url) else { return .allowed }
             return .refused(BrowserReplRefusal(code: "blocked", reason: reason, message: "\(url) is blocked: \(reason)"))
         case .tabPage(let url):

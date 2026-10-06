@@ -420,7 +420,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   request (WebKit's document id on the request, matched to a frame tree
   read; an event whose document cannot be told, or that WebKit names no
   document for, reaches no session whose authority is active in the tab,
-  and a document load is also judged by the URL it loads), the sessions whose authority allows the sending
+  and a document load is also judged by the URL it loads, by the domain
+  policy and the session's file roots, so a load of a file outside the
+  session's directories reaches no session even while the frame tree still
+  names the frame's earlier document), the sessions whose authority allows the sending
   document for console messages and page errors, the one routed session
   for dialogs and file choosers judged by the opening frame's document,
   the download's session judged by its source); the driver drops any other
