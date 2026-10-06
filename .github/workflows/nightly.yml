@@ -136,6 +136,8 @@ jobs:
       legacy_variant: ${{ steps.decide.outputs.legacy_variant }}
       fast_build: ${{ steps.decide.outputs.fast_build }}
       build_only: ${{ steps.decide.outputs.build_only }}
+      # A forced rebuild of a published commit (the resolver honors it too).
+      force: ${{ steps.decide.outputs.force }}
       cold_cache: ${{ steps.decide.outputs.cold_cache }}
       # Channel identity. `channel` is `nightly` or `rc`; the rest are the
       # derived strings so no later job re-derives them from the ref.
@@ -466,6 +468,7 @@ jobs:
             const appBuildSelected = shouldBuild && !pushThrottled && !scheduledCacheOnly;
             core.setOutput('should_build', shouldBuild && !pushThrottled ? 'true' : 'false');
             core.setOutput('head_sha', headSha);
+            core.setOutput('force', forceBuild ? 'true' : 'false');
             core.setOutput('short_sha', headSha.slice(0, 7));
             core.setOutput('published_sha', publishedSha || '');
             core.setOutput('should_publish', shouldPublish ? 'true' : 'false');
@@ -908,8 +911,8 @@ jobs:
           key: ${{ steps.derived-data-seed-key.outputs.scoped }}${{ needs.decide.outputs.head_sha }}
 
   build-nightly-ghostty-cli-helper:
-    needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    needs: [decide, resolve-nightly-cmux-tui-client]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || (needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
@@ -930,7 +933,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
       - name: Install Zig
@@ -1020,11 +1023,11 @@ jobs:
           retention-days: 3
 
   build-nightly-app:
-    needs: decide
+    needs: [decide, resolve-nightly-cmux-tui-client]
     outputs:
       daemon_build: ${{ steps.remote_daemon.outputs.build }}
       daemon_version: ${{ steps.remote_daemon.outputs.version }}
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
     # Owned minis first. Attempt 1 of a push or schedule run on main takes one
     # trusted owned mini while CI_PR_POOL_OWNED is 1 and both variables below
     # are set: runs-on asks for the trusted pool label (vars.CI_SEED_TRUSTED_POOL,
@@ -1076,7 +1079,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
       - name: Select Xcode
@@ -1114,7 +1117,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           restore-keys: |
             xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-
 
@@ -1163,7 +1166,7 @@ jobs:
         if: env.NIGHTLY_FAST_BUILD == 'true'
         working-directory: cmux-tui
         env:
-          CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-nightly-${{ needs.decide.outputs.short_sha }}
+          CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-nightly-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
@@ -1331,7 +1334,7 @@ jobs:
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           path: build-universal/CompilationCache.noindex
-          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.decide.outputs.head_sha }}
+          key: xcode-compilation-release-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.toolchain }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Save Swift packages
         if: steps.swift-packages-restore.outputs.cache-hit != 'true'
@@ -1463,15 +1466,30 @@ jobs:
   # compile (runs 36044415287, 36051668491); here it overlaps the compile.
   resolve-nightly-cmux-tui-client:
     needs: decide
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    # Runs for every app build (build_only and fast included): it picks the
+    # commit every app job checks out (build_sha).
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       contents: read
-    # Waits up to 45 minutes for the artifacts workflow to publish this tree.
-    timeout-minutes: 55
+    # Never waits for the tip's tree: it takes the newest published one.
+    timeout-minutes: 15
     outputs:
       commit: ${{ steps.resolve.outputs.commit }}
       key: ${{ steps.resolve.outputs.key }}
+      source_commit: ${{ steps.resolve.outputs.source_commit }}
+      # The commit every app build, sign and publish job checks out, so app and
+      # daemon come from one commit: source_commit when the resolver ran, else
+      # (fast and build_only builds compile their own client) the tip.
+      build_sha: ${{ steps.build.outputs.build_sha }}
+      build_short_sha: ${{ steps.build.outputs.build_short_sha }}
+      tip_sha: ${{ needs.decide.outputs.head_sha }}
+      behind: ${{ steps.build.outputs.behind }}
+      behind_hours: ${{ steps.build.outputs.behind_hours }}
+      # decide compares the TIP with the published marker; this compares the
+      # resolved build commit, so a run whose tip moved but whose resolved
+      # commit is already published builds nothing.
+      already_published: ${{ steps.build.outputs.already_published }}
     steps:
       - name: Checkout build ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1479,24 +1497,67 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
           submodules: false
+          # The resolver searches the last CMUX_TUI_TREE_SEARCH_COMMITS commits.
+          fetch-depth: 64
 
       # The fast arm64 build bundles its own compiled client instead.
-      # The nightly ships the daemon built from its own cmux-tui tree, as every
-      # tagged build does (scripts/cmux-next/pin-cmux-tui.sh --help): the commit
-      # that published this tree, whose attested manifest the sign job installs.
+      # The nightly ships the daemon of the newest commit (within the last
+      # CMUX_TUI_TREE_SEARCH_COMMITS) whose cmux-tui tree IS published, verified
+      # by its publishing commit's manifest sha256; the sign job installs that
+      # commit's attested manifest. It never waits for the tip's own tree:
+      # cmux-tui-artifacts.yml lets a running build finish and a newer push
+      # replaces only the pending run, so under steady pushes the tip's tree may
+      # never publish (run 37464320457 failed after 45 min waiting for it).
       - name: Resolve cmux-tui client commit
         id: resolve
-        if: needs.decide.outputs.fast_build != 'true'
+        if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true'
         env:
-          CMUX_TUI_TREE_WAIT_SECONDS: "2700"
+          CMUX_TUI_TREE_SEARCH_COMMITS: "50"
+          # Never ship a stale build: more than 24 h behind the tip fails.
+          CMUX_TUI_TREE_MAX_AGE_HOURS: "24"
         run: |
           set -euo pipefail
-          cmux_tui_key="$(scripts/cmux-next/pin-cmux-tui.sh key)"
-          cmux_tui_commit="$(scripts/cmux-next/pin-cmux-tui.sh resolve-commit)"
-          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]]
-          echo "cmux-tui tree $cmux_tui_key: commit $cmux_tui_commit"
-          echo "commit=$cmux_tui_commit" >> "$GITHUB_OUTPUT"
-          echo "key=$cmux_tui_key" >> "$GITHUB_OUTPUT"
+          # Prints commit=, key=, source_commit=, tip_key=, behind= and
+          # behind_hours= lines and writes them to the step summary.
+          resolved="$(scripts/cmux-next/pin-cmux-tui.sh resolve-newest-published)"
+          printf '%s\n' "$resolved"
+          grep -Eq '^commit=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Eq '^source_commit=[0-9a-f]{40}$' <<<"$resolved"
+          grep -Eq '^key=[0-9a-f]{40}$' <<<"$resolved"
+          printf '%s\n' "$resolved" >> "$GITHUB_OUTPUT"
+
+      - name: Choose the build commit
+        id: build
+        env:
+          TIP_SHA: ${{ needs.decide.outputs.head_sha }}
+          SOURCE_COMMIT: ${{ steps.resolve.outputs.source_commit }}
+          BEHIND: ${{ steps.resolve.outputs.behind }}
+          BEHIND_HOURS: ${{ steps.resolve.outputs.behind_hours }}
+          PUBLISHED_SHA: ${{ needs.decide.outputs.published_sha }}
+          SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+          FORCE_BUILD: ${{ needs.decide.outputs.force }}
+        run: |
+          set -euo pipefail
+          build_sha="${SOURCE_COMMIT:-$TIP_SHA}"
+          [[ "$build_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "error: no build commit" >&2; exit 1; }
+          {
+            echo "build_sha=$build_sha"
+            echo "build_short_sha=${build_sha:0:7}"
+            echo "behind=${BEHIND:-0}"
+            echo "behind_hours=${BEHIND_HOURS:-0}"
+          } >> "$GITHUB_OUTPUT"
+          already_published=false
+          if [[ "$SHOULD_PUBLISH" == true && "$FORCE_BUILD" != true && "$build_sha" == "$PUBLISHED_SHA" ]]; then
+            already_published=true
+            echo "::notice title=Nightly already published::the resolved build commit $build_sha is already published; nothing to build (force=true rebuilds it)"
+          fi
+          echo "already_published=$already_published" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Nightly build commit"
+            echo "- build commit (app and cmux-tui daemon): \`$build_sha\`"
+            echo "- tip: \`$TIP_SHA\` (${BEHIND:-0} commits and ${BEHIND_HOURS:-0} h behind)"
+            echo "- already published: $already_published"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the
@@ -1504,7 +1565,7 @@ jobs:
     # track uses `release-next`, whose policy allows only branch nightly-next.
     environment: ${{ needs.decide.outputs.environment }}
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client]
-    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
     # actions:read lets the parallel artifact download resolve the blob URL.
     permissions:
@@ -1557,7 +1618,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           # Signing reads only this repository's scripts, tests, license and
           # entitlements. The ghostty, bonsplit and homebrew submodules cost
           # ~15s of fetch on every variant and are never read here.
@@ -1810,7 +1871,7 @@ jobs:
       - name: Inject nightly identities and metadata
         run: |
           set -euo pipefail
-          SHORT_SHA="${{ needs.decide.outputs.short_sha }}"
+          SHORT_SHA="${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}"
           APP_DIR="build-universal/Build/Products/Release"
 
           # The producer owns the version for both the daemon and every app variant.
@@ -2115,7 +2176,7 @@ jobs:
         if: needs.decide.outputs.fast_build == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-fast-${{ needs.decide.outputs.short_sha }}
+          name: cmux-nightly-fast-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: |
             ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
             ${{ needs.decide.outputs.dmg_prefix }}-arm64-*.dmg
@@ -2139,10 +2200,10 @@ jobs:
     concurrency:
       group: release-publish-${{ needs.decide.outputs.release_tag }}
       cancel-in-progress: false
-    needs: [decide, build-nightly-app, build-sign-notarize-nightly]
+    needs: [decide, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client]
     outputs:
       tag_status: ${{ steps.tag-outcome.outputs.tag_status }}
-    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
+    if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -2158,7 +2219,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
 
       - name: Download nightly variant artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -2204,7 +2265,7 @@ jobs:
         if: needs.decide.outputs.should_publish != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cmux-nightly-${{ needs.decide.outputs.short_sha }}
+          name: cmux-nightly-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: |
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.dmg
             nightly-out/${{ needs.decide.outputs.dmg_prefix }}*.delta
@@ -2281,7 +2342,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1'
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
         run: |
           set -euo pipefail
           short="${HEAD_SHA:0:11}"
@@ -2333,14 +2394,15 @@ jobs:
         with:
           token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ needs.decide.outputs.head_sha }}
+          target_commitish: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           name: ${{ needs.decide.outputs.release_name }}
           prerelease: true
           make_latest: false
           draft: false
           body: |
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ needs.decide.outputs.head_sha }}`.
+            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
+            Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
+            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
             **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
             - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
             - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
@@ -2407,15 +2469,16 @@ jobs:
         with:
           token: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           tag_name: ${{ needs.decide.outputs.release_tag }}
-          target_commitish: ${{ needs.decide.outputs.head_sha }}
+          target_commitish: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           name: ${{ needs.decide.outputs.release_name }}
           prerelease: true
           make_latest: false
           draft: false
           body: |
-            <!-- cmux-published-sha: ${{ needs.decide.outputs.head_sha }} -->
-            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.decide.outputs.short_sha }}` from `${{ github.ref_name }}`.
-            Published commit: `${{ needs.decide.outputs.head_sha }}`.
+            <!-- cmux-published-sha: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }} -->
+            Automated ${{ needs.decide.outputs.channel }} build for `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}` from `${{ github.ref_name }}`.
+            Published commit: `${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}`.
+            Built at the commit whose cmux-tui tree is published (app and daemon from one commit); branch tip `${{ needs.resolve-nightly-cmux-tui-client.outputs.tip_sha }}`, ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }} commits and ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }} h behind it.
             **${{ needs.decide.outputs.app_name }}** ships one app per architecture (bundle ID `${{ needs.decide.outputs.bundle_id }}`):
             - [Apple silicon: ${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg), feed `appcast-arm64.xml`
             - [Intel: ${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg](https://github.com/manaflow-ai/cmux/releases/download/${{ needs.decide.outputs.release_tag }}/${{ needs.decide.outputs.dmg_prefix }}-x86_64.dmg), feed `appcast-x86_64.xml`
@@ -2445,7 +2508,7 @@ jobs:
           python3 scripts/ci/update-release-tag.py \
             --repo "$GITHUB_REPOSITORY" \
             --tag "$CHANNEL_RELEASE_TAG" \
-            --sha "${{ needs.decide.outputs.head_sha }}" \
+            --sha "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
             ${{ needs.decide.outputs.release_tag != 'nightly' && '--allow-non-descendant' || '' }}
 
       - name: Record nightly publication marker outcome
@@ -2454,7 +2517,7 @@ jobs:
         env:
           TAG_MOVE_OUTCOME: ${{ steps.move-channel-release-tag.outcome }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
         run: |
           set -euo pipefail
           if [ "$TAG_MOVE_OUTCOME" = "success" ]; then
@@ -2483,7 +2546,7 @@ jobs:
   # Sparkle key or R2 credentials. publish-release-notes uploads the result
   # with release-next's scoped R2 token after the appcasts are live.
   sign-release-notes:
-    needs: [decide, build-nightly-app]
+    needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next'
     environment: content-signing
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -2492,12 +2555,12 @@ jobs:
       contents: read
     env:
       NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
-      HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+      HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
       CONTENT_PUBLIC_KEY: AnrDI4vqN4lFGX2IpzeWPZsa/Hk7yQMkVIKppFwAst4=
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
@@ -2543,7 +2606,7 @@ jobs:
           retention-days: 7
 
   publish-release-notes:
-    needs: [decide, publish-nightly, sign-release-notes]
+    needs: [decide, publish-nightly, sign-release-notes, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.sign-release-notes.result == 'success'
     environment: ${{ needs.decide.outputs.environment }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -2553,7 +2616,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ needs.decide.outputs.head_sha }}
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           persist-credentials: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -2588,7 +2651,7 @@ jobs:
       - name: Open or update the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha || needs.decide.outputs.head_sha }}
           RESULTS: ${{ toJSON(needs) }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
@@ -2625,7 +2688,7 @@ jobs:
             }
 
   close-nightly-failure-issue:
-    needs: [decide, publish-nightly]
+    needs: [decide, publish-nightly, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_publish == 'true' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.tag_status == 'updated'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -2635,7 +2698,7 @@ jobs:
       - name: Close the nightly failure issue
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          HEAD_SHA: ${{ needs.decide.outputs.head_sha }}
+          HEAD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha || needs.decide.outputs.head_sha }}
           CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
           CHANNEL_APP_NAME: ${{ needs.decide.outputs.app_name }}
         with:

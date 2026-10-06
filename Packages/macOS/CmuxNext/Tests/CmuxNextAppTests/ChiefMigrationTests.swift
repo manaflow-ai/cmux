@@ -1,6 +1,7 @@
 import CmuxNextDaemon
 import Foundation
 import SQLite3
+import Synchronization
 import Testing
 @testable import CmuxNextApp
 
@@ -11,14 +12,15 @@ import Testing
 /// like Lawrence's 2026-10-05 data: hmchief (a notice), hmchief3 (history and
 /// a memory), hmchief4 (one message no host logged).
 @Suite struct ChiefMigrationTests {
-    final class FakeOwner: ChiefMigrationOwner, @unchecked Sendable {
-        var imports: [ConversationImportRequest] = []
-        let lock = NSLock()
+    /// Sendable and nonisolated: the migration calls it off the main actor.
+    nonisolated final class FakeOwner: ChiefMigrationOwner, Sendable {
+        private let recorded = Mutex<[ConversationImportRequest]>([])
+        var imports: [ConversationImportRequest] { recorded.withLock { $0 } }
 
         func chiefConversation() async throws -> String { "conv_chief" }
 
         func importHistory(_ request: ConversationImportRequest) async throws -> ConversationImportResult {
-            lock.withLock { imports.append(request) }
+            recorded.withLock { $0.append(request) }
             let summary = ConversationSummary(id: "conv_chief", title: "Chief", participants: [], lastSeq: UInt64(request.messages.count),
                                               rev: 2, createdAt: "2026-10-06T00:00:00.000Z", updatedAt: "2026-10-06T00:00:00.000Z")
             return ConversationImportResult(conversation: summary, imported: Array(1...UInt64(max(request.messages.count, 1))), skipped: 0)
@@ -142,20 +144,21 @@ import Testing
 /// its database file, and the Chief home's memory is written through
 /// `memory import`.
 @Suite struct ChiefMigrationStoreTests {
-    final class FakeTool: ChiefMemoryTool, @unchecked Sendable {
+    /// Sendable and nonisolated: the migration calls it off the main actor.
+    nonisolated final class FakeTool: ChiefMemoryTool, Sendable {
         let exports: [String: URL]
-        var imported: [URL] = []
-        var exported: [URL] = []
-        let lock = NSLock()
+        private let calls = Mutex<(exported: [URL], imported: [URL])>(([], []))
+        var exported: [URL] { calls.withLock { $0.exported } }
+        var imported: [URL] { calls.withLock { $0.imported } }
         init(exports: [String: URL]) { self.exports = exports }
 
         func exportText(muxHome: URL, to directory: URL) async throws {
-            lock.withLock { exported.append(muxHome) }
+            calls.withLock { $0.exported.append(muxHome) }
             try FileManager.default.copyItem(at: try #require(exports[muxHome.lastPathComponent]), to: directory)
         }
 
         func importText(muxHome: URL, from directory: URL) async throws {
-            lock.withLock { imported.append(directory) }
+            calls.withLock { $0.imported.append(directory) }
             let chat = muxHome.appendingPathComponent("optchat/chat", isDirectory: true)
             try FileManager.default.createDirectory(at: chat.deletingLastPathComponent(), withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: directory, to: chat)

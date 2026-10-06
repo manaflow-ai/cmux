@@ -61,6 +61,19 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeRouter,
                                                                    cache: HomeCache.standard(owner: chief.home.session))
     @ObservationIgnored var cloudLink: Task<Void, Never>?
+    /// Team members and Chiefs for the Home page's New Message and New Chief.
+    @ObservationIgnored private(set) lazy var directory = HomeDirectory(
+        call: { [weak self] path, body in
+            guard let feed = self?.services.feed else { throw FeedServiceError.signedOut }
+            return try await feed.call(path, body)
+        },
+        me: { [weak self] in
+            guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
+            return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
+        })
+    /// A conversation the Home page selects once the inbox lists it (a new
+    /// Chief's main conversation, a DM opened from the CLI).
+    var pendingSelection: ConversationID?
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
     @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
