@@ -28,12 +28,36 @@
     return null;
   };
 
+  // Whether `el` submits the form that holds the marked fields: a submit
+  // button or input of that form, or, for Enter, one of the marked fields.
+  // On the first check (before the sheet) the form is the first field's
+  // and gets `formMarker`; on the second (right before the press, after the
+  // fill removed the field markers) it must still be the form so marked.
+  const SUBMITS_FORM = (el, a) => {
+    const isSubmit = (x) => (x instanceof HTMLButtonElement && x.type === "submit") || (x instanceof HTMLInputElement && (x.type === "submit" || x.type === "image"));
+    const form = el && el.form;
+    if (!form) return false;
+    if (a.markers) {
+      const fields = a.markers.map((m) => document.querySelector('[data-cmux-auth="' + String(m).replace(/["\\]/g, "") + '"]'));
+      if (!fields.every((f) => f && f.form === form)) return false;
+      if (a.action === "press_enter" ? !fields.includes(el) : !isSubmit(el)) return false;
+      if (form.hasAttribute("data-cmux-auth-form")) return false;
+      form.setAttribute("data-cmux-auth-form", a.formMarker);
+      return true;
+    }
+    if (form.getAttribute("data-cmux-auth-form") !== a.formMarker) return false;
+    return a.action === "press_enter" ? el instanceof HTMLInputElement : isSubmit(el);
+  };
+
   S.register(
     "browserAuth",
     (t) => ({
       // request(page?, { origin, fields: [{ id, label, type, autocomplete, required, selector }], submit: { selector, action: "click" | "press_enter" }, timeout })
       // -> { status: "submitted" | "cancelled" | "unavailable" | "expired" | "origin_changed" | "page_changed" | "locator_invalid" | "submission_failed", locator_error? }.
       // "submitted" means the fields were filled and any submit ran, not that sign-in succeeded.
+      // submit must be a submit button or input of the form that holds the
+      // fields ("click"), or one of the fields ("press_enter"); anything
+      // else is locator_invalid with field_id "submit", before the sheet.
       async request(page, options) {
         if (!page || typeof page.url !== "function") {
           options = page;
@@ -54,6 +78,7 @@
         if (!o.origin || o.origin !== current) return { status: "origin_changed" };
         const locate = (sel) => (typeof sel === "string" ? page.locator(sel) : sel);
         const marked = [];
+        const formMarker = `form-${Math.floor(Math.random() * 1e12).toString(36)}`;
         let frameId;
         try {
           for (const f of fields) {
@@ -78,6 +103,19 @@
             await loc.evaluate((el, m) => el.setAttribute("data-cmux-auth", m), marker);
             marked.push({ loc, field: f, marker });
           }
+          // The control that submits, checked before the sheet opens: only
+          // the submit control of the fields' own form, never another
+          // control the user did not agree to press by filling the sheet.
+          let submitLoc = null;
+          const action = o.submit ? o.submit.action || "click" : null;
+          if (o.submit) {
+            if (action !== "click" && action !== "press_enter") throw new S.SiteError("invalid", `browserAuth.request: submit.action: expected "click" or "press_enter", got ${JSON.stringify(action)}`);
+            submitLoc = locate(o.submit.selector);
+            if (!submitLoc || typeof submitLoc.count !== "function") throw new S.SiteError("invalid", "browserAuth.request: submit.selector: expected a selector string or a locator");
+            if ((await submitLoc.count()) !== 1) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_unique" } };
+            const ok = await submitLoc.evaluate(SUBMITS_FORM, { markers: marked.map((m) => m.marker), action, formMarker }).catch(() => false);
+            if (!ok) return { status: "locator_invalid", locator_error: { field_id: "submit", reason: "not_form_submit" } };
+          }
           // The user should see the page they are signing in to under the sheet.
           await page.bringToFront().catch(() => {});
           let r;
@@ -95,11 +133,13 @@
             throw e;
           }
           if (!r || r.status !== "filled") return { status: (r && r.status) || "unavailable" };
-          if (o.submit) {
+          if (submitLoc) {
             try {
-              const s = locate(o.submit.selector);
-              if ((o.submit.action || "click") === "press_enter") await s.press("Enter");
-              else await s.click();
+              // Checked again right before the press: still one control,
+              // still submitting the form marked before the sheet.
+              if ((await submitLoc.count()) !== 1 || !(await submitLoc.evaluate(SUBMITS_FORM, { action, formMarker }))) return { status: "submission_failed" };
+              if (action === "press_enter") await submitLoc.press("Enter");
+              else await submitLoc.click();
             } catch (e) {
               return { status: "submission_failed" };
             }
@@ -107,6 +147,7 @@
           return { status: "submitted" };
         } finally {
           for (const { loc } of marked) await loc.evaluate((el) => el.removeAttribute("data-cmux-auth")).catch(() => {});
+          if (marked.length) await marked[0].loc.evaluate((el, m) => { for (const f of document.querySelectorAll("[data-cmux-auth-form]")) if (f.getAttribute("data-cmux-auth-form") === m) f.removeAttribute("data-cmux-auth-form"); }, formMarker).catch(() => {});
         }
       },
     }),

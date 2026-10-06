@@ -321,7 +321,13 @@ session driving the tab, or the page, cannot move the fill to another
 element or another document of the same origin while the user types. It
 checks the credential rule again, sets each value
 with the native setter and dispatches `input` and `change`, so
-framework-controlled fields see it. The REPL receives only a status:
+framework-controlled fields see it. `submit` is pressed after the fill
+only when it is the submit control of the form that holds the fields (a
+submit button or input of that form with `action: "click"`, or one of the
+fields with `action: "press_enter"`), checked before the sheet opens
+(`locator_invalid` with `field_id: "submit"`, no sheet) and again right
+before the press (`submission_failed`); the agent cannot have cmux press
+another control in the user's name. The REPL receives only a status:
 `submitted`, `cancelled`, `unavailable`, `expired`, `origin_changed`,
 `page_changed`, `locator_invalid` (`not_credential_field` among the reasons)
 or `submission_failed`. The fill script is read from the signed app bundle,
