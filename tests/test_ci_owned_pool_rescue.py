@@ -1183,6 +1183,62 @@ class SideLanes(unittest.TestCase):
         self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
         self.assertNotIn("jobs:2", api.calls)
 
+    def test_a_stuck_push_run_superseded_by_a_newer_push_is_cancelled_not_rerun(self):
+        # cmux-next.yml push runs each hold their own concurrency group, so a newer
+        # push never cancels an older one. Re-running the old one on Blacksmith spends
+        # a scarce slot on a head the newer run already covers.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        target = rescue.target_from_event(payload, "manaflow-ai/cmux")
+        self.assertEqual(target.push_branch, "feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, side_run(), newer=[RUN_ID + 7])
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+        self.assertNotIn("rerun", api.calls)
+        self.assertIn(f"a newer push run on feat-cmux-next ({RUN_ID + 7})", summary)
+
+    def test_a_stuck_push_run_with_no_newer_push_is_rescued(self):
+        # The branch head is no test: a head commit outside the workflow's paths has
+        # no run, and the newest covering push run must still finish.
+        payload = side_event(path=".github/workflows/cmux-next.yml", event="push", pull_requests=[],
+                             head_branch="feat-cmux-next")
+        clock = Clock()
+        api = SupersedingAPI(clock, side_run(), head="0" * 40)
+        code, summary = run_main(api, clock, payload=payload)
+        self.assertEqual(code, 0)
+        self.assertIn("newer:feat-cmux-next", api.calls)
+        self.assertIn("rerun-failed", api.calls)
+        self.assertNotIn("branch:feat-cmux-next", api.calls)
+
+    def test_schedule_and_dispatch_side_runs_are_never_superseded(self):
+        for kind in ("schedule", "workflow_dispatch"):
+            target = rescue.target_from_event(side_event(event=kind, pull_requests=[], head_branch="main"),
+                                              "manaflow-ai/cmux")
+            self.assertEqual(target.push_branch, "", kind)
+            clock = Clock()
+            api = SupersedingAPI(clock, lambda s: [], newer=[RUN_ID + 1])
+            self.assertEqual(rescue.pull_moved(api, target, clock.sleep, lambda text: None), "", kind)
+            self.assertNotIn("newer:main", api.calls, kind)
+
+    def test_newer_push_runs_skips_cancelled_and_older_runs(self):
+        api = rescue.GitHub("token", "manaflow-ai/cmux")
+        seen = []
+        runs = [{"id": RUN_ID + 3, "status": "queued", "event": "push"},
+                {"id": RUN_ID + 2, "status": "completed", "conclusion": "success", "event": "push"},
+                {"id": RUN_ID + 1, "status": "completed", "conclusion": "cancelled", "event": "push"},
+                {"id": RUN_ID + 4, "status": "queued", "event": "workflow_dispatch"},
+                {"id": RUN_ID, "status": "in_progress", "event": "push"},
+                {"id": RUN_ID - 1, "status": "queued", "event": "push"}]
+        api.request = lambda method, path, **_: seen.append((method, path)) or {"workflow_runs": runs}
+        self.assertEqual(api.newer_push_runs(".github/workflows/cmux-next.yml", RUN_ID, "feat-cmux-next"),
+                         [RUN_ID + 2, RUN_ID + 3])
+        self.assertEqual(seen, [("GET", "/actions/workflows/cmux-next.yml/runs"
+                                        "?branch=feat-cmux-next&event=push&per_page=20")])
+
     def test_a_stuck_side_job_never_cancels_a_sibling_running_on_a_mini(self):
         # #16463: cmux-next's swift test ran on a mini while release-compile waited
         # for one; the rescue cancelled both and moved them to Blacksmith.
@@ -1296,6 +1352,16 @@ def nightly_run(*, queued_at=15, started_at=None, refused_at=None):
         return found + [app, job("build-nightly-ghostty-cli-helper", labels=["blacksmith-6vcpu-macos-15"],
                                  status="in_progress", runner="bs")]
     return jobs
+
+
+class SupersedingAPI(FakeAPI):
+    def __init__(self, *args, newer=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        self.newer = list(newer)
+
+    def newer_push_runs(self, path, run_id, branch):
+        self.calls.append(f"newer:{branch}")
+        return self.newer
 
 
 class NightlyAPI(FakeAPI):
