@@ -51,7 +51,8 @@ export function Editor(props: EditorProps): ReactNode {
       return <TimeRangeEditor {...props} />;
     case "number_list":
     case "string_map":
-      // Only cmux-browser keys have these kinds, and the page never lists them (schema.ts).
+    case "string_list":
+      // Only cmux-browser and page-hidden keys have these kinds, and the page never lists them (schema.ts).
       return null;
   }
 }

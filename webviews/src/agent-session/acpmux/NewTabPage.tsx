@@ -177,7 +177,7 @@ type Props = {
   initialKind?: TabKind;
   /// The folder the new tab starts in (the pane's terminal cwd).
   cwd?: string;
-  /// The machine it runs on; "This Mac" when absent.
+  /// The machine it runs on (the handshake's `machineName`); "This Mac" when absent.
   host?: string;
   /// The agent's composer chips (model, mode), shown under the field for Agent.
   chips?: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;

@@ -176,6 +176,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
+                true,
             )?,
             BatchCloseTarget::Screen(screen) => self.resource_close_plan_locked(
                 ResourceOperation::ScreenClose,
@@ -183,6 +184,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
+                true,
             )?,
             BatchCloseTarget::Workspace(_) => self.resource_close_plan_locked(
                 ResourceOperation::WorkspaceClose,
@@ -190,6 +192,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
+                true,
             )?,
         };
         let closed = plan.removed.iter().map(|surface| surface.id).collect::<Vec<_>>();

@@ -97,8 +97,8 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     /// The default layout (plans/cmux-next/sidebar-sections.md): the
     /// first-party apps Home and the App Store as plain rows on top (app
     /// items, R63/R64: apps like any other, from their manifests; Lawrence
-    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, then
-    /// the footer: one line with the account avatar, then the Settings gear,
+    /// 2026-10-05: rows, not the large tiles of #17349), the workspaces, the
+    /// recent agent chats (`recentsSection`), then the footer: one line with the account avatar, then the Settings gear,
     /// both icons only and leading (SIDEBAR-FOOTER-MINIMAL, Lawrence
     /// 2026-10-06; the update pill trails it, drawn by the sidebar). Pinned
     /// sections use the built-in look and draw no header. Stored layouts
@@ -110,6 +110,7 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
                               LayoutItem(id: LayoutItemID("itm_app_store"), ref: .app("cmux/app-store"))]),
         // CodeRouter is not here by default (FIRST-PARTY-APPS): the palette and the App Store reach it.
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
+        recentsSection,
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn,
                       arrangement: SectionArrangement(layout: .inline, align: .leading), items: [
                           LayoutItem(id: LayoutItemID("itm_account"), ref: .builtIn(.account), showsLabel: false),
