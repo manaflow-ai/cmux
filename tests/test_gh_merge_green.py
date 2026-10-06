@@ -385,7 +385,6 @@ class InstalledHelperRegression(unittest.TestCase):
         so only a run that concluded success shows the native lanes ran or were
         not needed."""
         cases = {
-            "no cmux-next run on the head": [],
             "cancelled before the rerun started": [("completed", "cancelled", 1)],
             "skipped run": [("completed", "skipped", 1)],
             "timed out": [("completed", "timed_out", 1)],
@@ -400,6 +399,15 @@ class InstalledHelperRegression(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertFalse(marker.exists())
                     self.assertIn("cmux-next run", result.stderr)
+
+    def test_a_pull_request_outside_the_cmux_next_paths_filter_merges(self):
+        """cmux-next.yml filters pull_request by paths, so a docs or CI change has
+        no cmux-next run; ci-status on the exact head still gates it."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, cmux_next_runs=[])
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
 
     def test_an_older_cancelled_cmux_next_run_behind_a_success_merges(self):
         with tempfile.TemporaryDirectory() as directory:

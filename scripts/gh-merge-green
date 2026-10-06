@@ -313,6 +313,42 @@ if [ "$base" = feat-cmux-next ]; then
       "not green: cmux-next run still pending on $sha ($(tr '\n' ';' <<<"$next_pending" | sed 's/;$//')); --override cannot bypass a run that has not finished" \
       "wait for the cmux-next workflow run to complete on the exact head, then retry"
   fi
+  # A cancelled run is completed too: heads merged between cancelling stale runs
+  # and rerunning them (#17653, #18079, #18080, #18083) with no native job run.
+  # Routing skips happen inside a run that concludes success, so the newest run
+  # per event must succeed. A failed run is a red lane --override may waive;
+  # one cancelled, skipped or timed out has no verdict to waive.
+  if ! next_verdicts=$(jq -r '
+      (if type == "object" then (.workflow_runs // []) else [] end)
+      | map(select(.head_sha == null or .head_sha == $sha))
+      | group_by(.event // "")[]
+      | max_by(.id)
+      | "\(.id) attempt \(.run_attempt // 1) (\(.event // "unknown")) is \(.conclusion // "unknown")"
+      ' --arg sha "$sha" <<<"$next_runs_json" 2>/dev/null); then
+    refuse \
+      "not green: cannot parse cmux-next workflow runs for $sha" \
+      'retry after GitHub returns valid workflow run metadata'
+  fi
+  # No run at all is a pull request outside the workflow's paths filter; ci-status
+  # on the exact head still has to be green.
+  while IFS= read -r verdict; do
+    [ -n "$verdict" ] || continue
+    case "$verdict" in
+      *" is success") ;;
+      *" is failure")
+        if [ -z "$override_reason" ]; then
+          refuse \
+            "not green: cmux-next run $verdict on $sha" \
+            "fix the failing cmux-next lane, or pass --override with the base-red evidence"
+        fi
+        ;;
+      *)
+        refuse \
+          "not green: cmux-next run $verdict on $sha; its native jobs did not all run, and --override cannot bypass that" \
+          "rerun the cmux-next workflow on the exact head and wait for it to succeed, then retry"
+        ;;
+    esac
+  done <<<"$next_verdicts"
   for next_check in \
     "cmux-next Release compile (Xcode 26)" \
     "cmux app scheme compile (Debug)" \
