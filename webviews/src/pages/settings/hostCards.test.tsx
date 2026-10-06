@@ -69,3 +69,18 @@ test("Terminal shows the Ghostty facts; Advanced shows the file and every proble
   expect(runs(page, "cmux.settings.file.reveal").length).toBe(1);
   page.unmount();
 });
+
+test("Advanced names the loaded settings file and shows one Reload Configuration", async () => {
+  const page = await renderPage({
+    path: "/settings/advanced",
+    mock: { settingsFile: "/Users/me/.config/cmux/cmux.json", diagnostics: [{ path: "nope.key", message: "unknown key" }] },
+  });
+  const text = page.container.textContent ?? "";
+  expect(page.container.querySelector('[data-card="problems"] .group-title')!.textContent).toBe("Problems in cmux.json");
+  const buttons = [...page.container.querySelectorAll<HTMLButtonElement>("button")].map((b) => b.textContent);
+  expect(buttons.filter((title) => title === "Open cmux.json").length).toBe(1);
+  expect(buttons.filter((title) => title === "Reload Configuration").length).toBe(1);
+  expect(text).toContain("Every setting and shortcut in cmux.json goes back to its default.");
+  expect(text).not.toContain("cmux-next.json");
+  page.unmount();
+});
