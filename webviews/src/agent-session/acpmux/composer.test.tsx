@@ -28,6 +28,7 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 
 const { promptField: fieldIn, typeInto } = await import("./promptFieldTesting");
+const { webKitPress } = await import("./popoverTriggerTesting");
 const promptField = () => fieldIn(dom.window.document);
 
 /// Milkdown makes its editor a task after the composer mounts.
@@ -242,6 +243,19 @@ describe("acpmux composer slash menu", () => {
     await key("Enter");
     expect(textarea().value).toBe("/review look at main");
     expect(sent).toEqual([]);
+  });
+
+  test("pressing + while its menu is open closes it, as WebKit delivers the press", async () => {
+    await act(async () =>
+      root.render(
+        createElement(Composer, { snapshot: snapshot(), chips: () => null, onSend: () => {}, onStop: () => {} }),
+      ),
+    );
+    await ready();
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("true");
+    await webKitPress(dom.window as never, act as never, plusButton());
+    expect(plusButton().getAttribute("aria-expanded")).toBe("false");
   });
 
   test("the + menu holds no permission modes (the access chip owns them); Plan stays a toggle there", async () => {

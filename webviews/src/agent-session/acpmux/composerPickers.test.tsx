@@ -49,6 +49,7 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { ComposerPickers, isPlan, loadRecents, rememberCombo, unrestricted } = await import("./ComposerPickers");
 const { openPicker, pickerLabels } = await import("./pickerOpeners");
+const { webKitPress } = await import("./popoverTriggerTesting");
 
 const doc = dom.window.document;
 const snapshot = (
@@ -227,6 +228,17 @@ describe("acpmux composer pickers", () => {
     expect(button("Mode")!.textContent).toBe("Full access");
     expect(button("Mode")!.closest(".acpmux-mode")!.classList.contains("acpmux-unrestricted")).toBe(true);
     expect(doc.querySelector(".acpmux-plan")).toBeNull();
+  });
+
+  test("pressing an open chip closes its menu, as WebKit delivers the press; it never reopens", async () => {
+    await render(snapshot({ modes }));
+    for (const label of ["Model", "Mode"]) {
+      const chip = button(label)!;
+      await webKitPress(dom.window as never, act as never, chip);
+      expect(chip.getAttribute("aria-expanded")).toBe("true");
+      await webKitPress(dom.window as never, act as never, chip);
+      expect(chip.getAttribute("aria-expanded")).toBe("false");
+    }
   });
 
   test("arrows and Enter pick from the menu, and Escape closes it back to the button", async () => {
