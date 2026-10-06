@@ -2119,7 +2119,7 @@ function AcpmuxPane() {
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}
-              host={newTab.host}
+              host={newTab.host ?? machineName}
               location={newTab.location}
               omnibar={newTab.omnibar}
               projects={newTabProjects}

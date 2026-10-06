@@ -214,7 +214,7 @@ public final class AgentPaneModel {
                     if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 handshake.linkScheme = linkScheme
-                handshake.machineName = Self.localMachineName
+                handshake.machineName = await Self.localMachineName?.value
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
