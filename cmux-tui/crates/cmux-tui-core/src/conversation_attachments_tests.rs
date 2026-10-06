@@ -147,3 +147,58 @@ fn unreferenced_records_are_swept_with_their_bytes_and_referenced_ones_stay() {
         .unwrap_err();
     assert_eq!(error.to_string(), "unknown_attachment");
 }
+
+fn send(store: &mut ConversationStore, conversation: &str, key: &str, bytes: &[u8]) {
+    let part: Part = serde_json::from_value(serde_json::json!({
+        "type":"attachment","hash":hash(bytes),"name":"x.png","mime_type":"image/png",
+        "byte_count":bytes.len()
+    }))
+    .unwrap();
+    store
+        .apply_op(
+            conversation,
+            key,
+            "user_local",
+            &Op::MessageSend { client_msg_id: key.into(), parts: vec![part], reply_to: None },
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_full_store_evicts_the_oldest_unsent_upload_then_refuses_with_storage_full() {
+    let directory = TempDir::new("cap");
+    let (mut store, conversation) = store_with_conversation(&directory.0);
+    store.set_attachment_storage_cap(50);
+    let (a, b, c, d) = (&[1_u8; 20][..], &[2_u8; 20][..], &[3_u8; 20][..], &[4_u8; 20][..]);
+    upload(&mut store, &conversation, a);
+    upload(&mut store, &conversation, b);
+    send(&mut store, &conversation, "b", b);
+    // 40 of 50 bytes are stored: C needs room, and A (never sent) goes.
+    upload(&mut store, &conversation, c);
+    let root = directory.0.join(ATTACHMENTS_DIRECTORY);
+    assert!(!root.join(hash(a)).exists(), "the oldest unsent upload is evicted");
+    assert!(root.join(hash(b)).exists() && root.join(hash(c)).exists());
+    send(&mut store, &conversation, "c", c);
+    // Everything stored is in a message: nothing may go, so D is refused.
+    let error =
+        store.attachment_begin(1, "user_local", &conversation, &declaration(d)).unwrap_err();
+    assert_eq!(error.to_string(), "storage_full");
+    assert_eq!(
+        error.downcast_ref::<AttachmentRejected>().map(|r| r.0),
+        Some("storage_full")
+    );
+}
+
+#[test]
+fn an_upload_in_flight_counts_against_the_cap() {
+    let directory = TempDir::new("inflight");
+    let (mut store, conversation) = store_with_conversation(&directory.0);
+    store.set_attachment_storage_cap(30);
+    let begun =
+        store.attachment_begin(1, "user_local", &conversation, &declaration(&[5_u8; 20])).unwrap();
+    assert!(begun.upload.is_some());
+    let error = store
+        .attachment_begin(2, "user_local", &conversation, &declaration(&[6_u8; 20]))
+        .unwrap_err();
+    assert_eq!(error.to_string(), "storage_full", "20 in flight + 20 > 30");
+}
