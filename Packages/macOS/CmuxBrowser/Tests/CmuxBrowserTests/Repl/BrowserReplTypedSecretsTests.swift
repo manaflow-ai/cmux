@@ -129,6 +129,30 @@ struct BrowserReplTypedSecretsTests {
         #expect(typed.captureMasks(forReader: "reader").count == 2)
     }
 
+    /// r18 entry#1: the same value typed into the same tab again, after
+    /// its secret's domains changed, keeps masking on the earlier domains
+    /// too. An older frame of the earlier domain may still show the value,
+    /// so another session's screenshot or PDF must mask it there. Kept for
+    /// sign-in sheet credentials too.
+    @Test func theSameValueTypedAgainKeepsItsEarlierCaptureDomains() throws {
+        let typed = BrowserReplTypedSecrets()
+        let first = [try BrowserReplDomainPattern.parse("https://old.example.com", title: "test")]
+        let second = [try BrowserReplDomainPattern.parse("https://new.example.com", title: "test")]
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: first, typist: "typist")
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: second, typist: "typist")
+        try typed.recordCredential(tab: "tab1", field: "password", value: "credential-secret", domains: first)
+        try typed.recordCredential(tab: "tab1", field: "password", value: "credential-secret", domains: second)
+        for value in ["hunter2-secret", "credential-secret"] {
+            let raws = typed.captureMasks(forReader: "reader")
+                .filter { $0["value"] as? String == value }
+                .flatMap { ($0["domains"] as? [[String: Any]] ?? []).compactMap { $0["raw"] as? String } }
+            #expect(Set(raws) == ["https://old.example.com", "https://new.example.com"], "\(value) lost the domain it was first typed for")
+        }
+        // Still bounded: one record per value, not one per retype.
+        try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: second, typist: "typist")
+        #expect(typed.captureMasks(forReader: "reader").count == 2)
+    }
+
     /// One session types a secret of one name into two tabs: both values
     /// stay masked.
     @Test func sameNamedSecretsInTwoTabsAreBothMasked() throws {
