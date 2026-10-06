@@ -1227,7 +1227,12 @@ fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
     assert_eq!(relaunch(&kept), Value::Null);
 
     let before = revision(&mux);
-    mux.commit_kept_tabs(&[(kept.clone(), Some("/tmp/project".into()))]).unwrap();
+    mux.commit_kept_tabs(&[crate::state::kept_tab_store::KeptTab {
+        tab_id: kept.clone(),
+        cwd: Some("/tmp/project".into()),
+        title: None,
+    }])
+    .unwrap();
     assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
     assert_eq!(relaunch(&kept), json!({"cwd": "/tmp/project"}));
     assert_eq!(relaunch(&other), Value::Null);

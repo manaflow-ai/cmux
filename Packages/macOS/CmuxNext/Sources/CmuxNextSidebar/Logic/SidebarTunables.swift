@@ -16,6 +16,14 @@ public nonisolated enum SidebarTunables {
         "sidebar.drop.sectionTopFraction", .sidebar, "Section header top share",
         help: "Upper share of a section header that drops at the end of the previous section.",
         default: 0.35, range: 0...0.8, step: 0.01, unit: .fraction, code: "SidebarTunables.sectionTopFraction")
+    public static let workspaceOntoStart = Tunable<CGFloat>.number(
+        "sidebar.drop.workspaceOntoStart", .sidebar, "Group-on-drop band start",
+        help: "Where the middle band of a loose workspace row starts; a drop in the band groups the two workspaces.",
+        default: 0.3, range: 0...0.5, step: 0.01, unit: .fraction, code: "SidebarTunables.workspaceOntoStart")
+    public static let workspaceOntoEnd = Tunable<CGFloat>.number(
+        "sidebar.drop.workspaceOntoEnd", .sidebar, "Group-on-drop band end",
+        help: "Where the middle band of a loose workspace row ends. Equal to the start turns grouping on drop off.",
+        default: 0.7, range: 0.5...1, step: 0.01, unit: .fraction, code: "SidebarTunables.workspaceOntoEnd")
 
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
@@ -23,6 +31,6 @@ public nonisolated enum SidebarTunables {
         default: .off, code: "SidebarTunables.agentMark")
 
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction].map(\.descriptor) + [agentMark.descriptor] + SidebarSectionTunables.all
+        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor] + SidebarSectionTunables.all
     }
 }

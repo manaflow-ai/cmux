@@ -28,6 +28,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private var observation: Task<Void, Never>?
     private var connectionObservation: Task<Void, Never>?
     private var attentionObservation: Task<Void, Never>?
+    private var settlingObservation: Task<Void, Never>?
     /// Daemon `transaction` for each layout gesture (undo coalescing).
     var gestureTransactions: [LayoutTransactionID: UInt64] = [:]
     /// The window's focus state machine (`WindowState.focus`,
@@ -86,6 +87,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()
+        settlingObservation?.cancel()
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
@@ -107,6 +109,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         connectionObservation = Task { [weak self] in
             for await _ in Observations({ (String(describing: store.connectionState), store.isLoaded) }) {
                 self?.repairIfEmpty()
+            }
+        }
+        // A first terminal or a close that starts or ends while the
+        // workspace is empty decides whether it offers its actions.
+        let repair = emptyWorkspaceRepair
+        settlingObservation = Task { [weak self] in
+            for await _ in Observations({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+                self?.updateEmptyState()
             }
         }
         // Panes with an unread notification draw the attention ring.
@@ -139,9 +149,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// A workspace with no pane shows actions; an explicit New creates the
     /// first terminal and focuses it when the daemon reports the surface.
+    /// One that is settling (its first terminal on the way, or closing)
+    /// shows nothing: its actions would flash for a frame before the tab
+    /// strip and terminal land, or before it closes.
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
-        contentView.showEmpty(isEmpty ? emptyView : nil)
+        let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
     }
 
     private func newFromEmptyState() {

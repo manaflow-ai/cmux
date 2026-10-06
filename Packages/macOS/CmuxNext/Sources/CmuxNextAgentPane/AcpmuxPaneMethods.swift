@@ -154,8 +154,13 @@ nonisolated enum AcpmuxPaneMethods {
         return object
     }
 
-    /// The methods allowed only for a session this pane started or shows (``AcpmuxPaneSessions``).
-    public static let sessionScoped: Set<String> = ["_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond"]
+    /// The methods allowed only for a session this pane started or shows (``AcpmuxPaneSessions``):
+    /// every frame that writes to a session. A session outside the pane's scope (a second attach on
+    /// one click) is a read-only view, and the pane never sends anything to it.
+    public static let sessionScoped: Set<String> = [
+        "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
+        "_acpmux/kill", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+    ]
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
     /// `rootRequested`: the host offered the user to add the refused folder as a root.

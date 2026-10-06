@@ -48,4 +48,23 @@ final class CloudNetworkStubProtocol: URLProtocol, @unchecked Sendable {
         #expect(rules.first?.destination.protocolName == "tcp")
         #expect(CloudNetworkStubProtocol.seen.withLock { $0.first?.query?.contains("vpcId=vpc%2Fa%26b") == true })
     }
+
+    @Test func domainAndPublicationListsUseRedactedRoutes() async throws {
+        CloudNetworkStubProtocol.seen.withLock { $0 = [] }
+        CloudNetworkStubProtocol.reply.withLock {
+            $0 = Data(#"{"domains":[{"id":"dom-1","hostname":"example.test","verificationState":"verified","certificateState":"active","publications":[{"id":"pub-1","hostname":"app.example.test","state":"active"}]}],"publications":[{"id":"pub-1","hostname":"app.example.test","url":"https://app.example.test","domainKind":"custom","vmId":"vm-1","port":3000,"publicPort":443,"targetPort":3000,"protocol":"https","accessMode":"personal","teamId":null,"state":"active","routingRevision":2,"verification":{"verificationId":"ver-1","domain":"example.test","state":"verified"}}]}"#.utf8)
+        }
+        let api = Self.api()
+        let domains = try await api.listDomains()
+        let publications = try await api.listPublications()
+        #expect(domains.first?.hostname == "example.test")
+        #expect(domains.first?.verificationState == "verified")
+        #expect(domains.first?.certificateState == "active")
+        #expect(domains.first?.publications?.first?.state == "active")
+        #expect(publications.first?.hostname == "app.example.test")
+        #expect(publications.first?.state == "active")
+        #expect(publications.first?.url == "https://app.example.test")
+        #expect(publications.first?.verification?.state == "verified")
+        #expect(CloudNetworkStubProtocol.seen.withLock { $0.map(\.path) } == ["/api/vm/domains", "/api/vm/publications"])
+    }
 }

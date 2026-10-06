@@ -13,6 +13,7 @@ extension SidebarView {
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
+            region.liftHost = self
             region.onActivateWithModifiers = { [weak self] id, flags in
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }

@@ -11038,14 +11038,16 @@ fn pane_json(
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
             // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
-            // ended, to restart a shell in.
-            let relaunch = state
+            // ended, to restart a shell in. After a restart it has no surface,
+            // so its name and last title come from the record; a live
+            // terminal's own title always wins.
+            let kept = state
                 .resource_indexes
                 .tab_ids
                 .get(sid)
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
-                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
-                .map(|kept| json!({"cwd": kept.cwd}));
+                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()));
+            let relaunch = kept.map(|kept| json!({"cwd": kept.cwd}));
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.
@@ -11117,8 +11119,14 @@ fn pane_json(
                         "source": n.source.as_str(),
                     })
                 }),
-                "name": surface.and_then(|s| s.name()),
-                "title": surface.map(|s| s.title()).unwrap_or_default(),
+                "name": surface
+                    .and_then(|s| s.name())
+                    .or_else(|| kept.and_then(|k| k.name.clone())),
+                "title": surface
+                    .map(|s| s.title())
+                    .filter(|title| !title.is_empty())
+                    .or_else(|| kept.and_then(|k| k.title.clone()))
+                    .unwrap_or_default(),
                 "size": surface.map(|s| {
                     let (c, r) = s.size();
                     json!({"cols": c, "rows": r})
