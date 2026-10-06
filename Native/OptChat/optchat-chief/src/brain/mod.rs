@@ -216,6 +216,8 @@ pub struct Settings {
 /// How long a turn waits for the compactor before it tells the conversation
 /// which node keeps failing (section 6 expects seconds).
 const STALL_NOTICE: Duration = Duration::from_secs(60);
+/// How often a turn waiting for the compactor updates `settle.json`.
+const PROGRESS_TICK: Duration = Duration::from_secs(2);
 
 /// The start of the `mux.parent` value on sessions this Chief started;
 /// mux/host uses `mux`, so the two never claim each other's children.
@@ -312,6 +314,8 @@ pub struct Brain {
     prev_view: Option<String>,
     /// When the current settle wait and turn began.
     settle_clock: Option<Instant>,
+    /// Where a turn waiting for the compactor says how far it is.
+    settle_status: Option<Arc<crate::settle_status::SettleStatus>>,
     turn_clock: Option<Instant>,
     /// The running turn's engine (engine.rs), for the trace.
     turn_engine: Option<crate::engine::TurnEngine>,
@@ -390,6 +394,7 @@ impl Brain {
             workspaces: None,
             prev_view: None,
             settle_clock: None,
+            settle_status: None,
             turn_clock: None,
             turn_engine: None,
             describer: None,
@@ -406,6 +411,12 @@ impl Brain {
     }
 
     /// Writes the monitoring trace (`trace.rs`).
+    /// A turn that waits for the compactor writes how far it is here.
+    pub fn with_settle_status(mut self, status: crate::settle_status::SettleStatus) -> Brain {
+        self.settle_status = Some(Arc::new(status));
+        self
+    }
+
     pub fn with_trace(mut self, trace: crate::trace::Trace) -> Brain {
         self.trace = trace;
         self

@@ -7,7 +7,10 @@ use std::sync::mpsc::channel;
 
 use optchat_core::Kind;
 
-use super::{Brain, Engine, Input, Phase, Queued, STALL_NOTICE, Source, reply_entry, reply_key_at};
+use super::{
+    Brain, Engine, Input, PROGRESS_TICK, Phase, Queued, STALL_NOTICE, Source, reply_entry,
+    reply_key_at,
+};
 use std::sync::atomic::Ordering;
 
 use crate::acpmux::SessionSpec;
@@ -28,6 +31,7 @@ impl Brain {
             .get_or_insert_with(std::time::Instant::now);
         self.interrupt = Arc::new(Interrupt::new());
         let trace = self.trace.clone();
+        let settle_status = self.settle_status.clone();
         let (chat, agents, tx, log, engine, interrupt, marker_refused) = (
             self.chat.clone(),
             self.agents.clone(),
@@ -44,13 +48,27 @@ impl Brain {
                 // The wait has no deadline; a line each minute says what it
                 // waits on, and the first one with a failing node also goes to
                 // the conversation, so the user is not left without a word.
+                // Every PROGRESS_TICK of waiting, `settle.json` says how far
+                // the compactor is (the app's "Organizing Chief history");
+                // a wait shorter than one tick shows nothing.
                 let mut told = false;
-                while !chat.settle(None, Some(STALL_NOTICE)) {
+                let mut waited = std::time::Duration::ZERO;
+                let settled = loop {
+                    if chat.settle(None, Some(PROGRESS_TICK)) {
+                        break true;
+                    }
+                    waited += PROGRESS_TICK;
                     let status = chat.status();
                     if status.closed || status.fatal.is_some() {
-                        let _ = tx.send(Input::SettleFailed);
-                        return;
+                        break false;
                     }
+                    if let Some(settle) = &settle_status {
+                        settle.waiting(&status);
+                    }
+                    if waited < STALL_NOTICE {
+                        continue;
+                    }
+                    waited = std::time::Duration::ZERO;
                     let failing: Vec<String> = status
                         .failures
                         .iter()
@@ -73,6 +91,13 @@ impl Brain {
                             first.error
                         )));
                     }
+                };
+                if let Some(settle) = &settle_status {
+                    settle.clear();
+                }
+                if !settled {
+                    let _ = tx.send(Input::SettleFailed);
+                    return;
                 }
                 let (reply, start) = channel();
                 if tx.send(Input::Settled(reply)).is_err() {
