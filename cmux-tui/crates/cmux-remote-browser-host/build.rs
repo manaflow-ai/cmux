@@ -33,6 +33,10 @@ fn main() {
     let mut build = cc::Build::new();
     build
         .cpp(true)
+        // CEF's own headers warn by the thousand under -Wall -Wextra (80k log
+        // lines in step 42dc56837182b305e5d5b1a2); the shim is checked with
+        // clang -Wall separately.
+        .warnings(false)
         .std("c++20")
         .include(&cef)
         .include("csrc")
