@@ -60,7 +60,8 @@ final class ScriptedPageDriver: BrowserReplDriver, @unchecked Sendable {
             if let domains = params["secretDomains"] as? [[String: Any]] {
                 // Hosts only: enough for these tests' plain domain patterns.
                 let hosts = domains.compactMap { $0["host"] as? String }
-                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host, hosts.contains(host) else {
+                guard let page = URL(string: currentURL), page.scheme == "https", let host = page.host,
+                      hosts.contains(host) || hosts.contains("*") else {
                     let refusedAt = currentURL
                     lock.withLock { refusedSecrets.append(refusedAt) }
                     return .failure(BrowserReplDriverError(code: "invalid", message: "secret \"\(params["secretName"] as? String ?? "")\" may not be typed into \(currentURL)"))
@@ -365,6 +366,52 @@ struct BrowserReplBoundaryTests {
         #expect(typed() == 1, "\(allowedOutput)")
         #expect(!allowedOutput.contains("widened"), "\(allowedOutput)")
         #expect(allowedOutput.components(separatedBy: "kept: ").count == 3, "\(allowedOutput)")
+    }
+
+    /// r16 native#1: a secret domain without a scheme is typed on https
+    /// only (http only on a loopback host), so the policy that keeps the
+    /// page from sending it on must not allow http either: a scheme-less
+    /// allowed pattern lets the page submit it over cleartext.
+    @Test("A scheme-less secret is typed only while the policy keeps the tab on https")
+    func schemelessSecretNeedsAnHTTPSPolicy() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let typed = { driver.params("input.insertText").filter { $0["secretName"] != nil }.count }
+        let result = await run(session, """
+        const fill = (name) => page.locator("#f").fill(secret(name), { timeout: 2000 }).then(() => "typed", (e) => e.message);
+        secrets.set("k", "\(Self.value)", { domains: ["example.com"] });
+        await page.goto("https://example.com/login");
+        session.allowedDomains(["example.com"]);
+        console.log("either:", await fill("k"));
+        session.allowedDomains(["http://example.com"]);
+        console.log("http:", await fill("k"));
+        session.allowedDomains(["https://example.com"]);
+        console.log("https:", await fill("k"));
+        try { session.allowedDomains(["https://example.com", "http://example.com"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(output.contains("either: ") && !output.contains("either: typed"), "\(output)")
+        #expect(output.contains("http: ") && !output.contains("http: typed"), "\(output)")
+        #expect(output.contains("https: typed"), "\(output)")
+        #expect(output.contains("kept: ") && !output.contains("widened"), "\(output)")
+        #expect(typed() == 1, "\(output)")
+
+        let wildcard = ScriptedPageDriver()
+        let any = try makeSession(wildcard)
+        defer { any.close() }
+        let anyResult = await run(any, """
+        const fill = (name) => page.locator("#f").fill(secret(name), { timeout: 2000 }).then(() => "typed", (e) => e.message);
+        secrets.set("w", "\(Self.value)", { domains: ["*"] });
+        await page.goto("https://example.com/login");
+        session.allowedDomains(["*"]);
+        console.log("star:", await fill("w"));
+        session.allowedDomains(["https://*", "localhost"]);
+        console.log("secure:", await fill("w"));
+        """)
+        let anyOutput = anyResult?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(anyOutput.contains("star: ") && !anyOutput.contains("star: typed"), "\(anyOutput)")
+        #expect(anyOutput.contains("secure: typed"), "\(anyOutput)")
     }
 
     /// r15 whole#1: the values a user types into the sign-in sheet go into
