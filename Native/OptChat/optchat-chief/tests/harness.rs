@@ -631,9 +631,15 @@ fn the_marker_ends_the_stable_view_prefix_and_the_next_turn_keeps_that_boundary(
     let marked = markers(first);
     assert_eq!(marked.len(), 1, "one marker of ours in a small view too");
     let at = marked[0];
-    assert!(at + 1 < first.len() - 1, "the marker leaves the view's newest lines out");
+    assert!(
+        at + 1 < first.len() - 1,
+        "the marker leaves the view's newest lines out"
+    );
     let (offset, prefix) = ends(first)[at].clone();
-    assert!(prefix.ends_with('\n'), "the marked piece ends at a line end");
+    assert!(
+        prefix.ends_with('\n'),
+        "the marked piece ends at a line end"
+    );
     let second = ends(&inner.prompts[1]);
     assert!(
         second.iter().any(|(o, p)| *o == offset && *p == prefix),
