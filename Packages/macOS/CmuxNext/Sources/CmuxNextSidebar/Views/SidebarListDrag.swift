@@ -20,6 +20,12 @@ final class SidebarListDrag {
     /// (`ontoWorkspace`), the list keeps showing it, so nothing moves.
     private(set) var lastPosition: DropPosition?
     var lastWindowPoint: NSPoint = .zero
+    /// A workspace drag's onto band (sticky edges).
+    var band = SidebarGroupBand()
+    /// Where the dragged workspaces started (what Cmd-Z puts them back to).
+    var origin: DropPosition?
+    /// The row a drop grouped with: its new group renames in place once the drag has landed and the rows have settled.
+    var renameOnLand: WorkspaceID?
     /// The last pointer y in the list and the drag's vertical direction.
     var lastY: CGFloat = 0, movingUp = false
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
@@ -34,6 +40,7 @@ final class SidebarListDrag {
         self.lift = lift
         self.target = target
         if case let .position(position)? = target { lastPosition = position }
+        origin = lastPosition
     }
     /// The drop for the card at `card` (list coordinates, as drawn over
     /// `displayed`), or nil to keep the last target; records the probe.

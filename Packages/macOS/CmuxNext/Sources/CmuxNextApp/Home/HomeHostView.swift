@@ -113,7 +113,7 @@ final class HomeHostView: NSView {
                 self?.transcript.isHidden = !available
                 self?.message.isHidden = available
                 self?.message.stringValue = why
-                self?.transcript.showNotice(notice)
+                self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
                 // H17: offline the user can type, but Send is off.
                 self?.transcript.isSendEnabled = online
