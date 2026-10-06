@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
+import Observation
 import os
 public import WebKit
 
@@ -23,6 +24,8 @@ public protocol PageSurface: AnyObject {
 @MainActor
 public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let descriptor: PageDescriptor
+    /// The engine options the page was made with (``PageEngineOptions``).
+    public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: WKWebView
     /// The WebKit view, for WebKit-only callers (focus, debug verbs). Engine-neutral code uses the
@@ -31,9 +34,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness
     private let bridge: any PageHostBridge
-    private var loaded = false
+    private(set) var loaded = false
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
+    private var uiScaleObservation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page")
     /// Answers the page's dynamic prefixes (``PageDescriptor/dynamicPrefixes``); the scheme
     /// handler holds it weakly, so the view keeps it alive.
@@ -48,9 +52,22 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
     /// The surface whose web theme the page gets (`--cmux-*`; nil: the scope's own), for a page that
     /// shows a surface with its own overrides (the agent pane: new tab page, then agent chat).
+    /// `data-*` attributes of `<html>` the host keeps current (`setDocumentAttribute`): set again
+    /// on every new document.
+    public internal(set) var liveDocumentAttributes: [String: String] = [:]
+
     public var themeSurface: SurfaceKind? {
         didSet { if themeSurface != oldValue { applyTheme() } }
     }
+    /// File drops the host opens itself (``PageFileDrop``); nil gives every drop to the page.
+    public var fileDrop: PageFileDrop? {
+        get { (webView as? PageWKWebView)?.fileDrop }
+        set { (webView as? PageWKWebView)?.fileDrop = newValue }
+    }
+    /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
+    /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per
+    /// gesture (a file page's "Open <path>?" sheet) records the value it used.
+    public var lastUserEventUptime: TimeInterval? { (webView as? PageWKWebView)?.lastUserEventUptime }
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     private var crashReloads = PageCrashReloads()
@@ -60,11 +77,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Nil when the page is missing from the resource bundle and no root is registered for it
     /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
-                             documentAttributes: [String: String] = [:], surface: SurfaceKind? = nil,
-                             dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         self.init(descriptor: descriptor, root: root, routes: routes, route: route, documentAttributes: documentAttributes,
-                  surface: surface, dynamicResources: dynamicResources)
+                  options: options, surface: surface, dynamicResources: dynamicResources)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -121,6 +138,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                  surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
         guard Self.mayServe(descriptor, from: root) else { return nil }
         self.descriptor = descriptor
+        engineOptions = options
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
@@ -133,7 +151,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                                           forURLScheme: PageDescriptor.scheme)
         configuration.userContentController.addUserScript(
             WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        if let script = Self.attributesScript(documentAttributes) {
+        // The scroller style is set before the page's code runs too (the theme refreshes it), so a
+        // page with its own scrollers starts in the right mode.
+        var startAttributes = documentAttributes
+        if startAttributes["scrollers"] == nil { startAttributes["scrollers"] = SystemScrollers.pageValue }
+        if let script = Self.attributesScript(startAttributes) {
             configuration.userContentController.addUserScript(
                 WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
@@ -142,6 +164,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         inputReadiness.attach(webView)
         bridge = WebKitPageHostBridge(webView: webView)
         super.init(frame: .zero)
+        SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         wantsLayer = true
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
@@ -158,6 +181,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         webView.navigationDelegate = self
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         addSubview(webView)
+        applyUIScale()
+        observeUIScale()
         PageRegistry.add(self)
         let bridge = bridge
         router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
@@ -181,6 +206,25 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    deinit {
+        uiScaleObservation?.cancel()
+    }
+
+    private func observeUIScale() {
+        uiScaleObservation = Task { [weak self] in
+            for await _ in Observations({ DesignSettings.shared.uiScale }) {
+                guard let self else { return }
+                self.applyUIScale()
+            }
+        }
+    }
+
+    /// Keeps first-party pages proportional to native chrome as the live
+    /// interface scale changes.
+    private func applyUIScale() {
+        webView.pageZoom = Double(DesignSettings.shared.uiScale)
+    }
 
     /// The window's title bar double-click action (System Settings > Desktop & Dock: zoom by
     /// default, minimize, or nothing), for a title bar the page draws (DESKTOP-FEEL).
@@ -273,6 +317,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyTheme()
+        windowDidChangeChrome()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -322,7 +367,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         loaded = true
+        applyUIScale()
         applyTheme(force: true)
+        applyLiveDocumentAttributes()
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

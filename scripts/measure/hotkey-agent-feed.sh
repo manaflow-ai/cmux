@@ -15,9 +15,6 @@ on_error() {
 trap on_error ERR
 
 cd "$root"
-GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" \
-  "$root/scripts/download-prebuilt-ghosttykit.sh"
-"$root/scripts/cmux-next/prefix-ghosttykit-archives.sh" "$root/GhosttyKit.xcframework"
 
 filter='ActionCatalogTests|LeaderLayerTests|AgentPaneShortcutsTests|AgentHandlerTests|NewTabKindTests|ShortcutBindingTests|ApplierTests'
 "$root/scripts/cmux-next/swift-test-with-hang-sampler.sh" \

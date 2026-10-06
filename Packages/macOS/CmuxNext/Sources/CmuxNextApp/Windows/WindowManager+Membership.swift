@@ -108,7 +108,7 @@ extension WindowManager {
     func select(_ workspaceID: String?, in state: WindowState) {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
-        state.workspaceID = workspaceID
+        state.showWorkspace(workspaceID)
         recordSaver.stateDidChange(state)
     }
 

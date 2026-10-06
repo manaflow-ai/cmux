@@ -24,14 +24,49 @@ your cmux shortcuts; they do not replace Cmd+N or Cmd+W.
 
 ## Precedence and focus
 
-cmux routes its configurable shortcuts before passing input to the terminal.
-A key or sequence leader claimed by a cmux shortcut never reaches Ghostty.
-Rebind or clear that cmux shortcut in **Settings > Keyboard Shortcuts** or
-`shortcuts.bindings` in `~/.config/cmux/cmux.json` to make it available.
+One binding table decides every key. When several bindings claim the same keys,
+this order applies (first wins):
 
-Ghostty bindings run only while a terminal surface has keyboard focus. They do
-not apply to browser panes, Markdown panes, the TextBox, or the command palette.
-Use cmux shortcuts for actions that should work across those surfaces.
+1. Your cmux shortcuts: `shortcuts.bindings` in `~/.config/cmux/cmux.json`,
+   **Settings > Keyboard Shortcuts**, and keybindings.json.
+2. Your Ghostty keybindings, in every pane and surface. A binding counts as
+   yours when it differs from Ghostty's default.
+3. cmux's default shortcuts.
+4. Ghostty's default keybindings.
+
+So a line such as `keybind = super+d=new_split:down` replaces cmux's Cmd+D
+(Split Right) everywhere: a terminal runs it itself, and in a browser pane, the
+sidebar or terminal copy mode cmux runs the same action (Split Down). To take a
+key back from your Ghostty config, bind it in cmux.json.
+
+A Ghostty keybinding that maps a key to a terminal action (`text:`, `csi:`,
+`esc:` and the like) or `unbind`s it also takes that key from cmux's defaults.
+For example `keybind = ctrl+shift+h=unbind` sends Ctrl+Shift+H to the terminal
+program instead of running Resize Pane Left; the action keeps its other default
+key (Ctrl+Cmd+Left). The Keyboard Shortcuts page lists such a default with the
+source "Ghostty config".
+
+cmux reads your Ghostty config at launch and again whenever it changes, and
+applies it as a live layer. It never copies Ghostty keybindings into cmux.json,
+so an edit of the Ghostty config takes effect without an import step.
+
+A cmux shortcut that applies only in another place (for example a browser-only
+shortcut) does not block the key: the next binding in the order gets it. A cmux
+shortcut that applies here but cannot run now still takes the key from the
+bindings below it, and the key goes to the focused view. Browser shortcuts in a
+browser pane (Cmd+[ Back, Cmd+Y History) stay the browser's even when your
+Ghostty config binds the same key.
+
+Ghostty keybindings for window, tab and split actions (the tables below) work
+outside a terminal. Other Ghostty bindings run only while a terminal surface has
+keyboard focus. The Keyboard Shortcuts page lists your Ghostty keybindings
+(source "Ghostty") and Ghostty's defaults (source "Ghostty default"). They are
+read-only there: edit your Ghostty config to change them.
+
+Limits: Ghostty reports one key per action. If you bind one of Ghostty's default
+keys to a different action, cmux still sees that key as a Ghostty default, so a
+cmux default on that key wins. An `unbind` inside a key sequence (`ctrl+b>x`)
+does not free a cmux default.
 
 cmux suppresses Ghostty's built-in workspace/window shortcuts before loading
 your bindings. The existing cmux-owned split, close, workspace-number, and
@@ -55,6 +90,16 @@ cleared. Write a different Ghostty binding, such as Ctrl+B followed by a digit.
 | `toggle_command_palette` | Open cmux's command palette in the source window. |
 | `open_config` | Open the Ghostty configuration through cmux's existing config editor command. |
 | `quit` | Request normal cmux quit, including its configured confirmation and cleanup. |
+| `undo` | Reopen the last closed item (Reopen Last Closed Item). |
+| `toggle_visibility` | Show or hide all cmux windows. |
+| `toggle_tab_overview` | Open tab search in the command palette. |
+| `check_for_updates` | Check for cmux updates. |
+| `prompt_surface_title`, `prompt_tab_title` | Rename the tab. |
+| `prompt_window_title`, `set_window_title:TITLE` | Rename the active workspace (cmux's window title). |
+| `close_all_windows` | Close every cmux window, each through its own confirmation. |
+| `toggle_maximize` | Zoom the window (Window > Zoom). |
+| `goto_window:next`, `goto_window:previous` | Select the next or previous cmux window. |
+| `move_tab_to_new_window` | Move the tab to a new window. |
 
 Terminal actions already handled by Ghostty, such as text input, copying,
 scrolling, and font changes, continue to work. Existing split actions continue

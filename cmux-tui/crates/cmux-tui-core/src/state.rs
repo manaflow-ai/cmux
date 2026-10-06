@@ -18,6 +18,9 @@ mod closed_history_tests;
 pub(crate) mod commit;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod ephemeral_moves;
+#[cfg(test)]
+mod ephemeral_moves_tests;
 pub(crate) mod frontend_browser_keys;
 pub(crate) mod home;
 pub(crate) mod home_store;
@@ -25,7 +28,12 @@ pub(crate) mod home_store;
 mod home_tests;
 pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
+#[cfg(test)]
+mod last_tab_closes_workspace_tests;
+#[cfg(test)]
+mod mixed_order_tests;
 pub(crate) mod personal;
+pub(crate) mod personal_order;
 pub(crate) mod personal_state_store;
 mod prelude;
 pub(crate) mod router;

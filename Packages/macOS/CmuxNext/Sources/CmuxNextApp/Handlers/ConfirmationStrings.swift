@@ -41,6 +41,28 @@ enum ConfirmationStrings {
                defaultValue: "Still running: \(programs). Closing the workspace ends these processes.", table: "Handlers", bundle: .module)
     }
 
+    /// "Close “name”?", for a tab as for a workspace.
+    static func closeTitle(_ name: String) -> String { closeWorkspaceTitle(name) }
+
+    static func closeTabsTitle(_ count: Int) -> String {
+        String(localized: "confirm.closeTabs.title", defaultValue: "Close \(count) tabs?", table: "Handlers", bundle: .module)
+    }
+
+    static func closeTabBody(_ programs: String) -> String {
+        String(localized: "confirm.closeTab.body",
+               defaultValue: "Still running: \(programs). Closing ends these processes.", table: "Handlers", bundle: .module)
+    }
+
+    /// "Claude is still working. …", naming the agent in the closing terminal.
+    static func agentStillWorking(_ agent: String) -> String {
+        String(localized: "confirm.closeTab.agentBody",
+               defaultValue: "\(agent) is still working. Closing the tab stops it.", table: "Handlers", bundle: .module)
+    }
+
+    static var theAgent: String {
+        String(localized: "confirm.agent.unnamed", defaultValue: "The agent", table: "Handlers", bundle: .module)
+    }
+
     static func deleteGroupTitle(_ name: String) -> String {
         String(localized: "confirm.deleteGroup.title", defaultValue: "Delete the group “\(name)”?", table: "Handlers", bundle: .module)
     }

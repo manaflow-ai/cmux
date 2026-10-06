@@ -18,7 +18,7 @@ extension LineTransport {
         var retryable: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error, type
+            case id, ok, event, error, type, reason, retryable
             case errorCode = "error_code"
             case streamID = "stream_id"
         }
@@ -43,6 +43,13 @@ extension LineTransport {
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
+                // A raw conversation reject carries its stable `reason` and
+                // `retryable` next to `error_code` (home.md section 2,
+                // home-cloud-proxy.md section 6); `details` holds the reason.
+                if let reason = try? c.decodeIfPresent(String.self, forKey: .reason) {
+                    errorDetails = .object(["reason": .string(reason)])
+                }
+                retryable = try? c.decodeIfPresent(Bool.self, forKey: .retryable)
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
                 error = structured.message ?? structured.code
                 errorCode = errorCode ?? structured.code

@@ -14,6 +14,10 @@ public struct MockPageInfoData {
     /// Every change Page Info pushed to the engine, in order.
     public private(set) var appliedChanges: [(SitePermissionKind, SitePermissionSetting, String)] = []
     public private(set) var deletedDomains: [String] = []
+    /// The page was loaded past a certificate warning the user turned off.
+    public var certificateWarningsOff = false
+    /// Pages the warning page's Proceed loaded, in order.
+    public var certificateProceeds: [URL] = []
 
     public init() {}
 
@@ -47,5 +51,27 @@ extension MockBrowserTab: PageInfoProviding {
 
     public func pageInfoDidChange(_ kind: SitePermissionKind, to setting: SitePermissionSetting, origin: String) async {
         pageInfoFake.recordChange(kind, setting, origin)
+    }
+}
+
+extension MockBrowserTab: BrowserCertificateWarningRevoking {
+    public var certificateWarningsTurnedOff: Bool { pageInfoFake.certificateWarningsOff }
+    public var certificateWarningScope: BrowserCertificateWarningScope { engineKind == .cef ? .profile : .site }
+    public var canTurnOnCertificateWarnings: Bool { engineKind == .cef || pageInfoFake.certificateWarningsOff }
+
+    public func turnOnCertificateWarnings() async -> Bool {
+        guard canTurnOnCertificateWarnings else { return false }
+        pageInfoFake.certificateWarningsOff = false
+        reload()
+        return true
+    }
+}
+
+extension MockBrowserTab: BrowserCertificateBypassing {
+    public func proceedPastCertificateError() {
+        guard let url = state.loadError?.failingURL else { return }
+        pageInfoFake.certificateProceeds.append(url)
+        pageInfoFake.certificateWarningsOff = true
+        load(url)
     }
 }

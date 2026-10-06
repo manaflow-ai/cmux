@@ -69,6 +69,7 @@ fn title_and_pty_callbacks() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: Some(Box::new(move || *tc.lock().unwrap() = true)),
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 
@@ -90,6 +91,7 @@ fn default_colors_answer_osc_queries() {
         on_pty_write: Some(Box::new(move |bytes| po.lock().unwrap().extend_from_slice(bytes))),
         on_title_changed: None,
         on_bell: None,
+        on_clipboard_read: None,
     };
     let mut term = Terminal::new(80, 24, 0, callbacks).unwrap();
 

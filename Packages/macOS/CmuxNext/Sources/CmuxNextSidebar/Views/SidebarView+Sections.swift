@@ -13,11 +13,11 @@ extension SidebarView {
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
+            region.liftHost = self
             region.onActivateWithModifiers = { [weak self] id, flags in
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
-            region.onAccessory = { [weak self] id in self?.model.send(.activateItemAccessory(id)) }
             // A drop gives the layout the order the band showed (R77).
             region.onReorder = { [weak self] subject, shown in
                 guard let self, let op = SidebarRegionReorder.op(for: subject, shown: shown, document: self.model.layout) else { return }
@@ -29,10 +29,8 @@ extension SidebarView {
         addSubview(aboveFade)
         addSubview(belowFade)
         wantsLayer = true
-        for line in [aboveLine, belowLine] {
-            line.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
-            layer?.addSublayer(line)
-        }
+        aboveLine.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        layer?.addSublayer(aboveLine)
         installCardStack()
     }
 
@@ -49,8 +47,11 @@ extension SidebarView {
         let bands = (above: above.presenting(hidingItems: hidden, apps: apps), below: below.presenting(hidingItems: hidden, apps: apps))
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
+        // The one selection marks its top item active (its glyph, accessibility).
+        var selectedInfos = model.itemInfo
+        for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
-            SidebarRegionView.Content(sections: sections.map(titled), infos: model.itemInfo, collapsed: model.collapsedLayoutSections,
+            SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: b.width))
         }
         aboveRegion.update(content(bands.above), width: b.width)
@@ -65,8 +66,7 @@ extension SidebarView {
         belowFade.frame = NSRect(x: 0, y: b.height - belowHeight, width: b.width, height: belowHeight)
         size(belowRegion, in: belowScroll, width: b.width)
         let listY = y + aboveHeight
-        layoutBandLines(aboveY: listY, belowY: belowFade.frame.minY - footerHeight, look: look,
-                        showsAbove: aboveHeight > 0, showsBelow: belowHeight > 0)
+        layoutBandLine(aboveY: listY, look: look, showsAbove: aboveHeight > 0)
         return NSRect(x: 0, y: listY, width: b.width, height: max(0, available - aboveHeight - belowHeight))
     }
 
@@ -102,20 +102,16 @@ extension SidebarView {
         }
     }
 
-    /// The hairlines under the band above and over the band below (the
-    /// quiet and lines looks); `appearance.borders` none hides them.
-    private func layoutBandLines(aboveY: CGFloat, belowY: CGFloat, look: SectionsLookVariant, showsAbove: Bool, showsBelow: Bool) {
+    /// The hairline under the band above (the quiet and lines looks);
+    /// `appearance.borders` none hides it. The footer has no line over it
+    /// (SIDEBAR-FOOTER-MINIMAL).
+    private func layoutBandLine(aboveY: CGFloat, look: SectionsLookVariant, showsAbove: Bool) {
         let width = Metrics.dividerThickness
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         aboveLine.frame = NSRect(x: 0, y: aboveY - width, width: bounds.width, height: width)
-        belowLine.frame = NSRect(x: 0, y: belowY, width: bounds.width, height: width)
         aboveLine.isHidden = !(look.drawsBandLines && showsAbove)
-        belowLine.isHidden = !(look.drawsBandLines && showsBelow)
-        performWithTheme {
-            aboveLine.backgroundColor = Palette.separator.cgColor
-            belowLine.backgroundColor = Palette.separator.cgColor
-        }
+        performWithTheme { aboveLine.backgroundColor = Palette.separator.cgColor }
         CATransaction.commit()
     }
 
@@ -128,14 +124,15 @@ extension SidebarView {
 
     func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
         let f = footer.bounds
-        // account leading, cloud next to it, status fills the trailing space.
+        // Account and cloud lead; status fills the remaining space. Help is
+        // in the Help menu and the account menu, not here
+        // (SIDEBAR-FOOTER-MINIMAL).
         let side = Metrics.sidebarRowHeight
         var x = Metrics.space4
         for (slot, view) in slots {
-            let width: CGFloat
-            switch slot {
-            case .account, .cloud: width = side
-            case .status: width = max(0, f.width - x - Metrics.space4)
+            let width: CGFloat = switch slot {
+            case .account, .cloud: side
+            case .status: max(0, f.width - x - Metrics.space4)
             }
             view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
             x += width + Metrics.space2

@@ -25,7 +25,8 @@ const vmSetup = async (sub: string) => {
   const ch = await post("/v1/auth/challenge", undefined, { user: install.user, install: install.id })
   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`))
   const vmToken = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })).body.access_token as string
-  const report = (activity: Record<string, unknown>) => op(vmToken, "cloud.vm.status.report", { machine, state: "running", daemon: DAEMON, activity })
+  // A daemon that can see sessions advertises the activity capability (coordinator, 2026-10-05).
+  const report = (activity: Record<string, unknown>, capabilities: Array<string> = [...DAEMON.capabilities, "activity"]) => op(vmToken, "cloud.vm.status.report", { machine, state: "running", daemon: { ...DAEMON, capabilities }, activity })
   const status = async () => (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value.status as string
   return { a, machine, stub, report, status }
 }
@@ -139,5 +140,42 @@ describe("Freestyle timers off, our 24 h backstop on", { timeout: 60_000 }, () =
     await s.stub.fakeControl({ advance_ms: 70_000 } as never)
     await fireAlarm(s.stub)
     expect(await calls()).toBeGreaterThan(first)
+  })
+
+  it("a report without the activity capability never counts as idle and does not reset the no_report clock (coordinator, 2026-10-05)", async () => {
+    const s = await vmSetup("cloud-bind-3")
+    const plain = [...DAEMON.capabilities]
+    // With cloud.idlePause on (30 min policy), a capable daemon's idle report would pause the machine now.
+    expect((await op(s.a.session, "team.policy.update", { changes: [{ key: "cloud.idlePause", value: { value: true, mode: "enforced" } }], expected_version: 0, reason: "test" }, crypto.randomUUID())).body.ok).toBe(true)
+    // 23 h after the bind: idle by its times, but the daemon cannot see sessions: no pause.
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    await s.report({ active_sessions: 0, last_user_input_at: Date.now() + 23 * H - 20 * H }, plain)
+    expect(await s.status()).toBe("running")
+    // Its reports do not keep the machine alive either: 24 h after the bind the no_report backstop pauses it.
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    await s.report({ active_sessions: 0 }, plain)
+    const { fireAlarm } = await import("./setup/alarm.ts")
+    await fireAlarm(s.stub)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
+  })
+
+  it("a held report from a replaced install does not reset the no_report clock (review P3)", async () => {
+    const s = await vmSetup("cloud-bind-4")
+    const { runInDurableObject } = await import("cloudflare:test")
+    // A capable report from another install is held for the machine (the queue keys by machine), then the alarm takes it.
+    await s.stub.fakeControl({ advance_ms: 23 * H } as never)
+    await (runInDurableObject as unknown as (x: unknown, f: (i: any) => Promise<void>) => Promise<void>)(s.stub, async (i: any) => {
+      const now = Date.now() + i.skewMs
+      i.vmStatus.offer(s.machine, { machine: s.machine, state: "running", daemon: { version: "x", capabilities: ["activity"] }, activity: { active_sessions: 1 }, install: "inst_00000000000000000099" }, now - 20_000)
+      i.vmStatus.offer(s.machine, { machine: s.machine, state: "running", daemon: { version: "x", capabilities: ["activity"] }, activity: { active_sessions: 1 }, install: "inst_00000000000000000099" }, now - 5_000)
+    })
+    await s.stub.fakeControl({ advance_ms: 30_000 } as never)
+    const { fireAlarm } = await import("./setup/alarm.ts")
+    await fireAlarm(s.stub)
+    await s.stub.fakeControl({ advance_ms: 2 * H } as never)
+    await fireAlarm(s.stub)
+    const got = (await post("/v1/read", s.a.session, { op: "cloud.machine.get", params: { machine: s.machine } })).body.value
+    expect(got).toMatchObject({ status: "paused", pause_reason: "no_report" })
   })
 })

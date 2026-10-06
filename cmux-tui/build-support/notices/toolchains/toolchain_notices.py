@@ -23,7 +23,9 @@ stored text (texts/<file>), its sha256 and where it came from:
   zig:  version, ci_version (the exact Zig CI installs; install-zig-ci.sh
         refuses any other, apart from the Zig SDK conformance version),
         ghostty_sources (submodules whose build.zig.zon minimum_zig_version
-        must equal version), binaries (a note)
+        must equal version: ghostty-next, the source of every Zig binary that
+        cmux-next and cmux-tui ship; the classic `ghostty` submodule only
+        builds the classic app, which ships from main), binaries (a note)
 check-repo fails when a pin moves, so a toolchain bump stops until the new
 text is reviewed and recorded. A missing build.zig.zon fails (initialize the
 submodule); nothing is skipped.

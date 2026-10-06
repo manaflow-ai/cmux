@@ -2,7 +2,7 @@
 <array/>
 <key>history.terminalCommands</key>
 <false/>
+<key>navigation.history.scope</key>
+<string>workspaces</string>
 <key>navigation.historyScope</key>
 <string>workspace</string>
-<key>window.titlebar</key>
-<string>minimal</string>

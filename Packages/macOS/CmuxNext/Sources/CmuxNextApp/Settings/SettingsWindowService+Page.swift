@@ -32,6 +32,8 @@ extension SettingsWindowService {
                 })),
             ],
             "terminal": ["ghostty_config": .string(ghosttyConfigPath), "shell_integration": shellIntegration.map(JSONValue.string) ?? .null],
+            // R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list).
+            "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             "backdrops": .array(Self.backdrops.choices.map { choice in
                 ["id": .string(choice.id), "title": .string(choice.title), "attribution": .string(choice.attribution)]

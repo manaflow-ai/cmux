@@ -22,6 +22,12 @@ enum CloudStrings {
                           compat.missingRequired.joined(separator: ", "))
         }
     }
+    /// A Cloud machine's link ended; v1 does not reconnect by itself.
+    static var linkDisconnected: String { String(localized: "cloud.link.disconnected", defaultValue: "Disconnected from the Cloud machine. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    static var linkRevoked: String { String(localized: "cloud.link.revoked", defaultValue: "Access to this Cloud machine was revoked. Click Connect to connect again.", table: "Cloud", bundle: .module) }
+    static func linkFailed(_ detail: String) -> String {
+        String(format: String(localized: "cloud.link.failed", defaultValue: "Could not connect to the Cloud machine (%@). Click Connect to try again.", table: "Cloud", bundle: .module), detail)
+    }
     static var notConnected: String { String(localized: "cloud.failed.notConnected", defaultValue: "The Cloud machine is not connected yet.", table: "Cloud", bundle: .module) }
     static var commandRequired: String { String(localized: "cloud.failed.commandRequired", defaultValue: "Pass a command to run on the Cloud machine.", table: "Cloud", bundle: .module) }
     static var alreadySignedIn: String { String(localized: "cloud.failed.alreadySignedIn", defaultValue: "Already signed in.", table: "Cloud", bundle: .module) }

@@ -52,6 +52,37 @@ import Testing
         #expect(try !handle(of: container).isHidden)
     }
 
+    /// A window with no screen (display unplugged or asleep, a screenless
+    /// host; an offscreen window here) never advances an AppKit animation,
+    /// so the hide must apply at once: width 0 and the content hidden (the
+    /// animation's completion). Before, the width stayed at the user's
+    /// width and the content stayed shown for an indefinite time.
+    @Test func hidingInAWindowWithNoScreenFinishesAtOnce() async throws {
+        let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 600, height: 400), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let container = SidebarContainerView(model: SidebarModel(sections: fixture()))
+        container.restore(width: 230, presentation: .shown)
+        let content = try #require(window.contentView)
+        content.addSubview(container)
+        NSLayoutConstraint.activate([
+            container.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            container.topAnchor.constraint(equalTo: content.topAnchor),
+            container.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        content.layoutSubtreeIfNeeded()
+        try #require(window.screen == nil, "the test window has no screen")
+        container.model.presentation = .hidden
+        // The container applies the change from its model observation.
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: .seconds(5))
+        func finished() -> Bool { container.widthConstraint.constant == 0 && container.sidebarView.isHiddenOrHasHiddenAncestor }
+        while !finished(), clock.now < end { try await clock.sleep(for: .milliseconds(20)) } // test-only wait
+        #expect(container.widthConstraint.constant == 0)
+        #expect(container.sidebarView.isHiddenOrHasHiddenAncestor, "the hide's completion ran")
+    }
+
     @Test func draggingTheEdgeResizesAboveTheThreshold() throws {
         let container = SidebarContainerView(model: SidebarModel(sections: fixture()))
         container.restore(width: 240, presentation: .shown)

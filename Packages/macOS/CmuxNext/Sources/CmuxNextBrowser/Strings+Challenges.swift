@@ -20,6 +20,14 @@ extension Strings {
                defaultValue: "\(host) uses a certificate this Mac does not trust. Someone may be trying to read or change what you send to it.",
                bundle: .module)
     }
+    /// A certificate warning action run while no warning page shows.
+    static var certificateWarningNotShown: String {
+        String(localized: "browser.certificate.notShown", defaultValue: "No certificate warning is showing on this page.", bundle: .module)
+    }
+    /// A certificate warning action run on a Chromium page.
+    static var certificateWarningChromium: String {
+        String(localized: "browser.certificate.chromium", defaultValue: "Chromium shows its own certificate warning page. Use its buttons, or Back.", bundle: .module)
+    }
     static var certificateBack: String { String(localized: "browser.certificate.back", defaultValue: "Go Back", bundle: .module) }
     static func certificateProceed(host: String) -> String {
         String(localized: "browser.certificate.proceed", defaultValue: "Proceed to \(host) (Unsafe)", bundle: .module)

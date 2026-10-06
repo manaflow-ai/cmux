@@ -191,7 +191,7 @@ import Testing
         return next
     }
 
-    static func explore(depth: Int, mutant: String? = nil) -> (states: Int, transitions: Int, violations: [String]) {
+    static func explore(depth: Int, mutant: String? = nil, stopAfterViolation: Bool = false) -> (states: Int, transitions: Int, violations: [String]) {
         var frontier: Set<World> = []
         let choices = [30, 55, 100]
         func lists(_ n: Int) -> [[Int]] { n == 0 ? [[]] : lists(n - 1).flatMap { p in choices.map { p + [$0] } } }
@@ -230,6 +230,7 @@ import Testing
                     let bad = check(step, before: world, after: after)
                     if !bad.isEmpty, violations.count < 8 {
                         violations.append("ids \(world.ids) w \(world.widths) vp \(world.viewport) off \(world.state.spring.target) f \(String(describing: world.focused)) \(step): \(bad)")
+                        if stopAfterViolation { return (seen.count, transitions, violations) }
                     }
                     let key = canonical(after)
                     if seen.insert(key).inserted { next.insert(key) }
@@ -248,6 +249,6 @@ import Testing
 
     @Test(arguments: ["noReveal", "center", "noClamp", "noAnchor"])
     func mutantIsCaught(_ name: String) {
-        #expect(!Self.explore(depth: 3, mutant: name).violations.isEmpty, "mutant \(name) not caught")
+        #expect(!Self.explore(depth: 3, mutant: name, stopAfterViolation: true).violations.isEmpty, "mutant \(name) not caught")
     }
 }

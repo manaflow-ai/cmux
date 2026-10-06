@@ -193,7 +193,7 @@ pub(crate) fn launch_terminal_host_from(
     // successful authenticated Snapshot. Returning Err after disarming it
     // would leave a live published host while the mux marks its registry
     // row Exited.
-    let mut attachment = connect_record(record, record_path)?;
+    let mut attachment = connect_record(record, record_path, OwnerIntent::Surface)?;
     crate::debug_spans::mark("host.connected");
     attachment.launch_process = Some(process);
     debug_assert_eq!(

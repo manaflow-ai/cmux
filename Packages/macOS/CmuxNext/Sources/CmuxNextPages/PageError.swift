@@ -56,6 +56,9 @@ public nonisolated struct PageError: Error, Sendable, Equatable {
     public static func invalidParams(_ message: String) -> PageError { PageError(code: "cmux.protocol.invalid_params", message: message) }
     /// The person declined the native confirmation.
     public static let cancelled = PageError(code: "cmux.page.cancelled", message: "cancelled")
+    /// The caller cancelled the op (the page's `cancel`, navigation, tab close). A cancelled
+    /// mutation may or may not have applied, so it is retryable with the same opid.
+    public static let opCancelled = PageError(code: "cmux.op.cancelled", message: "the caller cancelled the op", retryable: true)
     public static func unavailable(_ message: String) -> PageError {
         PageError(code: "cmux.protocol.unavailable", message: message, retryable: true)
     }

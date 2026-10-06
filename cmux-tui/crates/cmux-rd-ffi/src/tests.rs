@@ -351,7 +351,11 @@ fn a_panic_poisons_only_that_receiver() {
 #[test]
 fn header_declares_exactly_the_exported_functions_and_codes() {
     let header = include_str!("../include/cmux_rd_ffi.h");
-    let source = concat!(include_str!("lib.rs"), include_str!("input_ffi.rs"));
+    let source = concat!(
+        include_str!("lib.rs"),
+        include_str!("input_ffi.rs"),
+        include_str!("session_ffi.rs")
+    );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
         .filter(|l| !l.trim_start().starts_with('#') && !l.trim_start().starts_with('/'))
@@ -374,6 +378,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_CARRIER", CMUX_RD_ERR_CARRIER),
         ("CMUX_RD_ERR_FAILED", CMUX_RD_ERR_FAILED),
         ("CMUX_RD_ERR_PANIC", CMUX_RD_ERR_PANIC),
+        ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -393,8 +398,12 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_INPUT_BUTTON", CMUX_RD_INPUT_BUTTON as usize),
         ("CMUX_RD_INPUT_SCROLL", CMUX_RD_INPUT_SCROLL as usize),
         ("CMUX_RD_INPUT_TEXT", CMUX_RD_INPUT_TEXT as usize),
+        ("CMUX_RD_INPUT_SERVICE", CMUX_RD_INPUT_SERVICE as usize),
+        ("CMUX_RD_INPUT_MUST_DELIVER", CMUX_RD_INPUT_MUST_DELIVER as usize),
+        ("CMUX_RD_INPUT_MAX_SERVICE", CMUX_RD_INPUT_MAX_SERVICE),
         ("CMUX_RD_INPUT_MAX_TEXT", CMUX_RD_INPUT_MAX_TEXT),
         ("CMUX_RD_INPUT_PACKET_MAX", CMUX_RD_INPUT_PACKET_MAX),
+        ("CMUX_RD_SESSION_MAX_STREAMS", CMUX_RD_SESSION_MAX_STREAMS),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }

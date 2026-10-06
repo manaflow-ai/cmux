@@ -21,6 +21,7 @@ final class SiteDataWindow: PageInfoWindow {
         let scroll = NSScrollView()
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
+        SystemScrollers.follow(scroll)
         let document = FlippedDocumentView()
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(list)

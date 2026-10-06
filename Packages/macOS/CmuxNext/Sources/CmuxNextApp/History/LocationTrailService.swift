@@ -86,8 +86,37 @@ final class LocationTrailService {
     /// window, else the last active one), so a background CLI change does
     /// not move the trail.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
-        guard services.windows.active === controller, let location = location(of: state, in: controller) else { return }
-        if trail.record(location, at: now()) { changed() }
+        // Under a top page the workspace's focus is not where the user is.
+        guard services.windows.active === controller, controller.shownTopPage == nil else { return }
+        // The window selected another workspace whose panes have not reached
+        // the focus coordinator yet: this settle still describes the
+        // workspace it left. Not a place the user went; recording it cut off
+        // the forward entries of a Back or Forward between workspaces.
+        if let shown = controller.state.workspaceID, state.topology.workspace != shown { return }
+        guard let location = location(of: state, in: controller) else { return }
+        if let jump = jumpNotedAt, now().timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
+            jumpNotedAt = nil
+            if trail.recordJump(location, at: now()) { changed() }
+            return
+        }
+        if trail.record(location, at: now(), scope: stepScope) { changed() }
+    }
+
+    /// When the user last picked a jump (``noteJump()``).
+    private var jumpNotedAt: Date?
+    /// How long a noted jump waits for the focus it causes to settle.
+    private static let jumpWindow: TimeInterval = 2
+
+    /// The user picked a place to jump to (the New Tab page's location bar):
+    /// the next settled location elsewhere is its own step, even in the same
+    /// workspace, so Back returns to where they jumped from.
+    func noteJump() {
+        jumpNotedAt = now()
+    }
+
+    /// What a step is (`navigation.history.scope`, BACK-FORWARD-WORKSPACES-ONLY).
+    var stepScope: HistoryStepScope {
+        services.settings.flatMap { HistoryStepScope(rawValue: $0.snapshot.navigationHistorySteps) } ?? .default
     }
 
     func location(of state: FocusState, in controller: WindowController) -> HistoryLocation? {
@@ -109,10 +138,20 @@ final class LocationTrailService {
             url: tab.url, cwd: tab.cwd, isIncognito: services.windows.isIncognito(workspace: workspaceID))
     }
 
+    /// The user showed top page `route` in the active window: a trail entry
+    /// (TOP-SECTION-ITEMS-ARE-PAGES Q2), through the same settle rules.
+    func pageDidShow(_ route: TopPageRoute, title: String, in controller: WindowController) {
+        guard services.windows.active === controller else { return }
+        let location = HistoryLocation.page(route.rawValue, window: controller.state.id, title: title,
+                                            isIncognito: services.windows.isIncognito(window: controller.state.id))
+        if trail.record(location, at: now()) { changed() }
+    }
+
     // MARK: Navigation
 
     /// Whether the location's tab exists on a connected machine now.
     func isAvailable(_ location: HistoryLocation) -> Bool {
+        if let page = location.page { return TopPageRoute(rawValue: page).map(hasPage) ?? false }
         guard let (_, pane) = services.locateTab(location.key.tab) else { return false }
         return services.daemon(for: pane).machineID == location.key.machine
     }
@@ -120,7 +159,12 @@ final class LocationTrailService {
     enum Direction { case back, forward, last }
 
     /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
-    var scope: HistoryScope { services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default }
+    /// With workspace steps (the default) a step is a workspace or top page,
+    /// so Back and Forward walk the window's trail; `surface` stays the page's own list.
+    var scope: HistoryScope {
+        let configured = services.settings.flatMap { HistoryScope(rawValue: $0.snapshot.navigationHistoryScope) } ?? .default
+        return stepScope == .workspaces && configured != .surface ? .window : configured
+    }
 
     /// Moves the trail within the scope and focuses the entry. False when there is nowhere to go.
     /// With the `surface` scope the focused surface walks its own list (a browser page's back and
@@ -182,7 +226,16 @@ final class LocationTrailService {
     private func focus(_ location: HistoryLocation) -> Bool {
         // A run without view-change permission (automation) moves nothing.
         guard ActionRunScope.viewChangeAllowed() else { return false }
+        if let page = location.page {
+            guard let route = TopPageRoute(rawValue: page) else { return false }
+            return TopPages.show(route, services: services, in: services.windows.states[location.window]) != nil
+        }
         return services.revealTab(location.key.tab)
+    }
+
+    private func hasPage(_ route: TopPageRoute) -> Bool {
+        if case .page(let id) = route { return TopPages.provider(id, services: services) != nil }
+        return true
     }
 
     // MARK: Clearing

@@ -558,6 +558,9 @@ def serialized_literal_event_names(source: str) -> set[str]:
     return names
 
 
+CONTROL_EVENT_MODULES = ("server/url_open.rs", "server/clipboard_read.rs", "server/activity.rs")
+
+
 def event_names() -> set[str]:
     server = (TUI / "crates/cmux-tui-core/src/server.rs").read_text()
     production = strip_rust_comments(server.split("\n#[cfg(test)]\nmod tests", 1)[0])
@@ -568,10 +571,28 @@ def event_names() -> set[str]:
     names.update(assigned_event_names(tokens, constants))
     names.update(serialized_literal_event_names(production))
 
+    # Frontend brokers build their targeted control events in their own
+    # server modules.
+    for module in CONTROL_EVENT_MODULES:
+        # Absent in minimal test trees; in the real tree a missing module
+        # drops its events, which the SDK drift check then reports.
+        path = TUI / "crates/cmux-tui-core/src" / module
+        if not path.exists():
+            continue
+        source = path.read_text()
+        source = strip_rust_comments(source.split("\n#[cfg(test)]\nmod tests", 1)[0])
+        module_tokens = rust_tokens(source)
+        module_constants = rust_string_constants(module_tokens)
+        names.update(json_macro_event_names(module_tokens, module_constants))
+
     # The local conversation owner builds its subscribe-stream events itself.
     conversations = TUI / "crates/cmux-tui-core/src/conversation_store.rs"
     if conversations.exists():
         names.update(function_event_names(conversations.read_text(), "wire_json"))
+    # So does the cloud conversations proxy (cloud-conversations-v1).
+    cloud = TUI / "crates/cmux-tui-core/src/cloud_conversations/stream.rs"
+    if cloud.exists():
+        names.update(function_event_names(cloud.read_text(), "wire_json"))
 
     mux = strip_rust_comments((TUI / "crates/cmux-tui-core/src/mux.rs").read_text())
     delta_impl = mux.split("impl TreeDeltaKind", 1)

@@ -1,8 +1,10 @@
 //! The viewer's input channel in safe Rust: events in, `Input` datagrams out,
 //! `InputAck` datagrams in. Wraps `cmux_rd_core::input::InputSender` (repeat
-//! until acknowledged, exactly once at the host) and adds the resend timer, so
-//! a lost last event (a key release) goes out again without new input. The C
-//! ABI in `input_ffi.rs` is a thin shell over this type.
+//! until acknowledged, exactly once at the host) and adds the resend timer:
+//! every `resend_us` the window from the oldest unacknowledged event goes out
+//! again, so a lost last event (a key release) repeats without new input, and
+//! lost older events repeat while new input keeps flowing. The C ABI in
+//! `input_ffi.rs` is a thin shell over this type.
 
 use cmux_rd_core::input::InputSender;
 use cmux_rd_proto::{
@@ -18,14 +20,15 @@ pub struct InputChannel {
     carrier: Carrier,
     resend_us: u64,
     sender: InputSender,
-    last_sent_us: u64,
+    /// When the window from the oldest event last went out.
+    last_repeat_us: u64,
 }
 
 impl InputChannel {
     /// `resend_us`: how long unacknowledged events wait before they go out
     /// again when no new input arrives (about one RTT; at least 1).
     pub fn new(carrier: Carrier, resend_us: u64) -> Self {
-        Self { carrier, resend_us: resend_us.max(1), sender: InputSender::new(), last_sent_us: 0 }
+        Self { carrier, resend_us: resend_us.max(1), sender: InputSender::new(), last_repeat_us: 0 }
     }
 
     /// Queues an event and returns its sequence number. The next
@@ -48,28 +51,41 @@ impl InputChannel {
     }
 
     /// When [`Self::packet`] must run next: `Some(0)` when an event was never
-    /// sent, the resend time while events wait for an acknowledgement, `None`
-    /// when nothing is queued.
+    /// sent, the repeat time while sent events wait for an acknowledgement,
+    /// `None` when nothing is queued.
     pub fn next_deadline_us(&self) -> Option<u64> {
         if self.sender.has_unsent() {
             Some(0)
         } else if self.sender.is_empty() {
             None
         } else {
-            Some(self.last_sent_us.saturating_add(self.resend_us))
+            Some(self.repeat_at())
         }
+    }
+
+    fn repeat_at(&self) -> u64 {
+        self.last_repeat_us.saturating_add(self.resend_us)
     }
 
     /// The next `Input` datagram (stream-framed on the stream carrier), or
     /// `None` when nothing is due. Call again until it returns `None`: one
-    /// datagram holds at most `MAX_PACKET_PAYLOAD` bytes of events.
+    /// datagram holds at most `MAX_PACKET_PAYLOAD` bytes of events. A due
+    /// repeat of the oldest window goes first, then never-sent events.
     pub fn packet(&mut self, now_us: u64) -> Option<Vec<u8>> {
-        let due = self.next_deadline_us().is_some_and(|at| at <= now_us);
-        if !due {
+        let packet = if self.sender.oldest_was_sent() && self.repeat_at() <= now_us {
+            self.last_repeat_us = now_us;
+            self.sender.repeat_packet()?
+        } else if self.sender.has_unsent() {
+            // A packet that starts at the oldest event repeats it too.
+            let starts_at_oldest = !self.sender.oldest_was_sent();
+            let packet = self.sender.packet()?;
+            if starts_at_oldest {
+                self.last_repeat_us = now_us;
+            }
+            packet
+        } else {
             return None;
-        }
-        let packet = self.sender.packet()?;
-        self.last_sent_us = now_us;
+        };
         let mut datagram = Vec::with_capacity(HEADER_LEN + 64);
         DatagramHeader {
             flags: 0,

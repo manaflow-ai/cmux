@@ -26,28 +26,24 @@ extension AppActions {
                 services.windows.active?.sidebar.container.beginRename(workspace: SidebarWorkspaceID(workspace.id))
             }
         })
-        // Next / previous item in the current sidebar section; in the workspaces list, the workspaces (R119).
-        registry.bind("nextSidebarTab") { stepSidebar(services, offset: 1) }
-        registry.bind("prevSidebarTab") { stepSidebar(services, offset: -1) }
+        // Next / previous sidebar item and Cmd-1…9: one walk over every
+        // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
+        registry.bind("nextSidebarTab") { SidebarNavigation.step(by: 1, services) }
+        registry.bind("prevSidebarTab") { SidebarNavigation.step(by: -1, services) }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
-            guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
-            // Home is 1, then the visible rows top to bottom across every machine section (R119).
-            let all = services.windows.active?.sidebar.model.visibleWorkspaceIDs ?? []
-            guard let pick = SidebarNumbering(home: services.home.homeWorkspace?.id, workspaces: all).pick(number) else { return }
-            services.windows.show(workspaceID: pick, in: state)
+            guard let number = invocation["index"]?.intValue else { return }
+            SidebarNavigation.select(number: number, services)
         })
-        // Home is the store's home workspace (home.md 7): shown like any
-        // workspace, from any origin (a focus action), or refused with why.
+        // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
+        // window shows it, from any origin (a focus action). With no window,
+        // the store's home workspace opens one; else refused with why.
         registry.bind("home.show") {
-            guard let home = services.home.homeWorkspace else {
+            if TopPages.show(.home, services: services) != nil { return }
+            guard services.windows.active == nil, let home = services.home.homeWorkspace else {
                 services.registry.refuse(RefusalStrings.homeNotReady)
                 return
             }
-            if let state = services.windows.active?.state {
-                services.windows.show(workspaceID: home.id, in: state)
-            } else {
-                services.windows.reveal(workspaceID: home.id)
-            }
+            services.windows.reveal(workspaceID: home.id)
         }
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
@@ -65,11 +61,18 @@ extension AppActions {
                 services.registry.refuse(RefusalStrings.homeAttachNoFile(path))
             }
         })
+        // The Home page's New Message, Invite, New Chief, Archive Chief and Open Conversation.
+        bindHomeConversations(services)
+        // Debug > Save Last 10 Seconds (DEV and NIGHTLY): MessagesLab's flight recorder dump.
+        registry.bind("home.saveFlightRecording") {
+            if HomeFlightRecording.saveLastSeconds() == nil { services.registry.refuse(RefusalStrings.homeFlightRecorderOff) }
+        }
                 registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
-    /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
+    /// New workspace (`WorkspaceSpawn` arguments: the New Tab page for a
+    /// person, one terminal for a script or a `command`), shown
     /// in the active window unless `focus` is false (the CLI's default).
     /// With `activate: true` as well (`cmux open <dir>` run by a person) it
     /// also brings that window forward and activates the app
@@ -116,22 +119,6 @@ extension AppActions {
         guard let window = controller.window else { return }
         WindowActivation.show(window, .focus)
         windows.didActivate(controller)
-    }
-
-    private static func stepSidebar(_ services: AppServices, offset: Int) {
-        let window = services.windows.active
-        let shownPage = window?.focus.state.resolved.tab.flatMap(LocalPageTab.page(of:))
-        if let sidebar = window?.sidebar,
-           SidebarItemStepper.step(sidebar, by: offset, shownWorkspace: { window?.state.workspaceID }, shownPage: shownPage) { return }
-        selectWorkspace(services, offset: offset)
-    }
-
-    private static func selectWorkspace(_ services: AppServices, offset: Int) {
-        guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
-        guard !ids.isEmpty else { return }
-        let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
-        services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)
     }
 
     private static func moveWorkspace(_ services: AppServices, _ invocation: ActionInvocation, by offset: Int) {

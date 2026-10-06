@@ -36,9 +36,6 @@ if [[ ! -x "$SAMPLE_BIN" ]]; then
 fi
 
 cd "$ROOT"
-export GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)"
-"$ROOT/scripts/download-prebuilt-ghosttykit.sh"
-"$ROOT/scripts/cmux-next/prefix-ghosttykit-archives.sh" "$ROOT/GhosttyKit.xcframework"
 
 # Keep the linker spelling explicit: cmux-next's Ghostty bridge needs libc++
 # when this focused package suite links on the fleet worker.

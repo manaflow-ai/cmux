@@ -19,6 +19,9 @@ use super::personal_store::{
 use super::presentation_store::validate_workspace_group_id;
 use super::{WorkspaceRegistry, new_uuid_v4, unix_epoch_ms};
 mod inputs;
+mod mixed_order;
+#[cfg(test)]
+mod mixed_order_tests;
 pub use inputs::{PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate};
 
 pub fn new_profile_id() -> String {
@@ -761,6 +764,8 @@ impl WorkspaceRegistry {
             )?;
         }
         if let Some(index) = update.index {
+            // Groups keep their slot among the other workspaces (mixed order).
+            let slots = mixed_order::group_slots(tx, Some((session, key)))?;
             let rows = read_workspaces(tx)?;
             let mut order = rows
                 .iter()
@@ -776,6 +781,7 @@ impl WorkspaceRegistry {
                     params![s, k, i64::try_from(position)?],
                 )?;
             }
+            mixed_order::restore_group_slots(tx, &slots, Some((session, key)))?;
         }
         crate::state::home_store::require_home_first(tx)?;
         let after = find(&read_workspaces(tx)?)

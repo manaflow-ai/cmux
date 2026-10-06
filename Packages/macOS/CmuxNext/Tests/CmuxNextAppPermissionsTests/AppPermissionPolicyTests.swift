@@ -176,5 +176,8 @@ import Testing
             #expect(!AppInstallDraft.onByDefault(kind, tier: tier), "\(tier)")
             #expect(AppPermissionPolicy.mayHold("terminal:backend", tier: tier), "\(tier)")
         }
+        // The consent title names the effect (coordinator, Cloud connector grant); the app's
+        // own reason (for Cloud: "Open terminals on your Cloud machines.") shows under it.
+        #expect(AppScopeStrings.title("terminal:backend") == "Open terminals on other machines for you")
     }
 }

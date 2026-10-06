@@ -26,8 +26,7 @@ final class AppServices {
     /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
     let machines: MachineRegistry
-    /// The machine of the action being run, while its handler runs
-    /// (`ActionRouting`); `activeDaemon` prefers it.
+    /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
@@ -91,11 +90,11 @@ final class AppServices {
     private(set) lazy var apps = AppsService(services: self)
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
     private(set) lazy var tasks = TasksPageService(services: self)
-    /// The viewers' recents, the cmux picker and the file viewer page (R89).
+    /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
-    private(set) lazy var serverMenuBar =
-        ServerMenuBarController(makeSource: { [unowned self] in CloudPairingSource.app(feed: feed, auth: cloud.auth) })
+    private(set) lazy var serverMenuBar = ServerMenuBarController(makeSource: { [unowned self] in
+        CloudPairingSource.app(feed: feed, auth: cloud.auth, chiefPlaced: { [weak self] in self?.home.refreshChiefTab() }) })
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -111,6 +110,8 @@ final class AppServices {
     let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
+    /// Pane controller mounts and releases in any window (`PaneMounts`).
+    let paneMounts = PaneMounts()
     /// The new tab screen's Search | Ask mode and last agent, and what `!` typed ahead.
     let newTabChoices = NewTabChoiceMemory()
     let newTabTypeAhead = NewTabTypeAhead()
@@ -118,8 +119,8 @@ final class AppServices {
     private(set) lazy var newTabSpares = NewTabSparePool(services: self)
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self)
-    /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
-    private(set) var tabBarButtons: TabBarButtonsController!
+    /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
+    private(set) var configActions: ConfigActionsController!
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry)
     let terminalDelegate = TerminalHostDelegate()
@@ -158,14 +159,15 @@ final class AppServices {
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
     private(set) lazy var agentTabs = AgentTabStore.wired(to: self)
+    /// The sidebar's Recents (nil without acpmux), watched once for every window.
+    private(set) lazy var agentRecents: AgentRecentsFeed? = QuitAgents.environment(self).map { AgentRecentsFeed(socketPath: $0.socketPath) }
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
     let pages = InternalPageTabStore()
-    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
-    /// them in the import store only.
+    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
@@ -258,12 +260,12 @@ final class AppServices {
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
             PageInfoHandlers.installRouter(on: entry, registry: registry)
+            CertificateWarningHandlers.installRouter(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             bookmarks.attach(entry)
         }
-        cache.extraSuggestionProviders = { [unowned self] profile in
-            [BookmarkSuggestionProvider(service: bookmarks, profile: bookmarks.profile(of: profile))]
-        }
+        cache.onSuggestionEngineCreated = { [unowned self] in BookmarkSuggestionFeed.follow(bookmarks, profile: bookmarks.profile(of: $1), into: $0) }
+        cache.onRevealTab = { [weak self] key in _ = self?.revealTab(key) }
         cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
@@ -291,7 +293,7 @@ final class AppServices {
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
         terminalDelegate.services = self
-        tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
+        configActions = ConfigActionsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.attach(sheet: updateSheet, services: self)

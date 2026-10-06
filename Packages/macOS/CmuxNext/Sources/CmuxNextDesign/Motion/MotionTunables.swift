@@ -37,6 +37,7 @@ public nonisolated enum MotionTunables {
         .theme: (0.16, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
         .launch: (0.24, "Launch mark resolving on the glass (scaled by the animation speed; stays under 400 ms)."),
+        .clickPulse: (0.25, "Agent cursor click ripple grows and fades (cmux-cua timing)."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in

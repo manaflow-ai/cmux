@@ -10,7 +10,7 @@ import { MachineList } from "./MachineList";
 import { MigrationBanner, PlanNotice } from "./Notices";
 import { AccountOps } from "./ops";
 import type { CloudStore } from "./store";
-import { L } from "./strings";
+import { errorText, L } from "./strings";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -115,7 +115,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>
-            <span className="cloud-error-detail">{snap.error}</span>
+            <span className="cloud-error-detail">{errorText(snap.error, snap.errorCode, t)}</span>
           </span>
           <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
             {t(L.dismissError)}

@@ -90,13 +90,13 @@ final class RefusalHUDView: NSView {
         isShowing = true
         NSAccessibility.post(element: self, notification: .announcementRequested,
                              userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
-        Motion.animate(.fadeIn) { animator().alphaValue = 1 }
+        Motion.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
     }
 
     func hide() {
         guard isShowing else { return }
         isShowing = false
-        Motion.animate(.fadeOut, { animator().alphaValue = 0 }, completion: { [weak self] in
+        Motion.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, !self.isShowing else { return }
             self.isHidden = true
         })

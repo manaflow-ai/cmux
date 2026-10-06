@@ -89,7 +89,7 @@ final class ProfileBadgeView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let menu = makeMenu?() else { return super.mouseDown(with: event) }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: bounds.height + 4), in: self)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 4), in: self)
     }
 
     override var wantsUpdateLayer: Bool { true }

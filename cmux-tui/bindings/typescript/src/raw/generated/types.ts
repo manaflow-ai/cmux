@@ -1,10 +1,21 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1cb49b9e8efb38dab702a95c1cadc39ec08b0fbe186cd69fd12ddd815a13ce47. */
+/* cmux-tui mux protocol 12, IR 55ecd131c02ab3542822be1b9f1292905fa54dee7cea4f22efd4d6ee5d79ba3e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
 export type JsonValue = null | boolean | number | bigint | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
+
+export type ActivitySnapshot = {
+  "attached_clients": number;
+  "last_agent_action_at_ms": (bigint) | null;
+  "last_user_input_at_ms": (bigint) | null;
+  "live_agents": number;
+};
+
+export type ActivitySubscribeResult = {
+  "activity": ActivitySnapshot;
+};
 
 export type AgentRecord = {
   "session": (string) | null;
@@ -54,11 +65,58 @@ export type AttachedViewResizeResult = {
 
 export type Base64 = string;
 
+export type Bookmark = {
+  "browser_profile_id": string;
+  "created_ms": bigint;
+  "favicon_key"?: string;
+  /** `bm_` and 32 lowercase hex digits. */
+  "id": string;
+  /** Dense 0-based position among the node's siblings. */
+  "index": bigint;
+  /** Known values: url, folder. Other values are future kinds. */
+  "kind": string;
+  "last_used_ms"?: bigint;
+  /** `bar`, `other`, or a folder's id. */
+  "parent": string;
+  /** Folders only. */
+  "source_key"?: string;
+  "title": string;
+  /** url nodes. */
+  "url"?: string;
+  [key: string]: unknown;
+};
+
+export type BookmarkChangeResult = {
+  "bookmark": Bookmark;
+  "changed": boolean;
+  "replayed": boolean;
+  [key: string]: unknown;
+};
+
+export type BookmarkImportNode = {
+  /** A folder's nodes. */
+  "children"?: Array<BookmarkImportNode>;
+  /** Defaults to now. */
+  "created_ms"?: bigint;
+  /** url or folder. */
+  "kind": string;
+  "title": string;
+  /** Required for a url node; refused for a folder. */
+  "url"?: string;
+};
+
 export type BrowserFrame = {
   "data": Base64;
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserHostProviderResult = {
+  "host_pid": number;
+  "listener_pid": number;
+  "secret": string;
+  "socket": string;
 };
 
 export type BrowserProviderAuthentication = "none" | "bearer";
@@ -154,6 +212,14 @@ export type ConversationChange = {
   [key: string]: unknown;
 };
 
+export type ConversationImportMessage = {
+  "author": string;
+  "client_msg_id": string;
+  "created_at": string;
+  "id"?: (string) | null;
+  "parts": Array<ConversationPart>;
+};
+
 export type ConversationMessage = {
   "author": string;
   "client_msg_id": string;
@@ -171,8 +237,8 @@ export type ConversationMessage = {
 export type ConversationPart = {
   /** type work. */
   "host"?: string;
-  /** type work. */
-  "preview"?: string;
+  /** type work: the reply preview (a string). type attachment (local-attachments-v1): an image's preview object {hash, mime_type, byte_count}. */
+  "preview"?: JsonValue;
   /** type text. */
   "runs"?: Array<ConversationTextRun>;
   /** type work. */
@@ -181,7 +247,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs) and work (session, host, status, preview). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };
@@ -239,12 +305,14 @@ export type ConversationSummary = {
 };
 
 export type ConversationTabRecord = {
-  /** Agent session source (agent-session-tabs-v1); exclusive with conversation and owner. */
+  /** Agent session source (agent-session-tabs-v1); exclusive with the other sources. */
   "agent_session"?: AgentSessionSource;
   /** Conversation source: a conv_ id, with owner. */
   "conversation"?: string;
   /** Conversation source: local or cloud. */
   "owner"?: string;
+  /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
+  "page"?: string;
 };
 
 export type ConversationTextRun = {
@@ -741,6 +809,35 @@ export type RunResult = {
   "workspace": (Id) | null;
 };
 
+export type SavedTabGroupMember = {
+  /** kind terminal. */
+  "cwd"?: (string) | null;
+  /** kind browser. Known values: webkit, cef. */
+  "engine"?: (string) | null;
+  /** Known values: terminal (terminal_id, cwd, title) and browser (url, engine, profile_id, title). A member of another kind keeps its fields in the additional properties. */
+  "kind": string;
+  /** kind browser. */
+  "profile_id"?: (string) | null;
+  /** kind terminal. */
+  "terminal_id"?: (string) | null;
+  "title"?: (string) | null;
+  /** kind browser. */
+  "url"?: string;
+  [key: string]: unknown;
+};
+
+export type SavedTabGroupRecord = {
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  "color": string;
+  "id": string;
+  "members": Array<SavedTabGroupMember>;
+  "name": string;
+  /** The room whose bar shows the saved group (`default` for groups saved by these commands). */
+  "room": string;
+  "updated_at_ms": bigint;
+  [key: string]: unknown;
+};
+
 export type Screen = {
   "active": boolean;
   "active_pane": Id;
@@ -968,8 +1065,70 @@ export type Tab = {
   "title": string;
 };
 
+export type TabGroupEndedTerminal = {
+  "terminal_id": string;
+  "terminal_incarnation": (string) | null;
+  [key: string]: unknown;
+};
+
+export type TabGroupOutcome = {
+  /** Null when the command left no group. */
+  "group": (TabGroupRecord) | null;
+  "pane": (Id) | null;
+  /** Members in strip order. */
+  "surfaces": Array<Id>;
+  /** The workspace of the group's pane. */
+  "workspace": (Id) | null;
+  [key: string]: unknown;
+};
+
+export type TabGroupRecord = {
+  "collapsed": boolean;
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  "color": string;
+  "id": string;
+  /** May be empty: the group shows only its color. */
+  "name": string;
+  /** The linked saved group. */
+  "saved_id": (string) | null;
+  [key: string]: unknown;
+};
+
+export type TabGroupRun = {
+  "collapsed": boolean;
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  "color": string;
+  "count": bigint;
+  "id": string;
+  "name": string;
+  "pane"?: Id;
+  "saved_id": (string) | null;
+  /** Strip index of the first member. */
+  "start": bigint;
+  "surfaces": Array<Id>;
+  [key: string]: unknown;
+};
+
 /** Opaque JSON: A tab named by its numeric surface id or its public tab_ id. */
 export type TabRef = JsonValue;
+
+export type TerminalClipboardHost = {
+  "kind": TerminalClipboardHostKind;
+  "name"?: string;
+};
+
+export type TerminalClipboardHostKind = "local" | "remote" | "cloud";
+
+export type TerminalClipboardLocation = "standard" | "selection" | "primary";
+
+export type TerminalClipboardReplyResult = {
+  "accepted": boolean;
+  "granted": boolean;
+};
+
+export type TerminalClipboardSubscribeResult = {
+  "clipboard_read_ready": boolean;
+};
 
 export type TerminalColorOverrides = {
   "bg": (ColorHex) | null;

@@ -20,6 +20,13 @@ describe("transport refusals", () => {
     );
   });
 
+  test("a mode the user did not confirm, and any other host refusal, read as pane text, never the host's English", () => {
+    setPaneLanguage("en");
+    expect(errorMessage(rpc("transport.mode_not_confirmed"))).toBe("The mode did not change.");
+    for (const code of ["transport.path_invalid", "transport.mcp_servers_refused", "transport.method_refused"])
+      expect(errorMessage(rpc(code))).toBe("The app refused this request.");
+  });
+
   test("the text follows the pane's language", () => {
     setPaneLanguage("ja");
     expect(errorMessage(rpc("transport.gesture_required"))).not.toBe("Click the choice again to apply it.");

@@ -242,11 +242,11 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(manifest.aptSnapshot).toBe(lock.apt.ubuntu.uri);
   });
 
-  test("cmux-cua is optional in the schema; the pinned 0.8.2 entry matches the release contract shape and is cross-checked against checksums.txt", () => {
+  test("cmux-cua 0.8.7 (full release, LICENSE inside) is pinned by URL, sha256, size and checksums.txt, role cua", () => {
     const pinned = lock.programs.find((p) => p.name === "cmux-cua")!;
-    const shape = cmuxCuaReleaseShape("0.8.2", "x86_64");
-    expect(pinned).toMatchObject({ ...shape, expect: "cmux-cua 0.8.2", checksumsName: "cmux-cua-0.8.2-linux-x86_64.tar.gz" });
-    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/checksums.txt");
+    expect(pinned).toMatchObject({ ...cmuxCuaReleaseShape("0.8.7", "x86_64"), expect: "cmux-cua 0.8.7", sha256: "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e", size: 8706672 });
+    expect(pinned.checksumsUrl).toBe("https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt");
+    expect(pinned.checksumsName).toBe("cmux-cua-0.8.7-linux-x86_64.tar.gz");
     expect(cmuxCuaReleaseShape("0.8.0", "x86_64")).toEqual({
       name: "cmux-cua",
       version: "0.8.0",

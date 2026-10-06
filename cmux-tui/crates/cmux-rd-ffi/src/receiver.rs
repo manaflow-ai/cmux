@@ -60,6 +60,8 @@ const DECODE_SAMPLES: usize = 30;
 #[derive(Debug)]
 pub struct Receiver {
     carrier: Carrier,
+    /// The display stream this receiver reassembles; its feedback names it.
+    stream: u16,
     nack_after_us: u64,
     reassembler: Reassembler,
     deframer: StreamDeframer,
@@ -89,8 +91,15 @@ impl Receiver {
     /// `deadline_us`: how long a frame may wait for missing shards.
     /// `nack_after_us`: how long a frame waits before its gaps are NACKed.
     pub fn new(carrier: Carrier, deadline_us: u64, nack_after_us: u64) -> Self {
+        Self::for_stream(carrier, 0, deadline_us, nack_after_us)
+    }
+
+    /// A receiver for display stream `stream` (its feedback datagrams carry
+    /// that stream, so the host recovers the right stream).
+    pub fn for_stream(carrier: Carrier, stream: u16, deadline_us: u64, nack_after_us: u64) -> Self {
         Self {
             carrier,
+            stream,
             nack_after_us,
             reassembler: Reassembler::new(deadline_us),
             deframer: StreamDeframer::default(),
@@ -288,7 +297,7 @@ impl Receiver {
         DatagramHeader {
             flags: 0,
             kind: DatagramKind::Feedback,
-            stream: 0,
+            stream: self.stream,
             frame: 0,
             index: 0,
             count: 0,

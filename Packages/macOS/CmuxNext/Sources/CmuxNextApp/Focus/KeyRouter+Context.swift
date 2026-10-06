@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextPages
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
@@ -25,11 +26,24 @@ extension KeyRouter {
         /// A list-like control in the focused page has the keyboard (R85;
         /// the sidebar list and its field imply it without this).
         var listFocus = false
+        /// An editable element in the focused page has the keyboard (a text
+        /// field, Monaco, a content-editable): bare keys are typing there.
+        var pageEditableFocused = false
+        /// The focused address bar shows its suggestion list: it is a list
+        /// for Ctrl-N/P/J/K (R110) until the list closes.
+        var omnibarListOpen = false
+        /// The focused internal page's id when its tab id does not name it
+        /// (a store page tab, `page-tabs-v1`).
+        var internalPage: String?
     }
 
     /// The markdown page's id (`PageDescriptor.markdown`), for the
     /// `markdownFocused` bit.
     nonisolated static let markdownPageID = "cmux.markdown"
+    /// The diff viewer page: `diffViewerFocused`, which owns bare keys.
+    nonisolated static let diffPageID = "cmux.diff"
+    /// The code editor page (Monaco): `codeEditorFocused`.
+    nonisolated static let codeEditorPageID = "cmux.editor"
 
     /// The context keys for a key in a window with `focus`.
     func keyContext(for focus: FocusState, facts: Facts) -> KeyContext {
@@ -47,27 +61,30 @@ extension KeyRouter {
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
         if facts.pageID == Self.markdownPageID { bits.insert(.markdownFocused) }
+        if facts.pageID == Self.diffPageID { bits.insert(.diffViewerFocused) }
+        if facts.pageID == Self.codeEditorPageID { bits.insert(.codeEditorFocused) }
         var context = KeyContext(bits: bits)
         if let page = facts.pageID { context[KeyContext.pageID] = .string(page) }
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.main)
         let resolved = focus.resolved
-        if let kind = surfaceKind(resolved) { context[KeyContext.surfaceKind] = .string(kind) }
+        if let kind = surfaceKind(resolved, internalPage: facts.internalPage) { context[KeyContext.surfaceKind] = .string(kind) }
         context[KeyContext.focus] = .string(focusName(resolved))
-        if resolved.isTextInput { context[KeyContext.textInputFocus] = .bool(true) }
+        if resolved.isTextInput || facts.pageEditableFocused { context[KeyContext.textInputFocus] = .bool(true) }
         if focus.isBrowserFocusModeActive { context[KeyContext.browserFocusMode] = .bool(true) }
         if facts.terminalCopyMode, case .terminal = resolved { context[KeyContext.terminalCopyMode] = .bool(true) }
-        if facts.listFocus || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
+        let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
+        if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         return context
     }
 
     /// `surfaceKind`: what has the keyboard; nil outside a pane.
-    nonisolated static func surfaceKind(_ resolved: FocusState.Resolved) -> String? {
+    nonisolated static func surfaceKind(_ resolved: FocusState.Resolved, internalPage: String? = nil) -> String? {
         switch resolved {
         case .terminal: "terminal"
         case .browserPage, .addressBar, .findBar, .devTools: "page"
         case .agentPage: "agent"
         case .conversation: "home"
-        case .page(_, let tab): internalPageKind(tab)
+        case .page(_, let tab): internalPageKind(tab, page: internalPage)
         case .emptyPane: "empty"
         case .overlay(.palette): "palette"
         case .sidebar, .sidebarField, .textField, .overlay, .none: nil
@@ -75,9 +92,10 @@ extension KeyRouter {
     }
 
     /// An internal page's `surfaceKind`: `settings` (Settings, Debug
-    /// Settings), `appStore`, else the page id (`tasks`, `inbox`).
-    nonisolated static func internalPageKind(_ tab: String) -> String {
-        switch LocalPageTab.page(of: tab)?.rawValue {
+    /// Settings), `appStore`, else the page id (`tasks`, `inbox`). `page`
+    /// names the page of a tab whose id does not.
+    nonisolated static func internalPageKind(_ tab: String, page: String? = nil) -> String {
+        switch LocalPageTab.page(of: tab)?.rawValue ?? page {
         case "settings", "debug-settings": "settings"
         case "app-store": "appStore"
         case let id?: id
@@ -104,7 +122,17 @@ extension KeyRouter {
     func facts(in window: NSWindow, controller: WindowController) -> Facts {
         Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
               terminalCopyMode: terminalCopyMode(in: controller), pageID: focusedPage(in: controller)?.descriptor.id,
-              listFocus: focusedReadiness(in: controller)?.isListFocused == true)
+              listFocus: focusedReadiness(in: controller)?.isListFocused == true,
+              pageEditableFocused: focusedReadiness(in: controller)?.isEditableFocused == true,
+              omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
+              internalPage: focusedInternalPage(in: controller))
+    }
+
+    /// The page id of the focused internal page tab.
+    private func focusedInternalPage(in controller: WindowController) -> String? {
+        guard case .page = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return view.page.rawValue
     }
 
     /// The sidebar list and its search field are lists for Ctrl-N/P/J/K.
@@ -120,8 +148,22 @@ extension KeyRouter {
         return controller.content?.paneController(key: pane)?.currentContent?.inputReadiness
     }
 
+    /// The focused pane's address bar while it has the keyboard.
+    private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
+        guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
+        return entry.chrome.addressBar
+    }
+
     /// The React page the focused pane's selected tab shows, if any.
     func focusedPage(in controller: WindowController) -> PageWebView? {
+        // A top page (TopPages: Settings, App Store, ...) fills the content area with no pane:
+        // its page has the keyboard when the window's first responder is inside it.
+        if let route = controller.shownTopPage, case .page = route,
+           let view = controller.topPages.views[route] as? InternalPageView,
+           let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+            return view.content as? PageWebView
+        }
         guard case .page(_, _) = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .page(let view)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
         return view.content as? PageWebView

@@ -10,7 +10,7 @@ A `remote_view` tab is the store browser record `cmux://remote-view?host=<host>&
 
 ## Rust viewer core (`Core/`)
 
-`RemoteRdCore` wraps the shared Rust core (crate `cmux-tui/crates/cmux-rd-ffi`, the same reassembly, FEC and feedback code as the host's bench viewer) through the client xcframework `CCmuxRdFFI`: `cmux.rd/1` datagrams or stream-carrier bytes in; access units, transport messages and feedback datagrams out; `nextDeadlineMicros` names the one timer the owner arms. The xcframework is opt-in so builds without the remote view do not pay for it: build it with `scripts/cmux-next/build-rd-ffi.sh` on a build host, then build the package with `CMUX_NEXT_RD_FFI=1`. Without that variable `Core/` compiles to nothing (`#if CMUX_RD_FFI`, a define the manifest sets).
+`RemoteRdCore` wraps the shared Rust core (crate `cmux-tui/crates/cmux-rd-ffi`, the same reassembly, FEC and feedback code as the host's bench viewer) through the client xcframework `CCmuxRdFFI`: `cmux.rd/1` datagrams or stream-carrier bytes in; access units, transport messages and feedback datagrams out; `nextDeadlineMicros` names the one timer the owner arms. Every build links it: it ships inside `CCmuxAppFFI`, the app's one Rust static library (`cmux-tui/crates/cmux-app-ffi`, built by `scripts/cmux-next/build-app-ffi.sh` and pinned in `Package.swift`).
 
 ## Settings the viewer reads
 

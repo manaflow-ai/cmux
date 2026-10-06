@@ -121,7 +121,10 @@ final class EmptySectionRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        label.alignment = .center
+        // Left-aligned where a workspace's title would start, so the empty
+        // list reads as the list's first line, not a caption floating in
+        // the middle of an empty column.
+        label.alignment = .natural
         addSubview(label)
     }
 
@@ -135,7 +138,8 @@ final class EmptySectionRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: Metrics.space2, y: (b.height - h) / 2, width: b.width - Metrics.space4, height: h)
+        let x = SidebarStyle.titleLeading
+        label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
 

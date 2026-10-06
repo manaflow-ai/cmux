@@ -59,6 +59,13 @@ impl Client {
     }
 }
 
+/// Refused for the Web: by an allow list, or (a mode or option set on a
+/// session whose policy does not ask, as this hub's approve-all default)
+/// by Web control (`hub/web_control.rs`).
+fn refused_for_web(r: &Value) -> bool {
+    err(r).contains(WEB_ONLY) || r["error"]["data"]["reason"] == "remote.policy_not_asking"
+}
+
 fn err(v: &Value) -> String {
     v["error"]["message"].as_str().unwrap_or_default().to_owned()
 }
@@ -254,7 +261,7 @@ async fn a_policy_that_skips_asking_comes_from_the_local_app_or_the_unix_socket_
     let mut web = Client::new(&hub, Origin::Web);
     for (m, p) in &skipping {
         let r = web.call(m, p.clone()).await;
-        assert!(err(&r).contains(WEB_ONLY), "Web {m} {p}: {r}");
+        assert!(refused_for_web(&r), "Web {m} {p}: {r}");
     }
     for origin in [Origin::LocalApp, Origin::Local] {
         let mut c = Client::new(&hub, origin);
@@ -348,7 +355,7 @@ async fn web_modes_policies_and_rules_are_allow_lists() {
     let mut web = Client::new(&hub, Origin::Web);
     for (m, p) in &refused {
         let r = web.call(m, p.clone()).await;
-        assert!(err(&r).contains(WEB_ONLY), "Web {m} {p}: {r}");
+        assert!(refused_for_web(&r), "Web {m} {p}: {r}");
     }
     // LocalApp and the unix socket are unchanged: none of these is refused by the guard.
     for origin in [Origin::LocalApp, Origin::Local] {

@@ -4,8 +4,10 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextTerminal
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -14,15 +16,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let daemonPrestart: DaemonPrestart?
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle = LaunchSettle()
+    /// Cleanup deferred until the launch settles (injected; tests pass their own).
+    private let launchCleanup: LaunchCleanup
     private var services: AppServices!
     private var settings: SettingsController?
     private let control = AppControl()
     private var cloudContext: Task<Void, Never>?
+    /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
+    private var clipboardReads: TerminalClipboardReadService?
+    /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
+    private var ghosttyKeybinds: GhosttyKeybindSync?
+    /// Watches the exact Ghostty files libghostty loaded and reloads them live.
+    private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?) {
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
+        self.launchCleanup = launchCleanup
         super.init()
     }
 
@@ -34,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
             self?.services?.crashRecovery.applicationWillTerminate()
+            self?.services?.home.applicationWillTerminate()
             exit(0)
         })
         control.startWatchdog()
@@ -49,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if environment.noActivate { NSApp.disableRelaunchOnLogin() }
         // Chrome colors derive from the Ghostty theme; load it before any window.
         ThemeBridge.start()
+        // The diff page's files live in the app bundle (markdown-viewer/webviews-app).
+        PageDescriptor.registerDiffRoot()
+        PageDescriptor.registerFilePageRoots()
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment)
         self.services = services
@@ -58,6 +73,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppActions.bind(services)
         HandlerCoverage.verify(services.registry)
         services.palette.bindRegistryActions()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
+        self.ghosttyKeybinds = ghosttyKeybinds
+        ghosttyKeybinds.start()
+        let ghosttyConfigLiveReload = GhosttyConfigLiveReload()
+        self.ghosttyConfigLiveReload = ghosttyConfigLiveReload
+        ghosttyConfigLiveReload.start()
+        // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
+        TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(registry: services.registry)
         DebugTimings.markLaunch("dfl.settings")
@@ -66,6 +89,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon)
+        let clipboardReads = TerminalClipboardReadService(services: services)
+        self.clipboardReads = clipboardReads
+        clipboardReads.start()
         services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
@@ -96,7 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Temporary download files a crash left in an earlier run (only the
         // recorded ones; the record is read and the files deleted off the
         // main actor). Downloads of this run are never touched.
-        launchSettle.whenSettled { BrowserDownloadTempFiles.shared.cleanUpLeftovers() }
+        launchCleanup.schedule(on: launchSettle)
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
         services.browserProfiles.load(directory: BrowserProfileService.defaultDirectory(bundleID: services.environment.launch.bundleID),
                                       importStore: services.onboarding.importStore)
@@ -182,11 +208,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settings?.managedPreferencesMayHaveChanged()
             }
         }
-        services.tabBarButtons.start(settings: settings)
+        services.configActions.start(settings: settings)
         // Agent-launched builds never take system-wide keys from the person's app.
         if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
+        BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)
         services.updater.follow(settings)
         services.startHibernation(settings: settings)
@@ -258,12 +285,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         services?.crashRecovery.applicationWillTerminate()
+        services?.viewers.diffPages.terminate()
+        services?.viewers.markdownPages.terminate()
+        services?.viewers.editorPages.terminate()
+        services?.home.applicationWillTerminate()
         cloudContext?.cancel()
         services?.cloud.stop()
         for session in services?.machines.cloud ?? [] { session.disconnect() }
         services?.ssh.stop()
         control.stop()
-        services?.tabBarButtons.stop()
+        services?.configActions.stop()
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()

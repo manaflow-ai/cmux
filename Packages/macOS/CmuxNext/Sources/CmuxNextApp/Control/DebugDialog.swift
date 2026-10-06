@@ -26,7 +26,12 @@ enum DebugDialog {
             result["opened"] = .number(Double(center.present(spec, in: scope) { _ in }))
         }
         let target = params["id"]?.intValue ?? center.records.last(where: \.visible)?.id
-        if let target {
+        // Only the user answers a clipboard read (CLIPBOARD-READ-BROKER);
+        // automation may dismiss it, which refuses the read.
+        if let target, center.record(target)?.spec.identifier == ClipboardReadStrings.identifier,
+           params["set"] != nil || params["key"] != nil || params["press"] != nil {
+            result["error"] = .string("clipboard-read dialogs answer only to the user")
+        } else if let target {
             if case .object(let fields)? = params["set"] {
                 for (field, value) in fields {
                     let typed: CmuxDialogValue? = value.boolValue.map(CmuxDialogValue.bool) ?? value.stringValue.map(CmuxDialogValue.text)

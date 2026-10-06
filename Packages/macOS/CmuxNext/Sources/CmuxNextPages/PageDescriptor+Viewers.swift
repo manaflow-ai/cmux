@@ -39,7 +39,9 @@ public nonisolated struct DiffPageCommand {
     ]
 }
 
-/// The markdown page's host commands (the `markdownZoom*` actions, diff-host.md S6).
+/// The markdown page's host commands (diff-host.md S6, webviews/src/pages/markdown/README.md): the
+/// app's key dispatcher sends `save` (Cmd-S), `back` (Cmd-[), `forward` (Cmd-]), `link` (Cmd-K) and
+/// the zoom commands while a markdown page has the keyboard; the page reads no chord itself.
 public nonisolated struct MarkdownPageCommand {
     public nonisolated init() {}
     public static let zoomIn = "zoomIn"
@@ -87,8 +89,28 @@ public extension PageDescriptor {
         return root
     }
 
-    /// The markdown page's directory under `Resources/pages/` (S6).
-    static let markdownResource = "markdown"
+    /// The one launch call for the file pages (diff-host S6, S7): registers the app bundle's
+    /// webviews-app directory as the `cmux.markdown` and `cmux.editor` root (the first registration
+    /// wins, as for the diff page). Returns the root, nil without a resources directory.
+    @discardableResult
+    static func registerFilePageRoots(appResources: URL? = Bundle.main.resourceURL) -> URL? {
+        guard let appResources else { return nil }
+        let root = diffRoot(inAppResources: appResources)
+        PageID.registerBundledRoot(root, for: markdown.id)
+        PageID.registerBundledRoot(root, for: editor.id)
+        return root
+    }
+
+    /// The classic viewer's resources (`mermaid.min.js`, `vega.min.js`, `vega-lite.min.js`), the
+    /// markdown page's `__lib` libraries.
+    static func markdownLibraries(inAppResources resources: URL) -> URL {
+        resources.appending(path: "markdown-viewer", directoryHint: .isDirectory)
+    }
+
+    /// The markdown page's entry html inside ``diffResource``.
+    static let markdownEntry = "markdown-page.html"
+    /// The code editor page's entry html inside ``diffResource``.
+    static let editorEntry = "editor-page.html"
 
     /// The diff viewer page (diff-host.md). It fetches its patches from its own origin
     /// (`cmux-page://cmux.diff/__patch/<token>/...`, served by the page instance's
@@ -101,10 +123,20 @@ public extension PageDescriptor {
         csp: PageCSP(connect: ["cmux-page://cmux.diff"], script: ["'wasm-unsafe-eval'"]),
         entry: diffEntry, dynamicPrefixes: ["__patch"])
 
-    /// The markdown viewer page (diff-host.md S6). Strict CSP for now (see the S1 review note:
-    /// its Vega charts need evaluated code; S6 decides).
+    /// The markdown page (diff-host.md S6): the strict CSP (Vega uses vega-interpreter, code
+    /// highlighting Shiki's JavaScript engine), with images and libraries from its own origin.
     static let markdown = PageDescriptor(
-        id: "cmux.markdown", resource: markdownResource, namespaces: ["cmux.markdown."],
+        id: "cmux.markdown", resource: diffResource, namespaces: ["cmux.markdown."],
         nativeOps: [PageNativeOp.clipboardWrite],
-        commands: PageNativeOp.commands.union(MarkdownPageCommand.all))
+        commands: PageNativeOp.commands.union(MarkdownPageCommand.all), entry: markdownEntry,
+        dynamicPrefixes: [MarkdownPageResource.asset, MarkdownPageResource.library, MarkdownPageResource.remoteImage])
+
+    /// The code editor page (diff-host.md "Editor page", Monaco): the strict CSP plus
+    /// `'wasm-unsafe-eval'` for Shiki's Oniguruma engine; no `connect-src` and no `'unsafe-eval'`.
+    /// Its worker is a same-origin module, which `script-src 'self'` allows.
+    static let editor = PageDescriptor(
+        id: "cmux.editor", resource: diffResource, namespaces: ["cmux.editor."],
+        nativeOps: [PageNativeOp.clipboardWrite],
+        commands: PageNativeOp.commands.union(EditorPageCommand.all),
+        csp: PageCSP(script: ["'wasm-unsafe-eval'"]), entry: editorEntry)
 }

@@ -124,7 +124,10 @@ one cursor.
 | `recentlyFocused` | Location History… | none | palette page |
 
 Chord choice. Ctrl-- and Ctrl-Shift-- follow the VS Code navigation pair,
-while Ctrl-Cmd arrows remain available for pane resize. Checked against macOS,
+while Ctrl-Cmd arrows remain available for pane resize. Both keys run
+everywhere except a focused terminal (`when: surfaceKind != terminal`,
+KeyBindingDefaults.yieldsToTerminal), so Ctrl-_ (readline/emacs undo) and Ctrl--
+reach terminal programs (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). Checked against macOS,
 the standard browser chords, cmux's workspace keys, and Ghostty's split resize
 bindings. Rejected: Cmd-[ / Cmd-] (page history), Ctrl-Cmd-[ / ] (workspaces),
 and Ctrl-Opt-arrows (Rectangle's defaults).

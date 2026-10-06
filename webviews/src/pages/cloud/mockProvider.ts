@@ -110,6 +110,8 @@ export class MockCloudProvider implements PageClient {
   offline = false;
   /** The next call of this op fails with a retryable owner error. */
   failNext?: string;
+  /** The code (and backend text "raw backend text") of the `failNext` failure; default upstream_error. */
+  failCode?: string;
   /** Runs after the list result is taken and before it is answered (an event during the list). */
   onList?: () => void;
   /** The host's typed refusal of a proxied tab (CEF unavailable, or WebKit refused the proxy). */
@@ -158,6 +160,7 @@ export class MockCloudProvider implements PageClient {
     if (this.offline) throw pageError("cmux.protocol.transport", "disconnected", true);
     if (this.failNext === op) {
       this.failNext = undefined;
+      if (this.failCode) throw pageError(this.failCode, "raw backend text", false);
       throw pageError("cmux.cloud.upstream_error", "The Cloud service did not answer.", true);
     }
     const p = (params ?? {}) as Params;

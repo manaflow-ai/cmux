@@ -1356,6 +1356,9 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Download the pinned GhosttyKit
         run: ./scripts/download-prebuilt-ghosttykit.sh
 

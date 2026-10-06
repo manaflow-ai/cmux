@@ -43,6 +43,9 @@ extension AgentTabStore {
                                    kind: .conversation, title: "about:blank", browserRenderer: "frontend")
         snapshot.conversation = ConversationTabRef(agentSession: record)
         let store = daemon.store
+        store.onTabCreated = { [weak self] provisional, tab in
+            self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
+        }
         let transaction = ClientTransactionID.generate()
         store.intend(.createTab(pane: pane, provisional: snapshot), transaction: transaction)
         if let session { sessions[key] = session }
@@ -61,9 +64,8 @@ extension AgentTabStore {
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
-                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey)
-                rekey(key, to: created.key)
-                pending.onCreated?(created)
+                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction)
+                tabCreated(key, as: created)
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
@@ -100,12 +102,8 @@ extension AgentTabStore {
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
             return false
         }
+        // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
-        let provisional = pending.key
-        pending.onCreated = { [weak pane] created in
-            guard select, let pane, pane.stripModel.selectedID?.rawValue == provisional else { return }
-            pane.selectWhenReported(surface: created.surface)
-        }
         pane.services.registry.track(Task {
             do {
                 let created = try await pending.value()
@@ -117,6 +115,13 @@ extension AgentTabStore {
             }
         })
         return true
+    }
+
+    /// The store created provisional tab `key` as `created` (its reply, or the echo on the event
+    /// that added it, whichever came first): view state and the selection move to it.
+    func tabCreated(_ key: String, as created: AgentTabCreated) {
+        rekey(key, to: created.key)
+        moveSelection(key, created.surface)
     }
 
     /// The store answered the creation: view state under provisional `key` moves to `real`, and
@@ -137,6 +142,9 @@ extension AgentTabStore {
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
         if checkpointFocusTab == key { checkpointFocusTab = real }
+        // The provisional alias is removed once the tree settles. Live callbacks
+        // must then name the store tab directly, including conversion and project reads.
+        if let view = views[real] { wire(view.model, key: real) }
         seenLive.remove(key)
     }
 
@@ -284,8 +292,6 @@ final class AgentTabPending {
     /// The provisional tab's id and surface (the tab the pane shows until the store answers).
     let key: String
     let surface: SurfaceID
-    /// Runs when the store answered, before its tab replaces the provisional one.
-    var onCreated: (@MainActor (AgentTabCreated) -> Void)?
     var result: Task<AgentTabCreated, any Error>?
 
     init(key: String, surface: SurfaceID) {

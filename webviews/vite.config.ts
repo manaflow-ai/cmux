@@ -35,6 +35,8 @@ export default defineConfig({
       "src/icon-picker/generated/**",
       // The markdown round-trip corpus: real files whose exact bytes the editor must preserve.
       "test/fixtures/markdown-roundtrip/**",
+      // Agent replies as an agent writes them (the transcript renderer's corpus).
+      "src/agent-session/acpmux/conversation/fixtures/**",
     ],
   }),
   define: {

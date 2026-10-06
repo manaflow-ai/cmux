@@ -403,6 +403,10 @@ impl Hub {
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
+                        // Adopted after a restart: who prompted is not
+                        // recorded, so it counts as Web (no chat allowance,
+                        // which a restart clears anyway).
+                        control: Control::Web,
                     });
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come

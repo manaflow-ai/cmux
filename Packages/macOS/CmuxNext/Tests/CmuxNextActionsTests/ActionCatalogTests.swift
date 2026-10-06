@@ -99,7 +99,9 @@ import Testing
         for descriptor in ActionCatalog.all {
             #expect(!descriptor.title.isEmpty, "\(descriptor.id)")
             #expect(!descriptor.symbol.isEmpty, "\(descriptor.id)")
-            #expect(!descriptor.surfaces.isEmpty, "\(descriptor.id)")
+            // An automation-only action (agent.openSessionWorkspace) has no
+            // human surface; its surface plan names why the palette omits it.
+            #expect(!descriptor.surfaces.isEmpty || descriptor.surfacePlan.palette.exemption != nil, "\(descriptor.id)")
         }
     }
 

@@ -511,6 +511,78 @@ def test_pinned_vendored_texts_ship_with_the_tree() -> None:
         ) != 0
 
 
+FREETYPE = "N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub"  # FreeType 2.13.2 (both Ghostty pins)
+FREETYPE_TEXTS = PINNED / "freetype-2.13.2"
+# (path in the FreeType package, pinned text): the FTL (LICENSE.TXT picks it) and
+# the sub-licenses of the parts that GhosttyNextKit compiles: BDF and PCF (X11-style,
+# their READMEs) and src/base/fthash.c (the same terms, its header comment).
+FREETYPE_SUPPLEMENTS = (
+    ("docs/FTL.TXT", "FTL.TXT"),
+    ("src/bdf/README", "bdf-README"),
+    ("src/pcf/README", "pcf-README"),
+    ("src/base/fthash.c#L9-L31", "fthash-LICENSE.txt"),
+)
+
+
+def add_freetype(source: Path, package: str = FREETYPE) -> Path:
+    """FreeType as Zig fetches it into zig-pkg/: LICENSE.TXT is its only file that
+    the license-name scan finds; FTL.TXT and the sub-licenses are elsewhere."""
+    root = source / "zig-pkg" / package
+    for path, pinned in FREETYPE_SUPPLEMENTS:
+        file, _, lines = path.partition("#")
+        target = root / file
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = (FREETYPE_TEXTS / pinned).read_bytes()
+        if lines:
+            text = b"/* fthash.c */\n" * 8 + text + b"\n  /* code */\n"
+        target.write_bytes(text)
+    (root / "LICENSE.TXT").write_text("FREETYPE LICENSES\n  - The FreeType License, found in the file `docs/FTL.TXT`\n")
+    zon = source / "pkg/freetype/build.zig.zon"
+    zon.parent.mkdir(parents=True, exist_ok=True)
+    zon.write_text(
+        ".{ .name = .freetype, .dependencies = .{\n"
+        f"    .freetype = .{{ .url = \"https://deps.files.ghostty.org/freetype.tar.gz\", .hash = \"{package}\" }},\n"
+        "} }\n"
+    )
+    return root
+
+
+def test_freetype_tree_carries_the_ftl_and_its_sub_licenses() -> None:
+    """The collected FreeType texts include docs/FTL.TXT (LICENSE.TXT only points
+    to it) and the BDF, PCF and fthash.c terms, byte for byte from the package."""
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        add_freetype(source)
+        output = work / "collected"
+        assert collect_in_process(source, cache, output) == 0
+        collected = json.loads((output / "SOURCE-MANIFEST.json").read_text())
+        by_source = {entry["source"]: entry for entry in collected["license_files"]}
+        assert f"zig-pkg/{FREETYPE}/LICENSE.TXT" in by_source
+        for path, pinned in FREETYPE_SUPPLEMENTS:
+            entry = by_source.get(f"zig-pkg/{FREETYPE}/{path}")
+            assert entry is not None, (path, sorted(by_source))
+            assert (output / entry["destination"]).read_bytes() == (FREETYPE_TEXTS / pinned).read_bytes(), path
+        assert collected["zig_packages"][FREETYPE]["dependency"] == "freetype"
+        verified = run(VERIFIER, "--root", output, "--revision", REVISION)
+        assert verified.returncode == 0, verified.stderr
+
+
+def test_freetype_texts_must_match_the_package() -> None:
+    """A FreeType whose files differ from the reviewed texts (an edited FTL.TXT,
+    or another FreeType version) stops the collection."""
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        (add_freetype(source) / "docs/FTL.TXT").write_text("edited\n")
+        assert collect_in_process(source, cache, work / "collected") != 0
+    with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
+        work = Path(raw)
+        source, cache = build_fixture(work)
+        add_freetype(source, "N-V-__8AAAnotherFreeTypeVersionXXXXXXXXXXXXXXXX")
+        assert collect_in_process(source, cache, work / "collected") != 0
+
+
 def test_verifier_rejects_long_destination() -> None:
     with tempfile.TemporaryDirectory(prefix="cmux-ghostty-path-budget-") as raw:
         work = Path(raw)
@@ -608,6 +680,8 @@ def main() -> int:
     test_known_zig_pkg_licenses()
     test_themes_and_gobject_get_pinned_texts()
     test_ghostty_next_packages_get_pinned_texts()
+    test_freetype_tree_carries_the_ftl_and_its_sub_licenses()
+    test_freetype_texts_must_match_the_package()
     test_verifier_rejects_long_destination()
     test_collector_rejects_label_collision()
     print("Ghostty license path budget tests passed")

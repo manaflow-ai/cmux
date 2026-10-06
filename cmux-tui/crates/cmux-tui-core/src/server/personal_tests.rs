@@ -253,3 +253,18 @@ fn sessions_register_import_once_and_forget() {
     );
     assert_eq!(listed["pins"], json!([]));
 }
+
+/// `personal-mixed-order-v1`: groups and loose workspaces share one
+/// personal order (`workspace_group.update {top_index}`).
+#[test]
+fn identify_advertises_the_mixed_personal_order() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "personal-mixed-order-v1")
+    );
+}

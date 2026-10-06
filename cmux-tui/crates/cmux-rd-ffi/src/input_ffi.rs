@@ -18,6 +18,12 @@ pub const CMUX_RD_INPUT_POINTER: u32 = 2;
 pub const CMUX_RD_INPUT_BUTTON: u32 = 3;
 pub const CMUX_RD_INPUT_SCROLL: u32 = 4;
 pub const CMUX_RD_INPUT_TEXT: u32 = 5;
+/// A service-defined event (rd change C2): `text`/`text_len` carry its bytes.
+pub const CMUX_RD_INPUT_SERVICE: u32 = 0x80;
+/// `service_flags` bit: repeat until acknowledged.
+pub const CMUX_RD_INPUT_MUST_DELIVER: u8 = 0x01;
+/// Largest payload of one service event (`CMUX_RD_INPUT_MAX_SERVICE`).
+pub const CMUX_RD_INPUT_MAX_SERVICE: usize = cmux_rd_proto::MAX_SERVICE_BYTES;
 /// Largest UTF-8 text of one text event (`CMUX_RD_INPUT_MAX_TEXT`).
 pub const CMUX_RD_INPUT_MAX_TEXT: usize = MAX_TEXT_BYTES;
 /// A buffer of this size holds every input packet on either carrier
@@ -44,10 +50,12 @@ pub struct CmuxRdInputEvent {
     pub text_len: usize,
     /// Button: 1 left, 2 middle, 3 right, 8 back, 9 forward.
     pub button: u8,
-    /// Key and button: pressed (true) or released.
-    pub down: bool,
-    /// Scroll: pixel-precise deltas (trackpad) instead of lines.
-    pub precise: bool,
+    /// Key and button: 1 pressed, 0 released (any other value is refused).
+    pub down: u8,
+    /// Scroll: 1 pixel-precise deltas (trackpad), 0 lines (any other value is refused).
+    pub precise: u8,
+    /// Service: `CMUX_RD_INPUT_MUST_DELIVER` or 0 (other bits are refused).
+    pub service_flags: u8,
 }
 
 /// The opaque input handle (`CmuxRdInput`).
@@ -78,17 +86,29 @@ fn with_input(ptr: *mut CmuxRdInput, f: impl FnOnce(&mut CmuxRdInput) -> i32) ->
     }
 }
 
-/// Converts a C event; `None` for an unknown kind or bad text.
+/// A C flag byte: 0 or 1, anything else refused.
+fn flag(byte: u8) -> Option<bool> {
+    match byte {
+        0 => Some(false),
+        1 => Some(true),
+        _ => None,
+    }
+}
+
+/// Converts a C event; `None` for an unknown kind, a flag byte other than 0
+/// or 1, or bad text.
 ///
 /// # Safety
 /// For a text event, `event.text` is readable for `event.text_len` bytes.
 unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
     Some(match event.kind {
-        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: event.down },
+        CMUX_RD_INPUT_KEY => InputEvent::Key { usage: event.usage, down: flag(event.down)? },
         CMUX_RD_INPUT_POINTER => InputEvent::Pointer { x: event.x, y: event.y },
-        CMUX_RD_INPUT_BUTTON => InputEvent::Button { button: event.button, down: event.down },
+        CMUX_RD_INPUT_BUTTON => {
+            InputEvent::Button { button: event.button, down: flag(event.down)? }
+        }
         CMUX_RD_INPUT_SCROLL => {
-            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: event.precise }
+            InputEvent::Scroll { dx: event.dx, dy: event.dy, precise: flag(event.precise)? }
         }
         CMUX_RD_INPUT_TEXT => {
             if event.text_len == 0 || event.text_len > CMUX_RD_INPUT_MAX_TEXT {
@@ -97,6 +117,20 @@ unsafe fn event_from_c(event: &CmuxRdInputEvent) -> Option<InputEvent> {
             // SAFETY: guaranteed by the caller.
             let bytes = unsafe { bytes_in(event.text, event.text_len) }?;
             InputEvent::Text(std::str::from_utf8(bytes).ok()?.to_owned())
+        }
+        CMUX_RD_INPUT_SERVICE => {
+            if event.service_flags & !CMUX_RD_INPUT_MUST_DELIVER != 0
+                || event.text_len == 0
+                || event.text_len > CMUX_RD_INPUT_MAX_SERVICE
+            {
+                return None;
+            }
+            // SAFETY: guaranteed by the caller (text is readable for text_len bytes).
+            let bytes = unsafe { bytes_in(event.text, event.text_len) }?;
+            InputEvent::Service {
+                must_deliver: event.service_flags == CMUX_RD_INPUT_MUST_DELIVER,
+                bytes: bytes.to_vec(),
+            }
         }
         _ => return None,
     })
@@ -164,7 +198,9 @@ pub unsafe extern "C" fn cmux_rd_input_push(
 
 /// Applies an `InputAck` datagram (header included, as
 /// `cmux_rd_receiver_pop_message` hands it out with kind
-/// `CMUX_RD_MESSAGE_DATAGRAM`). `CMUX_RD_ERR_INVALID` for any other datagram.
+/// `CMUX_RD_MESSAGE_DATAGRAM`). `CMUX_RD_ERR_INVALID` for any other datagram
+/// and no state change, so a caller may offer every datagram message here
+/// and ignore that code.
 ///
 /// # Safety
 /// `input` is valid; `datagram` is readable for `len` bytes.
@@ -200,6 +236,9 @@ pub unsafe extern "C" fn cmux_rd_input_packet(
     if out_len.is_null() {
         return CMUX_RD_ERR_NULL;
     }
+    // SAFETY: checked non-NULL; writable by contract. Every path, including a
+    // NULL or unusable handle, leaves a defined length.
+    unsafe { *out_len = 0 };
     with_input(input, |h| {
         let Some(packet) = h.stashed.take().or_else(|| h.inner.packet(now_us)) else {
             // SAFETY: checked non-NULL; writable by contract.

@@ -63,10 +63,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         );
     }
     std::fs::create_dir_all(home())?;
-    // launchd starts us in /; sessions without a cwd default to home.
-    if let Some(h) = dirs::home_dir() {
-        let _ = std::env::set_current_dir(h);
-    }
+    // launchd starts us in /. The daemon's own folder is its cwd, never the
+    // home folder: nothing the daemon or a child does relative to its cwd may
+    // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
+    let _ = std::env::set_current_dir(home());
     let lock = home().join("daemon.lock");
     let _lock_file = acquire_lock(&lock)?;
     let store = crate::store::open(&config.store, &home())?;
@@ -196,11 +196,27 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
+    // A new peer token at every launch (`server/peer_auth.rs`): the only
+    // proof of a peer daemon, read by it over ssh, never over an RPC.
+    let peer = if ws_listener.is_some() {
+        match crate::server::peer_auth::PeerAuth::create(&home()) {
+            Ok(auth) => Some(std::sync::Arc::new(auth)),
+            Err(e) => {
+                // Without it a peer is served as Web, never wrongly as Peer.
+                tracing::warn!("no peer token this run: {e:#}");
+                None
+            }
+        }
+    } else {
+        None
+    };
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
+    let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let ws_task = ws_listener.map(|(l, token)| {
         // `needs_token` above gave the saved listener a token.
         let token = token.unwrap_or_else(random_token);
-        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, local_app))
+        let auth = crate::server::WsAuth { local_app, peer };
+        tokio::spawn(crate::server::serve_ws_with(hub.clone(), l, token, auth))
     });
     let ready = serde_json::json!({
         "ready": true,
@@ -262,7 +278,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.flush();
     }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
-    if let Some(file) = local_app_file {
+    for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);
     }
     tracing::info!("stopped");

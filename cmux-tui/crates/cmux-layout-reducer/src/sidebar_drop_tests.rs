@@ -233,6 +233,8 @@ fn request(y: f64, payload: Payload) -> Request {
         group_edge_fraction: GROUP_EDGE_FRACTION,
         group_exit_fraction: GROUP_EXIT_FRACTION,
         section_top_fraction: SECTION_TOP_FRACTION,
+        workspace_onto_start: 0.0,
+        workspace_onto_end: 0.0,
     }
 }
 
@@ -804,5 +806,56 @@ fn expanded_group_header_zones_while_dragging_c_match_swift() {
     assert_eq!(
         resolve_c(RowKey::Section { id: machine("local") }, 0.1),
         Some(Target::Position { section: SectionId::Pinned, group: None, index: 1 })
+    );
+}
+
+/// Drop onto a row's middle (Lawrence 2026-10-05, the Arc/Dia sidebar): a
+/// workspace dragged onto the middle band of an ungrouped workspace row makes
+/// a group of the two; the band's edges keep the reorder gap. Rows here: b at
+/// y 96..106 (loose, local), g2 at 72..82 (in group g1), x at 132..142 (cloud),
+/// p1 at 12..22 (pinned).
+fn onto(y: f64, ids: &[&str]) -> Option<Target> {
+    let mut request =
+        request(y, Payload::Workspaces { ids: ids.iter().map(|id| (*id).to_string()).collect() });
+    request.workspace_onto_start = 0.3;
+    request.workspace_onto_end = 0.7;
+    resolve(&request)
+}
+
+#[test]
+fn a_workspace_dropped_on_a_loose_rows_middle_targets_that_row() {
+    assert_eq!(onto(101.0, &["a"]), Some(Target::OntoWorkspace { workspace: "b".into() }));
+    assert_eq!(onto(101.0, &["a", "c"]), Some(Target::OntoWorkspace { workspace: "b".into() }));
+}
+
+#[test]
+fn the_band_edges_keep_the_reorder_gap() {
+    assert_eq!(
+        onto(97.0, &["a"]),
+        Some(Target::Position { section: machine("local"), group: None, index: 2 })
+    );
+    assert_eq!(
+        onto(105.0, &["a"]),
+        Some(Target::Position { section: machine("local"), group: None, index: 3 })
+    );
+}
+
+#[test]
+fn no_onto_target_for_grouped_pinned_other_machine_or_itself() {
+    // A row inside a group keeps the in-group gap.
+    assert!(!matches!(onto(77.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // A pinned row is no group anchor.
+    assert!(!matches!(onto(17.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // Another machine's row refuses a local workspace.
+    assert!(!matches!(onto(137.0, &["a"]), Some(Target::OntoWorkspace { .. })));
+    // The row itself (its own drag) is no target.
+    assert!(!matches!(onto(101.0, &["b"]), Some(Target::OntoWorkspace { .. })));
+}
+
+#[test]
+fn without_the_band_the_middle_of_a_row_is_a_gap() {
+    assert_eq!(
+        resolve(&request(101.0, Payload::Workspaces { ids: vec!["a".into()] })),
+        Some(Target::Position { section: machine("local"), group: None, index: 3 })
     );
 }

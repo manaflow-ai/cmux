@@ -6,6 +6,18 @@ import CmuxNextDesign
 /// Chromium cannot start). It never takes focus.
 final class BrowserNoticeView: NSView {
     var onClose: (() -> Void)?
+    /// The notice's one action (a button before the close button), if any.
+    var action: (title: String, run: () -> Void)? {
+        didSet {
+            actionButton.title = action?.title ?? ""
+            actionButton.isHidden = action == nil
+        }
+    }
+    private lazy var actionButton: ChromeTextButton = {
+        let button = ChromeTextButton(title: "", prominent: false, action: #selector(runAction), target: self)
+        button.isHidden = true
+        return button
+    }()
     /// Set while the close animation runs; a new notice then gets a new view.
     var isDismissing = false
     private let label = NSTextField(labelWithString: "")
@@ -20,7 +32,7 @@ final class BrowserNoticeView: NSView {
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let close = ChromeIconButton(symbol: "xmark", label: Strings.dismissNotice, action: #selector(close), target: self)
 
-        let stack = NSStackView(views: [label, close])
+        let stack = NSStackView(views: [label, actionButton, close])
         stack.translatesAutoresizingMaskIntoConstraints = false
         let content = OverlayBackingView()
         content.addSubview(stack)
@@ -76,4 +88,6 @@ final class BrowserNoticeView: NSView {
     }
 
     @objc private func close() { onClose?() }
+
+    @objc private func runAction() { action?.run() }
 }

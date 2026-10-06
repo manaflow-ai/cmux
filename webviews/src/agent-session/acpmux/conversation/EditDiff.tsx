@@ -9,6 +9,7 @@ import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentD
 import { isHighlighted } from "../shikiLanguages";
 import { copyText } from "./clipboard";
 import { Copy } from "./icons";
+import { useT } from "../i18n";
 
 /// The pane's theme (applyAgentTheme) is light or dark; syntax colors follow it.
 const paneThemeType = () =>
@@ -40,6 +41,7 @@ function diffOptions(numbered: boolean, themeType: "light" | "dark") {
 }
 
 export function EditDiff({ file }: { file: TurnFile }) {
+  const t = useT();
   registerAgentDiffTheme();
   const [copied, setCopied] = useState(false);
   // The pane's theme can switch while the card is open; syntax colors follow it.
@@ -78,8 +80,8 @@ export function EditDiff({ file }: { file: TurnFile }) {
         <button
           type="button"
           className="cv-codeblock__action cv-edit-diff__copy"
-          aria-label={copied ? "Copied" : "Copy diff"}
-          title={copied ? "Copied" : "Copy diff"}
+          aria-label={copied ? t("code.copied") : t("code.copyDiff")}
+          title={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyText(patches.join("")).then(
               () => setCopied(true),
@@ -100,7 +102,7 @@ export function EditDiff({ file }: { file: TurnFile }) {
             />
           ) : (
             <div key={edit.toolId + index} className="cv-edit-diff__empty">
-              No line changes
+              {t("changes.noLineChanges")}
             </div>
           ),
         )}

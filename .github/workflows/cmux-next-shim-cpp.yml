@@ -4,8 +4,8 @@ name: cmux-next CEF shim C++ tests
 # needs no CEF: scripts/cmux-next/test-shim-downloads-cpp.sh compiles its cases
 # with one clang++ call and runs them. The shim itself is built only by the
 # app build, so this is the one check that runs these cases on every change.
-# Push filters have no branch list, so a side branch shows its result before
-# it lands on feat-cmux-next.
+# Pushes run only on feat-cmux-next and main (plus pull requests); a side
+# branch runs it with `gh workflow run cmux-next-shim-cpp.yml --ref <branch>`.
 
 on:
   pull_request:
@@ -14,6 +14,9 @@ on:
       - scripts/cmux-next/test-shim-downloads-cpp.sh
       - .github/workflows/cmux-next-shim-cpp.yml
   push:
+    branches:
+      - feat-cmux-next
+      - main
     paths:
       - Packages/macOS/CmuxNext/CEFShim/**
       - scripts/cmux-next/test-shim-downloads-cpp.sh

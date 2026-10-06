@@ -3,10 +3,11 @@ import CmuxNextDesign
 import Testing
 @testable import CmuxNextSidebar
 
-/// The flat, text-first sidebar: no glass panel, no per-row icon unless
-/// the user chose one, no visible resize edge until hover.
+/// The flat sidebar: a workspace row draws no icon unless the user chose one
+/// (WORKSPACE-ROWS-NO-DEFAULT-ICON); a chosen icon takes the leading slot and
+/// moves the title past it. The resize edge stays hidden until hover.
 @MainActor @Suite struct FlatSidebarTests {
-    @Test func rowsAreTextFirstUnlessTheUserChoseAnIcon() throws {
+    @Test func onlyAChosenIconTakesTheLeadingSlot() throws {
         var sections = fixture()
         sections[1].nodes[0] = .workspace(SidebarWorkspace(id: id("a"), title: "a", icon: .symbol("hammer")))
         let h = MinimalChromeTests.Harness(sections: sections)
@@ -14,11 +15,12 @@ import Testing
         let iconned = try #require(h.sidebar.list.rowViews[.workspace(id("a"))] as? WorkspaceRowView)
         plain.layoutSubtreeIfNeeded()
         iconned.layoutSubtreeIfNeeded()
-        #expect(plain.titleFrame.minX == SidebarStyle.horizontalInset)
-        #expect(iconned.titleFrame.minX > SidebarStyle.horizontalInset + SidebarStyle.iconBox)
-        let icons = plain.subviews.compactMap { $0 as? SidebarIconView }
-        let allHidden = icons.allSatisfy(\.isHidden)
-        #expect(allHidden)
+        // A row without a user icon starts its title at the leading inset.
+        #expect(plain.titleFrame.minX == SidebarStyle.titleLeading)
+        #expect(plain.subviews.compactMap { $0 as? SidebarIconView }.allSatisfy { $0.isHidden })
+        // A chosen icon draws and the title follows it.
+        #expect(iconned.titleFrame.minX > plain.titleFrame.minX)
+        #expect(iconned.subviews.compactMap { $0 as? SidebarIconView }.contains { !$0.isHidden })
     }
 
     @Test func onlyAChosenIconTakesRoom() {

@@ -91,3 +91,33 @@ import Testing
         #expect(store.mirrorViolations.isEmpty)
     }
 }
+
+/// The daemon echoes the creation's transaction on the event that adds its tab: whichever comes
+/// first, that event or the reply, replaces the provisional tab, so the two never show together.
+@MainActor @Suite struct IntentCreateTabEchoTests {
+    @Test func theEchoedTabReplacesTheProvisionalOneBeforeTheReply() throws {
+        let store = DaemonStore()
+        let tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        store.apply(snapshot: tree)
+        let pane = try #require(store.workspaces.first?.screens.first?.panes.first)
+        let provisional = ProvisionalTab()
+        var tab = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
+                              kind: .conversation, title: "about:blank", browserRenderer: "frontend")
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:mac"))
+        var created: [(String, String)] = []
+        store.onTabCreated = { provisional, real in created.append((provisional, real.id)) }
+        store.intend(.createTab(pane: pane.handle, provisional: tab), transaction: "tx")
+        var real = tab
+        real.surface = 902
+        real.tabResourceID = ResourceID(rawValue: "tab_echoed")
+        let delta = TabDelta(workspace: store.workspaces[0].handle, screen: store.workspaces[0].screens[0].handle, pane: pane.handle,
+                             surface: 902, index: pane.tabs.count, entity: real, clientTransactionID: "tx")
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .tabAdded(delta))])
+        let ids: [String] = store.workspaces.first?.screens.first?.panes.first?.tabs.map(\.id) ?? []
+        #expect(!ids.contains(where: ProvisionalTab.isProvisional), "the provisional tab gave way")
+        #expect(ids.last == "tab_echoed")
+        #expect(created.count == 1 && created.first?.0 == provisional.id && created.first?.1 == "tab_echoed")
+        #expect(!store.hasPendingIntents, "the echo settled the creation")
+        #expect(store.mirrorViolations.isEmpty)
+    }
+}

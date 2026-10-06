@@ -79,7 +79,8 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 
 | Resource | Owner | Operations |
 | --- | --- | --- |
-| Workspace identity (title, color, icon), `ephemeral` | shared | `workspace.update`, `workspace.create` |
+| Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
+| Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
 | Tab pin, zoom, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
@@ -119,6 +120,12 @@ ephemeral workspaces at its next start and ends the terminals only they
 showed. `workspace.create {ephemeral: true}` writes the flag in the transaction
 that creates the workspace, so no read and no `session.events` change shows it
 without `extra.ephemeral`; the flag is part of the request's fingerprint.
+`workspace.update` does not change the flag. A move whose commit creates a
+workspace for content of an ephemeral workspace (a tab, tab group, screen or
+screen group moved to a new workspace, by a raw command or a v2 operation)
+makes the new workspace ephemeral in that commit. A move between an
+ephemeral workspace and an existing normal one is refused with a
+`bad request` error and changes nothing.
 `workspace.ensure_home {}` (`workspace-kind-v1`) is the only writer of
 `extra.kind: home`. The hosting app sends it on every connect; the store
 creates one empty home workspace with the fixed key `home`, places it first
@@ -130,6 +137,32 @@ refuses with `home.not_closable` before it ends a terminal (raw `error_code`
 position or into a group, or puts another workspace before it, refuses with
 `home.pinned_first` (raw `home_pinned_first`). `workspace.create` never
 accepts `kind`, so TUI and CLI sessions never have a home workspace.
+`personal-mixed-order-v1` puts personal groups and loose workspaces in one
+sidebar order. A group's place is a position in the personal workspace order:
+`workspace_group.update {top_index}` puts it right before the personal
+workspace whose `workspace.placement.list` index is `top_index` (the count or
+more: after every workspace), and `WorkspaceGroupSnapshot.top_index` reports
+it. A group and a loose workspace at the same place show the group first.
+`top_index: null` (every group before this capability) shows the group after
+every loose workspace, in group order. A reorder of the workspaces keeps each
+group at its place among the other workspaces, in the same transaction. A
+group place at or before the home workspace refuses with `home.pinned_first`.
+`workspace.list {order: "personal"}` returns the sidebar order: loose
+workspaces, and each group's members (in personal order) at the group's place,
+then this session's live workspaces without a personal row in session order;
+the default `order: "session"` keeps the session order. To put a workspace
+right after a group at a boundary, a client sends `workspace.place`, then the
+group's `top_index`, in that order. Compatibility: a workspace this session
+creates gets its personal row (last, ungrouped) in the commit that creates
+it, by every creation path, with its `workspace_placement` change in that
+commit's `session.events` batch and no personal journal record of its own,
+so a group place counts it from the start. The commit bumps
+`personal_revision` but sends no raw `personal-changed` event, so raw
+`list-personal` readers see the row on their next refetch; a
+workspace reopened with a key that already has a row keeps that row. Older
+workspaces that have no row still follow every placement. Clients without the
+capability ignore `top_index` and show every group after the loose
+workspaces.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed

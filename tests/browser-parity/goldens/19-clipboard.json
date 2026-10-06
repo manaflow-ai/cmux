@@ -96,5 +96,23 @@
       ],
       "value": "the user's text"
     }
+  },
+  "backends": {
+    "host-headless": {
+      "values": {
+        "late-copy": {
+          "late": {
+            "code": "timeout",
+            "endedWebContent": false
+          },
+          "crashed": false,
+          "clipboard": "before the late copy",
+          "reloaded": ""
+        }
+      },
+      "reasons": {
+        "late-copy": "host-headless runs Copy, Cut and Paste on the tab's clipboard and never on the browser's (driver-protocol.md, shared headless clipboard), so a Copy the page finishes late cannot write any clipboard outside the tab: the command fails with timeout, its late result is dropped, and the tab's web content process is not ended (WebKit ends it because WebKit's late Copy would write the system clipboard). Intentional cmux-next difference, not a regression."
+      }
+    }
   }
 }

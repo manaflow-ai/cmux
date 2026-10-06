@@ -41,13 +41,16 @@ import Testing
         #expect(reason == MiscHandlerStrings.pathNotAbsolute("README.md"))
     }
 
-    @Test func aPageOpensInTheEditorOnly() throws {
+    /// A tab is the code editor page now (diff-host S7): a web page shows there as text and never
+    /// runs, so it is no longer refused for a tab (here no window is open to show it).
+    @Test func aPageOpensAsTextInATab() throws {
         let root = try folder()
         defer { try? FileManager.default.removeItem(at: root) }
         let page = root.appendingPathComponent("index.html")
         try Data("<p>".utf8).write(to: page)
         let reason = refusal(make(), ["path": .string(page.path), "where": .string("tab")])
-        #expect(reason == MiscHandlerStrings.fileNotInTab(page.path))
+        #expect(reason != MiscHandlerStrings.fileNotInTab(page.path))
+        #expect(FilePageOpener.kind(for: page) == .editor)
     }
 
     /// An explicit pane is where the tab goes; one no window shows is refused

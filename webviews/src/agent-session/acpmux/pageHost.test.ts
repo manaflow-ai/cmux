@@ -36,6 +36,22 @@ describe("agent page host", () => {
     delete (globalThis as any).cmuxAcpmuxBridge;
   });
 
+  test("a registry event makes no script element: the host runs registry.js, the page's CSP refuses page-made scripts", () => {
+    const made: string[] = [];
+    const element = () => ({ textContent: "", remove: () => undefined });
+    const previous = (globalThis as any).document;
+    (globalThis as any).document = {
+      createElement: (tag: string) => (made.push(tag.toLowerCase()), element()),
+      head: { append: () => undefined },
+    };
+    try {
+      applyHostEvent({ kind: "registry", value: "window.registered = 1;" });
+    } finally {
+      (globalThis as any).document = previous;
+    }
+    expect(made).not.toContain("script");
+  });
+
   test("each old bridge method has its cmux.agent op", () => {
     expect(agentPageOp("ready")).toBe("cmux.agent.handshake");
     expect(agentPageOp("chat.persistSession")).toBe("cmux.agent.session.persist");

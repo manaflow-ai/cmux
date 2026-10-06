@@ -4,9 +4,10 @@
 // lists only ignored files, would list none of them); Refresh asks for the scope again.
 import { AlertCircle } from "../changeIcons";
 import { copyText } from "../conversation/clipboard";
+import { useT } from "../i18n";
 
 export function TrackedOnlyBanner({ skipped, onRefresh }: { skipped: number; onRefresh: () => void }) {
-  const files = skipped === 1 ? "file" : "files";
+  const t = useT();
   return (
     <div className="acpmux-changes-banner">
       <AlertCircle className="acpmux-changes-banner-icon" />
@@ -14,17 +15,19 @@ export function TrackedOnlyBanner({ skipped, onRefresh }: { skipped: number; onR
           phrasing content, and the message holds blocks. */}
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
       <div className="acpmux-changes-banner-text" role="status">
-        <div className="acpmux-changes-banner-title">Showing tracked changes only</div>
+        <div className="acpmux-changes-banner-title">{t("changes.trackedOnly")}</div>
         <div className="acpmux-changes-banner-body">
-          {`The Changes tab skipped ${skipped.toLocaleString("en-US")} untracked ${files} to stay responsive. If these files are generated, clean them up and refresh`}
+          {skipped === 1
+            ? t("changes.skipped.one")
+            : t("changes.skipped.other", { n: skipped.toLocaleString(document.documentElement.lang || "en") })}
         </div>
       </div>
       <span className="acpmux-changes-banner-divider" />
       <button type="button" className="acpmux-changes-banner-action" onClick={() => void copyText("git clean -nd")}>
-        Copy cleanup command
+        {t("changes.copyCleanup")}
       </button>
       <button type="button" className="acpmux-changes-banner-refresh" onClick={onRefresh}>
-        Refresh
+        {t("changes.refresh")}
       </button>
     </div>
   );

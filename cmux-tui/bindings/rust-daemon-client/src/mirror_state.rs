@@ -1,14 +1,16 @@
-//! The personal state resources the mirror keeps: workspace groups and
-//! workspace placements (the personal sidebar order).
+//! The state resources the mirror keeps: the personal workspace groups and
+//! workspace placements (the personal sidebar order), and the session's
+//! shared tab groups.
 //!
 //! The daemon sends them in `ResourceSnapshot.extra.state` (arrays
-//! `workspace_groups` and `workspace_placements`) and on `session.events` as
-//! `state_upsert` / `state_delete` changes. The SDK decodes those changes as
-//! `ResourceChange::Unknown`, keeping the raw object; this module decodes
-//! that object into the SDK's typed snapshots. Other state resources (tab
-//! groups, rooms, closed items, window records, ...) are named but not kept.
+//! `workspace_groups`, `workspace_placements`, and `tab_groups`) and on
+//! `session.events` as `state_upsert` / `state_delete` changes. The SDK
+//! decodes those changes as `ResourceChange::Unknown`, keeping the raw
+//! object; this module decodes that object into the SDK's typed snapshots.
+//! Other state resources (saved tab groups, rooms, closed items, window
+//! records, ...) are named but not kept.
 
-use cmux::{Document, WorkspaceGroupSnapshot, WorkspacePlacementSnapshot};
+use cmux::{Document, TabGroupSnapshot, WorkspaceGroupSnapshot, WorkspacePlacementSnapshot};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -18,6 +20,8 @@ use crate::mirror::MirrorError;
 pub(crate) const WORKSPACE_GROUP: &str = "workspace_group";
 /// The `resource` of a workspace placement state change.
 pub(crate) const WORKSPACE_PLACEMENT: &str = "workspace_placement";
+/// The `resource` of a tab group state change.
+pub(crate) const TAB_GROUP: &str = "tab_group";
 
 /// One decoded state change.
 #[derive(Debug)]
@@ -26,6 +30,8 @@ pub(crate) enum StateChange {
     GroupDelete(String),
     PlacementUpsert(String, WorkspacePlacementSnapshot),
     PlacementDelete(String),
+    TabGroupUpsert(String, TabGroupSnapshot),
+    TabGroupDelete(String),
     /// A state resource the mirror does not keep.
     Other(String),
 }
@@ -74,16 +80,31 @@ pub(crate) fn decode(kind: &str, raw: &Document) -> Result<Option<StateChange>, 
             StateChange::PlacementUpsert(id, placement)
         }
         (WORKSPACE_PLACEMENT, false) => StateChange::PlacementDelete(id),
+        (TAB_GROUP, true) => {
+            let group: TabGroupSnapshot =
+                serde_json::from_value(value()?).map_err(|e| invalid(&resource, e.to_string()))?;
+            if group.id != id {
+                return Err(invalid(&resource, format!("value id {} is not {id}", group.id)));
+            }
+            StateChange::TabGroupUpsert(id, group)
+        }
+        (TAB_GROUP, false) => StateChange::TabGroupDelete(id),
         _ => StateChange::Other(resource),
     }))
 }
 
-/// The groups and placements of a snapshot's `extra.state`. A missing or
+/// The kept state resources of a snapshot's `extra.state`.
+#[derive(Default)]
+pub(crate) struct ExtraState {
+    pub(crate) workspace_groups: BTreeMap<String, WorkspaceGroupSnapshot>,
+    pub(crate) workspace_placements: BTreeMap<String, WorkspacePlacementSnapshot>,
+    pub(crate) tab_groups: BTreeMap<String, TabGroupSnapshot>,
+}
+
+/// The kept state resources of a snapshot's `extra.state`. A missing or
 /// malformed array (an older daemon) leaves that map empty; a malformed item
 /// is skipped and logged.
-pub(crate) fn from_extra(
-    extra: &BTreeMap<String, Value>,
-) -> (BTreeMap<String, WorkspaceGroupSnapshot>, BTreeMap<String, WorkspacePlacementSnapshot>) {
+pub(crate) fn from_extra(extra: &BTreeMap<String, Value>) -> ExtraState {
     let state = extra.get("state");
     let items = |key: &str| {
         state
@@ -92,23 +113,30 @@ pub(crate) fn from_extra(
             .cloned()
             .unwrap_or_default()
     };
-    let mut groups = BTreeMap::new();
+    let mut out = ExtraState::default();
     for item in items("workspace_groups") {
         match serde_json::from_value::<WorkspaceGroupSnapshot>(item) {
             Ok(group) => {
-                groups.insert(group.id.clone(), group);
+                out.workspace_groups.insert(group.id.clone(), group);
             }
             Err(error) => log::warn!("snapshot workspace group skipped: {error}"),
         }
     }
-    let mut placements = BTreeMap::new();
     for item in items("workspace_placements") {
         match serde_json::from_value::<WorkspacePlacementSnapshot>(item) {
             Ok(placement) => {
-                placements.insert(placement.workspace.placement_id(), placement);
+                out.workspace_placements.insert(placement.workspace.placement_id(), placement);
             }
             Err(error) => log::warn!("snapshot workspace placement skipped: {error}"),
         }
     }
-    (groups, placements)
+    for item in items("tab_groups") {
+        match serde_json::from_value::<TabGroupSnapshot>(item) {
+            Ok(group) => {
+                out.tab_groups.insert(group.id.clone(), group);
+            }
+            Err(error) => log::warn!("snapshot tab group skipped: {error}"),
+        }
+    }
+    out
 }

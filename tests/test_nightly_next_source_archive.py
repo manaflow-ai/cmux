@@ -45,6 +45,11 @@ def field(block: str, key: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def with_field(block: str, key: str) -> str | None:
+    match = re.search(rf"^          {key}: (.*)$", block, re.MULTILINE)
+    return match.group(1).strip() if match else None
+
+
 def test_source_archive_step_blocks() -> None:
     build = step("Build the cmux-next source archive")
     assert field(build, "continue-on-error") is None, "the source archive step must be blocking"
@@ -59,12 +64,24 @@ def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
     upload = step("Upload the cmux-next source archive")
     assert field(upload, "continue-on-error") is None
     assert field(upload, "if") == NEXT_FULL_BUILD, field(upload, "if")
-    download = step("Download the Ghostty dependency licenses (cmux-next)")
+    download = step("Download the Ghostty dependency license trees (cmux-next)")
     assert field(download, "continue-on-error") is None, "a missing license tree must stop the sign job"
     assert field(download, "if") == NEXT_FULL_BUILD, field(download, "if")
+    assert with_field(download, "name") == "cmux-next-license-trees"
+    assert with_field(download, "path") == "nightly-inputs/license-trees"
     inject = step("Inject the Ghostty dependency licenses (cmux-next)")
     assert field(inject, "continue-on-error") is None
     assert field(inject, "if") == NEXT_FULL_BUILD, field(inject, "if")
+
+
+def test_signing_handoff_is_license_only() -> None:
+    upload = step("Upload cmux-next license trees")
+    assert field(upload, "if") == NEXT_FULL_BUILD, field(upload, "if")
+    assert with_field(upload, "name") == "cmux-next-license-trees"
+    assert with_field(upload, "path") == "${{ runner.temp }}/source-archive/*-licenses"
+    inject = step("Inject the Ghostty dependency licenses (cmux-next)")
+    assert "nightly-inputs/license-trees/ghostty-licenses" in inject
+    assert "nightly-inputs/source-archive" not in inject
 
 
 def test_the_ghostty_next_license_tree_ships_too() -> None:

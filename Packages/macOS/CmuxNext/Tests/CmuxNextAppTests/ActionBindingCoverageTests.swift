@@ -14,6 +14,27 @@ struct ActionBindingCoverageTests {
     static let savedGroupActions: Set<ActionID> = ["tabGroup.reopenSaved", "tabGroup.deleteSaved"]
 
     /// Services with every handler bound; no daemon, no windows.
+    /// Every catalog action has one owner: the app binds no id twice (diff-host S4 and R89 had both
+    /// bound openDiffViewer and palette.openDirectoryDiffViewer).
+    /// The check is this test, never a runtime trap (a Debug dogfood build must not crash at
+    /// launch); at runtime a double bind only logs a fault.
+    @Test func noActionIsBoundTwice() {
+        let services = Self.boundServices()
+        #expect(services.registry.duplicateBindings.isEmpty, "\(services.registry.duplicateBindings)")
+    }
+
+    /// tab.search (and its alias palette.goToTab) has one owner: a tab target reveals the tab; its
+    /// only argument is `query` (keybindings lead review).
+    @Test func tabSearchRevealsItsTabTarget() throws {
+        let descriptor = try #require(ActionCatalog.all.first { $0.id == "tab.search" })
+        #expect(descriptor.arguments.map(\.name) == ["query"])
+        let services = Self.boundServices()
+        // A tab target takes the reveal path, never the Search Tabs page's focus refusal.
+        let outcome = Self.run(services, "tab.search", target: ActionTargetRef(kind: .tab, id: "no-such-tab"))
+        #expect(outcome != .refused(TabSearchAppStrings.needsFocus), "\(outcome)")
+        #expect(Self.run(services, "tab.search") == .refused(TabSearchAppStrings.needsFocus))
+    }
+
     static func boundServices() -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))

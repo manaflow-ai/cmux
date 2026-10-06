@@ -1,4 +1,3 @@
-#if CMUX_RD_FFI
 public import Foundation
 
 /// A message the transport handles itself rather than the decoder.
@@ -9,4 +8,3 @@ public nonisolated enum RemoteRdMessage: Sendable, Hashable {
     /// audio, probe), header included.
     case datagram(Data)
 }
-#endif

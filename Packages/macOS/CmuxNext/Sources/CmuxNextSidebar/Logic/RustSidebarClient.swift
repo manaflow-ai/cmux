@@ -1,11 +1,8 @@
 import Foundation
-#if CMUX_LAYOUT_REDUCER_FFI
 import CCmuxLayoutReducerFFI
-#endif
 
 nonisolated enum RustSidebarClient {
     static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request, as: Response.Type) -> Response? {
-        #if CMUX_LAYOUT_REDUCER_FFI
         guard let data = try? JSONEncoder().encode(request) else { return nil }
         let capacity = 4096
         var output = [UInt8](repeating: 0, count: capacity); var outputLength = 0
@@ -15,8 +12,5 @@ nonisolated enum RustSidebarClient {
         guard code == CMUX_LAYOUT_REDUCER_OK else { return nil }
         if outputLength > capacity { return nil }
         return try? JSONDecoder().decode(Response.self, from: Data(output.prefix(outputLength)))
-        #else
-        return nil
-        #endif
     }
 }

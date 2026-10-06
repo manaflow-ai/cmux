@@ -33,8 +33,13 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// A tab action (Cmd-W) while a top page shows: pages have no tabs and do not close.
+    static var topPageHasNoTabs: String { text("handlers.refusal.topPageHasNoTabs", "This page has no tabs.") }
     static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
+    }
+    static var homeFlightRecorderOff: String {
+        text("handlers.refusal.homeFlightRecorderOff", "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home.")
     }
     static func homeAttachNoFile(_ path: String) -> String {
         String(format: text("handlers.refusal.homeAttachNoFile", "No file at “%@”."), path)
@@ -51,7 +56,6 @@ nonisolated enum RefusalStrings {
     static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }
     static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
     static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }
-    static func sessionLocalTab(_ id: String) -> String { format("handlers.refusal.sessionLocalTab", "tab %@ is session-local, not a daemon tab", id) }
     static func noPaneID(_ id: String) -> String { format("handlers.refusal.noPaneID", "no pane %@", id) }
     static var workspaceArgumentRequired: String { text("handlers.refusal.workspaceArgumentRequired", "a workspace argument is required") }
     static func noWorkspace(_ id: String) -> String { format("handlers.refusal.noWorkspace", "no workspace %@", id) }

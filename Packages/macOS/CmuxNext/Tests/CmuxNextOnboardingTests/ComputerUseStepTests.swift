@@ -13,10 +13,11 @@ import Testing
     }
 
     @Test func theStepIsLeftOutWithoutTheHelper() {
-        #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.computerUse))
+        #expect(!OnboardingModel(services: MockOnboardingServices(), start: .computerUse).steps.contains(.computerUse))
         let services = MockOnboardingServices()
         services.computerUseSource = MockComputerUsePermissionSource()
-        #expect(OnboardingModel(services: services).steps == [.role, .projects, .defaultBrowser, .importData, .theme, .computerUse])
+        #expect(OnboardingModel(services: services, start: .computerUse).steps == [.computerUse])
+        #expect(!OnboardingModel(services: services).steps.contains(.computerUse), "the first run asks for no grants")
     }
 
     @Test func rowsFollowTheGrantsWhileTheStepShows() async {
@@ -28,9 +29,8 @@ import Testing
         source.current.accessibility = true
         await settle { model.computerUse.permissions.accessibility }
         #expect(model.computerUse.permissions == ComputerUsePermissions(accessibility: true, screenRecording: false))
-        // Leaving the step stops following: a later grant is not read.
-        model.back()
-        model.stepDidAppear()
+        // Closing the window stops following: a later grant is not read.
+        model.finish(completed: true)
         source.current.screenRecording = true
         for _ in 0..<50 { await Task.yield() }
         #expect(!model.computerUse.permissions.screenRecording)

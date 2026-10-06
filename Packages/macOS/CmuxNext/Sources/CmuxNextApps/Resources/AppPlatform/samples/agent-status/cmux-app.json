@@ -7,7 +7,7 @@
   "description": "A small status item: how many agents are working and how many wait for you.",
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "icon": { "symbol": "gauge.with.dots.needle.33percent" },
   "categories": ["agents", "monitoring"],
   "engines": { "cmux": "^1.0" },

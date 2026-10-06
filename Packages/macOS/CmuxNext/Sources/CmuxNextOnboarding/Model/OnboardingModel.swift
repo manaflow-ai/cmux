@@ -2,20 +2,26 @@ public import CmuxNextDesign
 public import Foundation
 public import Observation
 
-/// The onboarding flow: one decision per step, each skippable. Work is
-/// async and cancellable; nothing here blocks the main thread. The theme
-/// applies live; Skip (or closing before Continue) puts the old one back.
+/// The onboarding window: a short run of screens, each skippable, each
+/// changing something. Work is async and cancellable; nothing here blocks
+/// the main thread. The theme applies live; Skip (or closing before
+/// Continue) puts the old one back.
 @MainActor
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
+        case firstTask, projects, classicSessions, chats, defaultBrowser, importData, theme, computerUse, accounts
     }
 
+    /// The first run: agent sign-ins, then browser import. Done lands on the app.
+    static let firstRun: [Step] = [.accounts, .importData]
+    /// New Tab's Import and Sync: folders to open, then work to bring into them.
+    static let bringWork: [Step] = [.projects, .classicSessions, .chats]
+
     public private(set) var step: Step
-    /// The steps of this flow (`firstTask`, `chats` and `accounts` only when the App supplies them).
+    /// The screens of this run: the first run, the group `start` belongs
+    /// to, or `start` alone (each only when the App supplies it).
     public let steps: [Step]
-    public let role: RoleStepModel
     public let firstTask: FirstTaskStepModel
     public let projects: ProjectsStepModel
     public let classicSessions: ClassicSessionsStepModel
@@ -33,7 +39,7 @@ public final class OnboardingModel {
     public init(services: any OnboardingServices, start: Step? = nil) {
         self.services = services
         let computerUseSource = services.computerUsePermissions
-        let steps = Step.allCases.filter { step in
+        func available(_ step: Step) -> Bool {
             switch step {
             // Resumed chats open as agent tabs, as the first task's chat does.
             case .firstTask, .chats: services.canRunFirstTask
@@ -43,9 +49,15 @@ public final class OnboardingModel {
             default: true
             }
         }
+        let firstRun = Self.firstRun.filter(available)
+        // A start the App can't show opens the first run instead.
+        let group: [Step]? = start.flatMap { start in
+            guard available(start) else { return nil }
+            return [Self.firstRun, Self.bringWork].first { $0.contains(start) } ?? [start]
+        }
+        let steps = group?.filter(available) ?? firstRun
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
-        role = RoleStepModel(services: services)
         firstTask = FirstTaskStepModel(services: services)
         projects = ProjectsStepModel(services: services)
         classicSessions = ClassicSessionsStepModel(services: services)
@@ -60,9 +72,11 @@ public final class OnboardingModel {
     public var isFirst: Bool { step == steps.first }
     public var isLast: Bool { step == steps.last }
 
-    /// The primary button: Import while the import step has a checked
-    /// choice it has not run, else Continue (Done on the last step).
+    /// The primary button: Find Browsers on the import step before a person
+    /// asked for them, Import while it has a checked choice it has not run,
+    /// else Continue (Done on the last step).
     public var primaryTitle: String {
+        if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
         if step == .importData, importer.canStart { return OnboardingStrings.importButton }
         return isLast ? OnboardingStrings.done : OnboardingStrings.continueButton
     }
@@ -75,10 +89,12 @@ public final class OnboardingModel {
         switch step {
         case .importData where importer.justStarted:
             return
+        case .importData where importer.phase == .idle:
+            importer.detect()
+            return
         case .importData where importer.canStart:
             importer.start()
             return
-        case .role: role.commit()
         case .projects: projects.commit()
         case .classicSessions: classicSessions.commit()
         case .chats: chats.commit()
@@ -111,13 +127,14 @@ public final class OnboardingModel {
     public func stepDidAppear() {
         if step != .computerUse { computerUse.stop() }
         switch step {
-        // The role step starts the project and chat scans, so their lists are ready.
-        case .role, .projects, .classicSessions, .chats:
+        // Any of these screens starts every scan, so the next one's list is ready.
+        case .projects, .classicSessions, .chats:
             projects.scan()
             if steps.contains(.chats) { chats.scan() }
             if steps.contains(.classicSessions) { classicSessions.scan() }
         case .defaultBrowser: defaults.refresh()
-        case .importData: importer.detect()
+        // Browser detection reads other apps' data: only Find Browsers starts it.
+        case .importData: break
         case .theme: theme.load()
         case .firstTask: firstTask.refreshOutputs()
         case .computerUse: computerUse.start()

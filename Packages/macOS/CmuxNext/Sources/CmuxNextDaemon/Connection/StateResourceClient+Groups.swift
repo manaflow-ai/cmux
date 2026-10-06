@@ -92,12 +92,15 @@ extension StateResourceClient {
         return try await stateMutation("workspace_group.create", params, as: CreatedGroup.self)
     }
 
+    /// `topIndex` (`personal-mixed-order-v1`): the personal row index the
+    /// group shows right before; `.clear` puts it after every loose workspace.
     public func updateWorkspaceGroup(_ group: String, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                                     collapsed: Bool? = nil) async throws {
+                                     collapsed: Bool? = nil, topIndex: FieldUpdate<Int> = .unchanged) async throws {
         var params: [String: JSONValue] = ["workspace_group": .string(group)]
         if let name { params["name"] = .string(name) }
         Self.field(color, into: &params, "color") { .string($0) }
         if let collapsed { params["collapsed"] = .bool(collapsed) }
+        Self.field(topIndex, into: &params, "top_index") { .number(Double(max(0, $0))) }
         try await stateMutation("workspace_group.update", params)
     }
 

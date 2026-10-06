@@ -24,7 +24,7 @@ chmod +x "$TMP/bin/rustup"
 cat > "$TMP/bin/git" <<STUB
 #!/bin/bash
 case " \$* " in
-  *" submodule update --init --depth 1 ghostty ghostty-next "*) exit 0 ;;
+  *" submodule update --init --depth 1 ghostty-next "*) exit 0 ;;
   *) echo "unexpected git invocation: \$*" >&2; exit 1 ;;
 esac
 STUB

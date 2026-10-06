@@ -183,6 +183,45 @@ agents resume from their saved session exactly as routine Agent Hibernation does
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux settings set terminal.agentHibernation.enabled true`.
 
+## `navigation.history.scope`
+
+What a Go Back / Go Forward step is (the toolbar arrows, Ctrl-- and Ctrl-Shift--, the palette, `cmux history back` / `forward`).
+
+```json
+{
+  "navigation": {
+    "history": { "scope": "workspaces" }
+  }
+}
+```
+
+- `workspaces` (default): a step is a workspace or a top page (Home, the App Store). Focus changes inside a workspace are not steps; going back to a workspace returns to the tab and pane it last had focused.
+- `everything`: every tab, pane and page focus is a step, as in earlier builds.
+
+A web page's own Back and Forward (⌘[ and ⌘] in a browser tab) stay the page's history. Change it in **Settings > General > History** or with `cmux settings set navigation.history.scope everything`.
+
+## `sidebar.numbering`, `sidebar.cmd9`, `sidebar.stepping`, `sidebar.steppingWraps`
+
+How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: every visible top-section item (Home, the App Store, any item you add on top), then the workspace rows in the order the sidebar shows them. Rows inside an expanded group count one by one; a collapsed group is one stop, and going to it shows its first workspace. The Settings and account row at the bottom is not part of the walk.
+
+```json
+{
+  "sidebar": {
+    "numbering": "allItems",
+    "cmd9": "last",
+    "stepping": "allItems",
+    "steppingWraps": true
+  }
+}
+```
+
+- `numbering`: `allItems` counts every item (Home = ⌘1, App Store = ⌘2, the first workspace = ⌘3); `workspacesOnly` numbers only the rows (the first workspace = ⌘1, as in classic cmux). Default: `allItems`.
+- `cmd9`: `last` makes ⌘9 the last item, as in browsers; `ninth` makes it the ninth. Default: `last`.
+- `stepping`: what ⌘⌃] and ⌘⌃[ step through, `allItems` or `workspacesOnly`. Default: `allItems`.
+- `steppingWraps`: past the last item the next one is the first again. Default: `true`.
+
+Change them in **Settings > Appearance > Sidebar** or with `cmux settings set sidebar.numbering workspacesOnly`.
+
 ## `sidebar.showAgentActivity`
 
 Shows a loading spinner on sidebar workspace rows that currently have running coding agents or active manual loaders.
@@ -507,3 +546,47 @@ Behavior notes:
 - Declarations fail closed. A missing detection entry, an empty `resumeArgvPrefix`, a blank `kinds` array, or a value of the wrong type makes that one declaration unusable — the session then resumes exactly as it did before, without the wrapper. The rest of the file still applies.
 - Removing a declaration is safe, and has the same effect: the capture keeps the recorded id, but nothing is re-supplied.
 - Hooks keep working for the wrapped agent. When the prefix replaces the agent executable, cmux puts its per-surface agent shim first on `PATH` for the restored process, so the wrapper's own `claude` lookup still finds the hook-injecting shim. A wrapper that ignores `PATH` (an absolute path to the real binary, for example) needs the global fallback instead: `cmux agent hook install claude`.
+
+## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
+
+The address bar's search engine and suggestions. Settings > Browser > Address Bar
+shows the same keys.
+
+```jsonc
+{
+  "browser": {
+    "searchEngine": "google",
+    "customSearchEngine": {
+      "search": "https://example.com/search?q=%s",
+      "suggest": "https://example.com/suggest?q=%s"
+    },
+    "omnibar": {
+      "remoteSuggestions": true,
+      "inlineAutocomplete": true,
+      "maxRows": 8,
+      "calculator": true
+    }
+  }
+}
+```
+
+- `searchEngine`: `google` (default), `duckduckgo`, `bing`, `brave`, `kagi` or `custom`.
+  Each built-in engine also gives search suggestions.
+- `customSearchEngine.search`: the search address used when `searchEngine` is `custom`.
+  Put `%s` or `{searchTerms}` where the typed text goes. Without one, cmux uses Google.
+- `customSearchEngine.suggest`: optional suggest address that answers in the OpenSearch
+  suggestions format (`["query", ["suggestion", ...]]`), with the same placeholder.
+- `omnibar.remoteSuggestions`: send what you type to the search engine for suggestions.
+  Default: `true`. cmux never sends text that reads as an address, a file path, an IP
+  address, `localhost` or a `host:port`, or text longer than 2,048 characters. Requests
+  start 40 ms after the last keystroke and stop after 800 ms. Private (incognito) windows
+  follow this setting over an ephemeral session that keeps no cookies or cache.
+- `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
+  when the text is the start of the host and you typed that address before or visited it
+  at least 4 times. Default: `true`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.calculator`: show the answer to arithmetic you type (`+ - * / % ^`,
+  parentheses) as a row; arrow to it and press Return to copy the answer. Default: `true`.
+
+Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows` and `calculator`; the search
+engine and remote suggestions decide what leaves the Mac, so only you change them.

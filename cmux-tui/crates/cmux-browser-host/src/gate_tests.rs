@@ -20,6 +20,72 @@ struct FakeDriver {
     /// `fetchId`s that net.fetch.cancel cancelled: a blocked fetch with one
     /// of them ends at once.
     fetch_cancelled: Mutex<std::collections::HashSet<String>>,
+    /// net.fetch replies by URL (a redirect hop or a final response).
+    fetch_routes: Mutex<std::collections::HashMap<String, Value>>,
+    /// frame.focused: the focused frame the engine reports (Null: none).
+    focused_frame: Mutex<Value>,
+    /// A page model for captures: the values its fields show and whether
+    /// the capture mask hid each one. Empty: the mask steps answer as
+    /// `mask_held` says.
+    page_fields: Mutex<Vec<(String, bool)>>,
+    /// The needles each capture token's mask step got.
+    mask_needles: Mutex<std::collections::HashMap<u64, Vec<String>>>,
+    /// Runs inside the next `tab.screenshot` (what another session does
+    /// while the capture is taken).
+    during_capture: Mutex<Option<DuringCapture>>,
+}
+
+/// What another session does while a capture is taken (`during_capture`).
+type DuringCapture = Box<dyn FnOnce(&FakeDriver) + Send>;
+
+impl FakeDriver {
+    fn needles(args: &Value) -> Vec<String> {
+        args.as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
+    }
+
+    /// The capture mask steps on the page model, as the host world's
+    /// scripts do: the mask hides the fields that hold one of its needles;
+    /// the check fails on a field that holds a needle it was given (else
+    /// the mask's) and is not hidden.
+    fn capture_step(&self, source: &str, args: &Value) -> Value {
+        let token = args.as_array().and_then(|a| a.iter().find_map(Value::as_u64));
+        let mut fields = self.page_fields.lock().unwrap();
+        if source.contains("cmux-capture-mask") {
+            let needles = Self::needles(&args[0]);
+            let mut hidden = 0;
+            for (value, is_hidden) in fields.iter_mut() {
+                if needles.iter().any(|n| value.contains(n.as_str())) {
+                    *is_hidden = true;
+                    hidden += 1;
+                }
+            }
+            self.mask_needles.lock().unwrap().insert(token.unwrap_or(0), needles);
+            return json!(hidden);
+        }
+        if source.contains("cmux-capture-held") {
+            let given = args.as_array().and_then(|a| a.iter().find(|v| v.is_array()));
+            let needles = match given {
+                Some(given) => Self::needles(given),
+                None => self
+                    .mask_needles
+                    .lock()
+                    .unwrap()
+                    .get(&token.unwrap_or(0))
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            for (value, is_hidden) in fields.iter() {
+                if !is_hidden && needles.iter().any(|n| value.contains(n.as_str())) {
+                    return json!("a new element holds a secret");
+                }
+            }
+            return json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst));
+        }
+        for (_, is_hidden) in fields.iter_mut() {
+            *is_hidden = false;
+        }
+        json!(0)
+    }
 }
 
 impl FakeDriver {
@@ -62,13 +128,24 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-capture-held") {
+                if source.contains("cmux-capture-") && !self.page_fields.lock().unwrap().is_empty()
+                {
+                    Ok(self.capture_step(source, &params["args"]))
+                } else if source.contains("cmux-capture-held") {
                     Ok(json!(self.mask_held.load(std::sync::atomic::Ordering::SeqCst)))
                 } else if source.contains("cmux-capture-mask") {
                     Ok(json!(1))
                 } else {
                     Ok(self.focused_url.clone())
                 }
+            }
+            "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
+            "tab.screenshot" => {
+                let during = self.during_capture.lock().unwrap().take();
+                if let Some(during) = during {
+                    during(self);
+                }
+                Ok(Value::Null)
             }
             "tab.info" => Ok(json!({"title": self.page_text, "url": "https://peer.test/page"})),
             "cookies.get" => Ok(json!([
@@ -101,7 +178,10 @@ impl Driver for FakeDriver {
                         ));
                     }
                 }
-                Ok(self.fetch_reply.lock().unwrap().clone())
+                let routed = params["url"]
+                    .as_str()
+                    .and_then(|url| self.fetch_routes.lock().unwrap().get(url).cloned());
+                Ok(routed.unwrap_or_else(|| self.fetch_reply.lock().unwrap().clone()))
             }
             _ => Ok(Value::Null),
         }
@@ -163,6 +243,11 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         fetch_in_flight: std::sync::atomic::AtomicUsize::new(0),
         fetch_max_in_flight: std::sync::atomic::AtomicUsize::new(0),
         fetch_cancelled: Mutex::new(std::collections::HashSet::new()),
+        fetch_routes: Mutex::new(std::collections::HashMap::new()),
+        focused_frame: Mutex::new(Value::Null),
+        page_fields: Mutex::new(Vec::new()),
+        mask_needles: Mutex::new(std::collections::HashMap::new()),
+        during_capture: Mutex::new(None),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -226,6 +311,38 @@ fn vm_code_never_reaches_the_host_world() {
             json!({"targetId": "T", "world": "host", "source": "() => 1"}),
         )
         .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Forbidden);
+    assert!(methods(&driver).is_empty());
+}
+
+/// The host-world probe cannot look into a cross-origin frame; the engine
+/// then reports the focused frame itself, and that frame's URL is checked.
+#[test]
+fn secret_typing_follows_focus_into_cross_origin_frames() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "localhost");
+    *driver.focused_frame.lock().unwrap() =
+        json!({"frameId": "F", "url": "http://127.0.0.1:4000/agent-frame.html"});
+    let refused = gate
+        .driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden);
+    assert!(
+        refused.message.contains("may not be typed into http://127.0.0.1:4000/agent-frame.html;"),
+        "{}",
+        refused.message
+    );
+    assert!(!methods(&driver).contains(&"input.insertText".to_owned()), "nothing was typed");
+
+    *driver.focused_frame.lock().unwrap() =
+        json!({"frameId": "F", "url": "http://localhost:4000/agent-frame.html"});
+    gate.driver_call("input.insertText", json!({"targetId": "T", "text": {"__secret": "pw"}}))
+        .unwrap();
+    assert_eq!(driver.calls.lock().unwrap().last().unwrap().1["text"], "s3cret-value");
+
+    // Sessions never call it: only the gate asks which frame has focus.
+    driver.calls.lock().unwrap().clear();
+    let error = gate.driver_call("frame.focused", json!({"targetId": "T"})).unwrap_err();
     assert_eq!(error.code, ErrorCode::Forbidden);
     assert!(methods(&driver).is_empty());
 }
@@ -601,6 +718,32 @@ fn captures_mask_secret_fields_and_are_refused_when_the_mask_is_dropped() {
     assert_eq!(pdf.code, ErrorCode::Invalid, "{pdf}");
 }
 
+/// Another session types a secret into the tab while this session's
+/// capture is between its mask and its shot: the other session records the
+/// secret for the tab (before its input is sent), the mask did not know it,
+/// and the field shows it in the shot. The check after the shot looks for
+/// every secret the tab has now, so the capture is refused instead of
+/// returned.
+#[test]
+fn a_secret_typed_by_another_session_during_a_capture_refuses_it() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    agent_secret(&gate, "example.com");
+    let tab_secrets = Arc::new(TabSecrets::default());
+    let gate = gate.with_tab_secrets(tab_secrets.clone());
+    driver.page_fields.lock().unwrap().push(("s3cret-value".into(), false));
+    // Nothing typed meanwhile: the capture is returned.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+    *driver.during_capture.lock().unwrap() = Some(Box::new(move |page: &FakeDriver| {
+        tab_secrets.record("T", "other", "typed-by-other-7f3a");
+        page.page_fields.lock().unwrap().push(("typed-by-other-7f3a".into(), false));
+    }));
+    let refused = gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Invalid, "{refused}");
+    assert!(refused.message.contains("a new element holds a secret"), "{}", refused.message);
+    // The next capture knows the secret and hides its field.
+    gate.driver_call("tab.screenshot", json!({"targetId": "T"})).unwrap();
+}
+
 #[test]
 fn cookie_calls_follow_the_domain_policy() {
     let (gate, driver) = make_gate(Value::Null, false);
@@ -841,7 +984,7 @@ fn a_session_that_ended_starts_no_fetch() {
         for fetch in running {
             let _ = fetch.join().unwrap();
         }
-        assert_eq!(refused.code, ErrorCode::Closed, "{refused}");
+        assert_eq!(refused.code, ErrorCode::Cancelled, "{refused}");
         assert_eq!(most, 16, "a fetch reached the engine after the session ended");
     });
 }
@@ -985,7 +1128,7 @@ fn a_cell_timeout_cancels_its_fetches_and_frees_their_slots() {
         gate.cancel_fetches(1);
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the cell timed out");
-            assert_eq!(error.code, ErrorCode::Timeout, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
             assert_eq!(
                 error.message,
                 "fetch: cancelled because the cell that started it timed out"
@@ -1017,8 +1160,8 @@ fn a_cell_timeout_fails_its_queued_fetches() {
         }
         gate.cancel_fetches(1);
         let error = queued.join().unwrap().expect_err("the cell timed out");
-        assert_eq!(error.code, ErrorCode::Timeout, "{error}");
-        assert_eq!(error.message, CELL_TIMED_OUT_TEXT);
+        assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+        assert_eq!(error.message, CELL_TIMED_OUT_TEXT, "classic's text stays");
         assert_eq!(methods(&driver).iter().filter(|m| *m == "net.fetch").count(), 16);
         driver.release_fetches();
         for fetch in running {
@@ -1059,8 +1202,187 @@ fn the_session_end_cancels_running_fetches() {
         gate.end_session();
         for fetch in running {
             let error = fetch.join().unwrap().expect_err("the session ended");
-            assert_eq!(error.code, ErrorCode::Closed, "{error}");
+            assert_eq!(error.code, ErrorCode::Cancelled, "{error}");
+            assert_eq!(error.message, "fetch: the session ended");
         }
         assert_eq!(cancels(&driver), 4);
     });
+}
+
+/// The engine's answer to one hop that the server redirected (the host
+/// fetches with `redirect: "manual"` and reads Location at the response
+/// stage).
+fn redirect_hop(url: &str, status: u16, location: &str) -> Value {
+    json!({"url": url, "status": status, "headers": [], "bodyBase64": "",
+        "redirect": {"status": status, "location": location}})
+}
+
+fn final_hop(url: &str) -> Value {
+    json!({"url": url, "status": 200, "headers": [], "bodyBase64": b64("done")})
+}
+
+fn route(driver: &FakeDriver, url: &str, reply: Value) {
+    driver.fetch_routes.lock().unwrap().insert(url.to_owned(), reply);
+}
+
+fn engine_fetches(driver: &FakeDriver) -> Vec<Value> {
+    driver
+        .calls
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|(m, _)| m == "net.fetch")
+        .map(|(_, p)| p.clone())
+        .collect()
+}
+
+/// SHELL-REDIRECT-LNA option 1 (a9): the host follows redirects itself, one
+/// hop per engine fetch, each checked before it starts. 127.0.0.1 ->
+/// localhost works for a Local caller; final URL and `redirected` come from
+/// the host's chain.
+#[test]
+fn the_host_follows_a_redirect_hop_for_a_local_caller() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(
+        &driver,
+        "http://127.0.0.1:8000/r",
+        redirect_hop("http://127.0.0.1:8000/r", 302, "http://localhost:8000/x"),
+    );
+    route(&driver, "http://localhost:8000/x", final_hop("http://localhost:8000/x"));
+    let out = gate.driver_call("net.fetch", json!({"url": "http://127.0.0.1:8000/r"})).unwrap();
+    assert_eq!(out["url"], "http://localhost:8000/x", "{out}");
+    assert_eq!(out["status"], 200);
+    assert_eq!(out["redirected"], true);
+    assert!(out.get("redirect").is_none(), "{out}");
+    let hops = engine_fetches(&driver);
+    assert_eq!(hops.len(), 2, "{hops:?}");
+    assert!(hops.iter().all(|h| h["redirect"] == "manual"), "the engine never follows: {hops:?}");
+}
+
+/// A Remote caller (CALLER-LOCALITY) is refused a hop into loopback before
+/// the hop starts.
+#[test]
+fn a_redirect_hop_into_loopback_is_refused_for_a_remote_caller() {
+    let (_, driver) = make_gate(Value::Null, false);
+    let gate = Gate::new(driver.clone(), Grants { remote: true, ..Grants::default() });
+    route(
+        &driver,
+        "https://a.test/r",
+        redirect_hop("https://a.test/r", 302, "http://localhost:8000/x"),
+    );
+    let refused = gate.driver_call("net.fetch", json!({"url": "https://a.test/r"})).unwrap_err();
+    assert_eq!(refused.code, ErrorCode::Forbidden, "{refused}");
+    assert!(
+        refused.message.starts_with("fetch: redirect to http://localhost:8000/x is blocked"),
+        "{}",
+        refused.message
+    );
+    assert_eq!(engine_fetches(&driver).len(), 1, "the refused hop never started");
+}
+
+/// Fetch spec: 303 (and 301/302 for POST) changes the method to GET and
+/// drops the body and its headers; 307/308 keep both.
+#[test]
+fn redirects_change_post_to_get_per_the_fetch_spec() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(&driver, "https://a.test/form", redirect_hop("https://a.test/form", 303, "/done"));
+    route(&driver, "https://a.test/done", final_hop("https://a.test/done"));
+    route(
+        &driver,
+        "https://a.test/keep",
+        redirect_hop("https://a.test/keep", 307, "https://a.test/kept"),
+    );
+    route(&driver, "https://a.test/kept", final_hop("https://a.test/kept"));
+    let post = |url: &str| {
+        gate.driver_call(
+            "net.fetch",
+            json!({"url": url, "method": "POST", "bodyBase64": b64("x=1"),
+            "headers": [["Content-Type", "application/x-www-form-urlencoded"]]}),
+        )
+    };
+    post("https://a.test/form").unwrap();
+    post("https://a.test/keep").unwrap();
+    let hops = engine_fetches(&driver);
+    let hop = |url: &str| {
+        hops.iter()
+            .find(|h| h["url"] == url)
+            .unwrap_or_else(|| panic!("no hop to {url}: {hops:?}"))
+            .clone()
+    };
+    let done = hop("https://a.test/done");
+    assert_eq!(done["method"], "GET", "{done}");
+    assert!(done["bodyBase64"].is_null(), "{done}");
+    assert!(!done["headers"].to_string().to_ascii_lowercase().contains("content-type"), "{done}");
+    let kept = hop("https://a.test/kept");
+    assert_eq!(kept["method"], "POST", "{kept}");
+    assert_eq!(kept["bodyBase64"], b64("x=1"));
+}
+
+/// Fetch spec: a cross-origin hop drops Authorization (a same-origin hop
+/// keeps it).
+#[test]
+fn a_cross_origin_hop_drops_authorization() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(
+        &driver,
+        "https://a.test/r",
+        redirect_hop("https://a.test/r", 302, "https://a.test/same"),
+    );
+    route(
+        &driver,
+        "https://a.test/same",
+        redirect_hop("https://a.test/same", 302, "https://b.test/x"),
+    );
+    route(&driver, "https://b.test/x", final_hop("https://b.test/x"));
+    gate.driver_call(
+        "net.fetch",
+        json!({"url": "https://a.test/r",
+        "headers": [["Authorization", "Bearer t"], ["X-Other", "1"]]}),
+    )
+    .unwrap();
+    let hops = engine_fetches(&driver);
+    let auth =
+        |i: usize| hops[i]["headers"].to_string().to_ascii_lowercase().contains("authorization");
+    assert!(auth(1), "a same-origin hop keeps it: {hops:?}");
+    assert!(!auth(2), "a cross-origin hop drops it: {hops:?}");
+    assert!(hops[2]["headers"].to_string().contains("X-Other"), "{hops:?}");
+}
+
+/// At most 5 redirect hops.
+#[test]
+fn more_than_five_redirects_fail() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    for i in 0..7 {
+        let url = format!("https://a.test/{i}");
+        route(&driver, &url, redirect_hop(&url, 302, &format!("https://a.test/{}", i + 1)));
+    }
+    let error = gate.driver_call("net.fetch", json!({"url": "https://a.test/0"})).unwrap_err();
+    assert!(error.message.contains("redirect"), "{error}");
+    assert_eq!(engine_fetches(&driver).len(), 6, "the first fetch and 5 hops");
+}
+
+/// HOP-ADDRESS (ff): a redirect hop whose address never arrived (the engine
+/// waited for it) is not silent: the host's fetch log (policy op corsLog)
+/// names it.
+#[test]
+fn a_redirect_hop_without_its_address_is_logged() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    route(&driver, "https://a.test/r", redirect_hop("https://a.test/r", 302, "https://a.test/x"));
+    route(&driver, "https://a.test/x", final_hop("https://a.test/x"));
+    gate.driver_call("net.fetch", json!({"url": "https://a.test/r"})).unwrap();
+    let log = policy(&gate, "corsLog", json!({})).unwrap();
+    assert!(
+        log.as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["url"] == "https://a.test/r" && e["what"] == "hop address missing, waited"),
+        "{log}"
+    );
+    // A hop whose address arrived is not logged.
+    let mut with_ip = redirect_hop("https://a.test/r2", 302, "https://a.test/x");
+    with_ip["remoteIPAddress"] = json!("93.184.216.34");
+    route(&driver, "https://a.test/r2", with_ip);
+    gate.driver_call("net.fetch", json!({"url": "https://a.test/r2"})).unwrap();
+    let log = policy(&gate, "corsLog", json!({})).unwrap();
+    assert!(!log.to_string().contains("https://a.test/r2"), "{log}");
 }

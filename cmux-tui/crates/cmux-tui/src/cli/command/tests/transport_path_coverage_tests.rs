@@ -39,6 +39,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
     }
     for (args, expected) in [
         (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
+        (vec!["workspace", "group", "g", "update", "--clear-top-index"], "workspace_group.update"),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (
             vec![

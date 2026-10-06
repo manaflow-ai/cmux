@@ -17,7 +17,8 @@ public nonisolated struct BackdropTexture: Hashable, Sendable {
     ///   - strength: The effect intensity in the inclusive range 0...1.
     public init(filter: BackdropTextureFilter, strength: Double) {
         self.filter = filter
-        self.strength = strength.isFinite ? min(max(strength, 0), 1) : (strength.sign == .plus ? 1 : 0)
+        // NaN has a sign bit too (Double.nan is .plus): it is no strength, so 0.
+        self.strength = strength.isNaN ? 0 : min(max(strength, 0), 1)
     }
 
     /// A stable cache component for one treatment.

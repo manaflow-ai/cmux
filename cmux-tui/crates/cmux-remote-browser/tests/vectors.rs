@@ -225,3 +225,28 @@ fn control_text_round_trips() {
     assert_eq!(Control::from_json(&parsed.to_json()).expect("parses again"), parsed);
     assert!(Control::from_json(r#"{"t":"rb.unknown"}"#).is_err());
 }
+
+const INPUT_MAPPING: &str = include_str!("../../../../schemas/remote-tab/input-mapping.json");
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InputMappingCase {
+    name: String,
+    input: InputEvent,
+    #[serde(default)]
+    expect: Option<cmux_remote_browser::rp_input::RpCall>,
+    #[serde(default)]
+    reject: Option<cmux_remote_browser::rp_input::InputReject>,
+}
+
+#[test]
+fn input_mapping_vectors() {
+    for case in load::<InputMappingCase>(INPUT_MAPPING) {
+        let got = cmux_remote_browser::rp_input::map_input(&case.input);
+        match (&case.expect, &case.reject) {
+            (Some(call), None) => assert_eq!(got.as_ref(), Ok(call), "{}", case.name),
+            (None, Some(reject)) => assert_eq!(got.as_ref().err(), Some(reject), "{}", case.name),
+            _ => panic!("{}: a case names exactly one of expect and reject", case.name),
+        }
+    }
+}

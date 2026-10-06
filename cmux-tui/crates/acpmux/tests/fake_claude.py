@@ -14,6 +14,11 @@ def send(obj):
     sys.stdout.flush()
 
 
+# Like Claude Code, init reports the mode `--permission-mode` pinned.
+MODE = "default"
+if "--permission-mode" in sys.argv[:-1]:
+    MODE = sys.argv[sys.argv.index("--permission-mode") + 1]
+
 for line in sys.stdin:
     try:
         msg = json.loads(line)
@@ -25,7 +30,7 @@ for line in sys.stdin:
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
         if request.get("subtype") == "initialize":
             send({"type": "system", "subtype": "init", "session_id": "fake-claude-session", "model": "fake",
-                  "permissionMode": "default", "tools": [], "mcp_servers": []})
+                  "permissionMode": MODE, "tools": [], "mcp_servers": []})
     elif kind == "user":
         text = json.dumps(sys.argv[1:])
         send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,

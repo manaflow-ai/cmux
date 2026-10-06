@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 
 use super::attach_tap::SnapshotRequestHandle;
 use super::*;
+use kitty_replay_cache::KittyReplayCache;
 
 /// Default `viewer_backlog_bytes` (spec/terminal-frames.md: 8 MiB, set per
 /// attach by the viewer, no daemon setting): unacknowledged output kept for one
@@ -27,10 +28,14 @@ pub(crate) const SNAPSHOT_REQUEST_MIN_INTERVAL: Duration = Duration::from_millis
 /// Published byte offset and grid generation of one terminal. Written only by
 /// the attach broadcasts, which run under the terminal lock; read under the
 /// same lock when a snapshot is taken.
+///
+/// It also holds the terminal's Kitty replay state for READY images, which is
+/// used under the same lock.
 #[derive(Default)]
 pub(crate) struct SnapshotStreamPosition {
     offset: AtomicU64,
     generation: AtomicU64,
+    kitty_replay: KittyReplayCache,
 }
 
 impl SnapshotStreamPosition {
@@ -82,6 +87,16 @@ pub(crate) struct TerminalSnapshotFrame {
     /// snapshot, so `terminal-history` pages line up with this READY.
     pub marker_epoch: u64,
     pub active_top_marker: u64,
+    /// The Kitty image replay at the same cut (`terminal-snapshot-images-v1`),
+    /// or `None` when the viewer did not opt in or the terminal has no images.
+    pub images: Option<Arc<SnapshotImages>>,
+}
+
+/// The Kitty image replay stream of one READY and what it holds.
+#[derive(Debug, Clone)]
+pub(crate) struct SnapshotImages {
+    pub data: Vec<u8>,
+    pub stats: ghostty_vt::KittyReplayStats,
 }
 
 /// A READY taken exactly at a resize cut for a viewer that reflows its own
@@ -220,17 +235,23 @@ impl Surface {
     /// Take the snapshot a viewer's worker owes it and drop the queued
     /// frames it supersedes, both under the terminal lock. One COMPLETE
     /// encode at one cut gives the READY prefix and the history after it, so
-    /// the history always continues exactly that READY.
+    /// the history always continues exactly that READY. `images_cap`: the
+    /// viewer gets the Kitty images too, encoded in the same lock hold (they
+    /// can change right after), with at most that many decoded pixel bytes.
     pub(crate) fn take_viewer_snapshot(
         &self,
         receiver: &AttachFrameReceiver,
+        images_cap: Option<u64>,
     ) -> ghostty_vt::Result<TerminalSnapshotFrame> {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         let term = pty.term.lock().unwrap();
         let mut data = term.encode_snapshot(SnapshotPhase::Complete)?;
-        let (generation, offset) = pty.snapshot_position.load();
+        let cut = pty.snapshot_position.load();
+        let (generation, offset) = cut;
+        let replay = &pty.snapshot_position.kitty_replay;
+        let images = images_cap.and_then(|cap| replay.images_locked(&term, cut, cap, self.id));
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         let (cols, rows) = (term.cols(), term.rows());
@@ -252,6 +273,7 @@ impl Surface {
             colors,
             marker_epoch,
             active_top_marker,
+            images,
         })
     }
 
@@ -282,6 +304,25 @@ impl Surface {
             return Err(ghostty_vt::Error::InvalidValue);
         };
         pty.term.lock().unwrap().encode_snapshot(phase)
+    }
+
+    /// The Kitty replay of this terminal now (tests compare it with a
+    /// viewer's images chunks).
+    #[cfg(test)]
+    pub(crate) fn encode_kitty_replay_for_test(
+        &self,
+        max_image_bytes: u64,
+    ) -> ghostty_vt::Result<(Vec<u8>, ghostty_vt::KittyReplayStats)> {
+        let Some(pty) = self.as_pty() else {
+            return Err(ghostty_vt::Error::InvalidValue);
+        };
+        pty.term.lock().unwrap().encode_kitty_replay(max_image_bytes)
+    }
+
+    /// Kitty replay encodes this terminal ran for READY images (tests).
+    #[cfg(test)]
+    pub(crate) fn kitty_replay_encodes_for_test(&self) -> u64 {
+        self.as_pty().map_or(0, |pty| pty.snapshot_position.kitty_replay.encodes())
     }
 
     /// The host terminal's history check now (tests compare it with a
@@ -399,12 +440,16 @@ impl PtySurface {
                 colors: self.terminal_colors_locked(term, defaults),
                 marker_epoch: term.history_marker_epoch(),
                 active_top_marker: term.active_top_marker(),
+                images: None,
             },
             history_rows: check.rows,
             history_digest: check.digest,
         }))
     }
 }
+
+#[path = "kitty_replay_cache.rs"]
+mod kitty_replay_cache;
 
 #[cfg(test)]
 #[path = "tests/snapshot_attach.rs"]

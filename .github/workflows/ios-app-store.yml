@@ -43,6 +43,42 @@ jobs:
   runners:
     uses: ./.github/workflows/resolve-runners.yml
 
+  # The commit of main this run ships, resolved once: the source archive and the
+  # upload build the same commit even when main moves during the run.
+  app-source:
+    name: Resolve the app source commit (main)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve main
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "could not resolve main: $sha" >&2; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+  # IOS-SOURCE-ARCHIVE-PER-RELEASE: the corresponding-source archive (Ghostty,
+  # ghostty-next and every Zig package, z2d included) of the exact commit this
+  # run uploads, built and checked by the cmux-next source-archive workflow
+  # before the upload. The upload needs it: no iOS build ships without one.
+  source-archive:
+    name: Build and check the iOS source archive
+    needs: app-source
+    if: github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cmux-next-source-archive.yml
+    with:
+      ref: ${{ needs.app-source.outputs.sha }}
+      build: ios-${{ github.run_id }}
+      artifact: cmux-ios-source-archive
+
   upload-and-validate:
     # Production secrets: GitHub releases them only to protected refs (the
     # environment's deployment branch policy: main, tags v*).
@@ -50,9 +86,11 @@ jobs:
     name: Upload and validate production App Store build
     # The app source is always main, including dispatches of workflow repairs.
     if: github.event_name == 'workflow_dispatch'
-    needs: runners
+    needs: [runners, app-source, source-archive]
     runs-on: ${{ fromJSON(needs.runners.outputs.map).macos_26_ios }}
     timeout-minutes: 90
+    outputs:
+      final_build_number: ${{ steps.upload.outputs.final_build_number }}
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
       ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
@@ -68,7 +106,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: main
+          # main, as resolved by app-source (the commit the source archive holds).
+          ref: ${{ needs.app-source.outputs.sha }}
           persist-credentials: false
           submodules: recursive
           fetch-depth: 0
@@ -366,3 +405,36 @@ jobs:
         run: |
           rm -f "${ASC_API_KEY_PATH:-}"
           security delete-keychain ios-app-store.keychain >/dev/null 2>&1 || true
+
+  # Attaches the archive as cmux-ios-source-<build>.tar.gz to the ios-source
+  # release (the name the iOS Acknowledgements pane's z2d offer gives) and tags
+  # the commit cmux-next-src-<11 characters>. Only after a successful upload and
+  # only while vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE is 1 (the coordinator's hold).
+  publish-source-archive:
+    name: Publish the iOS source archive
+    needs: [app-source, upload-and-validate, source-archive]
+    if: ${{ !cancelled() && needs.upload-and-validate.result == 'success' && vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.app-source.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download the iOS source archive
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-ios-source-archive
+          path: source-archive
+
+      - name: Publish the iOS source archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_NUMBER: ${{ needs.upload-and-validate.outputs.final_build_number }}
+          APP_COMMIT: ${{ needs.app-source.outputs.sha }}
+        run: ./scripts/cmux-next/publish-ios-source-archive.sh "$BUILD_NUMBER" "$APP_COMMIT" source-archive

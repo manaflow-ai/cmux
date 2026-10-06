@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextApps
+import CmuxNextIcons
 
 /// An app's own page (its pane implementation, `contributes.paneKinds` in
 /// manifest v1) as an internal page tab: page id `app:<app id>`, one tab per
@@ -24,6 +25,8 @@ final class AppPanePage: InternalPageProvider {
         if case .symbol(let name)? = app?.manifest.icon { return name }
         return pane?.symbol ?? "app"
     }
+    /// The registry's generic app for an app with no symbol of its own.
+    var icon: IconName? { symbol == "app" ? .appGeneric : nil }
 
     private var app: InstalledApp? { apps.registry.app(appID) }
     /// The app's first pane implementation.

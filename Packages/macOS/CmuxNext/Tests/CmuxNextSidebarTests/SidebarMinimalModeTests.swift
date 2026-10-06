@@ -37,6 +37,19 @@ import Testing
         #expect(settings != nil && settings?.isHiddenOrHasHiddenAncestor == false && settings?.isAccessibilityElement() == true)
     }
 
+    /// Lawrence (2026-10-05): "settings section border should fade if im not hovered". The
+    /// hairline under the top band fades with its band; the footer has no line over it at all
+    /// (SIDEBAR-FOOTER-MINIMAL, Lawrence 2026-10-06).
+    @Test func theTopBandLineFadesWithItsBand() {
+        let (view, restore) = sidebar(.top)
+        defer { restore() }
+        view.setChromeRevealed(true)
+        view.setChromeRevealed(false)
+        #expect(view.aboveLine.opacity == 0, "the top band's border fades out at rest")
+        view.setChromeRevealed(true)
+        #expect(view.aboveLine.opacity == 1, "hover shows the border again")
+    }
+
     @Test func bothBandsHideInBothAndNoneWhenOff() {
         let (both, restoreBoth) = sidebar(.both)
         both.setChromeRevealed(false)
@@ -46,5 +59,18 @@ import Testing
         defer { restoreOff() }
         off.setChromeRevealed(false)
         #expect(bandAlpha(off.aboveRegion) == 1 && bandAlpha(off.belowRegion) == 1)
+    }
+    /// The update pill is the only update notice (SIDEBAR-FOOTER-MINIMAL): it is the sidebar's
+    /// own view, so it stays visible while minimal mode fades the bottom band.
+    @Test func theUpdatePillStaysWhileTheBottomBandFades() async {
+        let (view, restore) = sidebar(.bottom)
+        defer { restore() }
+        view.model.updatePill = SidebarUpdatePill(title: "Update Ready", help: "Restart to update.")
+        for _ in 0..<200 where view.updatePillView.pill == nil { await Task.yield() }
+        view.setChromeRevealed(false)
+        view.layoutSubtreeIfNeeded()
+        #expect(bandAlpha(view.belowRegion) == 0)
+        #expect(!view.updatePillView.isHiddenOrHasHiddenAncestor && view.updatePillView.alphaValue == 1)
+        #expect(view.updatePillView.frame.width > 0)
     }
 }

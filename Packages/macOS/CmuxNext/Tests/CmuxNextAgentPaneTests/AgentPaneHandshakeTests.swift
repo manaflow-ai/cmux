@@ -3,14 +3,14 @@ import Testing
 @testable import CmuxNextAgentPane
 
 @Suite struct AgentPaneHandshakeTests {
-    private let endpoint = AcpmuxWebEndpoint(url: URL(string: "ws://127.0.0.1:47811/")!, token: "secret")
+    private let endpoint = AcpmuxConnection(url: URL(string: "ws://127.0.0.1:47811/")!, dashboardToken: "secret",
+                                            localAppToken: String(repeating: "f6", count: 32))
 
     @Test func aNewChatAsksThePageNotToAttachTheMostRecentSession() {
         let handshake = AgentPaneHandshake.acpmux(endpoint, sessionId: nil)
-        #expect(handshake.protocolVersion == 1)
-        #expect(handshake.transport == .acpmuxWebSocket)
-        #expect(handshake.endpoint == "ws://127.0.0.1:47811/")
-        #expect(handshake.token == "secret")
+        #expect(handshake.protocolVersion == 2)
+        #expect(handshake.transport == .acpmuxBridge)
+        #expect(handshake.connection == endpoint)
         #expect(handshake.newSession == true)
     }
 
@@ -20,12 +20,17 @@ import Testing
         #expect(handshake.newSession == nil)
     }
 
-    /// Field names are the TypeScript `AcpmuxHostConfig` contract.
+    /// Field names are the TypeScript `AcpmuxHostConfig` contract. The page gets no endpoint
+    /// and no token: the connection stays with the host.
     @Test func encodesTheFieldNamesThePageReads() throws {
         let data = try JSONEncoder().encode(AgentPaneHandshake.acpmux(endpoint, sessionId: "s-1"))
         let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(Set(object.keys) == ["protocolVersion", "transport", "endpoint", "token", "sessionId"])
-        #expect(object["transport"] as? String == "acpmux-websocket")
+        #expect(Set(object.keys) == ["protocolVersion", "transport", "sessionId"])
+        #expect(object["transport"] as? String == "acpmux-bridge")
+        let text = String(decoding: data, as: UTF8.self)
+        #expect(!text.contains("secret") && !text.contains("f6f6") && !text.contains("47811"))
+        let reply = AgentPaneReply.handshake(AgentPaneHandshake.acpmux(endpoint, sessionId: "s-1"))
+        #expect(!String(describing: reply).contains("secret"))
     }
 
     @Test func theReplyLeavesUnsetFieldsOut() throws {

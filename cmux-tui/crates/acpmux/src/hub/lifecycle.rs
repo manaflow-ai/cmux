@@ -63,7 +63,7 @@ impl Hub {
             current.pool = next.pool;
             current.web_roots = next.web_roots;
             current.web_asking_modes = next.web_asking_modes;
-            self.refresh_web_modes(&current.web_asking_modes);
+            self.refresh_web_modes(&current);
             (
                 current.harnesses.keys().cloned().collect::<Vec<_>>(),
                 current.default_harness.clone(),
@@ -133,6 +133,11 @@ impl Hub {
         // creations can never publish the same name twice.
         let session = {
             let mut sessions = self.sessions.lock().unwrap();
+            // The shutdown reads the sessions after it starts: a session
+            // inserted after that is never ended, so none is (shutdown.rs).
+            if self.shutting_down() {
+                return Err(super::shutdown::shutting_down_error());
+            }
             // Checked again under the insert lock: two concurrent adopts of
             // one id get one session.
             if let Some(a) = &adopt
@@ -297,6 +302,9 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        if self.shutting_down() {
+            return Err(super::shutdown::shutting_down_error());
+        }
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -430,7 +438,21 @@ impl Hub {
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
         };
-        *session.child.lock().await = Some(child.clone());
+        {
+            // The shutdown marks itself started, then takes each session's
+            // child: checked under that lock, either the shutdown finds this
+            // child or this spawn sees the shutdown and ends what it started.
+            let mut slot = session.child.lock().await;
+            if self.shutting_down() {
+                drop(slot);
+                child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+                if child.host_record().is_some() {
+                    self.end_unadopted_host(session).await;
+                }
+                return Err(super::shutdown::shutting_down_error());
+            }
+            *slot = Some(child.clone());
+        }
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.
@@ -500,9 +522,11 @@ impl Hub {
                     "new"
                 };
                 m.agent_session_id = sid.clone();
-                m.modes = Some(modes);
-                m.config_options = Some(opts);
                 drop(m);
+                self.write_mode_state(
+                    session,
+                    [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],
+                );
                 if fork_from.is_some() {
                     session.fork_from.lock().unwrap().take();
                 }
@@ -594,8 +618,8 @@ impl Hub {
                 .await
             {
                 tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
-            } else if let Some(m) = session.meta.lock().unwrap().modes.as_mut() {
-                m["currentModeId"] = json!(mode);
+            } else {
+                self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
             }
         }
         let opts: Vec<(String, Value)> = saved
@@ -630,7 +654,7 @@ impl Hub {
             {
                 Ok(res) => {
                     if let Some(o) = res.get("configOptions") {
-                        session.meta.lock().unwrap().config_options = Some(o.clone());
+                        self.write_mode_state(session, [ModeWrite::ConfigOptions(o.clone())]);
                     }
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
@@ -829,21 +853,13 @@ impl Hub {
     }
 
     pub(super) fn absorb_session_response(&self, session: &Session, v: &Value) {
-        let mut m = session.meta.lock().unwrap();
-        if let Some(modes) = v.get("modes")
-            && !modes.is_null()
-        {
-            m.modes = Some(modes.clone());
-        }
-        if let Some(opts) = v.get("configOptions")
-            && !opts.is_null()
-        {
-            m.config_options = Some(opts.clone());
-        }
-        if let Some(models) = v.get("models")
-            && !models.is_null()
-        {
-            m.models = Some(models.clone());
+        let present = |k: &str| v.get(k).filter(|x| !x.is_null()).cloned();
+        let mut writes = Vec::new();
+        writes.extend(present("modes").map(ModeWrite::Modes));
+        writes.extend(present("configOptions").map(ModeWrite::ConfigOptions));
+        self.write_mode_state(session, writes);
+        if let Some(models) = present("models") {
+            session.meta.lock().unwrap().models = Some(models);
         }
     }
 

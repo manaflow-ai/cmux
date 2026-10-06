@@ -73,9 +73,8 @@ struct KeyOwnershipMatrixTests {
             Surface(name: "terminal find field", focus: focused(.terminal, tab: "t1", target: .textField)),
             Surface(name: "palette open", focus: palette, window: .textPanel),
         ]
-        // Diff and Markdown: cmux-next has no diff or Markdown viewer yet
-        // (MiscHandlerStrings.diffViewer, .markdownViewer); their rows land
-        // with the viewers.
+        // The diff tab's context keys: DiffPageTabTests; the markdown and
+        // editor tabs': FilePageTabTests.
     }
 
     // MARK: Keys
@@ -116,7 +115,7 @@ struct KeyOwnershipMatrixTests {
             GhosttyHostKeybind(key: .unicode(UInt32(("]" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.next)),
             GhosttyHostKeybind(key: .unicode(UInt32(("[" as Unicode.Scalar).value)), modifiers: [.command, .shift], action: .gotoTab(.previous)),
         ]
-        services.keyRouter.ghosttyHostAction = { event in binds.first { $0.matches(event) }?.action }
+        services.keyRouter.loadGhosttyKeybinds(binds, defaults: binds)
         return services
     }
 
@@ -232,7 +231,10 @@ struct KeyOwnershipMatrixTests {
                     !$0.requires.isEmpty && !registry.canPerform($0.id)
                         && $0.requires.rawValue.nonzeroBitCount > top.requires.rawValue.nonzeroBitCount
                 }
-                let expected: KeyOwner = !blocked && KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
+                // A default that yields to a focused terminal (Ctrl-_ is readline undo) is the terminal's key there.
+                let yields = KeyBindingDefaults.yieldsToTerminal.contains(top.id)
+                    && !KeyBindingDefaults.notTerminal.evaluate(services.keyRouter.keyContext(for: surface.focus, facts: KeyRouter.Facts()))
+                let expected: KeyOwner = !blocked && !yields && KeyRouter.allows(registry.keyTier(for: top.id), id: top.id, focus: surface.focus)
                     ? .action(top.id) : .surface
                 checked += 1
                 let owner = Self.owner(services, event, surface)

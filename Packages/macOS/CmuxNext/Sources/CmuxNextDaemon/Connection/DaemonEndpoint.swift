@@ -72,6 +72,10 @@ public struct DaemonCapabilities: Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public let terminalReap = "terminal-reap-v1"
+    /// The owner's reaper runs now (started with a reap grace, as the app
+    /// starts it), so a detached terminal ends after the grace period. An
+    /// owner started without a grace does not serve it.
+    public let terminalReaperActive = "terminal-reaper-active-v1"
     /// `keep_layout` on `shutdown-daemon end_terminals`: every terminal ends
     /// but placed ones keep their tabs, dead, so the next launch restarts a
     /// shell in each with the same splits (Quit's End Sessions, Keep Layout).
@@ -81,6 +85,10 @@ public struct DaemonCapabilities: Sendable {
     public let batchClose = "batch-close-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
+    /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
+    public let browserHostProvider = "browser-host-provider-v1"
+    /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
+    public let frontendBrowserActivate = "frontend-browser-activate-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
     public let loopbackForward = "loopback-forward-v1"
@@ -146,8 +154,23 @@ public struct DaemonCapabilities: Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     public let agentSessionTabs = "agent-session-tabs-v1"
+    /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
+    /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
+    public let pageTabs = "page-tabs-v1"
     /// `conversation-search` on the local conversation owner.
     public let conversationSearch = "conversation-search-v1"
+    /// Cloud conversations through the daemon (plans/cmux-next/home-cloud-proxy.md):
+    /// the `cloud-session-*`, `cloud-inbox-*` and `cloud-conversation-*`
+    /// commands and their `cloud-*` events. Advertised only when the daemon
+    /// has the cloud transport installed.
+    public let cloudConversations = "cloud-conversations-v1"
+    /// Groups placed among the loose personal workspaces: `top_index` on
+    /// `list-personal` groups and on `workspace_group.update`, and a personal
+    /// row for every new workspace (cmux-tui `personal_order.rs`).
+    public let personalMixedOrder = "personal-mixed-order-v1"
+    /// `attachment` parts and their bytes on the local conversation owner:
+    /// `conversation-attachment-upload` and `conversation-attachment-read`.
+    public let localAttachments = "local-attachments-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -181,6 +204,12 @@ public struct DaemonCapabilities: Sendable {
     /// A READY cut exactly at a host resize, restored with the view's own
     /// reflowed history (S2c; plans/cmux-next/ghostty-next.md 2.2).
     public let terminalSnapshotLocalHistory = "terminal-snapshot-local-history-v1"
+    /// The Kitty image replay after a plain READY (S3k).
+    public let terminalSnapshotImages = "terminal-snapshot-images-v1"
+    /// The OSC 52 clipboard-read broker: `terminal-clipboard-subscribe`,
+    /// `terminal-clipboard-reply` and the targeted read events
+    /// (`TerminalClipboardBroker`; plans/cmux-next/ghostty-config.md).
+    public let terminalClipboardRead = "terminal-clipboard-read-v1"
 
     /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
     /// built from this checkout's own cmux-tui tree
@@ -190,14 +219,15 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, closeReason, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, dockColumns, edgeDocks, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, conversationTabs, agentSessionTabs, conversationSearch,
-                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory] }
+                                            workspaceKind, conversationTabs, agentSessionTabs, pageTabs, conversationSearch, cloudConversations, localAttachments,
+                                            tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
+                                            terminalClipboardRead, personalMixedOrder] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

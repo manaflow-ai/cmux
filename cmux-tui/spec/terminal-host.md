@@ -24,7 +24,7 @@ Payloads are limited to 16 MiB. Clean EOF before a header ends the stream. EOF i
 | --- | --- | --- |
 | 1 | daemon mirror | `READ` |
 | 2 | renderer | `RENDERER` |
-| 3 | admin | `ADMIN` |
+| 3 | admin | `ADMIN \| CLIPBOARD_READ` |
 
 | Bit | Value | Right |
 | --- | --- | --- |
@@ -33,10 +33,15 @@ Payloads are limited to 16 MiB. Clean EOF before a header ends the stream. EOF i
 | 2 | `0x04` | `RESIZE` |
 | 3 | `0x08` | `TERMINATE` |
 | 4 | `0x10` | `MINT_CAPABILITY` |
+| 5 | `0x20` | `CLIPBOARD_READ` |
 
 `RENDERER` is `0x07`; `ADMIN` is `0x1f`. Unknown bits, empty rights,
 rights outside the selected role, and accepted clients without `READ` are
-invalid.
+invalid. `CLIPBOARD_READ` is outside `ADMIN`: only the owner token grants it,
+and only as `ADMIN | CLIPBOARD_READ`; minted capabilities never carry it. A
+daemon requests it only from a host whose discovery record sets
+`supports_clipboard_read:true`, at the current protocol version, and requires
+the granted rights to equal its request; older hosts reject the bit.
 
 The durable 32-byte owner token is reusable, terminal-bound, and valid only
 for the admin role. Minted tokens are 32 random bytes, terminal-bound,
@@ -132,6 +137,8 @@ indexes are fatal.
 | 21 | `TerminateAck` | host to client | response | empty; confirms the authoritative host received `Terminate` |
 | 22 | `DetachAck` | host to client | response | empty; final source-ordered frame for this client |
 | 23 | `InputAck` | host to client | response | empty; confirms the authoritative PTY writer accepted and flushed `Input` |
+| 24 | `ClipboardReadRequest` | host to owner | `CLIPBOARD_READ` | `token:u64, location:u8` (0 standard, 1 selection, 2 primary) |
+| 25 | `ClipboardReadCancel` | host to owner | `CLIPBOARD_READ` | `token:u64`; the host refused that open read itself |
 | 100 | `Input` | client to host | `INPUT` | raw PTY bytes; a nonzero request id asks a supporting host for `InputAck` |
 | 101 | `Paste` | client to host | `INPUT` | raw bytes; host applies DEC 2004 wrapping |
 | 102 | `ViewerSize` | client to host | `RESIZE` | `cols:u16, rows:u16` |
@@ -144,6 +151,25 @@ indexes are fatal.
 | 109 | `SetKittyGraphicsLimits` | client to host | `MINT_CAPABILITY` | four little-endian `u64` limits |
 | 110 | `Activate` | launch owner to host | `ADMIN` | empty |
 | 111 | `Detach` | daemon owner to host | `ADMIN` | empty |
+| 112 | `ClipboardReadReply` | owner to host | `CLIPBOARD_READ` | `token:u64, outcome:u8` (0 refused, 1 granted), text blob |
+
+OSC 52 clipboard reads are denied by default. While a `CLIPBOARD_READ` owner
+connection is attached, the host defers each program read and sends
+`ClipboardReadRequest` to the newest such connection, with request id and
+sequence 0, outside both live sequences. One read per terminal is open; a
+read arriving while one is open, an open read after 60 seconds, the open read
+of an owner that disconnects, and every open read at terminal end are refused
+with an empty clipboard. A refused reply's text is ignored; granted text over
+1 MiB is refused. Replies to unknown or already answered tokens are ignored; a
+reply from a connection without `CLIPBOARD_READ` closes it. Without such an
+owner, reads are ignored. When the host refuses the open read itself, on the
+timeout or at terminal end, it sends `ClipboardReadCancel` with that token
+(request id and sequence 0) to the owner it asked, before the slot can take
+another read; it sends none after a reply or to an owner that disconnected.
+The owner drops its pending read for that token and ignores a cancel for any
+other token. An unnegotiated or malformed cancel ends the owner connection.
+When the newest owner disconnects, the next read goes to the newest remaining
+one.
 
 `ResizeAck.result_flags & 1` means the request changed canonical geometry;
 other bits are invalid. Acknowledgements require negotiated
@@ -371,7 +397,7 @@ Missing means already acknowledged; any mismatch remains for recovery.
 
 ## Discovery and authority
 
-The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
+The mux control command `mint-terminal-renderer` returns the terminal-host endpoint, stable terminal id, incarnation, one-use capability, rights bits, and TTL. Renderers must not receive the daemon's durable owner capability. A mint the host does not answer fails with `error_code` `terminal_host_unavailable` and `error_details.reason` `timeout` (no answer within the 2 s control deadline) or `disconnected` (the admin connection ended first; a host refuses a bad request by closing it). The `error` text keeps the root cause after the outer context, and the client may retry. `terminal.renderer_grant.create` returns the same failure as retryable `terminal_host.unavailable` with `details.terminal_id` and `details.reason`. A mint sent right after `set-default-colors` is answered: the host applies the defaults first, and the reply reaches the daemon although the defaults update restarts its stream. `resolve-terminal`, `list-terminals`, and `terminal-events` provide the control-plane mapping from stable identities to the current daemon generation.
 
 Terminal-host protocol changes use their own version and do not change `identify.protocol`.
 
@@ -405,7 +431,8 @@ mode `0600`.
 
 Discovery records use JSON `record_version:4`. A host that supports the
 optional snapshot tail advertises `supports_terminal_metadata:true`; records
-from older hosts omit the field and default it to false. Terminal and
+from older hosts omit the field and default it to false; the same holds for
+`supports_clipboard_read`, which records before version 4 must not set. Terminal and
 incarnation are 32-character lowercase UUIDv4 hex, owner token and process
 nonce are 64-character lowercase hex, the Unix-socket path is canonical, and
 the host PID is nonzero. Record directories are mode `0700`; records and

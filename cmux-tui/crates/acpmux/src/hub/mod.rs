@@ -40,6 +40,8 @@ mod warm;
 pub(crate) use turns::merge_mux_meta;
 mod views;
 mod web_control;
+pub use web_control::Control;
+pub(crate) use web_control::ModeWrite;
 
 use crate::agent::{ChildAgent, Direction, Inbound};
 use crate::config::{Config, HarnessProfile, PermissionPolicy};
@@ -101,6 +103,9 @@ pub struct TurnInfo {
     pub prompt_id: String,
     /// Sequence of this turn's `turn_started` record.
     pub turn_seq: u64,
+    /// Who prompted (or steered) this turn. A Web turn never uses the chat
+    /// allowance: each eligible permission in it still asks.
+    pub control: Control,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -126,6 +131,8 @@ pub struct PromptOptions {
     /// example after its daemon connection closed: also look in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// The rules the prompt runs under, checked again at dispatch.
+    pub control: Control,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -358,15 +365,15 @@ impl Hub {
             pool: Arc::new(pool::PoolState::new()),
             web_modes: StdMutex::new(Default::default()),
         });
-        hub.refresh_web_modes(
-            &hub.config.try_read().map(|c| c.web_asking_modes.clone()).unwrap_or_default(),
-        );
+        if let Ok(c) = hub.config.try_read() {
+            hub.refresh_web_modes(&c);
+        }
         hub.load_from_store();
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
             for (name, pc) in peers_cfg {
-                hub.start_peer(&name, &pc.url, pc.token.clone());
+                hub.start_peer(&name, &pc);
             }
         }
         hub

@@ -72,7 +72,8 @@ impl Injector {
                     }
                 }
             }
-            InputEvent::Text(_) => self.unsupported += 1,
+            // Desktop sessions do not offer the input.service cap.
+            InputEvent::Text(_) | InputEvent::Service { .. } => self.unsupported += 1,
         }
         self.conn.flush()?;
         Ok(())

@@ -8,12 +8,6 @@ public import Foundation
 /// `MockOnboardingServices` runs the window alone (demo, tests).
 @MainActor
 public protocol OnboardingServices: AnyObject {
-    // Role
-    /// The role step's answer from an earlier run, if any.
-    var savedProfile: OnboardingProfile? { get }
-    /// Keeps the role step's answer (the onboarding state file).
-    func saveProfile(_ profile: OnboardingProfile)
-
     // First task
     /// Whether the App can run an agent chat in the window (the first-task step).
     var canRunFirstTask: Bool { get }
@@ -41,7 +35,7 @@ public protocol OnboardingServices: AnyObject {
     func applyAppearance(themeName: String?, density: Density)
 
     // Projects
-    /// The folders the user's coding agents worked in, best first (`AgentProjectScan`).
+    /// Recent project folders, best first (`RecentProjectScan`).
     func scanAgentProjects() async -> [AgentProject]
     /// A folder from the open panel, or nil when the user cancels.
     func chooseFolder() async -> URL?
@@ -96,8 +90,6 @@ public protocol OnboardingServices: AnyObject {
 }
 
 public extension OnboardingServices {
-    var savedProfile: OnboardingProfile? { nil }
-    func saveProfile(_ profile: OnboardingProfile) {}
     var canRunFirstTask: Bool { false }
     var firstTaskFolder: FirstTaskFolder { .live() }
     func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? { nil }

@@ -74,7 +74,7 @@ pub fn run(
     match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
-            crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
+            crate::client_log::stderr_log!("remote", "{BIN}: {error:#}");
             1
         }
     }
@@ -1586,6 +1586,8 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
                 require_unique_flag(&mut seen, "--json")?;
                 json = true;
             }
+            // A global --socket names a session; pinned identities are this client's.
+            "--socket" => _ = strict_option_value(args, &mut index, "--socket")?,
             option => {
                 return Err(anyhow!(
                     catalog().remote_client.unknown_option_for_command(option, "known-daemons")
@@ -1598,9 +1600,6 @@ fn parse_known_daemons_args(args: &[String]) -> anyhow::Result<KnownDaemonsArgs>
         [action] if action == "list" => KnownDaemonsAction::List,
         [action, fingerprint] if action == "forget" => {
             KnownDaemonsAction::Forget(fingerprint.clone())
-        }
-        [action] if action == "forget" => {
-            return Err(anyhow!(catalog().remote_client.known_forget_arity));
         }
         [action, ..] if action == "forget" => {
             return Err(anyhow!(catalog().remote_client.known_forget_arity));
@@ -2130,7 +2129,7 @@ fn install_agent_hooks(providers: Vec<String>) {
     if result.failed {
         crate::client_log::stderr_log!(
             "remote",
-            "cmux-tui: agent hook install failed: {}",
+            "{BIN}: agent hook install failed: {}",
             result.value["errors"]
         );
     }

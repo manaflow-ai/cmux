@@ -227,7 +227,10 @@ impl Hub {
         &self,
         session: &Session,
         params: Value,
+        control: Control,
     ) -> Result<Value, RpcError> {
+        // Checked again here, at the answer, not only in the remote guard.
+        self.web_control_check(session, control)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -244,6 +247,10 @@ impl Hub {
         let choice = text("decision")?;
         if !matches!(choice.as_str(), "allow_once" | "allow_chat" | "deny") {
             return Err(RpcError::invalid_params("unknown decision"));
+        }
+        // A Web answer allows once or denies: it never grants the chat.
+        if control == Control::Web && choice == "allow_chat" {
+            return Err(super::web_control::lasting_grant_refused("allow_chat"));
         }
         let revision = params["revision"]
             .as_u64()

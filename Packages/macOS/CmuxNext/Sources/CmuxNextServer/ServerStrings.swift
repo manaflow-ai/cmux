@@ -48,6 +48,20 @@ nonisolated enum ServerStrings {
     static var name: String { t("approver.name", "Name") }
     static var approve: String { t("approver.approve", "Approve") }
     static var cancel: String { t("approver.cancel", "Cancel") }
+    static var runChief: String { t("approver.runChief", "Run my Chief on this server") }
+
+    static func chiefOn(_ server: String) -> String {
+        String(format: t("chief.on", "Chief on %@"), server)
+    }
+    static var noReplyYet: String { t("chief.noReply", "No reply yet") }
+
+    static func state(_ state: ChiefPlacementStatus.State) -> String {
+        switch state {
+        case .ready: t("chief.ready", "Ready")
+        case .thinking: t("chief.thinking", "Thinking")
+        case .notAnswering: t("chief.notAnswering", "Not answering")
+        }
+    }
 
     static func state(_ state: ServerRoleState) -> String {
         switch state {

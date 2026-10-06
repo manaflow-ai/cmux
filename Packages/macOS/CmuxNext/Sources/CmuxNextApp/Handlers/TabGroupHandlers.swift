@@ -175,6 +175,10 @@ enum TabGroupHandlers {
         }
         bind("tabGroup.close") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
+            if CloseUndoToasts.isUserClose { // one undo toast for the group (REOPEN-CLOSED)
+                ctx.services.closedTabs?.undoToasts.expectGroup(tabs: pane.tabs.filter { $0.tabGroup == group }, in: pane,
+                                                                daemon: ctx.services.daemon(for: pane), window: ctx.services.windows.active?.window)
+            }
             run("close-tab-group", pane: pane, ctx) { c, t in _ = try await c.closeTabGroup(group, transaction: t) }
         }
         bind("tabGroup.save") { invocation in

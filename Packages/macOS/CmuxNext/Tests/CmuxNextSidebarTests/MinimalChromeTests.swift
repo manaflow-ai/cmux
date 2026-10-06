@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextSidebar
 
 /// The minimal sidebar: no search field, machine headers only with more than
-/// one machine, second lines only for live status, hover-revealed buttons.
+/// one machine, useful secondary lines, hover-revealed buttons.
 @MainActor @Suite struct MinimalChromeTests {
     func localOnly(_ nodes: [SidebarNode], collapsed: Bool = false) -> [SidebarSection] {
         [SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), isCollapsed: collapsed, nodes: nodes)]
@@ -32,7 +32,14 @@ import Testing
         #expect(keys.contains(.section(cloudSection)))
     }
 
-    @Test func onlyLiveStatusEarnsASecondLine() {
+    @Test func dropAboveTheFirstRowOfAHeaderlessListTargetsIndexZero() {
+        let sections = localOnly([.workspace(w("a")), .workspace(w("b")), .workspace(w("c"))])
+        let base = SidebarLayout.make(sections: sections, metrics: .standard)
+        let target = DropResolver.resolve(y: 0, payload: .workspaces([id("c")]), base: base, sections: sections)
+        #expect(target == .position(DropPosition(section: local, index: 0)))
+    }
+
+    @Test func liveStatusOrPassiveDetailEarnsASecondLine() {
         let m = SidebarLayoutMetrics.standard
         let passive = SidebarWorkspace(id: id("a"), title: "a", subtitle: "~")
         let live = SidebarWorkspace(id: id("b"), title: "b", subtitle: "~", status: "Claude: running tests")
@@ -40,7 +47,8 @@ import Testing
         #expect(passive.liveDetail == nil)
         #expect(blank.liveDetail == nil)
         #expect(live.liveDetail == "Claude: running tests")
-        #expect(m.height(for: passive) == m.rowHeight)
+        #expect(passive.rowDetail == "~")
+        #expect(m.height(for: passive) == m.rowHeightWithSubtitle)
         #expect(m.height(for: blank) == m.rowHeight)
         #expect(m.height(for: live) == m.rowHeightWithSubtitle)
     }
@@ -55,6 +63,17 @@ import Testing
         ))
         h.sidebar.list.keyDown(with: key)
         #expect(h.sidebar.model.filterText.isEmpty)
+    }
+
+    @Test func f2StartsWorkspaceRenameForTheActiveRow() throws {
+        let h = Harness()
+        let key = try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: h.window.windowNumber,
+            context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: 120
+        ))
+        h.sidebar.list.keyDown(with: key)
+        #expect(h.sidebar.list.inlineRename.session?.key == .workspace(id("a")))
+        h.sidebar.list.inlineRename.end(commit: false)
     }
 
     @Test func titlebarButtonsRevealOnHoverAndForTabDrags() {

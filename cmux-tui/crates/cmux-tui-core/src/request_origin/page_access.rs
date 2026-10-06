@@ -254,11 +254,10 @@ const fn access(operation: Op) -> Access {
     }
 }
 
-/// The refusal of `operation` with `params` for a page, or `None`. An
-/// operation the catalog does not have is not refused here; the resource
-/// parser refuses it.
-pub(super) fn refusal(operation: &str, params: &Value) -> Option<ResourceError> {
-    let operation = serde_json::from_value::<Op>(Value::String(operation.to_string())).ok()?;
+/// The refusal of `operation` with `params` for a page. Every catalog
+/// operation has one today (the allow list is empty); a line that names no
+/// catalog operation never reaches here (the parser refuses it).
+pub(super) fn refusal(operation: Op, params: &Value) -> Option<ResourceError> {
     let denied = match access(operation) {
         Access::Denied(denied) => denied,
         Access::DeniedWithCwd if params.get("cwd").is_some_and(|cwd| !cwd.is_null()) => {

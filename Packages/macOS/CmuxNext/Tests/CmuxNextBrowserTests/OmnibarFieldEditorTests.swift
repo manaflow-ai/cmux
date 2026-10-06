@@ -32,7 +32,10 @@ import Testing
         deinit {
             MainActor.assumeIsolated {
                 window.orderOut(nil)
-                for panel in NSApp.windows where panel is SuggestionWindow { panel.orderOut(nil) }
+                // Only this harness's own rows: a sweep of every
+                // SuggestionWindow closed the next test's popup when this
+                // deinit ran late (order-dependent failures).
+                bar.dismissRows()
             }
         }
 

@@ -87,7 +87,9 @@ public nonisolated enum ActionCatalog {
         BrowserChromeActionCatalog.self,
         BrowserHitActionCatalog.self,
         ViewerActionCatalog.self,
+        FilePageActionCatalog.self,
         PageInfoActionCatalog.self,
+        CertificateWarningActionCatalog.self,
         ExtensionActionCatalog.self,
         BrowserProfileActionCatalog.self,
         SidebarActionCatalog.self,
@@ -108,6 +110,7 @@ public nonisolated enum ActionCatalog {
         ServerActionCatalog.self,
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
+        PaletteKeyActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

@@ -182,7 +182,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "frontend_projection.put",
         ),
-        (vec!["workspace", "list"], "workspace.list"),
+        (vec!["workspace", "list", "--order", "personal"], "workspace.list"),
         (vec!["workspace", WORKSPACE, "show"], "workspace.get"),
         (
             vec![
@@ -814,6 +814,8 @@ fn state_resource_cases<'a>(
                 "--room",
                 "r",
                 "--collapse",
+                "--top-index",
+                "2",
             ],
             "workspace_group.update",
         ),

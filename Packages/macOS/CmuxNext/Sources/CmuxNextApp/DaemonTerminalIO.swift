@@ -58,7 +58,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 try await TerminalAttachment.attach(endpoint: try await endpoint(), target: target.attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
-                                                    localHistory: Self.attachLocalHistory)
+                                                    localHistory: Self.attachLocalHistory,
+                                                    images: Self.attachImages)
             },
             onFailure: { error in
                 logger.error("attach \(surface) failed: \(String(describing: error), privacy: .public)")
@@ -175,6 +176,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     static let attachSnapshotVersion: UInt16? = TerminalSession.snapshotVersion == 0 ? nil : TerminalSession.snapshotVersion
     /// The surface restores local-history READYs (S2c).
     static let attachLocalHistory = TerminalSession.restoresLocalHistory
+    /// The surface applies Kitty image replays (S3k).
+    static let attachImages = TerminalSession.appliesKittyReplay
 
     static func event(for step: TerminalStreamPlan.Step) -> TerminalIOEvent {
         switch step {
@@ -209,6 +212,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     private static func snapshotPhase(_ frame: TerminalSnapshotFrame) -> TerminalSnapshotPhase {
+        if frame.phase == .images { return .images(skipped: frame.skippedImages ?? 0) }
         guard frame.phase == .ready else { return .history }
         guard let check = frame.localHistory, let cols = frame.cols, let rows = frame.rows else { return .ready }
         return .readyLocalHistory(TerminalLocalHistory(columns: cols, rows: rows, historyRows: check.rows, digest: check.digest))

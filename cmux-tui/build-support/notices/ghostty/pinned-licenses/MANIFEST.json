@@ -350,5 +350,44 @@
       },
       "note": "glad 2.0.8 generated OpenGL/EGL loader and Khronos headers, LINKED into libghostty for the OpenGL renderer on Linux and Windows; the glad LICENSE and the khrplatform.h notice ship."
     }
+  },
+  "supplements": {
+    "freetype": {
+      "dependency": "freetype",
+      "packages": [
+        "N-V-__8AAKLKpwC4H27Ps_0iL3bPkQb-z6ZVSrB-x_3EEkub"
+      ],
+      "files": [
+        {
+          "filename": "freetype-FTL.TXT",
+          "package_path": "docs/FTL.TXT",
+          "path": "freetype-2.13.2/FTL.TXT",
+          "sha256": "08c135755dd589039470f1fdbb400daaabaaa50d0b366d19cebff4d22986baa1",
+          "upstream": "https://gitlab.freedesktop.org/freetype/freetype/-/raw/920c5502cc3ddda88f6c7d85ee834ac611bb11cc/docs/FTL.TXT"
+        },
+        {
+          "filename": "freetype-bdf-README",
+          "package_path": "src/bdf/README",
+          "path": "freetype-2.13.2/bdf-README",
+          "sha256": "7984455e7e5a9faba3797c8bf095fbe10cc846316b7320aff8c58402e22b82fe",
+          "upstream": "https://gitlab.freedesktop.org/freetype/freetype/-/raw/920c5502cc3ddda88f6c7d85ee834ac611bb11cc/src/bdf/README"
+        },
+        {
+          "filename": "freetype-pcf-README",
+          "package_path": "src/pcf/README",
+          "path": "freetype-2.13.2/pcf-README",
+          "sha256": "18d9782898d9eac04476e2f744678137b2a889689ed3e923e052fc396a86f86b",
+          "upstream": "https://gitlab.freedesktop.org/freetype/freetype/-/raw/920c5502cc3ddda88f6c7d85ee834ac611bb11cc/src/pcf/README"
+        },
+        {
+          "filename": "freetype-fthash-LICENSE.txt",
+          "package_path": "src/base/fthash.c#L9-L31",
+          "path": "freetype-2.13.2/fthash-LICENSE.txt",
+          "sha256": "5285d96f6aa3188193d5fbefd8710ed6a46af185e0a43817c17acee5f4b1ab3d",
+          "upstream": "https://gitlab.freedesktop.org/freetype/freetype/-/raw/920c5502cc3ddda88f6c7d85ee834ac611bb11cc/src/base/fthash.c#L9-L31"
+        }
+      ],
+      "note": "FreeType 2.13.2 (tag VER-2-13-2, commit 920c5502; deps.files.ghostty.org/freetype-1220b81f6ecf...tar.gz, sha256 427201f5d5151670d05c1f5b45bef5dda1f2e7dd971ef54f0feaaa7ffd2ab90c, the archive both Ghostty pins fetch). Its LICENSE.TXT (found by the license-name scan) only points to the texts: cmux takes FreeType under the FTL (docs/FTL.TXT), not GPLv2. Ghostty's pkg/freetype/build.zig compiles the BDF and PCF drivers (X11-style terms in src/bdf/README and src/pcf/README) and src/base/ftbase.c, which includes src/base/fthash.c (the same terms; fthash-LICENSE.txt is lines 9-31, its license comment, byte-equal to lines 9-31 of include/freetype/internal/fthash.h). Evidence in every slice of GhosttyNextKit 788fe6a6 (macos arm64 and x86_64, ios-arm64, ios-arm64-simulator): bdf.o and pcf.o define _bdf_driver_class and _pcf_driver_class, ftinit.o references both, ftbase.o defines _ft_hash_str_init and the other ft_hash_* functions, and the iOS app link keeps _BDF_Face_Done. Not compiled, so not shipped: the zlib copy in src/gzip (FT_CONFIG_OPTION_SYSTEM_ZLIB=1: ftgzip.o imports _inflate, _inflateInit2_, _inflateEnd and _inflateReset from Ghostty's zlib package, whose own license ships, and its zlib.h comes from that package), src/autofit/ft-hb.c (Old MIT; needs FT_CONFIG_OPTION_USE_HARFBUZZ: autofit.o has no hb_ symbol) and the public-domain MD5 code (debug builds only: no MD5 symbol). The collector checks each file against the fetched package (package_path; #Lm-Ln is a line range) and stops when a FreeType with another hash appears."
+    }
   }
 }

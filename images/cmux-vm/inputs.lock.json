@@ -326,27 +326,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
-      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "a049cc61e64b7ce3028fe70643555e86184648cedd8007a2c5d2a9e51430738b",
-      "size": 42320288,
+      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
+      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "3c4f2b9cf262655b892e509bb3f8e632503a58da9c4ed8a86dbfe2ae54a094d7",
+      "size": 67778656,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "d7f8fd06326fb236daf8b4983065239b7b11e900",
-      "url": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "3bdcb75bc74b8e917a71a7b4cb17f09bf9663f07c4bd60dbb85f550bf19556f2",
-      "size": 3052288,
+      "version": "86e134ee0a4e7f3f75d12943a47b4ed217b4cc55",
+      "url": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "f7ced093b9252c8d694ef9f845781ee012038f88db8702aee50365632dd8591c",
+      "size": 3567048,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/d7f8fd06326fb236daf8b4983065239b7b11e900/manifest.json"
+      "source": "https://files.cmux.com/cmux-tui/86e134ee0a4e7f3f75d12943a47b4ed217b4cc55/manifest.json (cmux-tui-artifacts run 37442316116; first published feat-cmux-next build that contains b1cc37e52362, v2/browser input counts as activity only for a person; the earlier runs that contain it were cancelled by the concurrency group, and run 37439757170 hung in the publish job and was cancelled)"
     },
     {
       "name": "coderouter",
@@ -442,18 +442,18 @@
     },
     {
       "name": "cmux-cua",
-      "version": "0.8.2",
-      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/cmux-cua-0.8.2-linux-x86_64.tar.gz",
-      "sha256": "25e73e5bf0eb8a91808c003dc36254c1759f9640ca86ffac2470f505e9463b5b",
-      "size": 8705573,
+      "version": "0.8.7",
+      "url": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/cmux-cua-0.8.7-linux-x86_64.tar.gz",
+      "sha256": "95d18427ac02ea9964a198ca844f8ad6feb2113d784c2199e171cf459686e11e",
+      "size": 8706672,
       "format": "tar.gz",
-      "bin": { "cmux-cua": "cmux-cua-0.8.2-linux-x86_64/cmux-cua" },
+      "bin": { "cmux-cua": "cmux-cua-0.8.7-linux-x86_64/cmux-cua" },
       "versionArgs": ["--version"],
-      "expect": "cmux-cua 0.8.2",
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.2/checksums.txt",
-      "checksumsName": "cmux-cua-0.8.2-linux-x86_64.tar.gz",
+      "expect": "cmux-cua 0.8.7",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux-cua/releases/download/cmux-cua-v0.8.7/checksums.txt",
+      "checksumsName": "cmux-cua-0.8.7-linux-x86_64.tar.gz",
       "roles": ["cua"],
-      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.2 (pre-release, 2026-10-04), debian:11 glibc 2.31 build; needs libX11 (base), libXi and libxkbcommon (display role)"
+      "source": "manaflow-ai/cmux-cua release cmux-cua-v0.8.7 (full release 2026-10-05, LICENSE in the tarball); arm64 tarball sha256 550b1c902c4f47ded822f02dd1badb812bea2ae5e59d89817e1693805c867eaf; needs libX11 (base), libXi and libxkbcommon (display role)"
     }
   ],
   "roles": {

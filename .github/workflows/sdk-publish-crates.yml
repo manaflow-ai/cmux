@@ -156,6 +156,14 @@ jobs:
               "patch.crates-io.cmux-sdk.path='$verify_root/cmux-sdk-$CMUX_SDK_VERSION'" \
             --all-targets
 
+      - name: Check SDK crate licenses
+        env:
+          CMUX_SDK_VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          python3 cmux-tui/bindings/check_package_license.py crate \
+            "cmux-tui/target/package/cmux-sdk-$CMUX_SDK_VERSION.crate" \
+            "cmux-tui/target/package/cmux-sidebar-$CMUX_SDK_VERSION.crate"
+
       - name: Upload validated cmux-sdk crate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

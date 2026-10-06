@@ -26,7 +26,8 @@ import WebKit
 /// `select_session` (`session`), `answer_permission` (`option`, `allow`,
 /// `decision`), `open_changes` (the latest turn's changes view),
 /// `models` (the harness's models), `set_model` (`model`, `effort`),
-/// `readiness` (page body, transcript and composer metrics), `pid` (the WebContent process, for profiling), or
+/// `readiness` (page body, transcript and composer metrics), `click` (`selector`
+/// or `text`: a native click on that element, DebugAgentPaneClick), `pid` (the WebContent process, for profiling), or
 /// `full_rate` (`enabled` turns full-rate rendering on or off on the live
 /// page; returns whether it is on). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
@@ -70,6 +71,13 @@ enum DebugAgentPane {
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
         }
+        if action == "gesture_state" {
+            // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
+            let state = view.model.transport.gestures.debugState
+            var fields: [String: JSONValue] = ["pane": .string(pane), "available": .bool(state.available), "scope_available": .bool(state.scopeAvailable), "tickets": .number(Double(state.tickets))]
+            fields["age_seconds"] = state.ageSeconds.map { .number($0) } ?? .null
+            return .object(fields)
+        }
         if action == "full_rate" {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
@@ -100,8 +108,11 @@ enum DebugAgentPane {
                 return .object(["pane": .string(pane), "error": .string(String(describing: error))])
             }
         }
+        if action == "click" {
+            return await DebugAgentPaneClick.click(params, pane: pane, view: view, services: services)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, answer_permission, open_changes, set_model, models, stream, readiness, click, pid, full_rate or gesture_state")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(

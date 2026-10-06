@@ -80,13 +80,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # The workspace manifests reference the Ghostty checkouts; the crate does not link them.
-      - name: Init ghostty submodules
-        run: git submodule update --init --depth 1 ghostty ghostty-next
+      # The workspace builds libghostty-vt from ghostty-next (ghostty-vt-sys);
+      # the crate does not link it. ghostty-next also sets the Zig version.
+      - name: Init ghostty-next submodule
+        run: git submodule update --init --depth 1 ghostty-next
 
       - name: Resolve Zig version
         id: zig
         shell: bash
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
         run: echo "version=$(bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Install zig

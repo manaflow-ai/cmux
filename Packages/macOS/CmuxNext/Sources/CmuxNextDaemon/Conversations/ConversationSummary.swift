@@ -14,10 +14,14 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
     public var updatedAt: String
     public var lastMessage: ConversationMessage?
     public var readCursors: [String: UInt64]
+    /// Cloud: `chief`, `dm` or `group` (absent on a local head).
+    public var kind: String?
+    /// Cloud: `active`, `archived` or `importing`.
+    public var state: String?
 
     public init(id: String, owner: String = "local", title: String, participants: [ConversationParticipant], lastSeq: UInt64,
                 rev: UInt64, createdAt: String, updatedAt: String, lastMessage: ConversationMessage? = nil,
-                readCursors: [String: UInt64] = [:]) {
+                readCursors: [String: UInt64] = [:], kind: String? = nil, state: String? = nil) {
         self.id = id
         self.owner = owner
         self.title = title
@@ -28,10 +32,12 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         self.updatedAt = updatedAt
         self.lastMessage = lastMessage
         self.readCursors = readCursors
+        self.kind = kind
+        self.state = state
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, owner, title, participants, rev
+        case id, owner, title, participants, rev, kind, state
         case lastSeq = "last_seq"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
@@ -51,6 +57,8 @@ public struct ConversationSummary: Codable, Sendable, Hashable, Identifiable {
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         lastMessage = try c.decodeIfPresent(ConversationMessage.self, forKey: .lastMessage)
         readCursors = try c.decodeIfPresent([String: UInt64].self, forKey: .readCursors) ?? [:]
+        kind = try c.decodeIfPresent(String.self, forKey: .kind)
+        state = try c.decodeIfPresent(String.self, forKey: .state)
     }
 
     /// Messages after `participant`'s read cursor.

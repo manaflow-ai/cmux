@@ -265,14 +265,14 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 id: "saveFilePreview",
                 title: String(localized: "action.saveFilePreview", defaultValue: "Save File", bundle: .module),
                 keywords: ["file", "editor"], defaultShortcut: Shortcut("s", modifiers: [.command]), category: .browser,
-                symbol: "square.and.arrow.down", surfaces: [.keyboard, .menu], requires: [.filePreviewFocused],
+                symbol: "square.and.arrow.down", surfaces: [.keyboard, .menu], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser save-file", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "toggleFileEditorWordWrap",
                 title: String(localized: "action.toggleFileEditorWordWrap", defaultValue: "Toggle Word Wrap", bundle: .module),
                 keywords: ["file", "editor", "wrap"], defaultShortcut: Shortcut("z", modifiers: [.option]),
-                category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.filePreviewFocused],
+                category: .browser, symbol: "text.word.spacing", surfaces: [.keyboard], requires: [.codeEditorFocused],
                 targets: [.pane], cliName: "browser toggle-word-wrap"
             ),
             ActionDescriptor(

@@ -47,17 +47,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         )
     }
 
-    /// This environment with `--allow-dev-origin <origin>` added, so the
-    /// daemon this app starts accepts a Debug agent pane dev server page. A
-    /// nil origin (the bundled page, every Release build) changes nothing.
-    /// A daemon that is already running keeps its own origins.
-    public func allowingDevOrigin(_ origin: String?) -> AcpmuxEnvironment {
-        guard let origin else { return self }
-        var copy = self
-        copy.daemonArguments += ["--allow-dev-origin", origin]
-        return copy
-    }
-
     /// The usual install directories, searched after `PATH`. The pane names
     /// them when acpmux is missing, so they are written as a user types them.
     static let installDirectories = ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]

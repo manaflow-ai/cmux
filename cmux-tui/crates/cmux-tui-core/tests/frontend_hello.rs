@@ -232,24 +232,64 @@ fn a_proved_app_confirms_for_its_own_page_relay() {
     let mut relay = Client::connect(&socket);
     let started = relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }));
     let relay_id = started["data"]["connection_id"].as_str().expect("connection id").to_string();
-    let params = json!({ "app": "cmux/demo", "version": "1.0.0" });
+    let params = json!({ "machine": "current", "session": "current" });
     // SHA-256 of the params in canonical JSON (sorted keys, no whitespace).
-    let sha = sha256_hex(br#"{"app":"cmux/demo","version":"1.0.0"}"#);
+    let sha = sha256_hex(br#"{"machine":"current","session":"current"}"#);
     let issued = app.rpc(json!({ "protocol": "cmux.protocol/2", "type": "request", "id": "i1",
         "operation": "origin.confirmation.issue", "params": { "machine": "current",
-        "session": "current", "operation": "apps.install", "params_sha256": sha,
+        "session": "current", "operation": "session.ping", "params_sha256": sha,
         "relay_connection_id": relay_id } }));
     assert_eq!(issued["ok"], true, "{issued}");
     let token = issued["result"]["token"].as_str().expect("token").to_string();
     let claim = json!({ "claim": "user", "confirmation": token });
-    let confirmed = relay.rpc(v2("apps.install", params.clone(), Some(claim.clone())));
-    assert_ne!(confirmed["error"]["code"], FORBIDDEN, "{confirmed}");
+    // The claim is accepted (the page rule then refuses every catalog
+    // operation on a relay: the result would reach page JS).
+    let confirmed = relay.rpc(v2("session.ping", params.clone(), Some(claim.clone())));
+    assert_eq!(confirmed["error"]["details"], json!({"required": "agent", "derived": "page"}));
     // Single use.
-    let replayed = relay.rpc(v2("apps.install", params, Some(claim)));
+    let replayed = relay.rpc(v2("session.ping", params, Some(claim)));
     assert_eq!(replayed["error"]["code"], FORBIDDEN, "{replayed}");
+    assert_eq!(replayed["error"]["details"]["reason"], "confirmation_invalid", "{replayed}");
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     sha2::Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// Each `client-hello` reply says whether origin `user` is allowed on the
+/// connection (`user_origin_allowed`), so the app sends `user` only then
+/// and never resends a refused click as `script`. The value equals what an
+/// origin-user request then gets.
+#[test]
+fn hello_replies_say_whether_origin_user_is_allowed() {
+    let allowed = |reply: &Value| {
+        assert_eq!(reply["ok"], true, "{reply}");
+        reply["data"]["user_origin_allowed"].as_bool().unwrap_or_else(|| panic!("no bool: {reply}"))
+    };
+    let (_mux, socket) = daemon("hello-allowed", true);
+
+    // Prover B: step 1 is not yet proved, step 2 is.
+    let mut app = Client::connect(&socket);
+    let started = app.challenge(INSTALL_ID);
+    assert!(!allowed(&started));
+    let proved = app.prove(INSTALL_ID, &hello_proof(&key(), INSTALL_ID, &nonce_of(&started)));
+    assert!(allowed(&proved));
+    assert_ne!(app.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // Role main without a proof (an unsigned build with no install id).
+    let mut unproved = Client::connect(&socket);
+    assert!(!allowed(&unproved.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "main" }))));
+    assert_eq!(unproved.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // A page relay never.
+    let mut relay = Client::connect(&socket);
+    assert!(!allowed(&relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }))));
+    assert_eq!(relay.origin_user().as_deref(), Some(FORBIDDEN));
+
+    // A daemon with no install key: step 1 is not allowed, step 2 is refused.
+    let (_mux, socket) = daemon("hello-allowed-nokey", false);
+    let mut keyless = Client::connect(&socket);
+    assert!(!allowed(&keyless.challenge(INSTALL_ID)));
+    assert_eq!(keyless.origin_user().as_deref(), Some(FORBIDDEN));
 }

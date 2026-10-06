@@ -1,0 +1,420 @@
+{
+ "transcript.send": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -122.0,
+  "components": [
+   {
+    "delay": 0.0004,
+    "duration": 0.2999,
+    "bounce": 0.0,
+    "delta": -122.0
+   }
+  ],
+  "residual": {
+   "rms": 0.069,
+   "max": 0.235
+  },
+  "frames": 44,
+  "droppedTorn": []
+ },
+ "bubble.right": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1154.0,
+  "to": 1215.0,
+  "components": [
+   {
+    "delay": -0.0064,
+    "duration": 0.5265,
+    "bounce": 0.3011,
+    "delta": 61.0
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 29,
+  "droppedTorn": []
+ },
+ "bubble.width": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1052.0,
+  "to": 300.0,
+  "components": [
+   {
+    "delay": -0.015,
+    "duration": 0.4104,
+    "bounce": 0.1434,
+    "delta": -440.0225
+   },
+   {
+    "delay": 0.0384,
+    "duration": 0.2569,
+    "bounce": 0.4308,
+    "delta": -311.9775
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 30,
+  "droppedTorn": []
+ },
+ "bubble.centerY": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1997.0,
+  "to": 1904.0,
+  "components": [
+   {
+    "delay": 0.0473,
+    "duration": 0.5314,
+    "bounce": 0.2681,
+    "delta": -93.0
+   }
+  ],
+  "residual": {
+   "maxPx": {
+    "T": 3.108,
+    "B": 5.19,
+    "L": 8.511
+   },
+   "frames": 32,
+   "method": "fit_flight_luma.py: centerY and scale refit on luma-measured T/B/L edges with the app geometry"
+  },
+  "frames": 29,
+  "droppedTorn": [
+   4.6833,
+   4.7,
+   4.8
+  ]
+ },
+ "bubble.scale": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "scale",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0748,
+    "duration": 0.3882,
+    "bounce": 0.4956,
+    "delta": -0.4512
+   },
+   {
+    "delay": 0.15,
+    "duration": 0.2336,
+    "bounce": 0.0,
+    "delta": 0.4512
+   }
+  ],
+  "residual": {
+   "rmsPx": {
+    "L": 1.868,
+    "R": 0.878,
+    "T": 1.219,
+    "B": 1.618
+   },
+   "maxPx": {
+    "L": 8.591,
+    "R": 2.64,
+    "T": 2.942,
+    "B": 6.233
+   },
+   "frames": 32,
+   "method": "joint fit of right, width (2 springs), centerY, scale (2 springs) to the four flight edges L R T B (soft L1); one progress spring + translation gave rms 9.07 px"
+  },
+  "frames": 36,
+  "droppedTorn": [
+   4.7667,
+   4.7833,
+   4.8167
+  ]
+ },
+ "field.top": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "px@2x",
+  "from": 1933.1,
+  "to": 1999.1,
+  "components": [
+   {
+    "delay": 0.0048,
+    "duration": 0.3853,
+    "bounce": 0.1389,
+    "delta": 66.0
+   }
+  ],
+  "residual": {
+   "rms": 0.296,
+   "max": 0.78
+  },
+  "frames": 17,
+  "droppedTorn": [
+   4.65
+  ]
+ },
+ "field.opacity": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 1.0,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0422,
+    "duration": 0.328,
+    "bounce": 0.4356,
+    "delta": -2.616
+   },
+   {
+    "delay": 0.087,
+    "duration": 0.2637,
+    "bounce": 0.0,
+    "delta": 2.616
+   }
+  ],
+  "residual": {
+   "rms": 0.033,
+   "max": 0.071
+  },
+  "frames": 48,
+  "droppedTorn": []
+ },
+ "transcript.delivered": {
+  "event": "delivered",
+  "eventTime": 5.6658,
+  "unit": "px@2x",
+  "from": 0.004,
+  "to": -31.997,
+  "components": [
+   {
+    "delay": -0.0024,
+    "duration": 0.2626,
+    "curve": [
+     0.4253,
+     0.169,
+     0.5558,
+     0.7203
+    ],
+    "delta": -32.001
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.422,
+    "120fps Test12": 0.892,
+    "120fps Test13": 0.875
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 1.714,
+    "one+v0": 1.714,
+    "curve": 0.892,
+    "two": 0.901
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 29,
+  "droppedTorn": []
+ },
+ "transcript.read": {
+  "event": "read",
+  "eventTime": 6.602,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": 34.996,
+  "components": [
+   {
+    "delay": 0.0205,
+    "duration": 0.2709,
+    "curve": [
+     0.4149,
+     0.1242,
+     0.5805,
+     0.9411
+    ],
+    "delta": 34.996
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 1.023,
+    "120fps Test12": 0.844,
+    "120fps Test13": 0.828
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 2.088,
+    "one+v0": 2.088,
+    "curve": 1.023,
+    "two": 0.948
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 28,
+  "droppedTorn": [
+   6.6333,
+   6.65,
+   6.7167,
+   6.8167
+  ]
+ },
+ "transcript.typing": {
+  "event": "typing",
+  "eventTime": 8.9699,
+  "unit": "px@2x",
+  "from": -0.0,
+  "to": -70.0,
+  "components": [
+   {
+    "delay": -0.0196,
+    "duration": 0.2896,
+    "curve": [
+     0.3498,
+     0.0353,
+     0.6418,
+     0.9999
+    ],
+    "delta": -70.0
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "original": 0.874,
+    "120fps Test12": 1.269,
+    "120fps Test13": 1.4
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 4.581,
+    "one+v0": 4.581,
+    "curve": 1.4,
+    "two": 1.63
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  },
+  "frames": 37,
+  "droppedTorn": []
+ },
+ "transcript.receive": {
+  "event": "receive",
+  "eventTime": 10.5667,
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -62.0,
+  "components": [
+   {
+    "delay": -0.0183,
+    "duration": 0.3008,
+    "bounce": 0.0975,
+    "delta": -76.994
+   },
+   {
+    "delay": 0.0008,
+    "duration": 0.1944,
+    "bounce": 0.589,
+    "delta": 14.994
+   }
+  ],
+  "residual": {
+   "rms": 0.116,
+   "max": 0.474
+  },
+  "frames": 78,
+  "droppedTorn": [
+   10.5667,
+   10.5833
+  ]
+ },
+ "bubble.opacity": {
+  "event": "send",
+  "eventTime": 4.6247,
+  "unit": "opacity",
+  "from": 0.59,
+  "to": 1.0,
+  "components": [
+   {
+    "delay": 0.0927,
+    "duration": 0.1624,
+    "bounce": 0.1185,
+    "delta": 0.41
+   }
+  ],
+  "residual": {
+   "rms": 0.016,
+   "max": 0.038
+  },
+  "frames": 12,
+  "droppedTorn": [
+   4.7
+  ]
+ },
+ "transcript.insert": {
+  "event": "insert",
+  "unit": "px@2x",
+  "from": 0.0,
+  "to": -156.0,
+  "components": [
+   {
+    "delay": 0.0,
+    "duration": 0.2834,
+    "curve": [
+     0.4481,
+     0.1998,
+     0.6216,
+     1.0
+    ],
+    "delta": -156.0
+   }
+  ],
+  "residual": {
+   "maxPxPerRecording": {
+    "120fps Test12": 2.664,
+    "120fps Test13": 2.181
+   },
+   "structure": "curve",
+   "structures": {
+    "one": 8.187,
+    "one+v0": 8.187,
+    "curve": 2.664,
+    "two": 3.168
+   },
+   "method": "joint fit over every recorded instance (tools/fit_joint.py); stale and torn frames dropped"
+  }
+ }
+}

@@ -458,8 +458,9 @@ fn every_vector_op_the_server_serves_reaches_the_backend_by_its_wire_name() {
     let doc = wire_common::vectors();
     for case in doc["cases"].as_array().expect("cases") {
         let op = case["op"].as_str().expect("op");
-        // Not served here: shell.open (later slice), link_token (cmux link only).
-        if ["cloud.shell.open", "cloud.machine.link_token"].contains(&op) {
+        // Not served here: shell.open (later slice), link_token (cmux link
+        // only), and the ops a VM calls about itself (cloud.vm.*).
+        if cmux_cloud::ops::canonical_name(op).is_none() {
             continue;
         }
         let mut s = server();

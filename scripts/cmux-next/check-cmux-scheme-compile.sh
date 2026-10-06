@@ -17,6 +17,11 @@
 #   dropped and the build retried once, as the fleet's dev builds do.
 set -euo pipefail
 
+# xcodebuild compiles the app: fleet or GitHub runner only.
+# shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
+cmux_next_require_fleet check-cmux-scheme-compile.sh "xcodebuild" "cmux app scheme compile (Debug)"
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 derived_data="${1:-/tmp/cmux-scheme-compile}"
 
@@ -36,11 +41,9 @@ build() {
 }
 status=0
 build || status=$?
-if (( status )) && grep -qE "has been modified since the (module|precompiled) file '" "$log"; then
+if (( status )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
   echo "check-cmux-scheme-compile: stale precompiled modules in $derived_data; removing them and building again"
-  rm -rf -- "$derived_data/ModuleCache.noindex" \
-    "$derived_data/Build/Intermediates.noindex/ExplicitPrecompiledModules" \
-    "$derived_data/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
+  "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0
   build || status=$?
 fi

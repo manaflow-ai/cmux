@@ -12,8 +12,12 @@
 
 use super::*;
 use crate::request_origin::RequestOrigin;
+use crate::terminal_host_runtime::RendererGrantFailure;
 
 const FORBIDDEN: &str = "origin.forbidden";
+/// A mint the terminal host did not answer (retryable).
+const HOST_UNAVAILABLE: &str = "terminal_host.unavailable";
+const LEGACY_HOST_UNAVAILABLE: &str = "terminal_host_unavailable";
 /// `reason` of a refusal off a local Unix connection. The details follow
 /// the catalog's `OriginForbiddenDetails` (no extra fields), also on the
 /// legacy commands.
@@ -116,7 +120,15 @@ pub(super) fn create(
     let (terminal_id, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let ttl_ms = request.fields.get("ttl_ms").and_then(Value::as_u64).unwrap_or(30_000);
     let grant = surface.mint_renderer_grant(Duration::from_millis(ttl_ms)).map_err(|error| {
-        ResourceError::operation_failed(operation, error.to_string(), json!({}))
+        match error.downcast_ref::<RendererGrantFailure>() {
+            Some(failure) => ResourceError::new(
+                HOST_UNAVAILABLE,
+                failure.to_string(),
+                json!({"terminal_id":terminal_id,"reason":failure.unavailable().reason()}),
+                true,
+            ),
+            None => ResourceError::operation_failed(operation, format!("{error:#}"), json!({})),
+        }
     })?;
     Ok(json!({
         "endpoint":grant.endpoint,
@@ -127,12 +139,19 @@ pub(super) fn create(
     }))
 }
 
-/// The legacy `error_code` of a refused mint.
+/// The legacy `error_code` of a refused or unanswered mint.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
+    if error.downcast_ref::<RendererGrantFailure>().is_some() {
+        return Some(LEGACY_HOST_UNAVAILABLE.to_string());
+    }
     error.downcast_ref::<MintRefused>().map(|_| FORBIDDEN.to_string())
 }
 
-/// The legacy `error_details` of a refused mint.
+/// The legacy `error_details` of a refused or unanswered mint. An unanswered
+/// mint carries `reason` (`timeout` or `disconnected`), as v2 does.
 pub(super) fn error_details(error: &anyhow::Error) -> Option<Value> {
+    if let Some(failure) = error.downcast_ref::<RendererGrantFailure>() {
+        return Some(json!({"reason":failure.unavailable().reason()}));
+    }
     error.downcast_ref::<MintRefused>().map(|refused| refused.details.clone())
 }

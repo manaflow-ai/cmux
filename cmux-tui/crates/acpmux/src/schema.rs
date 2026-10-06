@@ -17,6 +17,7 @@ mod tests {
         for m in [
             method::MUX_STATUS,
             method::MUX_SESSIONS,
+            method::MUX_WEB_MODES,
             method::MUX_HARNESSES,
             method::MUX_RELOAD_CONFIG,
             method::MUX_DEFAULTS,

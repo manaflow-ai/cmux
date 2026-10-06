@@ -6,6 +6,8 @@ import type { EditorProps } from "./types";
 /**
  * A text field committed on Return or blur. `check` refuses a value before it is sent and
  * names the message to show; url rows use it, domain rows without published names do not.
+ * With `checkStored`, a stored value that `check` refuses (a hand-edited cmux.json) shows the
+ * same message until it is replaced.
  */
 export function TextEditor({
   row,
@@ -13,11 +15,14 @@ export function TextEditor({
   disabled,
   labelId,
   check,
-}: EditorProps & { check?: (input: string) => string | null }) {
+  checkStored = false,
+}: EditorProps & { check?: (input: string) => string | null; checkStored?: boolean }) {
   const store = useStore();
   const [draft, setDraft] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const stored = typeof value === "string" ? value : "";
+  const storedProblem = checkStored && draft === null && problem === null ? (check?.(stored) ?? null) : null;
+  const shown = problem ?? storedProblem;
   const commit = () => {
     if (draft === null) return;
     const next = draft.trim();
@@ -37,16 +42,16 @@ export function TextEditor({
         placeholder={text(row.default_label)}
         disabled={disabled}
         aria-labelledby={labelId}
-        aria-invalid={problem !== null}
+        aria-invalid={shown !== null}
         onChange={(event) => setDraft(event.currentTarget.value)}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") commit();
         }}
       />
-      {problem && (
+      {shown && (
         <span className="field-error" role="alert">
-          {problem}
+          {shown}
         </span>
       )}
     </span>

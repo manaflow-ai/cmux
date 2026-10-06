@@ -20,7 +20,7 @@
 use std::sync::Mutex;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use serde_json::{Map, json};
+use serde_json::json;
 
 use crate::Surface;
 use crate::mux::*;
@@ -146,6 +146,7 @@ impl Mux {
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
         key: &str,
+        activate: bool,
     ) -> anyhow::Result<FrontendBrowserTabOutcome> {
         record.validate()?;
         WorkspaceMutation::new(key, "new-frontend-browser-tab")?;
@@ -186,10 +187,7 @@ impl Mux {
             registry.put_frontend_browser(id, &record, Some(&write))?;
             self.reload_presentation(&registry)?;
         }
-        let fields = Map::from_iter([(
-            "frontend_browser_id".to_string(),
-            Value::String(browser_id.as_str().to_string()),
-        )]);
+        let fields = frontend_browser_fields(&browser_id, activate);
         // A failed keyed creation keeps its rows, so a retry resumes it.
         let surface = self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields)?;
         if let Some(runtime) = surface.as_browser()

@@ -6,7 +6,6 @@ extension OnboardingModel.Step {
     /// This step's screen variants in gallery order; the first is the default.
     public var variants: [any OnboardingScreenVariant.Type] {
         switch self {
-        case .role: RoleVariants.all
         case .firstTask: FirstTaskVariants.all
         case .projects: ProjectsVariants.all
         case .classicSessions: ClassicSessionsVariants.all

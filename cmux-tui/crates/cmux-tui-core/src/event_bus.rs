@@ -270,6 +270,7 @@ impl SurfaceSessionScope {
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::Conversation(_)
+            | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)

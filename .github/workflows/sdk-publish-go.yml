@@ -207,6 +207,9 @@ jobs:
           go build ./...
           go vet ./...
 
+      - name: Check the Go module license
+        run: python3 cmux-tui/bindings/check_package_license.py go-module cmux-tui/bindings/go
+
   verify-versioned-go-module:
     if: inputs.verify_tag == true
     needs: version

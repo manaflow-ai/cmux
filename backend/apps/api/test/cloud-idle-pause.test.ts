@@ -25,7 +25,8 @@ const vmSetup = async (sub: string) => {
   const ch = await post("/v1/auth/challenge", undefined, { user: install.user, install: install.id })
   const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`))
   const vmToken = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })).body.access_token as string
-  const report = (activity: Record<string, unknown>) => op(vmToken, "cloud.vm.status.report", { machine, state: "running", daemon: DAEMON, activity })
+  // A daemon that can see sessions advertises the activity capability (coordinator, 2026-10-05).
+  const report = (activity: Record<string, unknown>, capabilities: Array<string> = [...DAEMON.capabilities, "activity"]) => op(vmToken, "cloud.vm.status.report", { machine, state: "running", daemon: { ...DAEMON, capabilities }, activity })
   const status = async () => (await post("/v1/read", a.session, { op: "cloud.machine.get", params: { machine } })).body.value.status as string
   const policy = async (on: boolean, version: number) => op(a.session, "team.policy.update", { changes: [{ key: "cloud.idlePause", value: { value: on, mode: "enforced" } }], expected_version: version, reason: "idle pause test" }, crypto.randomUUID())
   return { a, machine, stub, report, status, policy }

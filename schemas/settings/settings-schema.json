@@ -30,6 +30,7 @@
         "osc 133"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "history",
         "terminalCommands"
@@ -101,6 +102,7 @@
         "scope"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "navigation",
         "historyScope"
@@ -114,6 +116,72 @@
       "title" : {
         "key" : "settings.navigation.historyScope",
         "text" : "Back and Forward"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "workspaces",
+        "everything"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.navigation.historySteps.workspaces",
+            "text" : "Workspaces"
+          },
+          "value" : "workspaces"
+        },
+        {
+          "title" : {
+            "key" : "settings.navigation.historySteps.everything",
+            "text" : "Everything"
+          },
+          "value" : "everything"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "workspaces",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.navigation.historySteps.help",
+        "text" : "Workspaces: Go Back and Go Forward move between workspaces and top pages, and return to the tab each one last had focused. Everything: they also step through tabs and panes inside a workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "navigation.history.scope",
+      "keywords" : [
+        "history",
+        "back",
+        "forward",
+        "navigation",
+        "workspace",
+        "tab",
+        "pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "navigation",
+        "history",
+        "scope"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.navigation.historySteps",
+        "text" : "Back and Forward Steps"
       },
       "validation" : "portable"
     },
@@ -160,6 +228,7 @@
         "title"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "window",
         "titlebar"
@@ -225,6 +294,7 @@
         "toolbar"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "window",
         "titlebarButtons"
@@ -321,6 +391,7 @@
         "default"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "tabs",
         "newTabKind"
@@ -384,6 +455,7 @@
         "tab bar"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "tabs",
         "plusButton"
@@ -449,6 +521,7 @@
         "pane"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "tabs",
         "barPosition"
@@ -514,6 +587,7 @@
         "layout"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "tabs",
         "barOrder"
@@ -560,6 +634,7 @@
         "option"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "newTerminal",
         "opensWorkspace"
@@ -573,6 +648,107 @@
       "title" : {
         "key" : "settings.newTerminal.opensWorkspace",
         "text" : "New Terminal Opens a Workspace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingTab.help",
+        "text" : "Ask before closing a tab or workspace whose terminal is running a program. Idle tabs always close at once."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingTab",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "tab",
+        "workspace",
+        "running",
+        "process",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "warnBeforeClosingTab"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingTab",
+        "text" : "Warn Before Closing a Running Program"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession.help",
+        "text" : "Ask before closing a terminal tab whose agent is still working."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.warnBeforeClosingAgentSession",
+      "keywords" : [
+        "close",
+        "confirm",
+        "warn",
+        "agent",
+        "claude",
+        "codex",
+        "session",
+        "working",
+        "cmd-w"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "warnBeforeClosingAgentSession"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.app.warnBeforeClosingAgentSession",
+        "text" : "Warn Before Closing a Working Agent"
       },
       "validation" : "portable"
     },
@@ -641,6 +817,7 @@
         "background"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "app",
         "quitBehavior"
@@ -685,6 +862,7 @@
         "width"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "defaultColumnWidth"
@@ -755,6 +933,7 @@
         "scroll"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "centerFocusedColumn"
@@ -823,6 +1002,7 @@
         "minimap"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "stripScrollbar"
@@ -884,6 +1064,7 @@
         "recent"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "closeFocus"
@@ -897,6 +1078,53 @@
       "title" : {
         "key" : "settings.layout.closeFocus",
         "text" : "Focus After Closing a Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.shortcuts.hintsGroup",
+        "text" : "Shortcut Hints"
+      },
+      "help" : {
+        "key" : "settings.shortcuts.showModifierHoldHints.help",
+        "text" : "Hold Command or Control for 0.30 seconds to show shortcut hints."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "shortcuts.showModifierHoldHints",
+      "keywords" : [
+        "command",
+        "control",
+        "hold",
+        "hints",
+        "keyboard"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "shortcuts",
+        "showModifierHoldHints"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "keyboard",
+      "title" : {
+        "key" : "settings.shortcuts.showModifierHoldHints",
+        "text" : "Show Shortcuts When Holding a Modifier"
       },
       "validation" : "portable"
     },
@@ -926,6 +1154,7 @@
         "automatic"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "checkAutomatically"
@@ -970,6 +1199,7 @@
         "daily"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "checkIntervalSeconds"
@@ -1022,6 +1252,7 @@
         "metered"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "downloadAutomatically"
@@ -1080,7 +1311,7 @@
       },
       "help" : {
         "key" : "settings.updates.meteredNetwork.help",
-        "text" : "While downloads wait, a found update shows as a card and one click downloads it."
+        "text" : "While downloads wait, a found update shows on Settings and one click downloads it."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.meteredNetwork",
@@ -1092,6 +1323,7 @@
         "hotspot"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "meteredNetwork"
@@ -1136,6 +1368,7 @@
         "quit"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "installOnQuit"
@@ -1154,20 +1387,12 @@
     },
     {
       "accepts" : [
-        "card",
         "badge",
         "silent"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.updatesCard",
-            "text" : "Show a Card"
-          },
-          "value" : "card"
-        },
         {
           "title" : {
             "key" : "settings.choice.updatesBadge",
@@ -1186,7 +1411,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "card",
+      "default" : "badge",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -1198,11 +1423,11 @@
       "keywords" : [
         "update",
         "notify",
-        "card",
         "badge",
         "silent"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "notify"
@@ -1249,6 +1474,7 @@
         "downgrade"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "updates",
         "keepPreviousVersions"
@@ -1269,60 +1495,6 @@
       "title" : {
         "key" : "settings.updates.keepPreviousVersions",
         "text" : "Keep Previous Versions"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        {
-          "end" : "07:30",
-          "start" : "22:00"
-        }
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : null,
-      "default_label" : {
-        "key" : "settings.choice.off",
-        "text" : "Off"
-      },
-      "group" : {
-        "key" : "settings.group.updates",
-        "text" : "Updates"
-      },
-      "help" : {
-        "key" : "settings.updates.quietHours.help",
-        "text" : "No update card between these times."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "updates.quietHours",
-      "keywords" : [
-        "update",
-        "quiet",
-        "do not disturb"
-      ],
-      "kind" : "time_range",
-      "path" : [
-        "updates",
-        "quietHours"
-      ],
-      "refuses" : [
-        {
-          "end" : "07:00",
-          "start" : "25:00"
-        },
-        {
-          "start" : "22:00"
-        },
-        "22:00-07:00"
-      ],
-      "section" : "general",
-      "title" : {
-        "key" : "settings.updates.quietHours",
-        "text" : "Quiet Hours"
       },
       "validation" : "portable"
     },
@@ -1355,6 +1527,7 @@
         "whats new"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "announcements",
         "enabled"
@@ -1400,6 +1573,7 @@
         "network"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "announcements",
         "fetch"
@@ -1460,6 +1634,7 @@
         "size"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "splitSizing"
@@ -1524,6 +1699,7 @@
         "column"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "newColumnWidth"
@@ -1605,6 +1781,7 @@
         "column"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "dockColumnEdge"
@@ -1662,6 +1839,7 @@
         "dock"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "dockColumnMode"
@@ -1720,6 +1898,7 @@
         "corner"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "frameOrientation"
@@ -1765,6 +1944,7 @@
         "vertical"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "rows"
@@ -1808,6 +1988,7 @@
         "width"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "minimumPaneWidth"
@@ -1857,6 +2038,7 @@
         "height"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "minimumPaneHeight"
@@ -2061,6 +2243,7 @@
         "tabs"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "palette",
         "scopes",
@@ -2260,6 +2443,7 @@
         "workspaces"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "palette",
         "scopes",
@@ -2459,6 +2643,7 @@
         "commands"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "palette",
         "scopes",
@@ -2658,6 +2843,7 @@
         "settings"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "palette",
         "scopes",
@@ -2857,6 +3043,7 @@
         "scopes"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "palette",
         "scopes",
@@ -2913,6 +3100,7 @@
         "save"
       ],
       "kind" : "folder_list",
+      "page_hidden" : false,
       "path" : [
         "picker",
         "pinned"
@@ -2989,6 +3177,7 @@
         "kanban"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "tasks",
         "layout"
@@ -3017,8 +3206,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.appTheme",
@@ -3041,6 +3230,7 @@
         "palette"
       ],
       "kind" : "theme",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "theme"
@@ -3136,6 +3326,7 @@
         "legacy"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "backdropArt"
@@ -3232,6 +3423,7 @@
         "attribution"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "background"
@@ -3282,6 +3474,7 @@
         "labs"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "experimentalControls"
@@ -3311,8 +3504,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -3332,6 +3525,7 @@
         "glass"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "backgroundOpacity"
@@ -3400,8 +3594,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.windowBackground",
@@ -3421,6 +3615,7 @@
         "transparency"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "backgroundBlur"
@@ -3467,6 +3662,7 @@
         "clear"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "glassTransparency"
@@ -3519,6 +3715,7 @@
         "colour"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "hue"
@@ -3572,6 +3769,7 @@
         "intensity"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "saturation"
@@ -3635,6 +3833,7 @@
         "spacing"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "density"
@@ -3648,6 +3847,60 @@
       "title" : {
         "key" : "settings.appearance.density",
         "text" : "Density"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.85,
+        1.5,
+        1.175
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "app.uiScale",
+      "keywords" : [
+        "scale",
+        "zoom",
+        "size",
+        "chrome",
+        "web",
+        "bigger",
+        "smaller"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "uiScale"
+      ],
+      "range" : {
+        "max" : 1.5,
+        "min" : 0.85,
+        "placeholder" : 1,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -0.15000000000000002,
+        2.5,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.uiScale",
+        "text" : "Interface Scale"
       },
       "validation" : "portable"
     },
@@ -3688,6 +3941,7 @@
         "chromeFontSize"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "metrics",
@@ -3743,6 +3997,7 @@
         "sidebarWidth"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "metrics",
@@ -3798,6 +4053,7 @@
         "columnGap"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "metrics",
@@ -3854,6 +4110,7 @@
         "titlebarHeight"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "metrics",
@@ -3924,6 +4181,7 @@
         "line"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "borders"
@@ -4002,6 +4260,7 @@
         "ring"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "focusIndicator"
@@ -4074,6 +4333,7 @@
         "dim"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "focus",
         "inactiveTabStyle"
@@ -4139,6 +4399,7 @@
         "speed"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "ui",
         "animationSpeed"
@@ -4220,6 +4481,7 @@
         "pane"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "paneSeparation"
@@ -4263,6 +4525,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "panePadding"
@@ -4313,6 +4576,7 @@
         "rounded"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "paneCornerRadius"
@@ -4375,6 +4639,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "paneBorder"
@@ -4418,6 +4683,7 @@
 
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "paneBorderColor"
@@ -4463,6 +4729,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "paneBorderWidth"
@@ -4510,6 +4777,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "enabled"
@@ -4573,6 +4841,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "style"
@@ -4636,6 +4905,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "contrast"
@@ -4680,6 +4950,7 @@
 
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "color"
@@ -4723,6 +4994,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "width"
@@ -4769,6 +5041,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "focusRing",
         "showWhenSinglePane"
@@ -4818,6 +5091,7 @@
         "sidebar"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -4870,6 +5144,7 @@
         "sidebar"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -4928,6 +5203,7 @@
         "tabBar"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -4980,6 +5256,7 @@
         "tabBar"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5037,6 +5314,7 @@
         "terminal"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5089,6 +5367,7 @@
         "terminal"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5146,6 +5425,7 @@
         "agentPane"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5198,6 +5478,7 @@
         "agentPane"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5255,6 +5536,7 @@
         "settings"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5307,6 +5589,7 @@
         "settings"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5364,6 +5647,7 @@
         "newTabPage"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5416,6 +5700,7 @@
         "newTabPage"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5473,6 +5758,7 @@
         "home"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5525,6 +5811,7 @@
         "home"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5583,6 +5870,7 @@
         "browserChrome"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5635,6 +5923,7 @@
         "browserChrome"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5692,6 +5981,7 @@
         "internalPage"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5744,6 +6034,7 @@
         "internalPage"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5801,6 +6092,7 @@
         "splitDivider"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5853,6 +6145,7 @@
         "splitDivider"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5910,6 +6203,7 @@
         "docks"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -5962,6 +6256,7 @@
         "docks"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -6019,6 +6314,7 @@
         "diff"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -6071,6 +6367,7 @@
         "diff"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "surfaces",
@@ -6093,6 +6390,228 @@
       "title" : {
         "key" : "settings.appearance.surfaces.diff.opacity",
         "text" : "Diff Viewer Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.color",
+        "text" : "Markdown Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.markdown.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "markdown"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "surfaces",
+        "markdown",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.markdown.opacity",
+        "text" : "Markdown Editor Opacity"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "#1a2B3c",
+        "#1A2B3C80",
+        "1a2b3c"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.sameAsWindow",
+        "text" : "Same as window"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.color",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "color",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "color"
+      ],
+      "refuses" : [
+        "red",
+        "#12345",
+        "#1234567",
+        "#12345g",
+        0
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.color",
+        "text" : "Code Editor Color"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.windowOpacity",
+        "text" : "Window opacity"
+      },
+      "group" : {
+        "key" : "settings.group.surfaces",
+        "text" : "Surfaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.surfaces.editor.opacity",
+      "keywords" : [
+        "background",
+        "surface",
+        "color",
+        "transparency",
+        "opacity",
+        "editor"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "surfaces",
+        "editor",
+        "opacity"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.appearance.surfaces.editor.opacity",
+        "text" : "Code Editor Opacity"
       },
       "validation" : "portable"
     },
@@ -6165,6 +6684,7 @@
         "busy"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "statusIndicator",
@@ -6206,6 +6726,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "statusIndicator",
@@ -6254,6 +6775,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "statusIndicator",
@@ -6305,6 +6827,7 @@
 
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "statusIndicator",
@@ -6350,6 +6873,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "appearance",
         "statusIndicator",
@@ -6393,6 +6917,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "status",
         "inferCommandBusy"
@@ -6433,6 +6958,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "status",
         "inferCommandBusyAfter"
@@ -6458,6 +6984,343 @@
     },
     {
       "accepts" : [
+        "split",
+        "unified"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffSplit",
+            "text" : "Side by Side"
+          },
+          "value" : "split"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffUnified",
+            "text" : "Unified"
+          },
+          "value" : "unified"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "unified",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.layout",
+      "keywords" : [
+        "diff",
+        "split",
+        "unified",
+        "side by side"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "layout"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.layout",
+        "text" : "Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "bars",
+        "classic",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffBars",
+            "text" : "Bars"
+          },
+          "value" : "bars"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffClassic",
+            "text" : "+ and −"
+          },
+          "value" : "classic"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.diffNone",
+            "text" : "None"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "bars",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.diffIndicators",
+      "keywords" : [
+        "diff",
+        "indicators",
+        "markers",
+        "gutter"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "diffIndicators"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.diffIndicators",
+        "text" : "Change Markers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordWrap",
+      "keywords" : [
+        "diff",
+        "wrap",
+        "lines"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "wordWrap"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordWrap",
+        "text" : "Wrap Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.wordDiffs",
+      "keywords" : [
+        "diff",
+        "word",
+        "inline"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "wordDiffs"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.wordDiffs",
+        "text" : "Highlight Word Changes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.lineNumbers",
+      "keywords" : [
+        "diff",
+        "line numbers",
+        "gutter"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "lineNumbers"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.lineNumbers",
+        "text" : "Line Numbers"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.showBackgrounds",
+      "keywords" : [
+        "diff",
+        "background",
+        "color"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "showBackgrounds"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.showBackgrounds",
+        "text" : "Change Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.expandUnchanged",
+      "keywords" : [
+        "diff",
+        "unchanged",
+        "context",
+        "expand"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "expandUnchanged"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.diff.expandUnchanged",
+        "text" : "Expand Unchanged Lines"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -6467,8 +7330,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -6489,6 +7352,7 @@
         "ghostty"
       ],
       "kind" : "font_family",
+      "page_hidden" : false,
       "path" : [
         "terminal",
         "fontFamily"
@@ -6518,8 +7382,8 @@
       ],
       "default" : null,
       "default_label" : {
-        "key" : "settings.default.ghosttyConfig",
-        "text" : "Ghostty config"
+        "key" : "settings.source.ghostty",
+        "text" : "Ghostty"
       },
       "group" : {
         "key" : "settings.group.terminalFont",
@@ -6537,6 +7401,7 @@
         "ghostty"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "terminal",
         "fontSize"
@@ -6591,6 +7456,7 @@
         "seam"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "border"
@@ -6639,6 +7505,7 @@
         "thickness"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "borderWidth"
@@ -6732,6 +7599,7 @@
         "style"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "sectionLook"
@@ -6779,6 +7647,7 @@
         "scroll"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "topBandMaxShare"
@@ -6833,6 +7702,7 @@
         "scroll"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "bottomBandMaxShare"
@@ -6885,6 +7755,7 @@
         "scroll"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "pinnedBandsScroll"
@@ -6929,6 +7800,7 @@
         "tabs"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "showWorkspaceTabs"
@@ -6942,6 +7814,50 @@
       "title" : {
         "key" : "settings.sidebar.showWorkspaceTabs",
         "text" : "Show Workspace Tabs"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showCounts",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "tabs",
+        "count",
+        "number"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showCounts"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.showCounts",
+        "text" : "Show Tab Counts"
       },
       "validation" : "portable"
     },
@@ -7008,6 +7924,7 @@
         "account"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "minimalMode"
@@ -7072,6 +7989,7 @@
         "layout"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "side"
@@ -7138,6 +8056,7 @@
         "layout"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "spacesPosition"
@@ -7151,6 +8070,241 @@
       "title" : {
         "key" : "settings.sidebar.spacesPosition",
         "text" : "Spaces Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.allItems",
+            "text" : "Every Item"
+          },
+          "value" : "allItems"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.workspacesOnly",
+            "text" : "Workspaces Only"
+          },
+          "value" : "workspacesOnly"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "allItems",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.numbering.help",
+        "text" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.numbering",
+      "keywords" : [
+        "sidebar",
+        "shortcut",
+        "number",
+        "command",
+        "home",
+        "workspace"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "numbering"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.numbering",
+        "text" : "Command-Number Shortcuts"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "last",
+        "ninth"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.cmd9.last",
+            "text" : "Last Item"
+          },
+          "value" : "last"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.cmd9.ninth",
+            "text" : "Ninth Item"
+          },
+          "value" : "ninth"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "last",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.cmd9.help",
+        "text" : "Goes to the last item, as in browsers, or to the ninth."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.cmd9",
+      "keywords" : [
+        "sidebar",
+        "shortcut",
+        "nine",
+        "last"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "cmd9"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.cmd9",
+        "text" : "Command-9"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "allItems",
+        "workspacesOnly"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.allItems",
+            "text" : "Every Item"
+          },
+          "value" : "allItems"
+        },
+        {
+          "title" : {
+            "key" : "settings.sidebar.scope.workspacesOnly",
+            "text" : "Workspaces Only"
+          },
+          "value" : "workspacesOnly"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "allItems",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.stepping.help",
+        "text" : "What Command-Control-] and Command-Control-[ step through."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.stepping",
+      "keywords" : [
+        "sidebar",
+        "next",
+        "previous",
+        "step",
+        "shortcut"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "stepping"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.stepping",
+        "text" : "Next and Previous Item"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.steppingWraps.help",
+        "text" : "Past the last item, the next item is the first again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.steppingWraps",
+      "keywords" : [
+        "sidebar",
+        "next",
+        "previous",
+        "wrap"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "steppingWraps"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "title" : {
+        "key" : "settings.sidebar.steppingWraps",
+        "text" : "Wrap Around"
       },
       "validation" : "portable"
     },
@@ -7198,6 +8352,7 @@
         "cef"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "defaultEngine"
@@ -7245,6 +8400,7 @@
         "url"
       ],
       "kind" : "url",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "newTabPage"
@@ -7290,6 +8446,7 @@
         "bar"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "showBookmarksBar"
@@ -7361,6 +8518,7 @@
         "discard"
       ],
       "kind" : "choice_or_number",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "hibernation"
@@ -7419,6 +8577,7 @@
 
       ],
       "kind" : "host_list",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "hibernationExclusions"
@@ -7459,6 +8618,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "hibernatePinnedTabs"
@@ -7500,6 +8660,7 @@
         "port"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "remoteLocalhost"
@@ -7513,6 +8674,389 @@
       "title" : {
         "key" : "settings.browser.remoteLocalhost",
         "text" : "Open localhost on the Workspace's Machine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "google",
+        "duckduckgo",
+        "bing",
+        "brave",
+        "kagi",
+        "custom"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Google"
+          },
+          "value" : "google"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "DuckDuckGo"
+          },
+          "value" : "duckduckgo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Bing"
+          },
+          "value" : "bing"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Brave"
+          },
+          "value" : "brave"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Kagi"
+          },
+          "value" : "kagi"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.searchEngine.custom",
+            "text" : "Custom"
+          },
+          "value" : "custom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "google",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.searchEngine.help",
+        "text" : "The address bar searches here and asks it for suggestions."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.searchEngine",
+      "keywords" : [
+        "search",
+        "engine",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "searchEngine"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.searchEngine",
+        "text" : "Search Engine"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSearch.help",
+        "text" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.search",
+      "keywords" : [
+        "search",
+        "engine",
+        "custom",
+        "template"
+      ],
+      "kind" : "url",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "search"
+      ],
+      "refuses" : [
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSearch",
+        "text" : "Custom Search Address"
+      },
+      "validation" : "domain:search_template"
+    },
+    {
+      "accepts" : [
+        "",
+        "https://search.example/?q=%s",
+        "https://search.example/find?q={searchTerms}"
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.customSuggest.help",
+        "text" : "Optional. Answers in the OpenSearch suggestions format, with {searchTerms} for the typed text."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.customSearchEngine.suggest",
+      "keywords" : [
+        "search",
+        "suggest",
+        "custom",
+        "opensearch"
+      ],
+      "kind" : "url",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "customSearchEngine",
+        "suggest"
+      ],
+      "refuses" : [
+        "https://search.example/",
+        "search.example",
+        "not a url %s",
+        1
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.customSuggest",
+        "text" : "Custom Suggestions Address"
+      },
+      "validation" : "domain:search_template"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.remoteSuggestions.help",
+        "text" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.remoteSuggestions",
+      "keywords" : [
+        "suggest",
+        "search",
+        "omnibox",
+        "privacy"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "remoteSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.remoteSuggestions",
+        "text" : "Search Suggestions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete.help",
+        "text" : "Completes a site you typed before or visit often."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.inlineAutocomplete",
+      "keywords" : [
+        "autocomplete",
+        "omnibox",
+        "address bar"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "inlineAutocomplete"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.inlineAutocomplete",
+        "text" : "Complete Addresses Inline"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        3,
+        15,
+        9
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 8,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.maxRows",
+      "keywords" : [
+        "suggestions",
+        "rows",
+        "omnibox"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "maxRows"
+      ],
+      "range" : {
+        "max" : 15,
+        "min" : 3,
+        "placeholder" : 3,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -9,
+        27,
+        "1"
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.maxRows",
+        "text" : "Suggestions Shown"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.addressBar",
+        "text" : "Address Bar"
+      },
+      "help" : {
+        "key" : "settings.browser.omnibar.calculator.help",
+        "text" : "Shows the answer to arithmetic you type. Return copies it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.omnibar.calculator",
+      "keywords" : [
+        "calculator",
+        "math",
+        "answer",
+        "omnibox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "omnibar",
+        "calculator"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "title" : {
+        "key" : "settings.browser.omnibar.calculator",
+        "text" : "Calculator Answers"
       },
       "validation" : "portable"
     },
@@ -7584,6 +9128,7 @@
         "command"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "links",
@@ -7669,6 +9214,7 @@
         "shift"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "links",
@@ -7753,6 +9299,7 @@
         "shift"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "links",
@@ -7838,6 +9385,7 @@
         "alt"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "links",
@@ -7923,6 +9471,7 @@
         "wheel"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "links",
@@ -7937,6 +9486,56 @@
       "title" : {
         "key" : "settings.browser.links.middleClick",
         "text" : "Middle-Click"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attachments",
+        "text" : "Attachments"
+      },
+      "help" : {
+        "key" : "settings.home.keepLocation.help",
+        "text" : "When off, location data is removed from photos and videos before they are attached."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.attachments.keepLocation",
+      "keywords" : [
+        "gps",
+        "location",
+        "privacy",
+        "metadata",
+        "exif",
+        "attachments",
+        "photos"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "attachments",
+        "keepLocation"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "home",
+      "title" : {
+        "key" : "settings.home.keepLocation",
+        "text" : "Keep Location in Photos and Videos"
       },
       "validation" : "portable"
     },
@@ -8012,6 +9611,7 @@
         "unread"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "dismissal"
@@ -8055,6 +9655,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "timeoutSeconds"
@@ -8152,6 +9753,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "sources",
@@ -8244,6 +9846,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "sources",
@@ -8336,6 +9939,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "sources",
@@ -8409,6 +10013,7 @@
 
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "desktop"
@@ -8447,6 +10052,7 @@
 
       ],
       "kind" : "sound",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "sound"
@@ -8494,6 +10100,7 @@
         "do not disturb"
       ],
       "kind" : "time_range",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "quietHours"
@@ -8542,6 +10149,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "suppressWhileTypingSeconds"
@@ -8592,6 +10200,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "status",
         "runNotifyMinimumSeconds"
@@ -8638,6 +10247,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "status",
         "runNotifyWhenVisible"
@@ -8677,6 +10287,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "dockBadge"
@@ -8721,6 +10332,7 @@
         "push"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "feed",
         "mirrorNotifications",
@@ -8791,6 +10403,7 @@
         "osc"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "feed",
         "mirrorNotifications",
@@ -8864,6 +10477,7 @@
         "flash"
       ],
       "kind" : "choice",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -8908,6 +10522,7 @@
 
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -8951,6 +10566,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -8999,6 +10615,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -9047,6 +10664,7 @@
 
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -9094,6 +10712,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -9134,6 +10753,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -9174,6 +10794,7 @@
 
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "notifications",
         "attention",
@@ -9188,6 +10809,65 @@
       "title" : {
         "key" : "settings.attention.showOnSidebar",
         "text" : "Mark the Sidebar Row"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-browser",
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.mutedWorkspaces.help",
+        "text" : "Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.mutedWorkspaces",
+      "keywords" : [
+        "mute",
+        "silence"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "notifications",
+        "mutedWorkspaces"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.notifications.mutedWorkspaces",
+        "text" : "Muted Workspaces"
       },
       "validation" : "portable"
     },
@@ -9221,6 +10901,7 @@
         "prototype"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "labs",
         "previewFeatures"
@@ -9268,6 +10949,7 @@
         "gh"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "feed",
         "github",
@@ -9316,6 +10998,7 @@
         "interval"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "feed",
         "github",
@@ -9365,6 +11048,7 @@
         "back"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9407,6 +11091,7 @@
         "forward"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9449,6 +11134,7 @@
         "reload"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9491,6 +11177,7 @@
         "home"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9533,6 +11220,7 @@
         "extensions"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9575,6 +11263,7 @@
         "downloads"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9617,6 +11306,7 @@
         "media"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9659,6 +11349,7 @@
         "profile"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9701,6 +11392,7 @@
         "menu"
       ],
       "kind" : "toggle",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "toolbar",
@@ -9748,6 +11440,7 @@
         "color"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "omnibox",
@@ -9797,6 +11490,7 @@
         "color"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "omnibox",
@@ -9847,6 +11541,7 @@
         "color"
       ],
       "kind" : "color",
+      "page_hidden" : false,
       "path" : [
         "browser",
         "omnibox",
@@ -9896,6 +11591,7 @@
         "strip"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "stripMargin"
@@ -9959,6 +11655,7 @@
         "niri"
       ],
       "kind" : "number_list",
+      "page_hidden" : false,
       "path" : [
         "layout",
         "columnWidthPresets"
@@ -10019,6 +11716,7 @@
         "clearance"
       ],
       "kind" : "number",
+      "page_hidden" : false,
       "path" : [
         "window",
         "trafficLightClearance"
@@ -10079,6 +11777,7 @@
         "rail"
       ],
       "kind" : "string_map",
+      "page_hidden" : false,
       "path" : [
         "sidebar",
         "workspaceIcons"
@@ -10100,7 +11799,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bfb4cf79865fb9b40e7efbc402dd49d54e1a163fa3fa09c92d0140a35e27f271",
+  "schema_hash" : "31c9e76cd409eb2f87fcb6804a4513b6b8ce14b91e042bdce4538010a9e76a26",
   "sections" : [
     {
       "id" : "general",
@@ -10132,6 +11831,14 @@
       "title" : {
         "key" : "settings.section.browser",
         "text" : "Browser"
+      }
+    },
+    {
+      "id" : "home",
+      "symbol" : "house",
+      "title" : {
+        "key" : "settings.section.home",
+        "text" : "Home"
       }
     },
     {

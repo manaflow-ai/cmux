@@ -18,6 +18,12 @@
 //! outlive the tab, so a replay after a close is refused. A connection that
 //! did not negotiate `agent-session-tabs-v1` reads an agent session tab as a
 //! `browser` tab without its record (server/conversation_tabs_wire.rs).
+//!
+//! `page-tabs-v1` adds a third source, one of the app's own pages (App
+//! Store, Settings, ...; `page_tabs`), so those tabs move, split and close
+//! like any tab instead of living only in one app session. The store keeps
+//! only the page id; the app draws the page. A connection that did not
+//! negotiate `page-tabs-v1` reads a page tab as `browser` without its record.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,6 +34,8 @@ use serde_json::{Value, json};
 pub(crate) const CONVERSATION_TABS_CAPABILITY: &str = "conversation-tabs-v1";
 /// The agent session source of a conversation tab and its session bind.
 pub(crate) const AGENT_SESSION_TABS_CAPABILITY: &str = "agent-session-tabs-v1";
+/// The page source of a conversation tab (one of the app's own pages).
+pub(crate) const PAGE_TABS_CAPABILITY: &str = "page-tabs-v1";
 /// The canonical `content_kind` (v2) and raw tab `kind` of a conversation tab.
 pub(crate) const CONVERSATION_KIND: &str = "conversation";
 /// The frontend record of a conversation tab: no page is loaded.
@@ -62,6 +70,10 @@ pub(crate) fn create_conversation_tabs_schema(transaction: &Transaction<'_>) -> 
            host TEXT NOT NULL,
            session TEXT,
            harness TEXT
+         );
+         CREATE TABLE IF NOT EXISTS page_tabs (
+           browser_id TEXT PRIMARY KEY NOT NULL,
+           page TEXT NOT NULL
          );
          CREATE TABLE IF NOT EXISTS conversation_tab_keys (
            origin TEXT NOT NULL,
@@ -100,6 +112,7 @@ fn add_agent_session_host_name(transaction: &Transaction<'_>) -> anyhow::Result<
 /// an acpmux agent session that runs on the install `host` (`host_name` is
 /// that machine's display name). A new chat has no session yet; the tab's
 /// session changes by compare-and-swap (`bind-conversation-tab-session`).
+/// A page tab (`page-tabs-v1`) shows one of the app's own pages by id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTabRecord {
     Conversation {
@@ -111,6 +124,9 @@ pub enum ConversationTabRecord {
         session: Option<String>,
         harness: Option<String>,
         host_name: Option<String>,
+    },
+    Page {
+        page: String,
     },
 }
 
@@ -163,6 +179,12 @@ impl ConversationTabRecord {
                     );
                 }
             }
+            Self::Page { page } => {
+                anyhow::ensure!(
+                    token(page, 64, b"-_.") && !page.bytes().any(|byte| byte.is_ascii_uppercase()),
+                    "bad request: page must be 1 to 64 lowercase letters, digits or '-', '_', '.'"
+                );
+            }
         }
         Ok(())
     }
@@ -175,20 +197,22 @@ impl ConversationTabRecord {
             Self::AgentSession { host, session, harness, host_name } => json!({"agent_session": {
                 "host": host, "session": session, "harness": harness, "host_name": host_name,
             }}),
+            Self::Page { page } => json!({"page": page}),
         }
     }
 
     /// The record of a wire value (a closed-history record or a stored key).
     pub(crate) fn from_wire(value: &Value) -> Option<Self> {
         let text = |value: &Value| value.as_str().map(str::to_string);
-        let record = match value.get("agent_session") {
-            Some(agent) => Self::AgentSession {
+        let record = match (value.get("agent_session"), value.get("page")) {
+            (Some(agent), _) => Self::AgentSession {
                 host: text(&agent["host"])?,
                 session: text(&agent["session"]),
                 harness: text(&agent["harness"]),
                 host_name: text(&agent["host_name"]),
             },
-            None => Self::Conversation {
+            (None, Some(page)) => Self::Page { page: text(page)? },
+            (None, None) => Self::Conversation {
                 conversation: text(&value["conversation"])?,
                 owner: text(&value["owner"])?,
             },
@@ -229,6 +253,12 @@ pub(crate) fn write_conversation_tab(
                 params![browser_id, host, session, harness, host_name],
             )?;
         }
+        ConversationTabRecord::Page { page } => {
+            transaction.execute(
+                "INSERT INTO page_tabs(browser_id, page) VALUES(?1, ?2)",
+                params![browser_id, page],
+            )?;
+        }
     }
     if let Some(key) = key {
         transaction.execute(
@@ -264,6 +294,7 @@ pub(crate) fn delete_closed_browser_rows(
         transaction.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
         transaction
             .execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
+        transaction.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
     }
     Ok(())
 }
@@ -277,6 +308,7 @@ impl crate::workspace_registry::WorkspaceRegistry {
         tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
         tx.execute("DELETE FROM agent_session_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM page_tabs WHERE browser_id = ?1", [browser_id])?;
         Ok(tx.commit()?)
     }
 }
@@ -411,6 +443,13 @@ pub(crate) fn read_conversation_tabs(
         let (id, record) = row?;
         rows.insert(id, record);
     }
+    let mut statement = connection.prepare("SELECT browser_id, page FROM page_tabs")?;
+    for row in statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, ConversationTabRecord::Page { page: row.get(1)? }))
+    })? {
+        let (id, record) = row?;
+        rows.insert(id, record);
+    }
     if !rows.is_empty() {
         mark_conversation_tabs_present();
     }
@@ -456,6 +495,18 @@ pub(crate) fn tab_conversation_wire(
             )
             .optional()?,
     };
+    let record = match record {
+        Some(record) => Some(record),
+        None => connection
+            .query_row(
+                "SELECT p.page FROM resource_tabs AS t
+                 JOIN page_tabs AS p ON p.browser_id = t.content_id
+                 WHERE t.public_id = ?1",
+                [tab_id],
+                |row| Ok(ConversationTabRecord::Page { page: row.get(0)? }),
+            )
+            .optional()?,
+    };
     Ok(record.map(|record| record.wire()))
 }
 
@@ -467,6 +518,23 @@ pub(crate) enum ConversationTabDowngrade {
     /// `conversation-tabs-v1` without `agent-session-tabs-v1`: agent
     /// session tabs read as `browser`.
     AgentSessions,
+    /// `conversation-tabs-v1` without `page-tabs-v1`: page tabs read as `browser`.
+    Pages,
+    /// `conversation-tabs-v1` with neither: agent session and page tabs read
+    /// as `browser`.
+    AgentSessionsAndPages,
+}
+
+impl ConversationTabDowngrade {
+    /// Whether a tab with this record reads as `browser`.
+    fn hides(self, record: Option<&Value>) -> bool {
+        match self {
+            Self::All => true,
+            Self::AgentSessions => is_agent_session(record),
+            Self::Pages => is_page(record),
+            Self::AgentSessionsAndPages => is_agent_session(record) || is_page(record),
+        }
+    }
 }
 
 /// Whether a conversation record (`conversation` of a raw tab, or
@@ -475,24 +543,34 @@ fn is_agent_session(record: Option<&Value>) -> bool {
     record.is_some_and(|record| record.get("agent_session").is_some())
 }
 
+/// Whether a conversation record has a page source.
+fn is_page(record: Option<&Value>) -> bool {
+    record.is_some_and(|record| record.get("page").is_some())
+}
+
+/// Whether an older reader cannot decode the record (it requires a
+/// conversation source), so a hidden tab also loses it.
+fn strips_record(record: Option<&Value>) -> bool {
+    is_agent_session(record) || is_page(record)
+}
+
 /// Rewrite the conversation tabs in `value` that `downgrade` hides to
 /// `browser`: the v2 `content_kind` and the raw tree `kind` (a raw tab has
-/// `browser_renderer`). An agent session tab also loses its record, which
-/// an older reader cannot decode. Returns whether anything changed.
+/// `browser_renderer`). An agent session or page tab also loses its record,
+/// which an older reader cannot decode. Returns whether anything changed.
 pub(crate) fn downgrade_conversation_tabs(
     value: &mut Value,
     downgrade: ConversationTabDowngrade,
 ) -> bool {
-    let hides = |agent: bool| agent || downgrade == ConversationTabDowngrade::All;
     match value {
         Value::Object(object) => {
             let mut changed = false;
             if object.get("content_kind").and_then(Value::as_str) == Some(CONVERSATION_KIND) {
                 let extra = object.get_mut("extra").and_then(Value::as_object_mut);
-                let agent =
-                    extra.as_ref().is_some_and(|extra| is_agent_session(extra.get("conversation")));
-                if hides(agent) {
-                    if agent && let Some(extra) = extra {
+                let record = extra.as_ref().and_then(|extra| extra.get("conversation"));
+                let (hidden, strip) = (downgrade.hides(record), strips_record(record));
+                if hidden {
+                    if strip && let Some(extra) = extra {
                         extra.remove("conversation");
                     }
                     object.insert("content_kind".into(), Value::String("browser".into()));
@@ -502,9 +580,10 @@ pub(crate) fn downgrade_conversation_tabs(
             if object.contains_key("browser_renderer")
                 && object.get("kind").and_then(Value::as_str) == Some(CONVERSATION_KIND)
             {
-                let agent = is_agent_session(object.get("conversation"));
-                if hides(agent) {
-                    if agent {
+                let record = object.get("conversation");
+                let (hidden, strip) = (downgrade.hides(record), strips_record(record));
+                if hidden {
+                    if strip {
                         object.insert("conversation".into(), Value::Null);
                     }
                     object.insert("kind".into(), Value::String("browser".into()));

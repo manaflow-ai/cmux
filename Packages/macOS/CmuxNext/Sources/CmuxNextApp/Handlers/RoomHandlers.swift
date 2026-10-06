@@ -22,13 +22,15 @@ enum RoomHandlers {
             let windows = context.services.windows!
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
-            Task { await windows.createWorkspace(into: windowID) }
+            Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
             let windows = context.services.windows!
             let target = windows.targetWindow(preferring: windows.active?.state.id)
-            Task { _ = try? await windows.createWorkspace(WorkspaceSpawn(profile: room.id), into: target) }
+            var spawn = WorkspaceSpawn(profile: room.id)
+            spawn.opensNewTabPage = invocation.origin == .user
+            Task { _ = try? await windows.createWorkspace(spawn, into: target) }
         }
         bind("space.rename") { invocation in
             let room = try context.room(invocation)

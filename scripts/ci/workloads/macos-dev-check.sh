@@ -32,8 +32,6 @@ while IFS= read -r assignment; do
   esac
 done < "$xcode_env"
 ./scripts/install-rust-ci.sh
-CMUX_LAYOUT_REDUCER_FFI_ARCHS=arm64 ./scripts/cmux-next/build-layout-reducer-ffi.sh
-export CMUX_NEXT_LAYOUT_REDUCER_FFI=1
 ./scripts/download-prebuilt-ghosttykit.sh
 stage end setup
 

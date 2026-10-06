@@ -14,13 +14,13 @@ extension PaneController {
         case .select(let id):
             select(id)
         case .close(let id, _):
-            close([id])
+            CloseUndoToasts.close(in: self, [id])
         case .closeOthers(let keep):
-            close(stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
+            CloseUndoToasts.close(in: self, stripModel.orderedTabs.filter { $0.id != keep && !$0.isPinned }.map(\.id))
         case .closeToRight(let id):
             let ids = orderedIDs
             guard let index = ids.firstIndex(of: id) else { return }
-            close(Array(ids[(index + 1)...]))
+            CloseUndoToasts.close(in: self, Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
             StripOrder.reorder(id, to: to, in: self)
         case .newTab(_, let opensWorkspace):
@@ -39,8 +39,6 @@ extension PaneController {
         case .moveToNewColumn(let id):
             guard let tab = tab(id) else { return }
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
-        case .trailingButton(let id):
-            services.tabBarButtons.perform(id, paneKey: paneKey)
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):

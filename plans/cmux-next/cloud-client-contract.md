@@ -500,6 +500,9 @@ Vectors: backend/catalog/cloud-vectors.json (`vm.*` cases, `machine.event.*` eve
   `pause_reason: no_report`. `pause_reason` on the machine says why cmux paused it: idle, no_report,
   provider_stopped or provider_paused (connect_info and link_token read the VM's real state and correct
   the record, e.g. after a poweroff inside); a person's pause or a start clears it.
+- A report speaks for idleness only when its daemon advertises the capability `activity` (it can see
+  sessions). Any other report is unknown activity: it never idle-pauses a machine and does not reset the
+  no_report clock, so only the 24 h no_report backstop applies to that machine.
 - Idle pause: team policy `cloud.idlePause`, default OFF until auto-start is decided. When on, a machine
   pauses only when its own `cloud.vm.status.report` shows no sessions and no input or agent action past
   its idle policy (`cloud.machine.idle_policy.set` changes only this policy); a VM that stops reporting is

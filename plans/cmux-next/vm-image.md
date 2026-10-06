@@ -178,6 +178,21 @@ Budget for an idle machine (no client attached, no agent running): total under 0
 - Workflow `cloud-vm-image-bake.yml` runs only on dispatch, because every bake spends Freestyle resources (coordinator decision, 2026-10-04). Changes to `images/cmux-vm/**` and `web/scripts/cmux-vm-image/**` run `cloud-vm-image-lock.yml` instead: the lock and sshd policy tests, no Freestyle access, under 1 minute. Snapshots are account-scoped, so a promotion bakes on the account that serves production (`cmux-vm-<date>-<sha>`), as today; branch bakes use `cmuxnp-…` names and are deleted by id after the smoke. A separate non-production Freestyle account would isolate branch bakes (decision in the lane report). The bake derives the size ladder (about 30 s with parallel rows, as today) and takes about 1 minute (66 s for the prototype, versus about 4 minutes today).
 - Smoke (gate before any manifest change), on two clones of each new snapshot: daemon listening under the latency budget; bound instance id equals the provider's; every identity item differs between the two clones (machine-id, SSH host keys, daemon identity, WireGuard key, first `/dev/urandom` bytes); every store package runs (`--version`); `cr capabilities --json`; the agents' first interactive launch reaches the composer (the tmux screen check today's verifier does); idle CPU over 120 s under the budget and no process creations other than the sampler's; the secret scan; the SBOM generated and signed; Postgres reachable on the team role; the updater applies and rolls back a test manifest.
 - Promotion stays a reviewed change to the image manifest; rollback is its revert (as today).
+- Operator bake (development; coordinator decision 2026-10-05): `workflow_dispatch` needs the workflow on the default branch and cmux-next never opens a PR into `main`, so development bakes run from an operator worktree of feat-cmux-next at a pushed, clean HEAD, with the cmux-next dev key passed by path (read in process, never printed). Names stay `cmuxnp-dev-vmimg-<tag>`; every VM is deleted through the run's ledger; the snapshot is kept only after a passing smoke:
+
+  ```bash
+  cd <cmux worktree of feat-cmux-next>/web && bun install --frozen-lockfile --ignore-scripts
+  export FREESTYLE_API_KEY_FILE="$HOME/.secrets/freestyle-cmux-next-dev-20261004.key"
+  OUT=<hq>/.cmux-scratch/<lane>/bake-<tag>          # <tag>: [a-z0-9-], at most 41 chars
+  bun test tests/vm-image-cmux-vm-lock.test.ts
+  bun ../images/cmux-vm/bake.ts --tag <tag> --out-dir "$OUT"            # prints IMAGE_ID sh-...
+  bun ../images/cmux-vm/smoke.ts --snapshot <sh-id> --tag <tag> --clones 2 --idle-seconds 90 \
+    --out-dir "$OUT/smoke" --agent-probe --resize-probe                  # SMOKE PASSED or SMOKE FAILED
+  bun ../images/cmux-vm/cleanup.ts --ledger "$OUT/resources.tsv" --keep-snapshot   # smoke passed: keep the snapshot
+  bun ../images/cmux-vm/cleanup.ts --ledger "$OUT/resources.tsv"                   # smoke failed: delete it too
+  ```
+
+  Then record the snapshot in `images/cmux-vm/channels/dev.json` and ask the backend lead to set the development Worker's `CLOUD_FREESTYLE_SNAPSHOT`.
 
 ## 5. Team VM and servers
 

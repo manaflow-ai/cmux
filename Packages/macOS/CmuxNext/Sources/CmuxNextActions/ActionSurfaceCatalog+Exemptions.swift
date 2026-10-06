@@ -12,7 +12,7 @@ nonisolated extension ActionSurfaceCatalog {
     /// (#16174): screen, screen group, pane, column, tab move, extension,
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
-        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
+        "help.showCrashLogs", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
@@ -69,6 +69,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", 
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission", "browser.pageInfo.resetPermissions",
+        "browser.pageInfo.reenableCertificateWarnings",
         "browser.extensions.loadUnpacked", "browser.extension.run", "browser.extension.pin", "browser.extension.unpin",
         "browser.extension.enable", "browser.extension.disable", "browser.extension.move", "browser.extension.reload",
         "browser.extension.remove", "browser.extension.command", "browserProfile.new", "browserProfile.rename",
@@ -90,7 +91,7 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
         "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
-        "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.refresh",
+        "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudDomainList", "cloudPublicationList", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "remote.connect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
         "reloadConfiguration", "palette.makeDefaultBrowser", "palette.makeDefaultTerminal", "palette.toggleSetting",
@@ -125,7 +126,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         // A row of the titlebar Back / Forward list: the click on the row is the gesture.
         .focusMove: [
-            "history.goTo",
+            "history.goTo", "agent.openSessionWorkspace",
         ],
     ]
 
@@ -144,6 +145,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .guiOnly: [
             "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
+            "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about", "palette.workspaceCustomColor",
             "revealWorkspaceInFinder", "workspaceGroup.editConfig", "manageLayouts",
             "palette.openWorkspacePullRequests", "palette.findWork", "toggleSplitZoom", "canvasOverview",
@@ -158,10 +160,10 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.extensions.webStore", "browser.extension.options", "browserProfile.manageExtensions",
             "toggleSidebar", "toggleRightSidebar", "switchRightSidebarToFiles", "switchRightSidebarToFind",
             "switchRightSidebarToSessions", "switchRightSidebarToFeed", "switchRightSidebarToDock",
-            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView",
+            "switchRightSidebarToMachines", "showNotifications", "feed.show", "palette.openTerminalChatView", "agent.openSessionWorkspace",
             "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording",
             "palette.cloud.tools", "cloudOpenMachine", "openTeamPicker", "palette.mobileConnect",
-            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
+            "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "ghostty.showDiagnostics", "palette.searchShortcuts",
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
             "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
@@ -178,7 +180,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browserScreenshotSection", "saveFilePreview", "markdownSave", "markdownLink", "markdownBack", "markdownForward", "toggleFileEditorWordWrap", "diffViewerNextLine",
             "diffViewerPreviousLine", "diffViewerHalfPageDown", "diffViewerHalfPageUp", "diffViewerNextHunk",
             "diffViewerPreviousHunk", "diffViewerGoToBottom", "diffViewerGoToTop", "diffViewerSearch",
-            "diffViewerNextFile", "diffViewerPreviousFile", "fileExplorerOpenSelection",
+            "diffViewerNextFile", "diffViewerPreviousFile", "fileEditorGotoLine", "fileEditorReplace", "fileEditorAction", "fileExplorerOpenSelection",
             "fileExplorerOpenSelectionFinderAlias", "fileExplorerOpenInCmux", "fileExplorerReveal",
             "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
@@ -222,8 +224,8 @@ nonisolated extension ActionSurfaceCatalog {
             "resizePaneLeft", "resizePaneRight", "resizePaneUp", "resizePaneDown", "increaseWorkspaceTerminalFontSize",
             "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "canvasZoomIn", "canvasZoomOut",
             "canvasZoomReset", "browserZoomIn", "browserZoomOut", "browserZoomReset", "markdownZoomIn",
-            "markdownZoomOut", "markdownZoomReset", "appearance.interfaceSize.increase",
-            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "column.cycleWidth",
+            "markdownZoomOut", "markdownZoomReset", "fileEditorZoomIn", "fileEditorZoomOut", "fileEditorZoomReset", "appearance.interfaceSize.increase",
+            "appearance.interfaceSize.decrease", "appearance.interfaceSize.reset", "appearance.uiScale.increase", "appearance.uiScale.decrease", "appearance.uiScale.reset", "column.cycleWidth",
             "column.cycleWidthBack", "terminal.increaseFontSize", "terminal.decreaseFontSize",
             "terminal.resetFontSize", "terminal.scrollPageUp", "terminal.scrollPageDown", "terminal.scrollToTop",
             "terminal.scrollToBottom",

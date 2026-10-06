@@ -9,6 +9,8 @@ class FakeHost implements PageClient {
   hash: string;
   saves: Array<{ text: string; baseHash: string | null }> = [];
   preferences: Array<{ key: string; value: unknown }> = [];
+  edits: Array<{ path: string; text: string; baseHash: string | null }> = [];
+  recoveredText: string | undefined;
   readOnly = false;
   settings: unknown = { autoSave: "off" };
   private onChange: ((change: EditorChange, seq: number) => void) | null = null;
@@ -26,7 +28,12 @@ class FakeHost implements PageClient {
         readOnly: this.readOnly,
         readOnlyReason: this.readOnly ? "outside" : undefined,
         settings: this.settings,
+        recoveredText: this.recoveredText,
       } as R;
+    }
+    if (op === "cmux.editor.edited") {
+      this.edits.push(params as { path: string; text: string; baseHash: string | null });
+      return {} as R;
     }
     if (op === "cmux.editor.save") {
       const { text, baseHash } = params as { text: string; baseHash: string | null };
@@ -86,20 +93,31 @@ class FakeView implements CodeView {
     this.body = text;
     this.history.push(text);
   }
+  replaceText(text: string): void {
+    this.type(text);
+  }
 }
 
 async function ready(text: string, configure?: (host: FakeHost) => void) {
   const host = new FakeHost(text);
   configure?.(host);
   const scheduled: Array<() => void> = [];
-  const store = new EditorStore(host, (run) => {
-    scheduled.push(run);
-    return () => scheduled.splice(scheduled.indexOf(run), 1);
-  });
+  const reports: Array<() => void> = [];
+  const store = new EditorStore(
+    host,
+    (run) => {
+      scheduled.push(run);
+      return () => scheduled.splice(scheduled.indexOf(run), 1);
+    },
+    (run) => {
+      reports.push(run);
+      return () => reports.splice(reports.indexOf(run), 1);
+    },
+  );
   const view = new FakeView();
   store.attachView(view);
   await store.start();
-  return { host, store, view, scheduled };
+  return { host, store, view, scheduled, reports };
 }
 
 describe("EditorStore", () => {
@@ -222,5 +240,30 @@ describe("withSetting", () => {
       wordWrap: "on",
     });
     expect(withSetting(undefined, "wordWrap", "off")).toEqual({ wordWrap: "off" });
+  });
+
+  test("the first edit reports its text to the host at once; later edits coalesce into one trailing report", async () => {
+    const { host, store, view, reports } = await ready("a\n");
+    view.type("ab\n");
+    store.edited();
+    expect(host.edits).toEqual([{ path: "/w/a.ts", text: "ab\n", baseHash: "h:a\n" }]);
+    view.type("abc\n");
+    store.edited();
+    view.type("abcd\n");
+    store.edited();
+    expect(host.edits.length).toBe(1);
+    for (const run of reports.splice(0)) run();
+    await Promise.resolve();
+    expect(host.edits.map((edit) => edit.text)).toEqual(["ab\n", "abcd\n"]);
+  });
+
+  test("a recovered draft loads as an unsaved edit and reports itself", async () => {
+    const { host, store, view } = await ready("a\n", (fake) => {
+      fake.recoveredText = "draft\n";
+    });
+    expect(view.body).toBe("draft\n");
+    expect(store.getState().status).toBe("edited");
+    expect(host.edits[0]?.text).toBe("draft\n");
+    expect(host.saves).toEqual([]);
   });
 });

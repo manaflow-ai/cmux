@@ -45,6 +45,20 @@ public struct WebKitRenderRate {
 
     @MainActor private static var reportedMissingFeature = false
 
+    /// Whether pages prefer the display's full rate: not in Low Power Mode.
+    public static func prefersFullRate(lowPowerMode: Bool) -> Bool {
+        !lowPowerMode
+    }
+
+    /// The rate a page renders at on a display whose highest rate is
+    /// `displayMaxFPS`: that rate, or in Low Power Mode WebKit's default,
+    /// the display-rate divisor nearest 60 fps at or above it (60 on 120 Hz,
+    /// 80 on 160 Hz; a display at 60 Hz or less renders at its own rate).
+    public static func framesPerSecond(lowPowerMode: Bool, displayMaxFPS: Int) -> Int {
+        guard !prefersFullRate(lowPowerMode: lowPowerMode), displayMaxFPS > 60 else { return displayMaxFPS }
+        return displayMaxFPS / (displayMaxFPS / 60)
+    }
+
     /// Sets `preferences` to render at the display's full rate, or near
     /// 60 fps. A WebKit without the feature keeps its default; that is
     /// logged once, never fatal.

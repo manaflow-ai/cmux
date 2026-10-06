@@ -40,11 +40,17 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
+    /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
+    @ObservationIgnored private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// The site of the page that started the current main-frame navigation.
+    @ObservationIgnored var navigationSourceSite: String?
     /// The last right-click's hit (`WebKitContextHit`); the menu takes it.
     @ObservationIgnored var contextHit: (target: BrowserContextMenuTarget, at: ContinuousClock.Instant)?
     @ObservationIgnored private var faviconTask: Task<Void, Never>?
     @ObservationIgnored private var findState = FindState()
     @ObservationIgnored private(set) var isClosed = false
+    /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
+    @ObservationIgnored var rateReshow: Task<Void, Never>?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -87,6 +93,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     isolated deinit {
         faviconTask?.cancel()
+        rateReshow?.cancel()
     }
 
     /// WKWebView paints white behind every page by default. macOS has no
@@ -107,7 +114,10 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     // MARK: Navigation commands
 
-    public func load(_ url: URL) { startLoad(url) }
+    public func load(_ url: URL) {
+        automaticDownloads.userGesture()
+        startLoad(url)
+    }
     public func goBack() { startGoBack() }
     public func goForward() { startGoForward() }
     public func reload() { startReload() }
@@ -231,6 +241,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         guard !isClosed else { return }
         isClosed = true
         faviconTask?.cancel()
+        rateReshow?.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
         pendingPrompts.removeAll()
         observations.removeAll()
@@ -365,10 +376,8 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func syncSecurity() {
         guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
-        var security = BrowserTabStateMachine.security(for: webView.url)
-        if security == .secure, !webView.hasOnlySecureContent {
-            security = .mixedContent
-        }
-        apply(.securityChanged(security))
+        apply(.securityChanged(BrowserTabStateMachine.security(
+            for: webView.url, hasOnlySecureContent: webView.hasOnlySecureContent,
+            certificateBypassed: engine?.loadedPastCertificateWarning(self) ?? false)))
     }
 }

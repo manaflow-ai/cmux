@@ -364,3 +364,19 @@ formatting.
 
 The React page already edits folder lists (`cmux.settings.folders.add` uses the cmux picker), so
 `files.roots` needs no page change.
+
+### Reopen Closed lane (R102, plans/cmux-next/reopen-closed.md "Retention" and 5.x)
+
+Rows land with the daemon's retention pass and the closing flow that read them. Section `general`,
+group `settings.group.closedHistory` ("Recently Closed"), except `closing.confirmRunningWork`
+(group `settings.group.closing`, "Closing").
+
+| Key | Kind | Default | Title / help | Agent policy |
+| --- | --- | --- | --- | --- |
+| `history.closed.maxGroups` | number 0...100000 count, step 1 | 0 | Keep Closed Items / "How many closed tabs, panes and workspaces to keep. 0 keeps all." | agent-settable |
+| `history.closed.maxAgeDays` | number 0...3650 count (days; or a new `days` unit), step 1 | 0 | Keep For / "Days to keep closed items. 0 keeps them forever." | agent-settable |
+| `history.closed.blobBudgetMB` | number 64...20480 count (MB; or a new `megabytes` unit), step 64 | 2048 | Scrollback Storage / "Disk space for the scrollback of closed terminals. The oldest goes first; a reopened terminal then starts without it." | agent-settable |
+| `closing.confirmRunningWork` | choice always, bulkOnly, never | `bulkOnly` (confirm with the lane; reopen-closed.md 5.x names the choices only) | Confirm Closing Running Work | agent-refused, `userOnly` (an agent must not turn off its own close confirmations) |
+
+Keys `history.closed.*` deletions are hard deletes, so the help text names what is lost. Catalog keys
+follow `settings.history.closed.<name>` and `settings.closing.confirmRunningWork`.

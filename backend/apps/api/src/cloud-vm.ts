@@ -5,6 +5,7 @@ import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
 import { decodeParams } from "./domains/common.ts"
 import { publicMachine, TABLE_MACHINE, type MachineRow } from "./domains/cloud.ts"
+import { reportsActivity } from "./cloud-idle.ts"
 
 /**
  * The VM daemon's own-machine ops (VM install at bind; coordinator and a9, 2026-10-05) and the VM
@@ -43,7 +44,11 @@ export class VmStatusQueue {
   constructor(private readonly sql: SqlStore) {}
   private ready = false
   private table() {
-    if (!this.ready) this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_status (machine TEXT PRIMARY KEY, report TEXT NOT NULL, received_at INTEGER NOT NULL, applied_at INTEGER NOT NULL)`)
+    if (!this.ready) {
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS cloud_vm_status (machine TEXT PRIMARY KEY, report TEXT NOT NULL, received_at INTEGER NOT NULL, applied_at INTEGER NOT NULL, activity_at INTEGER NOT NULL DEFAULT 0)`)
+      // A table from before activity_at (development only): add the column once.
+      if (!this.sql.exec<{ name: string }>(`SELECT name FROM pragma_table_info('cloud_vm_status')`).some((c) => c.name === "activity_at")) this.sql.exec(`ALTER TABLE cloud_vm_status ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0`)
+    }
     this.ready = true
   }
   /** Stores the report; true when it may apply now. */
@@ -57,11 +62,16 @@ export class VmStatusQueue {
     )
     return applyNow
   }
-  /** When the last report for `machine` was applied (the cost backstop's "last heard"), or null. */
-  lastAppliedAt(machine: string): number | null {
+  /** A capable report was committed as applied (called only after statusApplied: a dropped report never counts; review P3). */
+  markActivity(machine: string, report: unknown, now: number) {
+    if (reportsActivity(report)) this.sql.exec(`UPDATE cloud_vm_status SET activity_at = ? WHERE machine = ?`, now, machine)
+  }
+
+  /** When the last report with the activity capability was applied (the cost backstop's "last heard"), or null. */
+  lastActivityAt(machine: string): number | null {
     if (!this.ready && this.sql.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'cloud_vm_status'`)[0]?.n === 0) return null
     this.table()
-    const r = this.sql.exec<{ t: number }>(`SELECT applied_at AS t FROM cloud_vm_status WHERE machine = ?`, machine)[0]
+    const r = this.sql.exec<{ t: number }>(`SELECT activity_at AS t FROM cloud_vm_status WHERE machine = ?`, machine)[0]
     return r && Number(r.t) > 0 ? Number(r.t) : null
   }
 

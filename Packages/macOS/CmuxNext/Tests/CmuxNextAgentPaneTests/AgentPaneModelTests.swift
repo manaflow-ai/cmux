@@ -12,11 +12,11 @@ private actor RecordingHost: AgentPaneHostProviding {
     private(set) var reconnects = 0
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
         asked.append(sessionId)
-        return AgentPaneHandshake.acpmux(AcpmuxWebEndpoint(url: URL(fileURLWithPath: "/"), token: "t"), sessionId: sessionId)
+        return AgentPaneHandshake.acpmux(AcpmuxConnection(url: URL(fileURLWithPath: "/"), dashboardToken: "t", localAppToken: nil), sessionId: sessionId)
     }
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake {
         reconnects += 1
-        return AgentPaneHandshake.acpmux(AcpmuxWebEndpoint(url: URL(fileURLWithPath: "/"), token: "t"), sessionId: sessionId)
+        return AgentPaneHandshake.acpmux(AcpmuxConnection(url: URL(fileURLWithPath: "/"), dashboardToken: "t", localAppToken: nil), sessionId: sessionId)
     }
 }
 
@@ -245,7 +245,7 @@ private actor RecordingHost: AgentPaneHostProviding {
         }
         let model = AgentPaneModel(host: RecordingHost(), seed: seed)
         let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
-        #expect(value["transport"] as? String == "acpmux-websocket")
+        #expect(value["transport"] as? String == "acpmux-bridge")
         #expect(value["cwd"] == nil)
     }
 }

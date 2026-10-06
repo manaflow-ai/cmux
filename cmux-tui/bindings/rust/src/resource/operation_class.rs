@@ -78,6 +78,10 @@ pub(crate) fn operation_class(operation: &str) -> OperationClass {
             | ops::WINDOW_RECORD_LIST
             | ops::WORKSPACE_GROUP_LIST
             | ops::WORKSPACE_PLACEMENT_LIST
+            | ops::CLOSED_LIST
+            | ops::TAB_GROUP_LIST
+            | ops::TAB_GROUP_GET
+            | ops::SAVED_TAB_GROUP_LIST
     ) {
         OperationClass::Read
     } else {

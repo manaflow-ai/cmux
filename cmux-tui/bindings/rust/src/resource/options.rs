@@ -262,11 +262,23 @@ pub struct CreateWorkspaceOptions {
     pub name: Option<String>,
     pub initial_content: InitialContent,
     pub correlation_key: Option<String>,
+    /// An ephemeral (incognito) workspace: the daemon closes it at its next
+    /// start, and closes inside it leave no closed history. Set only at
+    /// creation (`workspace.update` never changes it); content moved out of
+    /// it into a new workspace keeps it, and a move between it and an
+    /// existing normal workspace is refused. Sent only when `true`, so a
+    /// normal create keeps its request fingerprint.
+    pub ephemeral: bool,
 }
 
 impl Default for CreateWorkspaceOptions {
     fn default() -> Self {
-        Self { name: None, initial_content: InitialContent::Terminal, correlation_key: None }
+        Self {
+            name: None,
+            initial_content: InitialContent::Terminal,
+            correlation_key: None,
+            ephemeral: false,
+        }
     }
 }
 
@@ -274,6 +286,15 @@ impl Default for CreateWorkspaceOptions {
 pub enum InitialContent {
     Terminal,
     Empty,
+}
+
+impl InitialContent {
+    pub(crate) fn wire_name(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::Empty => "empty",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

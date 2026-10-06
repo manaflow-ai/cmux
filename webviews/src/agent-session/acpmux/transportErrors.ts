@@ -9,12 +9,17 @@ const TRANSPORT_TEXT: Record<string, StringKey> = {
   "transport.path_outside_roots": "transport.pathOutsideRoots",
   "transport.session_not_in_pane": "transport.sessionNotInPane",
   "transport.intent_invalid": "transport.intentInvalid",
+  "transport.mode_not_confirmed": "transport.modeNotConfirmed",
 };
 
-/// The text to show for `error`: a transport refusal's own text, else the error's message.
+/// The text to show for `error`: a transport refusal's own text (a code without one reads as the
+/// generic refusal, never the host's English message), else the error's message.
 export function errorMessage(error: unknown): string {
   const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : undefined;
-  const key = typeof code === "string" ? TRANSPORT_TEXT[code] : undefined;
+  const key =
+    typeof code === "string"
+      ? (TRANSPORT_TEXT[code] ?? (code.startsWith("transport.") ? "transport.refused" : undefined))
+      : undefined;
   if (key) {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
     if (code === "transport.intent_invalid") console.error("agent pane: the host refused a request", error);

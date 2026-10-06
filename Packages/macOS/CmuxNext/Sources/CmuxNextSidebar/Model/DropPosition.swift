@@ -24,6 +24,9 @@ public nonisolated enum DropTarget: Hashable, Sendable {
     case position(DropPosition)
     /// Append into a collapsed group; its header highlights instead of a gap.
     case intoGroup(GroupID)
+    /// Onto the middle of a loose workspace row: the dragged workspaces and
+    /// that one become a new group. The row highlights; nothing moves.
+    case ontoWorkspace(WorkspaceID)
 }
 
 /// What collapses.

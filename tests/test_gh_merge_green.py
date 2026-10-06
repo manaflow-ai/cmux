@@ -89,6 +89,25 @@ class MainFixEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(module.Refused, "Debug"):
             self.validate()
 
+    def test_debug_compile_skipped_by_tier_routing_is_not_required(self):
+        """A CmuxNext-only PR skips the app scheme compile (docs/ci/cmux-next-tiers.md)."""
+        self.gh.head_checks[1]["conclusion"] = "skipped"
+        self.gh.jobs[2]["conclusion"] = "skipped"
+        self.gh.jobs[2]["steps"] = []
+        evidence = self.validate()
+        self.assertIn("skipped by tier routing", evidence)
+
+    def test_failed_debug_compile_still_refuses(self):
+        self.gh.head_checks[1]["conclusion"] = "failure"
+        self.gh.jobs[2]["conclusion"] = "failure"
+        self.gh.jobs[2]["steps"][0]["conclusion"] = "failure"
+        with self.assertRaisesRegex(module.Refused, "scheme"):
+            self.validate()
+
+    def test_selected_target_test_step_can_be_waived(self):
+        self.assertIn("Run package tests (selected targets; control deadline, WebKit driver and attach stress tests run below)",
+                      module.TEST_STEPS)
+
     def test_skipped_or_queued_compile_cannot_be_waived(self):
         for state in ("skipped", "failure", "cancelled", None):
             with self.subTest(state=state):

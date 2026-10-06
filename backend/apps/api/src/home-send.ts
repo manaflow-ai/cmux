@@ -10,7 +10,8 @@ import { apiOrigin, CARD_PATH, sendblueConfig } from "./home-text.ts"
  * `address.delivery.record`, which reports to the ConversationDO.
  *
  * Fail-closed switches: HOME_INVITES_SEND must be exactly "on" (anything else, including unset,
- * is off); outside production only allow-listed recipients are reached; a missing provider key
+ * is off); outside production only allow-listed recipients are reached, unless the invite's
+ * inviter is on HOME_INVITE_ALLOWED_INVITERS (user id or verified email; decision 2026-10-05); a missing provider key
  * or sender is a failed delivery, never a retry loop. Text (SMS and iMessage) sends the contact
  * card first to a new number and the invite text after SendBlue reports the card (home-text.ts).
  *
@@ -23,6 +24,8 @@ export interface SendTarget {
   readonly channel: "email" | "sms"
   readonly value: string
   readonly secret: string | undefined
+  /** Who made the invite (user id, verified email or null), recorded at invite.create. */
+  readonly inviter?: { readonly user: string; readonly email: string | null } | undefined
   /** The address's suppression; a suppressed address is never sent to (deliverInvite checks it). */
   readonly suppression?: invites.Suppression | null
 }
@@ -76,16 +79,25 @@ export const sendInvite = async (
     log("refused_env", { reason: "allow list does not parse" })
     return { state: "refused_env", provider_id: null }
   }
+  // The team inviter rule, re-read at every send: a removed inviter's pending invites fall back to the allow list.
+  let trustedInviter = false
+  if (environment !== "production" && target.inviter) {
+    try {
+      trustedInviter = invites.isAllowedInviter(invites.allowedInvitersFromEnv(env.HOME_INVITE_ALLOWED_INVITERS), target.inviter)
+    } catch {
+      log("inviter_list_invalid", { reason: "HOME_INVITE_ALLOWED_INVITERS does not parse; the allow list applies" })
+    }
+  }
   const sendblue = sendblueConfig(env)
   const deps: invites.SenderDeps = {
-    policy: { environment, sendSwitch: sendSwitchOn(env) ? "on" : "off", allowlist },
+    policy: { environment, sendSwitch: sendSwitchOn(env) ? "on" : "off", allowlist, trustedInviter },
     fetch: fetcher,
     ...(env.RESEND_API_KEY && env.HOME_INVITE_FROM ? { resend: { apiKey: env.RESEND_API_KEY, from: env.HOME_INVITE_FROM } } : {}),
     ...(sendblue ? { sendblue } : {})
   }
   const deliver = async (message: invites.RenderedEmail | invites.RenderedSms, inviteId: string) => {
     const result = await invites.deliverInvite(deps, { inviteId, address: { channel: target.channel, value: target.value }, suppression: target.suppression ?? null, message })
-    log(result.state, { allowlist_index: result.allowlist_index ?? 0, provider_id: result.provider_id ?? null, http_status: result.http_status ?? null, reason: result.reason ?? null })
+    log(result.state, { allowlist_index: result.allowlist_index ?? 0, inviter_rule: trustedInviter, provider_id: result.provider_id ?? null, http_status: result.http_status ?? null, reason: result.reason ?? null })
     return { state: result.state, provider_id: result.provider_id ?? null }
   }
   if (step === "card") {

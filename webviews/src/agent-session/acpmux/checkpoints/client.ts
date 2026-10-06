@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import {
   CHECKPOINT_OPS,
   checkpointList,
@@ -92,7 +93,7 @@ function requestError(error: unknown): CheckpointRpcError {
   }
   return new CheckpointRpcError({
     code: "operation.failed",
-    userMessage: error instanceof Error ? error.message : "Request failed",
+    userMessage: error instanceof Error ? error.message : translate("error.requestFailed"),
   });
 }
 const reconciliationErrors = new WeakSet<CheckpointRpcError>();
@@ -103,7 +104,7 @@ function reconciliationError(error: unknown): CheckpointRpcError {
 }
 function targetParams(target: CheckpointTarget): Record<string, unknown> {
   if (typeof target.cwd !== "string" || target.cwd.length === 0)
-    throw new CheckpointRpcError("validation.invalid", "A working directory is required.");
+    throw new CheckpointRpcError("validation.invalid", translate("checkpoint.error.folderRequired"));
   return { cwd: target.cwd };
 }
 function isNotFound(error: unknown): boolean {
@@ -193,21 +194,21 @@ export class CheckpointClient {
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Checkpoint capture is unavailable while offline.",
+          userMessage: translate("checkpoint.error.offline"),
           details: { reason: "offline" },
         },
         undefined,
         "offline",
       );
     if (!this.state.supported)
-      throw new CheckpointRpcError("operation.unsupported", "Checkpoint capture is unavailable.");
+      throw new CheckpointRpcError("operation.unsupported", translate("checkpoint.error.unsupported"));
     const target = this.state.target;
-    if (!target) throw new CheckpointRpcError("validation.invalid", "Select an agent working directory first.");
+    if (!target) throw new CheckpointRpcError("validation.invalid", translate("checkpoint.error.noFolder"));
     if (target.hostKind === "cloud")
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Cloud sessions do not expose local checkpoints.",
+          userMessage: translate("checkpoint.error.cloud"),
           details: { reason: "cloud_unsupported" },
         },
         undefined,
@@ -251,6 +252,7 @@ export class CheckpointClient {
   }
   async get(params: { checkpoint_id?: string; idempotency_key?: string }): Promise<Checkpoint> {
     if ((params.checkpoint_id === undefined) === (params.idempotency_key === undefined))
+      // l10n-allow: a caller's bug, never a user's
       throw new CheckpointRpcError("validation.invalid", "Use exactly one checkpoint lookup.");
     const target = this.requireReady();
     return checkpointRecord(await this.call(CHECKPOINT_OPS.get, { ...targetParams(target), ...params }));
@@ -328,7 +330,7 @@ export class CheckpointClient {
       if (generation !== this.generation || !this.online)
         throw new CheckpointRpcError({
           code: "native.not_connected",
-          userMessage: "Checkpoint retry paused until the selected session is connected.",
+          userMessage: translate("checkpoint.error.paused"),
           details: { reason: RECONCILIATION_BLOCKED_REASON },
           origin: "native",
         });
@@ -343,7 +345,7 @@ export class CheckpointClient {
         throw reconciliationError(
           new CheckpointRpcError({
             code: "native.not_connected",
-            userMessage: "Checkpoint retry paused until the selected session is connected.",
+            userMessage: translate("checkpoint.error.paused"),
             details: { reason: RECONCILIATION_BLOCKED_REASON },
             origin: "native",
           }),
@@ -442,7 +444,7 @@ export class CheckpointClient {
       throw new CheckpointRpcError(
         {
           code: "operation.failed",
-          userMessage: "Managed checkpoint pins cannot be removed.",
+          userMessage: translate("checkpoint.error.managedPin"),
           details: { reason: "managed_pin" },
         },
         undefined,

@@ -1,19 +1,22 @@
 import AppKit
+import CmuxAgentBrands
+import CmuxNextIcons
 import CmuxNextDesign
 import QuartzCore
 
-/// Workspace icon, shown only when the user chose one: an SF Symbol (tinted
-/// with the workspace color), one emoji (on a chip of the workspace color),
-/// or a color alone shown as a small dot.
+/// Workspace icon: the user's choice, an SF Symbol (tinted with the
+/// workspace color), one emoji (on a chip of the workspace color) or a color
+/// alone shown as a small dot; else the row's type glyph from the icon
+/// registry, or the brand mark of the agent it shows, at row size.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
     private let emoji = NSTextField(labelWithString: "")
     private var icon: WorkspaceIcon?
 
-    /// Rows reserve room only for a chosen icon.
-    static func showsIcon(_ icon: WorkspaceIcon?) -> Bool {
-        icon != nil
+    /// Rows reserve room for a chosen icon or a built-in type glyph.
+    static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
+        icon != nil || fallback != nil
     }
 
     override init(frame: NSRect) {
@@ -43,9 +46,9 @@ final class SidebarIconView: NSView {
         if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
     }
 
-    func configure(icon: WorkspaceIcon?) {
+    func configure(icon: WorkspaceIcon?, fallback: IconName? = nil, brand: String? = nil) {
         self.icon = icon
-        isHidden = !Self.showsIcon(icon)
+        isHidden = !Self.showsIcon(icon, fallback: fallback)
         emoji.isHidden = true
         switch icon {
         case let .emoji(text, _)?:
@@ -57,8 +60,13 @@ final class SidebarIconView: NSView {
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
                 ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
             imageView.isHidden = false
-        case .swatch?, nil:
+        case .swatch?:
             imageView.isHidden = true
+        case nil:
+            let side = SidebarStyle.kindGlyphSize
+            imageView.image = brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+                ?? fallback.map { NSImage.icon($0, size: side, style: .line) }
+            imageView.isHidden = imageView.image == nil
         }
         needsDisplay = true
         needsLayout = true
@@ -68,9 +76,14 @@ final class SidebarIconView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            if case let .symbol(_, tint)? = icon {
-                imageView.contentTintColor = tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            let tint: NSColor? = if case let .symbol(_, tint)? = icon {
+                tint.map(SidebarStyle.color) ?? Palette.textSecondary
+            } else if icon == nil {
+                Palette.textSecondary
+            } else {
+                nil
             }
+            if let tint { imageView.contentTintColor = tint }
             switch icon {
             case let .swatch(color)?:
                 swatch.isHidden = false

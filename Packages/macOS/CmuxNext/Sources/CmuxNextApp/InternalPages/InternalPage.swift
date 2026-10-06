@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextIcons
 
 /// Internal pages: cmux's own surfaces (Settings, Debug Settings, the App
 /// Store) shown as tabs in a pane instead of windows of their own.
@@ -45,15 +46,22 @@ protocol InternalPageProvider: AnyObject {
     var page: InternalPageID { get }
     /// The tab title (localized).
     var title: String { get }
-    /// SF Symbol of the tab.
+    /// SF Symbol of the tab, drawn when `icon` is nil.
     var symbol: String { get }
+    /// The tab's cmux icon. Default: nil.
+    var icon: IconName? { get }
     /// A new view for the tab `key` (called once per tab, on first show).
     /// `window` is the main window the tab opens in, for its theme scope.
     func makeView(for key: String, in window: WindowController?) -> NSView
     /// The tab `key` closed: its view is gone.
     func tabClosed(_ key: String)
+    /// The title of tab `key`, for a page whose tabs show different things
+    /// (a diff tab names its folder). Default: ``title``.
+    func title(for key: String) -> String
 }
 
 extension InternalPageProvider {
+    var icon: IconName? { nil }
     func tabClosed(_ key: String) {}
+    func title(for key: String) -> String { title }
 }

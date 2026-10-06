@@ -16,13 +16,24 @@ import Testing
 
     /// Waits (bounded) for the capture that leaving the screen starts.
     func eventually(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 where !condition() {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        let clock = ContinuousClock()
+        let end = clock.now.advanced(by: Self.captureDeadline)
+        while !condition(), clock.now < end { try await clock.sleep(for: .milliseconds(10)) } // test-only wait
+    }
+
+    /// The shared 30 s test deadline: these tests check when a capture runs,
+    /// not its deadline. Under a loaded `swift test` process the main actor
+    /// can wait more than the app's 2 s, and the capture was then dropped.
+    static let captureDeadline: Duration = .seconds(30)
+
+    func makeCache() -> TabContentCache {
+        let cache = TabContentCache(daemon: DaemonService())
+        cache.pageCaptureDeadline = Self.captureDeadline
+        return cache
     }
 
     @Test func aTabSwitchAwayCapturesOnceAndTheHoverCapturesNothing() async throws {
-        let cache = TabContentCache(daemon: DaemonService())
+        let cache = makeCache()
         let page = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())
         cache.install(page, for: "tab")
         let pane = Pane()
@@ -52,7 +63,7 @@ import Testing
     /// another window then has a thumbnail), once per deactivation, and
     /// never a page that is not on screen.
     @Test func aWindowResigningKeyCapturesItsShownPageOnce() async throws {
-        let cache = TabContentCache(daemon: DaemonService())
+        let cache = makeCache()
         let shown = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())
         let hidden = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration())
         cache.install(shown, for: "shown")

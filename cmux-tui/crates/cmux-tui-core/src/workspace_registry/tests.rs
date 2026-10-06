@@ -605,22 +605,21 @@ fn terminal_host_reset_holds_structured_live_marker_lock() {
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
     let uid = fs::metadata(&root).unwrap().uid();
     let terminal_id = TERMINAL_ONE;
-    let incarnation = INCARNATION_ONE;
-    let host_start_nonce = "02".repeat(32);
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
         terminal_id: terminal_id.to_string(),
-        incarnation: incarnation.to_string(),
+        incarnation: INCARNATION_ONE.to_string(),
         endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
         owner_token: "01".repeat(32),
         host_pid: std::process::id(),
-        host_start_nonce,
+        host_start_nonce: "02".repeat(32),
         workspace_key: String::new(),
         supports_set_defaults: true,
         supports_clear_history: true,
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -716,6 +715,7 @@ fn terminal_host_reset_checks_legacy_live_marker_as_orphan() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -810,12 +810,11 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
     fs::set_permissions(&host_root, fs::Permissions::from_mode(0o700)).unwrap();
     crate::terminal_host_runtime::prepare_terminal_host_publication_lock(&host_root).unwrap();
     let uid = fs::metadata(&host_root).unwrap().uid();
-    let terminal_id = TERMINAL_ONE;
     let record = crate::terminal_host_runtime::TerminalHostRecord {
         record_version: 2,
-        terminal_id: terminal_id.to_string(),
+        terminal_id: TERMINAL_ONE.to_string(),
         incarnation: INCARNATION_ONE.to_string(),
-        endpoint: format!("/tmp/cmux-th-{uid}/{terminal_id}.sock"),
+        endpoint: format!("/tmp/cmux-th-{uid}/{TERMINAL_ONE}.sock"),
         owner_token: "01".repeat(32),
         host_pid: u32::MAX,
         host_start_nonce: "02".repeat(32),
@@ -825,6 +824,7 @@ fn reset_accepts_dead_v2_terminal_host_without_creating_live_marker() {
         supports_terminate_ack: false,
         supports_input_ack: false,
         supports_terminal_metadata: false,
+        supports_clipboard_read: false,
     };
     let record_path = record.record_path(&host_root);
     let live_path = terminal_host_live_marker_path(&record_path, &record);
@@ -1122,10 +1122,10 @@ fn workspace_commit_publishes_one_normalized_resource_event() {
     assert_eq!(events.batches.len(), 1);
     assert_eq!(events.batches[0].previous_revision, 0);
     assert_eq!(events.batches[0].revision, 1);
-    assert_eq!(events.batches[0].changes.as_array().unwrap().len(), 1);
-    assert_eq!(events.batches[0].changes[0]["kind"], "upsert");
-    assert_eq!(events.batches[0].changes[0]["resource"], "workspace");
-    assert!(events.batches[0].changes[0].get("event").is_none());
+    let c = events.batches[0].changes.as_array().unwrap();
+    assert_eq!([&c[0]["kind"], &c[1]["kind"]], ["upsert", "state_upsert"], "{c:?}");
+    assert_eq!([&c[0]["resource"], &c[1]["resource"]], ["workspace", "workspace_placement"]);
+    assert!(c[0].get("event").is_none() && c.len() == 2);
     assert_eq!(
         registry
             .connection

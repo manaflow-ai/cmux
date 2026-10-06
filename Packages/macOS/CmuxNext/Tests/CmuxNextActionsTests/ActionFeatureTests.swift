@@ -47,14 +47,16 @@ import Testing
         #expect(ran == ["splitRight", "newCloudMachine"])
     }
 
-    /// Cmd-Y (New Cloud Machine) stops resolving while Cloud is off.
+    /// Cmd-Shift-Y (New Cloud Workspace) stops resolving while Cloud is off.
+    /// (Cmd-Y belongs to browser history since 7ded18b6e37; New Cloud
+    /// Machine has no default shortcut.)
     @Test func aDisabledFeatureLeavesItsShortcuts() throws {
         let registry = ActionRegistry.standard()
-        registry.bind("newCloudMachine") {}
-        let shortcut = Shortcut("y", modifiers: [.command])
-        #expect(registry.keyWinner(shortcut)?.command == "newCloudMachine")
+        registry.bind("newCloudWorkspace") {}
+        let shortcut = Shortcut("y", modifiers: [.command, .shift])
+        #expect(registry.keyWinner(shortcut)?.command == "newCloudWorkspace")
         registry.disabledFeatures = [.cloud]
-        #expect(registry.keyWinner(shortcut)?.command != "newCloudMachine")
+        #expect(registry.keyWinner(shortcut)?.command != "newCloudWorkspace")
     }
 
     @Test func serverActionsAreRemoteHosts() {

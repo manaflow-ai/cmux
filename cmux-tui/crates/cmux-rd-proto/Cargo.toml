@@ -10,7 +10,13 @@ description = "cmux remote desktop wire formats (cmux.rd/1): datagram header, fr
 [lints]
 workspace = true
 
+[features]
+# Typed control messages (`control::Control`) for hosts and Rust viewers.
+serde = ["dep:serde"]
+
 [dependencies]
+serde = { workspace = true, optional = true }
 
 [dev-dependencies]
+serde_json = { workspace = true }
 proptest = { version = "1", default-features = false, features = ["std"] }

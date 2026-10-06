@@ -35,6 +35,14 @@ use palette_override::*;
 mod mouse_mode_change;
 use mouse_mode_change::*;
 
+mod color_parse;
+pub use color_parse::{parse_color, parse_palette_entry};
+
+mod clipboard_read;
+pub use clipboard_read::{
+    ClipboardLocation, ClipboardReadFn, ClipboardReadRequest, MAX_CLIPBOARD_READ_BYTES,
+};
+
 static NEXT_TERMINAL_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_HISTORY_EPOCH: AtomicU64 = AtomicU64::new(1);
 const VT_REPLAY_ESTIMATED_BYTES_PER_CELL: u64 = 32;
@@ -255,32 +263,6 @@ impl Default for TerminalColorOverrides {
     }
 }
 
-/// Parse a color with Ghostty's config semantics.
-///
-/// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
-pub fn parse_color(value: &str) -> Option<Rgb> {
-    let mut color = sys::GhosttyColorRgb::default();
-    check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
-        .ok()?;
-    Some(color.into())
-}
-
-/// Parse one Ghostty `palette = N=COLOR` value.
-pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
-    let mut index = 0;
-    let mut color = sys::GhosttyColorRgb::default();
-    check(unsafe {
-        sys::ghostty_color_parse_palette_entry(
-            value.as_ptr().cast(),
-            value.len(),
-            &mut index,
-            &mut color,
-        )
-    })
-    .ok()?;
-    Some((index, color.into()))
-}
-
 /// Which screen buffer is active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -383,6 +365,9 @@ pub struct Callbacks {
     pub on_title_changed: Option<NotifyFn>,
     /// BEL received.
     pub on_bell: Option<NotifyFn>,
+    /// A program asked to read the clipboard (OSC 52), deferred; see
+    /// [`Terminal::set_clipboard_reads_deferred`].
+    pub on_clipboard_read: Option<ClipboardReadFn>,
 }
 
 /// A terminal instance: VT parser plus full screen/scrollback state.

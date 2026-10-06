@@ -35,17 +35,39 @@ import Testing
         #expect(view.fill == hover)
         view.mouseDown(with: event(.leftMouseDown, at: center))
         #expect(view.fill == pressed)
-        #expect(presses == 1)
+        #expect(presses == 0, "an item acts on release, so a press that becomes a drag never opens it")
         view.mouseUp(with: event(.leftMouseUp, at: center))
         #expect(view.fill == hover)
+        #expect(presses == 1)
         view.mouseDown(with: event(.leftMouseDown, at: center))
         view.mouseExited(with: event(.mouseExited, at: center))
         #expect(view.fill == nil, "leaving mid-press clears the pressed fill")
     }
 
-    @Test func activeItemKeepsItsSelectionAndTilesRest() {
+    @Test func aPressThatBecomesADragOrLeavesTheItemNeverActs() {
+        let view = row(style: .favorite)
+        var presses = 0, drags = 0, ends = 0
+        view.onPress = { presses += 1 }
+        view.onDragged = { _, _ in drags += 1; return true }
+        view.onDragEnded = { ends += 1 }
+        let center = NSPoint(x: 80, y: 14)
+        view.mouseDown(with: event(.leftMouseDown, at: center))
+        view.mouseDragged(with: event(.leftMouseDragged, at: NSPoint(x: 120, y: 14)))
+        view.mouseUp(with: event(.leftMouseUp, at: NSPoint(x: 120, y: 14)))
+        #expect(drags == 1 && ends == 1)
+        #expect(presses == 0, "a drag moves the item; it does not open it")
+
+        view.mouseDown(with: event(.leftMouseDown, at: center))
+        view.mouseUp(with: event(.leftMouseUp, at: NSPoint(x: 400, y: 14)))
+        #expect(presses == 0, "released outside the item: no action")
+    }
+
+    /// SIDEBAR-SELECTION-ONE-MODEL: an active list item draws no fill of its
+    /// own (the sidebar's one highlight sits under it); a resting tile keeps
+    /// its raised fill.
+    @Test func activeItemLeavesItsSelectionToTheHighlightAndTilesRest() {
         let active = row(active: true), tile = row(style: .tile)
-        #expect(active.fill == active.performWithTheme { Palette.selectionFill })
+        #expect(active.fill == nil)
         #expect(tile.fill == tile.performWithTheme { Palette.hoverFill })
     }
 

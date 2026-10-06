@@ -30,10 +30,6 @@ if [[ "$(uname -s)" != Darwin ]]; then
     exit 2
 fi
 
-ghostty_sha="$(git rev-parse HEAD:ghostty)"
-GHOSTTY_SHA="$ghostty_sha" GHOSTTYKIT_OUTPUT_DIR="$REPO_ROOT/GhosttyKit.xcframework" \
-    "$REPO_ROOT/scripts/download-prebuilt-ghosttykit.sh"
-"$REPO_ROOT/scripts/cmux-next/prefix-ghosttykit-archives.sh" "$REPO_ROOT/GhosttyKit.xcframework"
 
 cd "$PACKAGE_PATH"
 swift build --build-tests -j 4 -Xlinker -lc++

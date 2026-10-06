@@ -14,7 +14,7 @@ import { ssoExternal } from "./team-sso-external.ts"
 import { ssoCallback, ssoMaxAgeMs, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { mayEnrollServer, serverPlacementActive, type ServerEnrollRefused } from "./domains/team-servers.ts"
 import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
 import type { SshPresence } from "./team-ssh-presence.ts"
 
@@ -376,10 +376,10 @@ export class TeamDO extends OwnerDO<TeamState> {
     return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
   }
 
+  async serverPlacementActive(entity: string, host: string, install: string): Promise<boolean> { return this.isBound(entity) && serverPlacementActive(this.bind(entity).currentState, this.rows, host, install) } // RPC from UserDO.installGrant (placed chief): enrolled here, no revocation pending
   /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
-    const engine = this.bind(entity)
-    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user, engine.rows)
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(this.bind(entity).currentState, principal.user, this.rows)
   }
 
   /**

@@ -23,6 +23,9 @@ extension SettingsSchema {
     /// Keys an agent may set and reset: the table below plus every
     /// `appearance.surfaces.<surface>.color|opacity` row (looks only, R55).
     public static let agentSettableKeys: Set<String> = agentSettableTable.union(SurfaceBackgroundSetting.keys).union(BrowserLinkClickSchema.agentSettableKeys)
+        .union(OmnibarSettingsSchema.agentSettableKeys)
+        // The diff page's display keys (looks only, diff-host S4).
+        .union(DiffViewerSettingsSchema.keys)
         // Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script`
         // (a separate process is never `user`), for example the sidebar width after a resize.
         .union(LayoutMetricSetting.all.map { $0.configPath.joined(separator: ".") })
@@ -34,8 +37,9 @@ extension SettingsSchema {
         "window.titlebarButtons",
         "tabs.plusButton",
         "tabs.barPosition", "tabs.barOrder",
-        "navigation.historyScope",
+        "navigation.historyScope", "navigation.history.scope",
         "sidebar.minimalMode",
+        "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition",
         "tabs.newTabKind",
@@ -64,6 +68,7 @@ extension SettingsSchema {
         "appearance.backgroundBlur",
         "appearance.background",
         "appearance.experimentalControls",
+        "app.uiScale",
         "appearance.glassTransparency",
         "appearance.hue",
         "appearance.saturation",
@@ -99,7 +104,7 @@ extension SettingsSchema {
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
-        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs",
+        "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showCounts",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -126,14 +131,18 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
+        "notifications.mutedWorkspaces",
         "labs.previewFeatures",
         "updates.notify",
-        "updates.quietHours",
         "announcements.enabled",
     ]
 
     /// Keys an agent may not set or reset, with the reason.
-    public static let agentRefusedKeys: [String: AgentRefusal] = [
+    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
+        .merging(refusedTable) { first, _ in first }
+
+    private static let refusedTable: [String: AgentRefusal] = [
         "picker.pinned": .userOnly,
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
@@ -141,7 +150,12 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Whether attached photos and videos send their location.
+        "home.attachments.keepLocation": .privacy,
         "app.quitBehavior": .destructive,
+        // Off, a close ends running programs and agents without asking.
+        "app.warnBeforeClosingTab": .destructive,
+        "app.warnBeforeClosingAgentSession": .destructive,
         // Update checks and downloads reach the network; install on quit
         // replaces the app.
         "updates.checkAutomatically": .network,

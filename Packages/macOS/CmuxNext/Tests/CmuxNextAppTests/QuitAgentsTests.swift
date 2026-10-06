@@ -4,7 +4,8 @@ import CmuxNextSettings
 import Testing
 
 /// Agents outlive the app like terminals (they run in the acpmux daemon),
-/// so the quit dialog counts them, and every End choice ends them
+/// so the quit dialog counts the ones in a turn and says they keep running
+/// (#17501), and every End choice ends them
 /// (plans/cmux-next/quit-persistence.md 4.1, 4.3; R138).
 @MainActor
 struct QuitAgentsTests {
@@ -26,14 +27,14 @@ struct QuitAgentsTests {
         #expect(prompt.defaultChoice == .keep)
     }
 
-    @Test func unknownAgentsAsk() {
+    /// An unknown census or idle agents are no reason to ask: they keep
+    /// running and reattach on the next launch.
+    @Test func unknownOrIdleAgentsDoNotAsk() {
         var facts = QuitFacts.none
         facts.agents = nil
-        guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .ask, facts: facts) else {
-            Issue.record("expected the dialog"); return
-        }
-        #expect(prompt.agents == nil)
-        #expect(prompt.offersSessionChoice)
+        #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: facts) == .quit(.keep))
+        facts.agents = QuitAgentFacts(live: 3, inTurn: 0, inTurnNames: [])
+        #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: facts) == .quit(.keep))
     }
 
     @Test func terminalsAndAgentsAreBothCounted() {
@@ -54,6 +55,7 @@ struct QuitAgentsTests {
         facts.agents = QuitAgentFacts(live: 0, inTurn: 0, inTurnNames: [], chiefInTurn: true)
         #expect(QuitPolicy.decide(.interactive, behavior: .ask, facts: facts) == .quit(.keep))
         facts.terminals = 1
+        facts.programs = [QuitProgram(name: "vim", cpuNanos: 1)]
         guard case .ask(let prompt) = QuitPolicy.decide(.interactive, behavior: .ask, facts: facts) else {
             Issue.record("expected the dialog"); return
         }

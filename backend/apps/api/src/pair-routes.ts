@@ -192,7 +192,7 @@ export const pairApprove = async (
   const rec = claimed.record
   const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
     op: "install.register_server",
-    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team },
+    params: { public_jwk: rec.public_jwk, kind: "daemon", name, device_name: rec.info.name, platform: rec.info.platform, op_classes: ["read", "mutate-own"], bound_team: principal.team, ...(rec.info.capabilities?.length ? { capabilities: rec.info.capabilities } : {}) },
     idempotency_key: `pair:${code}:${rec.thumbprint}:install`,
     origin: "user"
   })

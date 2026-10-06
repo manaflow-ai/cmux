@@ -18,7 +18,7 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `max_rows` 4): Home, the App Store, History, Notifications, Settings, Customize Appearance, CodeRouter, built-in look. With the default rail (section 11) the first four are rail buttons and the rest sit under its More menu |
+| Top | pinned under the titlebar row; never scrolls with the list | section (hidden title, `list` arrangement): Home and the App Store as plain rows (Lawrence 2026-10-05: rows; the large-tiles default of #17349 is reverted, `tiles` stays an opt-in arrangement). New Workspace and Import and Sync are reached through their actions (palette, menu, shortcut) |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
 | Bottom | pinned above the space bar | section (hidden title), one line: the account avatar (icon only); pinned to the rail's bottom by default |
 
@@ -89,7 +89,7 @@ SidebarLayoutDocument { revision: u64, sections: [Section] }       // per user
 Section { id: "sec_<base32>", title: String?, shows_title: Bool, region: top|middle|bottom,
           look: built_in|list, arrangement: Arrangement, room: String?, max_rows: Int?,
           content: items|workspaces, items: [Item] }
-Arrangement { layout: list|inline|grid, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
+Arrangement { layout: list|inline|grid|tiles, align: leading|center|trailing|fill, gap: 0...32?, columns: 1...12? }
 Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
 
@@ -102,7 +102,8 @@ both reducers (Swift and cmux-tui-core).
 
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
+only), then icons only, then wraps; `grid` puts tiles in columns; `tiles` puts large tiles (a glyph well over a short
+centered label) in equal columns on one tonal card with a section gap below it. `align` places
 the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
 item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
 stretches its tiles, and a grid with fixed columns places every line by the leftover of a full

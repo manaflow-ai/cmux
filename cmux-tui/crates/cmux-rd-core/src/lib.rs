@@ -12,4 +12,5 @@ pub mod ladder;
 pub mod packetize;
 pub mod policy;
 pub mod reassembly;
+pub mod service;
 pub mod session;

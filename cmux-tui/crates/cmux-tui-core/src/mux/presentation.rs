@@ -172,13 +172,22 @@ pub(crate) fn tab_changed_delta(
     decorations: &TreeDecorations,
     surface: SurfaceId,
 ) -> Option<TreeDelta> {
+    tab_delta(state, decorations, TreeDeltaKind::TabChanged, surface)
+}
+
+/// The `kind` tab delta (tab-added, tab-changed) of a placed `surface`.
+pub(crate) fn tab_delta(
+    state: &State,
+    decorations: &TreeDecorations,
+    kind: TreeDeltaKind,
+    surface: SurfaceId,
+) -> Option<TreeDelta> {
     let pane = state.pane_of(surface)?;
     let (workspace, screen) = state.screen_of(pane)?;
-    let entity =
-        crate::server::tree_entity_json(state, decorations, TreeDeltaKind::TabChanged, surface)?;
+    let entity = crate::server::tree_entity_json(state, decorations, kind, surface)?;
     let index = state.panes.get(&pane)?.tabs.iter().position(|candidate| *candidate == surface);
     Some(TreeDelta {
-        kind: TreeDeltaKind::TabChanged,
+        kind,
         workspace: state.workspaces[workspace].id,
         screen: Some(state.workspaces[workspace].screens[screen].id),
         pane: Some(pane),
@@ -304,6 +313,21 @@ impl Mux {
     /// unread marker) changed, with the refreshed tab entity.
     pub(crate) fn emit_tab_changed(&self, surface: SurfaceId) {
         self.emit_tab_changed_for_transaction(surface, None);
+    }
+
+    /// A `tab-added` delta for a tab a topology commit just created (which
+    /// announces itself to raw clients with `tree-changed` only), carrying
+    /// the client's `transaction` so the client settles its provisional tab.
+    pub(crate) fn emit_tab_added_for_transaction(&self, surface: SurfaceId, transaction: Arc<str>) {
+        let decorations = self.tree_decorations();
+        let delta = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            tab_delta(&state, &decorations, TreeDeltaKind::TabAdded, surface)
+        };
+        if let Some(mut delta) = delta {
+            delta.transaction = Some(transaction);
+            self.emit(MuxEvent::TreeDelta(delta));
+        }
     }
 
     /// Refresh the git HEAD for a terminal whose directory changed and emit
@@ -780,6 +804,18 @@ impl Mux {
         record: FrontendBrowserRecord,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_frontend_browser_tab_activating(pane, record, size, true)
+    }
+
+    /// [`Mux::new_frontend_browser_tab`]; with `activate` false the tab does
+    /// not become its pane's active tab (`frontend-browser-activate-v1`).
+    pub fn new_frontend_browser_tab_activating(
+        self: &Arc<Self>,
+        pane: Option<PaneId>,
+        record: FrontendBrowserRecord,
+        size: Option<(u16, u16)>,
+        activate: bool,
+    ) -> anyhow::Result<Arc<Surface>> {
         record.validate()?;
         let browser_id = BrowserPublicId::random()?;
         {
@@ -787,10 +823,7 @@ impl Mux {
             registry.put_frontend_browser(browser_id.as_str(), &record, None)?;
             self.reload_presentation(&registry)?;
         }
-        let fields = Map::from_iter([(
-            "frontend_browser_id".to_string(),
-            Value::String(browser_id.as_str().to_string()),
-        )]);
+        let fields = frontend_browser_fields(&browser_id, activate);
         match self.new_browser_tab_with_fields(record.url.clone(), pane, size, fields) {
             Ok(surface) => {
                 if let Some(runtime) = surface.as_browser()

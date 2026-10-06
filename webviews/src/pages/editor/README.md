@@ -58,21 +58,26 @@ Look: `--cmux-editor-*` custom properties (`settings.ts` `EDITOR_STYLE_DEFAULTS`
 
 Monaco handles typing, navigation and its editing chords inside the editor. The app's key dispatcher resolves every chord first, so a chord the app binds without a context never reaches Monaco. App actions reach the page as page commands (`keys.ts`): `save`, `find`, `findNext`, `findPrevious`, `useSelectionForFind`, `hideFind`, `replace`, `gotoLine`, `zoomIn`, `zoomOut`, `zoomReset`, and `editorAction` with a Monaco action id from `EDITOR_ACTIONS`, so an editor-scoped binding can run any of them without a page change.
 
-Monaco chords the app's global defaults take (from the action catalog defaults and Monaco's macOS keybindings):
+The editor page sets `codeEditorFocused` (the focused page is `cmux.editor`). While it has the keyboard, the default bindings of the actions in `KeyBindingDefaults.yieldsToCodeEditor` step aside, so their keys reach Monaco (R127); a user binding keeps its own `when`. App-global chords (Cmd-T, Cmd-W, Cmd-N, Cmd-1…9, Ctrl-1…9, Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) stay the app's. Cmd-S, word wrap and the editor actions below need `codeEditorFocused`.
 
-| Key                        | App action                                       | Monaco action it shadows              | What the editor offers instead                           |
-| -------------------------- | ------------------------------------------------ | ------------------------------------- | -------------------------------------------------------- |
-| Cmd-F, Cmd-G, Cmd-E        | `find`, `findNext`, `useSelectionForFind`        | find, next match, find with selection | the same through page commands                           |
-| Shift-Cmd-G                | `groupSelectedWorkspaces`                        | previous match                        | `findPrevious` (Opt-Cmd-G)                               |
-| Cmd-D                      | `splitRight`                                     | add selection to next match           | Cmd-K Cmd-D (move to next match); `editorAction` binding |
-| Shift-Cmd-L                | `openBrowser`                                    | select all occurrences                | Cmd-F2                                                   |
-| Opt-Cmd-Up, Opt-Cmd-Down   | `focusUp`, `focusDown`                           | add cursor above, below               | Opt-click; `editorAction` binding                        |
-| Shift-Opt-Cmd-arrows       | `moveSurfaceToPane*`                             | column selection                      | Shift-Opt-drag                                           |
-| Opt-Cmd-[, Opt-Cmd-]       | `space.previous`, `space.next`                   | fold, unfold                          | Cmd-K Cmd-[, Cmd-K Cmd-]                                 |
-| Opt-Cmd-F                  | `globalSearch`                                   | replace                               | the find widget's replace toggle; `replace` page command |
-| Cmd-I                      | `feed.show`                                      | trigger suggest                       | Ctrl-Space                                               |
-| Cmd-L                      | `focusLocation`                                  | expand line selection                 | `editorAction` binding                                   |
-| Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` | insert line below, above              | `editorAction` binding                                   |
-| Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`   | go to symbol, in-place replace        | none needed (no symbol providers)                        |
+| Key                        | App action (default)                             | In the editor                                                  |
+| -------------------------- | ------------------------------------------------ | -------------------------------------------------------------- |
+| Cmd-S                      | `saveFilePreview`                                | the `save` page command                                        |
+| Cmd-F, Cmd-G, Cmd-E        | `find`, `findNext`, `useSelectionForFind`        | the same through page commands                                 |
+| Opt-Cmd-G                  | `findPrevious`                                   | the same through a page command                                |
+| Ctrl-G                     | `fileEditorGotoLine`                             | the `gotoLine` page command                                    |
+| Cmd-=, Cmd--, Cmd-0        | `fileEditorZoomIn`, `ZoomOut`, `ZoomReset`       | the zoom page commands                                         |
+| Shift-Cmd-G                | `groupSelectedWorkspaces` (yields)               | Monaco: previous match                                         |
+| Cmd-D                      | `splitRight` (yields)                            | Monaco: add selection to next match                            |
+| Shift-Cmd-L                | `openBrowser` (yields)                           | Monaco: select all occurrences                                 |
+| Opt-Cmd-Up, Opt-Cmd-Down   | `focusUp`, `focusDown` (yield)                   | Monaco: add cursor above, below                                |
+| Shift-Opt-Cmd-arrows       | `moveSurfaceToPane*` (yield)                     | Monaco: column selection                                       |
+| Opt-Cmd-[, Opt-Cmd-]       | `space.previous`, `space.next` (yield)           | Monaco: fold, unfold                                           |
+| Opt-Cmd-F                  | `globalSearch` (yields)                          | Monaco: replace                                                |
+| Cmd-I                      | `palette.newAgentChat` (yields)                  | Monaco: trigger suggest                                        |
+| Cmd-L                      | `focusLocation` (yields)                         | Monaco: expand line selection                                  |
+| Shift-Cmd-I                | `feed.show`                                      | the app's (Monaco binds nothing there)                         |
+| Cmd-Enter, Shift-Cmd-Enter | `toggleChecklistItemComplete`, `toggleSplitZoom` | the app's; Monaco's insert line below/above via `editorAction` |
+| Shift-Cmd-O, Shift-Cmd-,   | `reopenPreviousSession`, `reloadConfiguration`   | the app's (no symbol providers in the editor)                  |
 
 Chords bound only under other contexts (Cmd-[ and Cmd-] for `browserFocused`, the Cmd-K chords for `agentPaneFocused`, Ctrl-D/N/P for the diff viewer and palette, Shift-Cmd-K for the terminal) stay Monaco's in the editor. The dev server's dispatcher (`devKeys.ts`) takes the same chords.

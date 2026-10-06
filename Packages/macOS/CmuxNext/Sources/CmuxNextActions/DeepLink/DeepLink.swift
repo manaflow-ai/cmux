@@ -111,18 +111,23 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         }
     }
 
+    /// The hex digits after a resource id's prefix (128 bits).
+    static let resourceHexDigits = 32
+    /// The lengths a session or turn id may have.
+    static let tokenLengths = 1...200
+
     /// `<prefix>` plus 128 bits as 32 lowercase hex digits
     /// (cmux-tui/spec/resource-api-v2.md).
     static func isResourceID(_ text: String, prefix: String) -> Bool {
         guard text.hasPrefix(prefix) else { return false }
         let hex = text.utf8.dropFirst(prefix.utf8.count)
-        return hex.count == 32 && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+        return hex.count == resourceHexDigits && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
     }
 
     /// An acpmux session or turn id: 1 to 200 ASCII letters, digits, `-`,
     /// `_` or `.`. Nothing that needs escaping in a URL.
     static func isToken(_ text: String) -> Bool {
-        (1...200).contains(text.utf8.count) && text.utf8.allSatisfy { byte in
+        tokenLengths.contains(text.utf8.count) && text.utf8.allSatisfy { byte in
             (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
                 || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_") || byte == UInt8(ascii: ".")
         }

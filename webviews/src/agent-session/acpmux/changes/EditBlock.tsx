@@ -7,6 +7,7 @@ import { isHighlighted } from "../shikiLanguages";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS } from "../diffTheme";
 import { FileHeader, type FileActions, type FileView } from "./FileHeader";
 import { HunkActions } from "./HunkActions";
+import { useT } from "../i18n";
 import { intralineMode } from "./intraline";
 import { hunkAnchor, type FocusAfter, type HunkAnchor, type HunkReview } from "./hunkReview";
 
@@ -40,6 +41,7 @@ export function EditBlock({
   review?: HunkReview;
   focusAfter?: FocusAfter;
 }) {
+  const t = useT();
   // A language the bundle can't highlight shows as plain text; Pierre throws for it otherwise.
   // Each transcript update rebuilds the turn's files; the patch text is compared so an
   // unchanged edit keeps its parsed diff and does not paint again.
@@ -91,7 +93,9 @@ export function EditBlock({
     <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {header}
       {!view.collapsed && edit.hunks.length === 0 && (
-        <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
+        <div className="acpmux-diff-empty-edit">
+          {file.binary ? t("changes.binaryNotShown") : t("changes.noLineChanges")}
+        </div>
       )}
       {showDiff && (
         <FileDiff<HunkAnchor>

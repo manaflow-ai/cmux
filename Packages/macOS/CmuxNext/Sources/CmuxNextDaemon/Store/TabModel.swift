@@ -74,6 +74,12 @@ public final class TabModel: Identifiable {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
     }
 
+    /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
+    /// App Store, Settings); nil for every other tab.
+    public var page: String? {
+        kind == .conversation ? snapshot.conversation?.page : nil
+    }
+
     init(_ s: TabSnapshot) {
         id = Self.identity(s)
         snapshot = s

@@ -1448,6 +1448,21 @@ elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" ]]; then
   fi
 fi
 
+# The Home Chief's brain host (Native/OptChat/optchat-chief, see
+# HomeBrainHost.swift). Fleet and CI builds compile it and require it in the
+# bundle; a local reload bundles a cached build when one exists and otherwise
+# builds an app whose Chief does not answer (never Cargo on the developer Mac).
+if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-optchat-chief.sh" ]]; then
+  if optchat_cached="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$optchat_cached"
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
+    "$PWD/scripts/cmux-next/build-optchat-chief.sh"
+    export CMUX_NEXT_OPTCHAT_CHIEF_BIN="$("$PWD/scripts/cmux-next/build-optchat-chief.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_OPTCHAT_CHIEF=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
+
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"
 CMUX_DEV_PORT_RANGE="$(choose_cmux_dev_port_range)"
 CMUX_DEV_PORT_END="$(choose_cmux_dev_port_end "$CMUX_DEV_PORT" "$CMUX_DEV_PORT_RANGE")"
@@ -2061,6 +2076,9 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     exit 1
   fi
 fi
+# The browser host the bundle phase placed beside bin/cmux (the daemon runs its
+# sibling): present, signed like the daemon, and `version` runs.
+"$PWD/scripts/cmux-next/check-bundled-browser-host.sh" "$APP_PATH" || exit 1
 
 TAG_LAUNCHD_LABEL=""
 TAG_LAUNCHD_DOMAIN=""

@@ -41,6 +41,7 @@ nonisolated enum AppScopeStrings {
         case "terminal:read": t("scope.terminal.read", "Read terminal text")
         case "terminal:write": t("scope.terminal.write", "Change terminals")
         case "terminal:execute": t("scope.terminal.execute", "Type into terminals and run commands")
+        case "terminal:backend": t("scope.terminal.backend", "Open terminals on other machines for you")
         case "browser:read": t("scope.browser.read", "See browser tabs")
         case "browser:write": t("scope.browser.write", "Change browser tabs")
         case "browser:execute": t("scope.browser.execute", "Control browser pages")

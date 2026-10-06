@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
+import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
 ///
@@ -34,8 +35,12 @@ final class AgentTabStore {
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
     /// the pane's daemon). Returns it and the daemon event sequence read after the reply (nil
     /// when the connection ended: the next snapshot holds the tab).
-    var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String) async throws
-        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _ in throw DaemonError.notConnected }
+    var create: @MainActor (_ pane: PaneID, _ daemon: DaemonService, _ record: AgentSessionRef, _ key: String,
+                            _ transaction: ClientTransactionID) async throws
+        -> (created: AgentTabCreated, sequence: UInt64?) = { _, _, _, _, _ in throw DaemonError.notConnected }
+    /// Moves a pane's selection from provisional tab `provisional` to the created tab's surface,
+    /// where the pane still selects it (AppServices: every pane controller).
+    var moveSelection: @MainActor (_ provisional: String, _ surface: SurfaceID) -> Void = { _, _ in }
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
     /// Sets tab `surface`'s session by compare-and-swap from `expected` (AppServices:
@@ -87,9 +92,20 @@ final class AgentTabStore {
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
-    /// Tabs opened as the new tab page, and what each does with the kind
-    /// the user picks there (``PaneController/newTabPage()``).
-    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
+    /// Shared conversion and project actions for a direct blank chat, without a chooser page.
+    var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// The New Tab page a new workspace's first tab shows, starting in the given folder.
+    var firstPageNewTab: ((String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)?)?
+
+    /// Tabs opened as the chooser page, and the actions for their selected kind.
+    var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:] {
+        didSet {
+            let ids = Set(newTabPages.keys)
+            if pageTabs.ids != ids { pageTabs.ids = ids }
+        }
+    }
+    /// The ids in ``newTabPages``, observed: the strip titles those tabs "New Tab".
+    let pageTabs = NewTabPageIDs()
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     var seeds: [String: AgentPaneSeedSource] = [:]
@@ -218,7 +234,8 @@ final class AgentTabStore {
             host: host,
             sessionId: sessions[key] ?? record.session,
             seed: seeds.removeValue(forKey: key),
-            newTab: newTabPages[key]?.page
+            newTab: newTabPages[key]?.page,
+            allowsTabConversion: true
         )
         model.sessionMustExist = linkedSessions.contains(key)
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
@@ -254,23 +271,63 @@ final class AgentTabStore {
             BenchSpans.mark("bridge.tab.open")
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.open(key, request)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
         model.onTypeAhead = { [weak self] text in
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.typeAhead(key, text)
+            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
         }
         model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPage(provisional)?.handler.setDefaultKind(kind) }
         model.onRunAction = { [weak self] id in
-            _ = self?.actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
+            guard let self else { return }
+            // On this tab's pane: the New Tab page opens beside the tab that asked.
+            let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
+            _ = actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user))
+        }
+        wireHeader(model, key: provisional)
+        model.onBrowseProject = { [weak self] in
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
+            return await handler.browseProject()
+        }
+        model.onListProjects = { [weak self] query in
+            guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return [] }
+            return await handler.listProjects(query)
+        }
+        model.onImportAndSync = { [weak self] in
+            guard let self else { return }
+            if let page = newTabPages[resolve(provisional)] { page.handler.importAndSync() }
+            else { _ = actionRegistry?.perform("palette.welcomeChecklist", invocation: ActionInvocation(origin: .user)) }
+        }
+        model.onAppAction = { [weak self] id in
+            guard let self else { return }
+            newTabPages[resolve(provisional)]?.handler.action(id)
         }
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
+        model.workspaceRoots = { [weak self] in
+            guard let self else { return [] }
+            return workspaceRoots(of: resolve(provisional))
+        }
+    }
+
+    /// The local folders of the workspace that holds agent tab `key`: every local tab's cwd. The
+    /// pane's relay limits each `cwd` and `path` the page sends to these (AcpmuxPathPolicy).
+    func workspaceRoots(of key: String) -> [String] {
+        guard let store = tabStores[key] else { return [] }
+        let holds = { (workspace: WorkspaceModel) in
+            workspace.screens.contains { $0.panes.contains { $0.tabs.contains { $0.id == key } } }
+        }
+        guard let workspace = store.workspaces.first(where: holds) else { return [] }
+        var roots: [String] = []
+        for tab in workspace.screens.flatMap({ $0.panes }).flatMap({ $0.tabs }) where tab.kind != .remoteTerminal {
+            if let cwd = tab.cwd, !roots.contains(cwd) { roots.append(cwd) }
+        }
+        return roots
     }
 
     /// A pane view on this store's page and host, with the shared pushes.
@@ -318,33 +375,5 @@ final class AgentTabStore {
 
     func stopCustomizationWhenUnused() {
         if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
-}
-
-/// A store-committed agent chat tab: its tab id (`TabModel.id`) and surface.
-struct AgentTabCreated: Sendable, Equatable {
-    var key: String
-    var surface: SurfaceID
-}
-
-/// What the store answered a session bind.
-enum AgentSessionBindOutcome: Equatable {
-    case taken
-    /// Another device changed the tab's chat first (`conversation_tab.session_conflict`).
-    case conflict
-    /// The bind did not reach the store or failed otherwise.
-    case failed
-}
-
-extension AgentTabStore {
-    /// `name` without control characters, cut to 255 bytes on a character boundary; nil when empty.
-    static func displayName(_ name: String) -> String? {
-        var result = ""
-        for character in name where !character.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) {
-            guard result.utf8.count + String(character).utf8.count <= 255 else { break }
-            result.append(character)
-        }
-        let trimmed = result.trimmingCharacters(in: .whitespaces)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }

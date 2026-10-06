@@ -30,6 +30,7 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
         },
         () => undefined,
       );
+    // l10n-allow: LoadState shows its own text for a failed load, never this message
     const asked = source ? source.diff(scope) : Promise.reject(new Error("No session host"));
     asked.then(
       (value) => {

@@ -339,8 +339,31 @@ async function configureRoles(ctx: Ctx): Promise<void> {
 export const VM_AGENT_PATH = "/opt/cmux/guest/vm-agent.ts";
 
 /** systemd units for the VM agent: started by bind.json (path unit) or at boot when bound; never at bake. */
-export function vmAgentUnits(): { path: string; service: string } {
+export function vmAgentUnits(): { path: string; service: string; resumeTimer: string; resumeService: string } {
   return {
+    // A VM resume sets the realtime clock; OnClockChange turns that into one event (no polling).
+    resumeTimer: [
+      "[Unit]",
+      "Description=cmux VM agent: report after a resume (realtime clock change)",
+      "",
+      "[Timer]",
+      "OnClockChange=yes",
+      "Unit=cmux-vm-agent-resume.service",
+      "",
+      "[Install]",
+      "WantedBy=timers.target",
+      "",
+    ].join("\n"),
+    resumeService: [
+      "[Unit]",
+      "Description=cmux VM agent: resume notice",
+      "ConditionPathExists=/var/lib/cmux/bound.json",
+      "",
+      "[Service]",
+      "Type=oneshot",
+      `ExecStart=/usr/local/bin/bun ${VM_AGENT_PATH} --notify-resume`,
+      "",
+    ].join("\n"),
     path: [
       "[Unit]",
       "Description=cmux VM agent trigger (the driver wrote bind.json)",
@@ -381,15 +404,45 @@ async function installVmAgent(ctx: Ctx): Promise<void> {
   await writeGuestFile(vm, VM_AGENT_PATH, readFileSync(path.join(GUEST_DIR, "vm-agent.ts")), 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.path", units.path, 0o644);
   await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent.service", units.service, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.timer", units.resumeTimer, 0o644);
+  await writeGuestFile(vm, "/etc/systemd/system/cmux-vm-agent-resume.service", units.resumeService, 0o644);
   ctx.result.vmAgent = await L.step(vm, "vm-agent-enable", [
     `d="$(mktemp -d)" && /usr/local/bin/bun build --target=bun --outdir "$d" ${VM_AGENT_PATH} >/dev/null && rm -rf "$d"`,
     "systemctl daemon-reload",
-    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service",
-    "systemctl start cmux-vm-agent.path",
+    "systemctl enable --quiet cmux-vm-agent.path cmux-vm-agent.service cmux-vm-agent-resume.timer",
+    "systemctl start cmux-vm-agent.path cmux-vm-agent-resume.timer",
     "test ! -e /var/lib/cmux/bind.json && test ! -e /var/lib/cmux/bound.json",
     "test \"$(systemctl is-active cmux-vm-agent.service)\" != active",
     "echo vm-agent-armed",
   ].join(" && "));
+}
+
+/**
+ * The VM agent's daemon facts, recorded while the baked daemon runs: its control socket path
+ * (found by `ss`, so no path rule is duplicated here) and its identify answer as the fallback
+ * daemon.json. Bind queries the live daemon first (cloud-automation.md 17).
+ */
+async function recordDaemonInfo(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const out = await L.step(vm, "daemon-identify-record", [
+    `sock="$(ss -Hxlp | awk '/"cmux-tui"/ {for (i = 1; i <= NF; i++) if ($i ~ /\\/cloud\\.sock$/) print $i}' | head -1)"`,
+    'test -n "$sock"',
+    "printf '%s\\n' \"$sock\" > /etc/cmux/daemon-socket",
+    `/usr/local/bin/bun ${VM_AGENT_PATH} --print-daemon-info > /etc/cmux/daemon.json.tmp`,
+    "mv /etc/cmux/daemon.json.tmp /etc/cmux/daemon.json && chmod 0644 /etc/cmux/daemon.json /etc/cmux/daemon-socket",
+    "cat /etc/cmux/daemon-socket /etc/cmux/daemon.json",
+  ].join(" && "));
+  const info = JSON.parse(out.trim().split("\n").at(-1) ?? "{}") as { version?: string; capabilities?: string[] };
+  // The pinned cmux-tui must advertise loopback-forward-v1 (Cloud ports); fs-v1 appears only on a
+  // bound Cloud host, so it is not required at bake time.
+  if (!info.version || info.version.startsWith("unknown") || !info.capabilities?.includes("vm-agent-v1") || !info.capabilities.includes("loopback-forward-v1")) {
+    throw new Error(`daemon.json is not a real identify answer: ${out.trim().slice(0, 300)}`);
+  }
+  ctx.result.daemonInfo = info;
+  // Coordinator condition for the activity pin: the daemon serves vm-activity-v1 and the agent's
+  // own activity stream connects to it. A bake without both fails.
+  const probe = await L.step(vm, "daemon-activity-probe", `/usr/local/bin/bun ${VM_AGENT_PATH} --probe-activity`);
+  ctx.result.activityProbe = probe.trim().split("\n").at(-1) ?? "";
 }
 
 async function startDaemon(ctx: Ctx): Promise<void> {
@@ -399,6 +452,7 @@ async function startDaemon(ctx: Ctx): Promise<void> {
   await L.step(vm, "daemon-unit", `sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && systemctl daemon-reload && systemctl enable ${DAEMON_UNIT} >/dev/null 2>&1 && systemctl restart ${DAEMON_UNIT} && systemctl is-active ${DAEMON_UNIT}`);
   await L.step(vm, "daemon-ready", devboxWaitForDaemonCommand(120));
   await L.step(vm, "daemon-websocket-smoke", cmuxTuiWebsocketSmokeCommand());
+  await recordDaemonInfo(ctx);
   await L.step(vm, "daemon-park", parkCommand());
 }
 

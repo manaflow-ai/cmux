@@ -25,6 +25,7 @@ const paths: Record<string, ReactNode> = {
       <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </>
   ),
+  house: <path d="M2.4 7.4 8 2.6l5.6 4.8M3.8 6.2v7.2h3V10h2.4v3.4h3V6.2" />,
   keyboard: (
     <>
       <rect x="1.4" y="3.6" width="13.2" height="8.8" rx="1.6" />

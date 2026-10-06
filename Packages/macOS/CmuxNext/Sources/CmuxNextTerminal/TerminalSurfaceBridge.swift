@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as both `userdata` and
@@ -77,5 +78,6 @@ nonisolated struct TerminalInputSink: Sendable {
 /// to the session's ordered writer.
 nonisolated func ghosttyIOWrite(_ userdata: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<CChar>?, _ length: UInt) {
     guard let bridge = SurfaceBridge.from(userdata), let bytes, length > 0 else { return }
+    TypingLatencyProbe.shared.mark(.ioWrite)
     bridge.input.send(Data(bytes: bytes, count: Int(length)))
 }

@@ -118,6 +118,12 @@ const refuseEnrollment = (state: TeamState, ctx: ReduceContext, v: { install: st
   return { ok: true, state: a.state, value, outbox: [a.outbox] }
 }
 
+/** Is `install` still this team's server for `host`, with no revocation pending? TeamDO decides before UserDO hears of a revoke. */
+export const serverPlacementActive = (state: TeamState, rows: RowReader | undefined, host: string, install: string): boolean => {
+  const h = hostOf(state, rows, host)
+  return h?.kind === "server" && h.enrolled_by === install && !state.server_revocations?.[install]
+}
+
 /** Removes a server host; the Worker then revokes its install key in the owner's UserDO. */
 export const reduceServerRevoke = (state: TeamState, params: unknown, ctx: ReduceContext): Out => {
   const p = ctx.principal

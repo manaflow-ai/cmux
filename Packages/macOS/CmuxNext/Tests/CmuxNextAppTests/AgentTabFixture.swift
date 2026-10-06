@@ -38,7 +38,7 @@ final class AgentTabFixture {
         tabs.listTabs = {
             daemon.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { tab in tab.agentSession.map { (key: tab.id, record: $0) } }
         }
-        tabs.create = { [unowned self] _, _, record, key in
+        tabs.create = { [unowned self] _, _, record, key, _ in
             await holdCreate?()
             if let index = creations.firstIndex(where: { $0.idempotencyKey == key }) {
                 return (AgentTabCreated(key: keys[index], surface: SurfaceID(rawValue: UInt64(index + 100))), 0)

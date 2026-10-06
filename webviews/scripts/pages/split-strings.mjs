@@ -3,13 +3,17 @@
 // (window.__cmuxStrings). The page then parses two small tables instead of all 21 (R82 first-open
 // speed). Used by scripts/cmux-next/build-pages-web.sh for the pages in SPLIT_STRINGS.
 //
-//   node scripts/pages/split-strings.mjs <strings.json> <out-dir> [global]   # writes <out-dir>/<locale>.js
-// `global` names the window property the scripts fill (default __cmuxStrings; the agent pane uses
-// __cmuxPaneStrings).
+//   node scripts/pages/split-strings.mjs <strings.json> <out-dir> [global] [--loader-file]
+// writes <out-dir>/<locale>.js. `global` names the window property the scripts fill (default
+// __cmuxStrings; the agent pane uses __cmuxPaneStrings). With --loader-file the loader is
+// <out-dir>/loader.js and the printed tags are two same-origin script files, for a page whose CSP
+// allows no inline script (the agent pane: script-src 'self').
 import fs from "node:fs";
 import path from "node:path";
 
-const [, , input, outDir, global = "__cmuxStrings"] = process.argv;
+const args = process.argv.slice(2);
+const loaderFile = args.includes("--loader-file");
+const [input, outDir, global = "__cmuxStrings"] = args.filter((arg) => arg !== "--loader-file");
 if (!/^[A-Za-z_$][\w$]*$/.test(global)) throw new Error(`not a property name: ${global}`);
 const table = JSON.parse(fs.readFileSync(input, "utf8"));
 const locales = Object.keys(table);
@@ -23,10 +27,10 @@ for (const locale of locales) {
 }
 
 // The same resolution as strings.ts resolveLocale, over the shipped locales. It runs before the
-// app, as a classic script, and writes one same-origin script tag (the strict page CSP allows
-// 'self' and inline scripts).
-const loader = `<script src="locales/en.js"></script>
-<script>(function () {
+// app, as a classic script, and writes one same-origin script tag (document.write from a
+// parser-blocking script, so the locale runs before the page's module).
+const dir = path.basename(outDir);
+const select = `(function () {
   var known = ${JSON.stringify(locales)};
   var tag = (navigator.language || "en").replace(/_/g, "-");
   var parts = tag.split("-"), lang = parts[0].toLowerCase(), rest = parts.slice(1);
@@ -38,6 +42,11 @@ const loader = `<script src="locales/en.js"></script>
   var locale = "en";
   for (var i = 0; i < candidates.length; i++) if (known.indexOf(candidates[i]) >= 0) { locale = candidates[i]; break; }
   document.documentElement.lang = locale;
-  if (locale !== "en") document.write('<script src="locales/' + locale + '.js"><\\/script>');
-})();</script>`;
-process.stdout.write(loader);
+  if (locale !== "en") document.write('<script src="${dir}/' + locale + '.js"><\\/script>');
+})();`;
+if (loaderFile) {
+  fs.writeFileSync(path.join(outDir, "loader.js"), `${select}\n`);
+  process.stdout.write(`<script src="${dir}/en.js"></script>\n<script src="${dir}/loader.js"></script>`);
+} else {
+  process.stdout.write(`<script src="${dir}/en.js"></script>\n<script>${select}</script>`);
+}
