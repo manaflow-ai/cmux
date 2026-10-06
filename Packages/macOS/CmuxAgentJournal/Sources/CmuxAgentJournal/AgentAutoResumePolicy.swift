@@ -94,9 +94,9 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
                     // session that a newer sessionStarted event established.
                     return .none
                 }
-                if surfaces[surfaceId]?.sessionId != sessionId {
-                    surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
-                }
+                // Only an unnamed or matching session reaches here, so this
+                // names it without dropping its streak or marker count.
+                surfaces[surfaceId, default: SurfaceState()].sessionId = sessionId
             }
             // The same failure can arrive twice: once with its detail and
             // once through the error notification without one. An event with
@@ -142,7 +142,13 @@ public struct AgentAutoResumeTracker: Sendable, Equatable {
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .sessionStarted:
             let hadPending = surfaces[surfaceId]?.pendingToken != nil
-            surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            if let sessionId, !sessionId.isEmpty, surfaces[surfaceId]?.sessionId == sessionId {
+                // The same session starting again (a compact or resume) has
+                // not finished a turn, so it keeps the marker count.
+                surfaces[surfaceId]?.pendingToken = nil
+            } else {
+                surfaces[surfaceId] = SurfaceState(sessionId: sessionId)
+            }
             return hadPending ? .cancel(surfaceId: surfaceId) : .none
         case .childSpawned, .childCompleted, .childFailed, .stateChanged,
              .idleObserved, .messagePublished:
