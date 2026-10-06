@@ -117,6 +117,12 @@ export const CloudErrors = {
   fileTooLarge: "cmux.cloud.file_too_large",
   /** More than 4 transfers at once: nothing ran, the same action may run again later. */
   transferBusy: "cmux.cloud.transfer_busy",
+  /** The backend's machine and size refusals (`cloud.machine.*`, `cloud.size.grow_only`). */
+  notRunning: "cmux.cloud.not_running",
+  notPaused: "cmux.cloud.not_paused",
+  machineBusy: "cmux.cloud.machine_busy",
+  sizeGrowOnly: "cmux.cloud.size_grow_only",
+  linkInstallRefused: "cmux.cloud.link_install_refused",
 } as const;
 
 /** Error codes that mean "the owner does not serve this op yet" (not a failure of the request). */
