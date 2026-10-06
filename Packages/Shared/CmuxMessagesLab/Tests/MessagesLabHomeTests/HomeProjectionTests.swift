@@ -50,8 +50,9 @@ import Testing
         // A new message keeps the notice at the end; clearing it removes the row.
         p.apply(items: items + [Fixture2.item(4, them, "Later")], summary: Fixture2.summary(lastSeq: 4), typing: [], hasOlder: false)
         #expect(c.demo.model.rows.last?.spec.key == "notice")
+        // A removed row may stay a moment as a leaving (ghost) row; the live rows lose it.
         p.notice = nil
-        #expect(!c.demo.model.rows.contains { $0.spec.key == "notice" })
+        #expect(!c.demo.model.rows.contains { !$0.ghost && $0.spec.key == "notice" })
     }
 
     private func onlineStore(_ items: [CmuxHomeCore.Message] = []) async -> (HomeStore, ScriptedSource) {

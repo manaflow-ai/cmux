@@ -6,9 +6,9 @@ import Testing
 /// every app language of the built bundle, and each translation differs from
 /// English.
 struct HomeChiefNoticeLocalizationTests {
-    private static let languages = ["en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
+    nonisolated private static let languages = ["en", "ar", "bs", "da", "de", "es", "fr", "it", "ja", "km", "ko", "nb",
                                     "pl", "pt-BR", "ru", "th", "tr", "uk", "vi", "zh-Hans", "zh-Hant"]
-    private static let key = "home.chief.mergeBlocked"
+    nonisolated private static let key = "home.chief.mergeBlocked"
 
     /// The compiled `Home.strings` of one localization in the app bundle.
     private static func compiled(_ language: String) throws -> [String: String] {
