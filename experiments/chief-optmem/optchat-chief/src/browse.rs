@@ -188,16 +188,37 @@ mod tests {
             vec![
                 Imported {
                     kind: Kind::Note,
-                    text: "a".into()
+                    text: "a".into(),
+                    date: None,
                 },
                 Imported {
                     kind: Kind::User,
-                    text: "b".into()
+                    text: "b".into(),
+                    date: None,
                 },
             ]
         );
         assert!(parse_import("{\"kind\": \"note\"}").is_err());
         assert!(parse_import("{\"text\": \"a\", \"kind\": \"nope\"}").is_err());
+    }
+
+    /// Section 10: imported history keeps each message's own date (`date`,
+    /// RFC 3339), so `date(id)` tells when it was written, not imported.
+    #[test]
+    fn an_import_keeps_each_messages_date() {
+        let items = parse_import(
+            "{\"text\": \"old\", \"date\": \"2026-03-01T09:30:00-08:00\"}\n{\"text\": \"undated\"}\n",
+        )
+        .unwrap();
+        assert_eq!(items[0].date.as_deref(), Some("2026-03-01T09:30:00-08:00"));
+        assert_eq!(items[1].date, None);
+        assert!(parse_import("{\"text\": \"a\", \"date\": \"yesterday\"}").is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let chat_dir = dir.path().join("chat");
+        assert_eq!(import(&chat_dir, &items).unwrap(), 2);
+        let chat = open_offline(&chat_dir).unwrap();
+        assert_eq!(chat.stamp(0).as_deref(), Some("2026-03-01T09:30:00-08:00"));
+        assert_ne!(chat.stamp(1).as_deref(), Some("2026-03-01T09:30:00-08:00"));
     }
 
     #[test]
