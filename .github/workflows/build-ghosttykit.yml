@@ -152,6 +152,17 @@ jobs:
             -Dtest-filter="Page VT preserves a fully styled blank row" \
             --summary all
 
+      - name: Test Ghostty layer display after teardown
+        run: |
+          set -euo pipefail
+          cd ghostty
+          zig build test \
+            -Dapp-runtime=none \
+            -Demit-macos-app=false \
+            -Dsentry=false \
+            -Dtest-filter="teardown invalidation makes display a no-op" \
+            --summary all
+
       - name: Build GhosttyKit.xcframework
         if: steps.check-release.outputs.exists == 'false' || inputs.verify_build
         run: |

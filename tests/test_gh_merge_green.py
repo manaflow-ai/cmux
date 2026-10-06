@@ -411,6 +411,56 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertTrue(marker.exists())
             self.assertEqual(events.read_text().splitlines(), ["comment", "merge"])
 
+    def test_override_cannot_bypass_god_file_l10n_or_concurrency_lint(self):
+        reason = "the swift test lane is a known base failure unrelated to this change"
+        for name in (
+            "cmux-next checks (god files, concurrency, crash safety, l10n)",
+            "cmux-next god files",
+            "cmux-next l10n",
+            "concurrency lint",
+        ):
+            for status, conclusion in (("completed", "failure"), ("in_progress", "")):
+                with self.subTest(name=name, status=status), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    events = Path(directory) / "events"
+                    result = self.run_helper(
+                        directory,
+                        marker,
+                        check_conclusion="failure",
+                        extra_checks=[(name, status, conclusion)],
+                        extra_args=("--override", reason),
+                        event_log=events,
+                    )
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertFalse(events.exists(), "the override reason was posted before refusing")
+                    self.assertIn(name, result.stderr)
+                    self.assertIn("--override cannot bypass", result.stderr)
+
+    def test_red_lint_check_refuses_without_override(self):
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, extra_checks=[(name, "completed", "failure")])
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn(name, result.stderr)
+
+    def test_override_still_merges_when_lint_checks_are_green(self):
+        name = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+        reason = "the swift test lane is a known base failure unrelated to this change"
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(
+                directory,
+                marker,
+                check_conclusion="failure",
+                extra_checks=[(name, "completed", "success")],
+                extra_args=("--override", reason),
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
     def test_override_requires_eight_words(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "merged"

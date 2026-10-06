@@ -265,6 +265,28 @@ if ! runs=$(jq -r '
     'retry after GitHub returns valid check-run metadata'
 fi
 
+# God-file, localization and concurrency lint fail only on the change itself, so
+# they are never waived: --override is for base-red or flaky lanes. Any such
+# check reported on the exact head must complete green, with or without it.
+while IFS=$'\t' read -r name st co; do
+  [ -n "$name" ] || continue
+  lowered=$(tr '[:upper:]' '[:lower:]' <<<"$name")
+  [[ "$lowered" =~ god[\ -]?files?|l10n|locali[sz]ation|concurrency ]] || continue
+  if [ "$st" != completed ]; then
+    refuse \
+      "not green: '$name' is $st/$co on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
+      "wait for '$name' to complete on the exact head, then retry"
+  fi
+  case "$co" in
+    success|neutral|skipped) ;;
+    *)
+      refuse \
+        "not green: '$name' is $co on $sha; --override cannot bypass god-file, l10n or concurrency lint" \
+        "fix what '$name' reports on the exact head, then retry"
+      ;;
+  esac
+done <<<"$runs"
+
 # Pull requests into feat-cmux-next also run the branch's dedicated cmux-next
 # workflow. Its Release and native app checks are separate check runs, so the
 # legacy ci-status job on that branch cannot stand in for them. Require each
