@@ -62,8 +62,12 @@ for arch in $requested_archs; do
   seen_targets="$seen_targets $target"
   ensure_rust_target "$target"
   target_dir="${BUILD_WORK_DIR}/${target}"
-  CARGO_TARGET_DIR="$target_dir" \
-    MACOSX_DEPLOYMENT_TARGET="${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
+  # Rust 1.88 can emit unloadable procedural-macro dylibs when Xcode's
+  # MACOSX_DEPLOYMENT_TARGET reaches an explicit Apple target build. Preserve
+  # the sidecar's deployment floor through the final linker invocation instead.
+  env -u MACOSX_DEPLOYMENT_TARGET \
+    CARGO_TARGET_DIR="$target_dir" \
+    RUSTFLAGS="-C link-arg=-mmacosx-version-min=${CMUX_DIFF_SIDECAR_MIN_MACOS:-14.0}" \
     "$CARGO_RUNNER" build \
       --manifest-path "${CRATE_DIR}/Cargo.toml" \
       --bin "$BINARY_NAME" \
