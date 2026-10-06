@@ -27,6 +27,7 @@ impl Brain {
         match event {
             AgentEvent::Up(sessions) => {
                 self.agents_up = true;
+                self.reconcile_spawns(&sessions);
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
                 self.sessions = sessions
@@ -78,11 +79,17 @@ impl Brain {
         }
     }
 
+    /// One of the Chief's `chief agents` children; a subagent (section 9,
+    /// `optchat.subagent`) is not: its spawn reports for it.
     fn is_child(&self, session: &SessionSummary) -> bool {
         session.tags.get(PARENT_TAG).map(String::as_str) == Some(self.settings.parent.as_str())
+            && !session.tags.contains_key(crate::subagents::SUBAGENT_TAG)
     }
 
     fn on_session(&mut self, session: SessionSummary) {
+        if self.sub_changed(&session) {
+            return;
+        }
         if !self.is_child(&session) {
             self.sessions.remove(&session.session_id);
             return;
@@ -277,7 +284,7 @@ impl Brain {
 
 /// The final reply of every turn that ended in `events`, oldest first (a
 /// failed turn's error included), and the seq of the last turn end.
-fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>) {
+pub(super) fn ended_replies(events: &[AcpmuxEvent]) -> (Vec<String>, Option<u64>) {
     let mut folder = TurnFolder::default();
     let mut replies = Vec::new();
     let mut last_end = None;

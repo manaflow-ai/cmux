@@ -23,6 +23,7 @@ mod children;
 mod inbox;
 mod outbox;
 mod recover;
+mod spawns;
 mod turns;
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -73,6 +74,38 @@ pub enum Input {
     Notice {
         key: String,
         text: String,
+    },
+    /// Section 9: a `spawn` asks for its spawn id and subagent ids.
+    SpawnRegister {
+        tasks: Vec<String>,
+        reply: Sender<Result<crate::subagents::SpawnPlan, String>>,
+    },
+    /// A subagent's session exists (its prompt follows).
+    SubagentStarted {
+        id: String,
+        session_id: String,
+    },
+    /// A subagent's cmux workspace exists.
+    SubagentWorkspace {
+        id: String,
+        key: String,
+        name: String,
+    },
+    /// A subagent could not start.
+    SubagentFailed {
+        id: String,
+        error: String,
+    },
+    /// The answer of a prompt the host sent a subagent (token use, cost).
+    SubagentAnswer {
+        id: String,
+        answer: Result<serde_json::Value, String>,
+    },
+    /// `tell(id, message)`.
+    Tell {
+        id: String,
+        message: String,
+        reply: Sender<Result<String, String>>,
     },
 }
 
@@ -170,6 +203,8 @@ enum Source {
     Child { session_id: String, floor: u64 },
     /// Anything else (a child's permission request).
     Note,
+    /// Subagents' reports (section 9): all of one spawn's, or a later one.
+    Spawn(crate::state::SpawnRef),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -222,6 +257,15 @@ pub struct Brain {
     /// Claude Code refused a turn's cache marker (it placed a fourth
     /// breakpoint of its own): later turns go without it.
     marker_refused: Arc<std::sync::atomic::AtomicBool>,
+    /// The monitoring trace (`trace.rs`).
+    pub(crate) trace: crate::trace::Trace,
+    /// Where subagents' workspaces are renamed when they finish.
+    workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    /// The previous turn's view, to measure how much of it stayed (cache).
+    prev_view: Option<String>,
+    /// When the current settle wait and turn began.
+    settle_clock: Option<Instant>,
+    turn_clock: Option<Instant>,
 }
 
 impl Brain {
@@ -267,6 +311,11 @@ impl Brain {
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
+            trace: crate::trace::Trace::off(),
+            workspaces: None,
+            prev_view: None,
+            settle_clock: None,
+            turn_clock: None,
         };
         brain.save();
         brain
@@ -275,6 +324,30 @@ impl Brain {
     /// Runs `hook` after every turn (the host snapshots the memory there).
     pub fn on_turn_end(mut self, hook: TurnHook) -> Brain {
         self.after_turn = Some(hook);
+        self
+    }
+
+    /// Writes the monitoring trace (`trace.rs`).
+    pub fn with_trace(mut self, trace: crate::trace::Trace) -> Brain {
+        self.trace = trace;
+        self
+    }
+
+    /// `with_trace` and `with_workspaces` on a brain already made.
+    pub fn set_trace(&mut self, trace: crate::trace::Trace) {
+        self.trace = trace;
+    }
+
+    pub fn set_workspaces(&mut self, workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>) {
+        self.workspaces = workspaces;
+    }
+
+    /// Renames subagents' workspaces when they finish (workspaces.rs).
+    pub fn with_workspaces(
+        mut self,
+        workspaces: Option<Arc<dyn crate::workspaces::Workspaces>>,
+    ) -> Brain {
+        self.workspaces = workspaces;
         self
     }
 
@@ -352,6 +425,18 @@ impl Brain {
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
             Input::Notice { key, text } => self.notice(key, text),
+            Input::SpawnRegister { tasks, reply } => {
+                let plan = self.register_spawn(&tasks);
+                let _ = reply.send(plan);
+            }
+            Input::SubagentStarted { id, session_id } => self.sub_started(&id, session_id),
+            Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
+            Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
+            Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),
+            Input::Tell { id, message, reply } => {
+                let answer = self.tell(&id, &message);
+                let _ = reply.send(answer);
+            }
         }
     }
 
@@ -423,7 +508,9 @@ impl Brain {
     }
 
     fn queue(&mut self, text: String, source: Source) {
-        let human = matches!(source, Source::Message { .. });
+        // Section 9: subagents' reports reach a working Chief between its
+        // tool calls; on acpmux that is a stop like a human message's.
+        let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         self.queue.push_back(Queued { text, source });
         if human {
             self.interrupt_for_newer();
