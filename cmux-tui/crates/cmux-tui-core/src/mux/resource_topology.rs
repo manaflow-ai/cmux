@@ -1917,8 +1917,7 @@ impl Mux {
                     LayoutOpKind::MoveTabToNewWorkspace {
                         tab: surface,
                         // The in-group index places the workspace among its
-                        // group's members; the model does not compare the
-                        // workspace order.
+                        // group's members; the model does not compare the workspace order.
                         index: None,
                         new_workspace: target_ws_slot,
                         new_screen: target_screen,
