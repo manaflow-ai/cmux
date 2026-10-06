@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextDesign
 import CmuxNextSidebar
 import CoreGraphics
 
@@ -10,6 +11,10 @@ enum WorkspaceDropTarget: Hashable {
     case intoGroup(GroupID)
     /// Anywhere else in the window: appended to its sidebar.
     case window
+    /// A pane of the window's shown workspace: the dragged workspace's tabs
+    /// join that pane (`.strip`) or a new split, column or dock there, and
+    /// the emptied workspace closes (`TabDragSession+WorkspaceMerge`).
+    case merge(TabDropKind)
 }
 
 /// How a sidebar workspace drag ends. Window membership is frontend-local
@@ -30,19 +35,25 @@ enum WorkspaceDragResolver {
     /// - Parameters:
     ///   - windowID: the frontmost window under the pointer, nil outside all.
     ///   - sidebarHit: that window's sidebar target, if the pointer is on it.
+    ///   - layoutHit: the pane target under the pointer, when the drag can
+    ///     merge into the window's shown workspace.
     ///   - isGroup: the drag carries a whole workspace group (never placed
     ///     at a slot or into another group).
-    static func outcome(windowID: String?, sidebarHit: WorkspaceDropTarget?, sourceWindowID: String?,
+    static func outcome(windowID: String?, sidebarHit: WorkspaceDropTarget?, layoutHit: TabDropKind? = nil, sourceWindowID: String?,
                         draggingAllOfSource: Bool, isGroup: Bool, screenPoint: CGPoint) -> WorkspaceDragOutcome {
         guard let windowID else {
             return draggingAllOfSource ? .moveWindow(screenPoint: screenPoint) : .newWindow(screenPoint: screenPoint)
         }
         // A group keeps its members together: it joins the window as a
         // whole, where its own position in the daemon order puts it.
-        let target = isGroup ? .window : sidebarHit ?? .window
+        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map(WorkspaceDropTarget.merge) ?? .window
         if windowID == sourceWindowID {
-            // Back home: only a sidebar slot means something (a reorder).
-            guard case .position = target else { return .cancel }
+            // Back home: only a sidebar slot (a reorder) or a pane (a
+            // merge) means something.
+            switch target {
+            case .position, .merge: break
+            case .intoGroup, .window: return .cancel
+            }
         }
         return .window(id: windowID, target: target)
     }
