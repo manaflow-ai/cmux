@@ -12,6 +12,8 @@ extension WindowController {
         sidebarObservation = Task { [weak self] in
             for await hidden in Observations({ model.isHidden }) {
                 guard let self else { return }
+                if hidden { services.hoverCards.suppress(.sidebarHide) }
+                else { services.hoverCards.unsuppress(.sidebarHide) }
                 if hidden { services.hoverCards.dismiss(.action) }
                 root.showsTitlebarBadge = hidden && root.titlebarBadge != nil
                 root.sidebarHidden = hidden
