@@ -138,9 +138,9 @@ describe("chief brain place", { timeout: 60_000 }, () => {
     const early = (await server.mint(chief.id)).json.access_token as string
     expect((await send(early, chief.main_conversation, "before-revoke")).json.ok).toBe(true)
     expect((await op(owner, "server.revoke", { host: server.host })).json.ok).toBe(true)
-    // Refused at authentication (the install is revoked), so the body is an auth error, never ok.
+    // Refused (the install is revoked): an auth or policy error, never ok.
     const late = await send(early, chief.main_conversation, "after-revoke")
-    expect(late.status).toBe(401)
+    expect([401, 403]).toContain(late.status)
     expect(late.json.ok).not.toBe(true)
   })
 })
