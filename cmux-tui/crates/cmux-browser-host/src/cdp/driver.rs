@@ -239,19 +239,7 @@ impl CdpDriver {
         if let Some(bypass) = bypass {
             params["proxyBypassList"] = json!(bypass);
         }
-        let created =
-            self.inner.conn.call(None, "Target.createBrowserContext", params, INTERNAL_TIMEOUT)?;
-        let context =
-            created.get("browserContextId").and_then(Value::as_str).map(str::to_owned).ok_or_else(
-                || DriverError::invalid("Target.createBrowserContext returned no id"),
-            )?;
-        self.inner
-            .proxy_contexts
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(context.clone());
-        super::clipboard::deny_clipboard_permissions(&self.inner.conn, Some(&context))?;
-        Ok(context)
+        super::cookies::new_context(&self.inner, params)
     }
 
     /// Closes a proxy store and every tab in it.

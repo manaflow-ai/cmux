@@ -33,6 +33,11 @@ public final class RegistryPaletteProvider: PaletteProvider {
         self.includeUnbound = includeUnbound
     }
 
+    // Palette searches can retain a page until a task finishes on a generic
+    // executor. The provider only stores closures and registry data, so its
+    // teardown must not require a main-actor hop when that task releases it.
+    nonisolated deinit {}
+
     public static var defaultIncludeUnbound: Bool {
         #if DEBUG
         true

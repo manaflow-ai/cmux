@@ -16,11 +16,32 @@ A client `origin` field may only narrow. On page_relay the only accepted claims 
 `origin.forbidden`. A page_relay request with no `origin` is `page`, so a Swift relay bug
 cannot escalate.
 
+## Parse once (2026-10-06)
+
+A `cmux.protocol/2` line is parsed ONCE into the typed envelope (`RequestEnvelope`: typed
+`operation`, `origin` claim, `params`), by `resource_router::parse_resource_line`. The origin
+rules check that value; envelope and catalog validation then move the same value into the
+dispatched request. No check reads the raw line again, so no spelling (a JSON escape in a key or
+in the operation, a duplicate member, case) can be read one way by the gate and another way by
+the handler. Rules:
+- A line that does not parse (bad JSON, unknown or duplicate member, unknown operation, a
+  non-string id) is refused with `validation.invalid` and never dispatched. There is no raw-text
+  fast path and no admit-on-unreadable.
+- The origin rules run before envelope and catalog validation, so a refused origin learns nothing
+  from validation.
+- A line whose connection has no registry record (detached while its reader held the line) is
+  refused (`origin.forbidden`, reason `connection_not_registered`), never run as `agent`.
+- `apps.*` is not a catalog operation: a v2 `apps.*` line gets the envelope validation error
+  (coordinator decision). `origin.confirmation.issue` refuses an `operation` that is not a
+  catalog operation.
+
 ## Gate A2
 
 `apps.install`, `apps.uninstall`, `apps.enable` need `user`. Refusal: `origin.forbidden`,
 message "needs a verified cmux app connection", details `{required: "user", derived}`.
-Before P8 every connection is refused.
+Before P8 every connection is refused. The rule applies on the legacy `apps-*` door and to app
+supervisor calls; on v2 it applies to the typed operation's wire name, so it binds as soon as
+those operations join the catalog.
 
 ## Confirmation token
 
@@ -135,7 +156,8 @@ its own allowed and refused tests.
 - wrong-params token, reused token, expired token, token used on another connection -> forbidden.
 - issue on a page_relay connection -> refused; issue on a non-verified connection -> refused.
 - page_relay request with no origin derives page.
-- apps.install/uninstall/enable refused with the A2 error before P8.
+- apps.install/uninstall/enable refused with the A2 error before P8 (legacy door; v2 gets the
+  envelope validation error, parse once).
 - request with no origin on a client connection behaves as today.
 - origin-claim-v1 advertised.
 - client-hello: role required (missing/unknown -> bad_request); accepted after one identify;
