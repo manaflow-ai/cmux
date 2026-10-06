@@ -332,7 +332,9 @@ struct BrowserReplFrameGateTests {
             let refusal = try #require(refusal)
             #expect(refusal.code == "blocked")
             #expect(!refusal.message.contains("T0KEN"), "a refusal named the blocked frame with its credential: \(refusal.message)")
-            #expect(refusal.message.contains("blocked.test/x"), "a refusal no longer names the frame: \(refusal.message)")
+            // `cmux-test:` is not a web scheme, so its host is hidden as a
+            // diff viewer's token is; the rest of the URL names the frame.
+            #expect(refusal.message.contains("/x?access_token=redacted&page=2"), "a refusal no longer names the frame: \(refusal.message)")
         }
     }
 
