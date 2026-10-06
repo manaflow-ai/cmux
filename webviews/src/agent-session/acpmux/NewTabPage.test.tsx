@@ -73,7 +73,7 @@ test("Tab cycles the kinds both ways, and recent sessions put the ones waiting o
   expect(recentSessions(sessions).map((entry) => entry.sessionId)).toEqual(["ask", "new", "old"]);
   expect(recentSessions(sessions, 1).map((entry) => entry.sessionId)).toEqual(["ask"]);
   expect(
-    recentSessions([...sessions, { sessionId: "shelved", updatedAt: Date.now(), tags: { archived: "1" } }]).map(
+    recentSessions([...sessions, { sessionId: "shelved", updatedAt: Date.now(), archived: true }]).map(
       (entry) => entry.sessionId,
     ),
   ).toEqual(["ask", "new", "old"]);
