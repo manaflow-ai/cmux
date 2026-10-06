@@ -929,6 +929,50 @@ struct BrowserReplSessionResourceTests {
         #expect(session.ledger.held(.sessionMemoryBytes) == session.ledger.held(.scriptHeapBytes))
     }
 
+    /// r18 native#2: driver call parameters and host call arguments are
+    /// parsed on the session's thread, which no timeout can interrupt, and
+    /// their byte limits still admit tens of millions of JSON values (about
+    /// a second of parsing and a gigabyte of objects). A call whose JSON
+    /// holds more elements than one call may, or nests deeper than the
+    /// parser takes, is refused with a clear error before it is parsed.
+    @Test("Driver and host call JSON past its structural limits is refused before it is parsed")
+    func callJSONPastItsStructuralLimitsIsRefused() async throws {
+        let driver = HeldCookiesDriver()
+        let runtime = resourceRuntime + #"""
+        globalThis.driverWith = (method, params) => new Promise((resolve, reject) => {
+          const id = nextCall++; pending.set(id, { resolve, reject });
+          __cmuxNative.driverCall(id, method, params);
+        });
+        """#
+        let session = BrowserReplSession(
+            id: "json-shape-\(UUID().uuidString)",
+            cwd: browserReplTestWorkingDirectory,
+            bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "shape.js", source: runtime)], agentScripts: []),
+            driver: driver
+        )
+        defer {
+            session.close()
+            driver.releaseAll()
+        }
+        let result = await browserReplWithDeadline(seconds: 120) {
+            await session.evaluate(code: """
+            const many = JSON.stringify({ path: "x", pad: new Array(3000000).fill(0) });
+            const deep = '{"pad":' + "[".repeat(600) + "]".repeat(600) + "}";
+            console.log(await driverWith("tabs.list", many).then(() => "ran", (e) => e.message));
+            console.log(await driverWith("tabs.list", deep).then(() => "ran", (e) => e.message));
+            console.log(JSON.parse(native.fs("stat", many)).error?.message ?? "ran");
+            console.log(JSON.parse(native.policy("get", many)).error?.message ?? "ran");
+            // Within the limits a call still runs.
+            console.log(await driverWith("tabs.list", JSON.stringify({ pad: new Array(1000).fill(0) })).then(() => "ran", (e) => e.message));
+            """, timeout: .seconds(100))
+        }
+        let lines = result?.lines.map { String($0.text.prefix(300)) } ?? []
+        #expect(result?.error == nil, "\(String(describing: result?.error))")
+        #expect(lines.count == 5, "\(lines)")
+        #expect(lines.prefix(4).allSatisfy { $0.contains("JSON") && $0.contains("most one call") }, "\(lines)")
+        #expect(lines.last == "ran", "\(lines)")
+    }
+
     /// The running cell's source is parsed and compiled (several times its
     /// size) before the cell can measure its heap, so it is reserved in the
     /// session's memory first: a cell whose parse cannot fit is refused
