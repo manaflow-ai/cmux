@@ -25,6 +25,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let controller: ChatController
     /// False while the owner is unreachable (H17: Send and tapbacks off).
     var isSendEnabled = true
+    /// The host's notice, MessagesLab's system row under the newest message (nil: none).
+    var notice: String? {
+        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(notice)) } }
+    }
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -171,6 +175,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         applyHeader()
         for a in core.typing(controller.store.state, wanted: typing) { controller.dispatch(a) }
+        if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()

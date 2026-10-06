@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import CmuxNextPages
 import Foundation
 
@@ -57,6 +58,13 @@ nonisolated enum FilePageKind: String, Sendable, CaseIterable {
         switch self {
         case .markdown: "doc.richtext"
         case .editor: "chevron.left.forwardslash.chevron.right"
+        }
+    }
+
+    var icon: IconName {
+        switch self {
+        case .markdown: .fileText
+        case .editor: .code
         }
     }
 

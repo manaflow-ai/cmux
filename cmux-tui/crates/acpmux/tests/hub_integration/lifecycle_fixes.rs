@@ -263,16 +263,18 @@ async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt()
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
 }
 
-/// Shutdown owns every child from its first step: once it started, the
-/// idle reaper never stops a harness again (a hosted one is handed off to
-/// the next daemon, not terminated).
+/// Shutdown owns every child from its first step: once it stopped the idle
+/// reaper, the reaper never stops a harness again (a hosted one is handed
+/// off to the next daemon, not terminated), even for a child published
+/// after that step. (Once the shutdown reads its plan no agent starts at
+/// all, `quit_spawn.rs`.)
 #[tokio::test]
 async fn the_idle_reaper_stops_for_good_when_shutdown_starts() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(Some(Duration::from_secs(300)));
-    hub.shutdown_all().await;
+    hub.stop_idle_reaper();
     let s = c
         .request(
             method::SESSION_NEW,

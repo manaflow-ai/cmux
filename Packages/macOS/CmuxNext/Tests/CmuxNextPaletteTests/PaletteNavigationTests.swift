@@ -256,6 +256,36 @@ import Testing
         #expect(data.events == ["renameTab:t1:build"])
     }
 
+    @Test func reopeningWhileSearchingReleasesThePreviousRegistryPage() async {
+        let registry = ActionRegistry.standard()
+        let model = PaletteModel(persistence: nil)
+        weak var released: RegistryPaletteProvider?
+
+        func openAndClose() {
+            let provider = RegistryPaletteProvider(registry: registry, includeUnbound: true)
+            released = provider
+            model.reset(to: PalettePageSpec(
+                id: "commands",
+                title: "Commands",
+                placeholder: "Search",
+                providers: [provider]
+            ))
+            // Start the off-main-actor search, then replace the page while its
+            // task still retains the provider, as repeated Cmd-Shift-P opens do.
+            model.query = "command"
+            model.handle(.escape)
+            model.handle(.escape)
+        }
+
+        for _ in 0..<8 {
+            openAndClose()
+            await Task.yield()
+        }
+        await model.settle()
+        for _ in 0..<100 { await Task.yield() }
+        #expect(released == nil)
+    }
+
     @Test func goToWorkspaceOpensNestedList() async {
         let registry = ActionRegistry.standard()
         let data = MockPaletteData()

@@ -52,3 +52,25 @@ impl Inner {
         }
     }
 }
+
+/// The CPU slowdown of a throttled tab (`headless_activity.rs`): Chromium's
+/// own "low-end device" setting.
+const THROTTLED_CPU_RATE: f64 = 4.0;
+
+impl super::CdpDriver {
+    /// Throttles a tab (a quiet one: its main thread runs at 1/4 speed, so
+    /// its scripts and rendering stop taking a full core) or lets it run at
+    /// full rate again.
+    pub fn set_tab_throttled(&self, target_id: &str, throttled: bool) {
+        let session = self.inner.lock().tabs.get(target_id).map(|tab| tab.session_id.clone());
+        if let Some(session) = session {
+            let rate = if throttled { THROTTLED_CPU_RATE } else { 1.0 };
+            let _ = self.inner.conn.call(
+                Some(&session),
+                "Emulation.setCPUThrottlingRate",
+                serde_json::json!({"rate": rate}),
+                INTERNAL_TIMEOUT,
+            );
+        }
+    }
+}

@@ -56,14 +56,7 @@ extension SidebarLayoutDocument {
 
     /// This layout with `sectionsMigrationOps` applied by the reducer; the
     /// layout itself when nothing migrates.
-    public nonisolated var sectionsMigration: SidebarLayoutDocument {
-        var result = self
-        for op in sectionsMigrationOps {
-            guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }
-            result = next
-        }
-        return result
-    }
+    public nonisolated var sectionsMigration: SidebarLayoutDocument { applying(sectionsMigrationOps) }
 
     /// The sections default before R53 (one inline bottom line with
     /// Settings leading and the account trailing), only to recognize it.
@@ -124,18 +117,28 @@ extension SidebarLayoutDocument {
     /// top (Lawrence 2026-10-05: rows); a user can still choose it.
     public nonisolated static let tilesArrangement = SectionArrangement(layout: .tiles, columns: 4)
 
-    /// Every migration in order (sections, then app refs), as one op list
-    /// that applies to this layout. No migration turns a plain-row top
-    /// section into tiles; the tiles default was never stored (the store
-    /// did not serve `sidebar-layout-v1` yet), so none moves back either.
-    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] {
-        sectionsMigrationOps + sectionsMigration.appRefMigrationOps
+    /// Every migration in order (sections, then app refs, then Recents), as
+    /// one op list that applies to this layout. No migration turns a
+    /// plain-row top section into tiles; the tiles default was never stored
+    /// (the store did not serve `sidebar-layout-v1` yet), so none moves back either.
+    public nonisolated var layoutMigrationOps: [SidebarLayoutOp] { layoutMigrationOps(offeringRecents: true) }
+
+    /// `layoutMigrationOps`, without Recents once this Mac offered it (a
+    /// layout without Recents then is one the user removed it from).
+    public nonisolated func layoutMigrationOps(offeringRecents: Bool) -> [SidebarLayoutOp] {
+        let sections = sectionsMigrationOps
+        let appRefs = sectionsMigration.appRefMigrationOps
+        guard offeringRecents else { return sections + appRefs }
+        return sections + appRefs + applying(sections + appRefs).recentsMigrationOps
     }
 
     /// This layout with `layoutMigrationOps` applied.
-    public nonisolated var layoutMigration: SidebarLayoutDocument {
+    public nonisolated var layoutMigration: SidebarLayoutDocument { applying(layoutMigrationOps) }
+
+    /// This layout with `ops` applied by the reducer; the layout itself when one is refused.
+    nonisolated func applying(_ ops: [SidebarLayoutOp]) -> SidebarLayoutDocument {
         var result = self
-        for op in layoutMigrationOps {
+        for op in ops {
             guard case .success(let next) = SidebarLayoutReducer.reduce(result, op) else { return self }
             result = next
         }

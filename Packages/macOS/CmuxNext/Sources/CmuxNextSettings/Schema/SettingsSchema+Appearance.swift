@@ -11,7 +11,7 @@ nonisolated enum AppearanceSettingsSchema {
         let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
         let theme = SettingsText.keyed("settings.default.theme", "Theme")
         let window = SettingsText.keyed("settings.group.windowBackground", "Window Background")
-        let ghostty = SettingsText.keyed("settings.default.ghosttyConfig", "Ghostty config")
+        let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let appTheme = SettingsText.keyed("settings.group.appTheme", "App Theme")
         let tuning = SettingsText.keyed("settings.group.appearanceTuning", "Appearance Tuning")
         let artChoices = BackdropArt.allCases.map { SettingChoice($0.rawValue, $0.title) }

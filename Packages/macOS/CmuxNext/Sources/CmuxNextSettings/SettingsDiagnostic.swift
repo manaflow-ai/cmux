@@ -17,6 +17,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case managedOverride
         /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
         case managedConflict
+        /// The key belongs to a removed feature; its value is ignored.
+        case removedSetting
     }
     public let kind: Kind
     /// Dotted key path of the offending entry.

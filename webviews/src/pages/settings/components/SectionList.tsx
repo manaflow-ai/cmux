@@ -1,4 +1,5 @@
 import { useSettingsState } from "../context";
+import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import { rowsInSection, sections } from "../schema";
 import type { SettingsState } from "../store";
@@ -34,7 +35,9 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
               <span className={`badge badge-${mark}`} data-badge={mark}>
                 <Icon name={mark} />
                 <span className="visually-hidden">
-                  {mark === "warning" ? t("settingsPage.problems") : t("settingsPage.managed")}
+                  {mark === "warning"
+                    ? t("settingsPage.problems", settingsFileName(state.host))
+                    : t("settingsPage.managed")}
                 </span>
               </span>
             )}

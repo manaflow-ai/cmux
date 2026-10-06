@@ -3,7 +3,8 @@ import CmuxNextDesign
 import Observation
 
 /// The strip's plus on the one hover-reveal mechanism (R120): it fades in
-/// place while the strip is hovered or while a strip menu is open (a hold). The strip
+/// place while the strip is hovered, while a strip menu is open or while
+/// VoiceOver focuses the strip (holds). The strip
 /// tracks the pointer itself and reports it (`TabStripButtonReveal`), so the
 /// HoverReveal does not track it. `tabs.plusButton` = always keeps the plus
 /// out of the reveal.
@@ -50,10 +51,10 @@ final class TabStripRevealController {
     }
 
     /// Maps the strip's inputs onto the reveal: the pointer, and a hold for
-    /// an open strip menu.
+    /// an open strip menu or VoiceOver focus.
     func sync(_ state: TabStripButtonReveal, from old: TabStripButtonReveal) {
         if state.pointerInStrip != old.pointerInStrip { hover.setPointerInside(state.pointerInStrip) }
-        let holds = state.menuOpen
+        let holds = state.menuOpen || state.accessibilityFocused
         if holds, hold == nil {
             hold = hover.hold()
         } else if !holds, let current = hold {

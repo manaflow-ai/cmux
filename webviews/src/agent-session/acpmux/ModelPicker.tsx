@@ -39,6 +39,8 @@ export function ModelPicker(props: ModelPickerProps) {
     <ModelPickerShell
       layout={layout}
       chip={props.label}
+      detail={props.detail}
+      offersEffort={props.efforts.length > 0}
       open={open}
       onOpenChange={openChange}
       onKeyDown={(event) => handle.current?.keyDown(event)}

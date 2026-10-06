@@ -155,9 +155,10 @@ final class SectionHeaderRowView: SidebarRowView {
         name.isHidden = false
         let nameX = SidebarStyle.horizontalInset
         var trailing = b.width - Metrics.space2
+        // The add button keeps its slot, so the name never re-truncates on hover.
         addButton.isHidden = !(isHovered && allowsAdd)
         let control = SidebarStyle.controlSize
-        if !addButton.isHidden {
+        if allowsAdd {
             addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2, width: control, height: control)
             trailing -= control + Metrics.space1
         }
@@ -185,6 +186,8 @@ final class SectionHeaderRowView: SidebarRowView {
         super.hoverChanged()
         needsLayout = true
     }
+
+    var nameFrame: NSRect { name.frame }
 }
 
 // MARK: - Empty section drop zone

@@ -441,10 +441,15 @@ fn headless_cancels_and_logs_a_chooser_no_session_takes() {
     assert_eq!(choosers_in_mode(true), (true, "hidden: cancel".to_owned(), 1));
 }
 
+/// The person's chooser is not intercepted (no D2 entry); what the
+/// browser's own panel then does depends on the display (bare Xvfb has no
+/// file dialog, so it may cancel), so the page's text is not checked.
 #[test]
 #[ignore = "requires CMUX_BROWSER_HOST_TEST_CHROME and Xvfb; run explicitly with --ignored"]
 fn headful_leaves_a_persons_chooser_to_the_browser() {
-    assert_eq!(choosers_in_mode(false), (true, "none".to_owned(), 0));
+    let (session_got_its_chooser, _page, unrouted) = choosers_in_mode(false);
+    assert!(session_got_its_chooser, "the session's own tab intercepts");
+    assert_eq!(unrouted, 0, "the person's chooser was intercepted and D2-cancelled");
 }
 
 /// `/clicks`: one button over the page that logs its pointer and mouse

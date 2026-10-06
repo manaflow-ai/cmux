@@ -59,6 +59,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var showsSoleMachineHeader = false
     /// Include tab rows beneath each visible workspace.
     public var showWorkspaceTabs = false
+    /// With `showWorkspaceTabs`, the workspaces whose disclosure hid their tabs.
+    public var collapsedWorkspaces: Set<WorkspaceID> = []
+    /// Workspace rows show their tab count (`sidebar.showCounts`).
+    public var showCounts = false
 
     public init() {}
 }

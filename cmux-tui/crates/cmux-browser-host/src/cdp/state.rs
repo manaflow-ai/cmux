@@ -86,6 +86,12 @@ pub struct TabState {
     pub viewport: (f64, f64),
     pub device_scale_factor: f64,
     pub crashed: bool,
+    /// A screenshot or PDF of the tab is in flight (`capture.rs`): the next
+    /// one waits for it.
+    pub capturing: bool,
+    /// The drag the page started during an `input.drag`
+    /// (`Input.dragIntercepted` data, `drag.rs`).
+    pub drag_data: Option<Value>,
     pub open_dialogs: usize,
     /// File choosers opened whose `filechooser.opened` is not sent yet (the
     /// driver resolves the input's agent handle first): input calls wait
@@ -158,6 +164,8 @@ impl TabState {
             viewport: (1280.0, 800.0),
             device_scale_factor: 1.0,
             crashed: false,
+            capturing: false,
+            drag_data: None,
             open_dialogs: 0,
             pending_choosers: 0,
             choosers_on: false,
@@ -526,6 +534,9 @@ impl State {
                     }
                 }
                 applied.events.push(navigated(target_id, &frame_id, &url, false));
+            }
+            "Input.dragIntercepted" => {
+                tab.drag_data = params.get("data").cloned();
             }
             "Page.navigatedWithinDocument" => {
                 let frame_id =

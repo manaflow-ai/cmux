@@ -106,15 +106,12 @@ extension TabDragSession {
         }
     }
 
-    /// A drop on a refused target says why (the preview showed it too); a
-    /// drop where nothing answered inside a window is a resolver defect and
-    /// says so instead of springing back silently (tab-dnd).
+    /// A drop where nothing answered inside a window is a resolver defect
+    /// and says so instead of springing back silently (tab-dnd). A refused
+    /// zone springs back without a word (Lawrence 2026-10-05).
     func reportRefusal(_ drag: Drag) {
-        switch drag.resolution.preview {
-        case .refused(_, let refusal): services.registry.refuse(TabDropStrings.reason(refusal))
-        case .none: services.registry.refuse(drag.noTargetReason ?? TabDropStrings.noTarget)
-        case .target, .stay, .newWindow: break
-        }
+        guard case .none = drag.resolution.preview else { return }
+        services.registry.refuse(drag.noTargetReason ?? TabDropStrings.noTarget)
     }
 
     /// Animates the ghost to its landing and closes it when it settles.

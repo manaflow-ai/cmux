@@ -108,12 +108,12 @@ final class HomeHostView: NSView {
             // placed on a server) needs no local Chief owner.
             for await (available, online, why, notice) in Observations({
                 (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
-                 service.migrationNotice)
+                 service.conversationNotice(for: id))
             }) {
                 self?.transcript.isHidden = !available
                 self?.message.isHidden = available
                 self?.message.stringValue = why
-                self?.transcript.showNotice(notice)
+                self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
                 // H17: offline the user can type, but Send is off.
                 self?.transcript.isSendEnabled = online

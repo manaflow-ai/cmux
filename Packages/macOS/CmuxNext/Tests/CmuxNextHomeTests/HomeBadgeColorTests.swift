@@ -19,11 +19,11 @@ import Testing
         scope.setOverride(ThemeSpec("Catppuccin Mocha")!, input: HomeAccentTests.mocha, animated: false)
         let row = HomeConversationListTests.row("conv_austin", with: [HomeConversationListTests.person("user_austin", "Austin")],
                                                 at: 9, unread: 2, mentions: 1)
-        let (badge, mention, accent, sent) = scope.perform { () -> ([CGFloat], [CGFloat], [CGFloat], HomePalette) in
+        let (badge, mention, accent, sentIsBlue) = scope.perform { () -> ([CGFloat], [CGFloat], [CGFloat], Bool) in
             let cell = HomeConversationCellView(frame: NSRect(x: 0, y: 0, width: 280, height: 48))
             cell.show(row, me: HomeConversationListTests.me)
             return (Self.srgb(cell.badge.layer?.backgroundColor), Self.srgb(cell.mention.layer?.backgroundColor),
-                    Self.srgb(Palette.highlight.cgColor), HomeThemePalette.resolveInScope(active: true))
+                    Self.srgb(Palette.highlight.cgColor), HomeThemePalette.usesMessagesBlueInScope())
         }
         #expect(badge == [0x89, 0xB4, 0xFA], "the theme's blue slot (Mocha #89B4FA), got \(badge)")
         #expect(badge == accent)
@@ -31,7 +31,6 @@ import Testing
         let blue = Self.srgb(HomeThemePalette.messagesBlue.cgColor)
         #expect(badge != blue, "the badge is not MessagesLab's sent-bubble blue")
         // The sent bubble stays iMessage blue on the same theme.
-        let s = [sent.outgoing.red, sent.outgoing.green, sent.outgoing.blue].map { ($0 * 255).rounded() }
-        #expect(s == blue || HomeThemePalette.usesMessagesBlueInScope())
+        #expect(sentIsBlue, "sent bubbles are MessagesLab's measured blue on this theme")
     }
 }
