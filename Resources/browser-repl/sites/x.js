@@ -177,22 +177,28 @@
                   // The account X authenticates (read from this page: another
                   // session can switch accounts while the composer loads),
                   // the post it answers (the composer's own URL) and the
-                  // whole text the composer holds, right before Post.
+                  // whole text the composer holds, right before Post; the
+                  // account once more as the last read before the click.
+                  const accountNow = async () => {
+                    const now = await t.readBack(page, authenticatedUser, { bearer: WEB_BEARER });
+                    return now ? { account: now } : {};
+                  };
                   return c.write(
                     async () => {
-                      const now = await t.readBack(page, authenticatedUser, { bearer: WEB_BEARER });
+                      const now = await accountNow();
                       let answers;
                       try {
                         answers = new URL(page.url()).searchParams.get("in_reply_to");
                       } catch (e) {}
-                      return { ...(now ? { account: now } : {}), ...(answers !== undefined ? { replyTo: answers } : {}), ...((await box.count()) ? { text: await t.composerText(box) } : {}) };
+                      return { ...now, ...(answers !== undefined ? { replyTo: answers } : {}), ...((await box.count()) ? { text: await t.composerText(box) } : {}) };
                     },
                     async (press) => {
                       await press();
                       await t.waitIn(page, () => !document.querySelector('[data-testid="tweetButton"]') || /Your post was sent|Your reply was sent/.test(document.body.innerText), undefined, { signIn: SIGN_IN, name: "x", timeout: 30000, what: "X to publish the post" });
                       return { status: "posted", replyTo };
                     },
-                    { submit: button.first() },
+                    // The account again, last, right before the click.
+                    { submit: button.first(), account: accountNow },
                   );
                 }),
             };

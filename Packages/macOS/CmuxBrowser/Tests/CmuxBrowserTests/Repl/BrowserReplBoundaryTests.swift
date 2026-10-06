@@ -367,6 +367,38 @@ struct BrowserReplBoundaryTests {
         #expect(allowedOutput.components(separatedBy: "kept: ").count == 3, "\(allowedOutput)")
     }
 
+    /// r15 whole#1: the values a user types into the sign-in sheet go into
+    /// the page, which can send them on; only the domain policy's content
+    /// rules stop that. So the sheet is asked for only while the policy
+    /// keeps the session's tabs on the page's site, the driver gets that
+    /// site as the credential's domains (never the agent's), and the policy
+    /// cannot widen past it later, as for a typed secret.
+    @Test("A sign-in sheet is asked for only while the policy keeps the tab on the page's site, and the policy cannot widen after")
+    func credentialRequestNeedsAPolicyWithinTheSite() async throws {
+        let driver = ScriptedPageDriver()
+        let session = try makeSession(driver)
+        defer { session.close() }
+        let result = await run(session, """
+        const ask = (origin) => page._session.driver.call("auth.request", { targetId: "t1", origin, fields: [], secretDomains: [{ raw: "*" }] }).then(() => "asked", (e) => "refused " + e.message);
+        console.log("none:", await ask("https://login.example.com"));
+        session.allowedDomains(["example.com", "other.test"]);
+        console.log("wider:", await ask("https://login.example.com"));
+        session.allowedDomains(["login.example.com"]);
+        console.log("elsewhere:", await ask("https://evil.test"));
+        console.log("within:", await ask("https://login.example.com"));
+        try { session.allowedDomains(["login.example.com", "evil.test"]); console.log("widened"); } catch (e) { console.log("kept: " + e.message); }
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        for refused in ["none: refused", "wider: refused", "elsewhere: refused", "within: asked", "kept: "] {
+            #expect(output.contains(refused), "\(refused) missing from: \(output)")
+        }
+        #expect(!output.contains("widened"), "\(output)")
+        let asked = driver.params("auth.request")
+        #expect(asked.count == 1, "\(asked)")
+        let domains = (asked.first?["secretDomains"] as? [[String: Any]])?.compactMap { $0["raw"] as? String }
+        #expect(domains == ["*.example.com"], "\(String(describing: domains))")
+    }
+
     @Test("A secret fill that retries after the page moved to another origin is refused")
     func secretFillRetryIsRechecked() async throws {
         let driver = ScriptedPageDriver()

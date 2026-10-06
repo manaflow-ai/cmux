@@ -359,7 +359,9 @@
   // `observed` is read once, as plain data (plainReading): a bound field
   // whose value is not plain data (it would serialize or convert itself:
   // toJSON, toString, a getter) is unread, so <group>_unverified.
-  function checkIntent(where, entry, read) {
+  // `groups` limits the check to some groups (the account alone, read
+  // again as the last step before a click).
+  function checkIntent(where, entry, read, groups = INTENT_GROUPS) {
     const { preview, groupOf, sent, canon } = entry.intent;
     const problems = { account: [], target: [], content: [] };
     const unknown = { account: [], target: [], content: [] };
@@ -377,6 +379,7 @@
     for (const k of objectKeys(preview)) {
       if (sent.has(k)) continue;
       const g = groupOf[k];
+      if (!groups.includes(g)) continue;
       if (!has(k)) {
         unknown[g].push(k);
         continue;
@@ -426,6 +429,17 @@
   // change found by the second read-back fails as the first would, and
   // either way nothing is pressed. A commit with { submit } whose act
   // returns without press() fails (commit_unverified).
+  //
+  // press.next(locator) presses a second control the first press opened
+  // (Calendar's invitation dialog Send after Save): the locator must match
+  // exactly one element, which is pinned and pressed the same way, with
+  // the same read-backs right before its click.
+  //
+  // { account: read } reads the account fields alone. press() runs it as
+  // the last step before the click, after the second read-back, so another
+  // session that switches the shared profile's account while the rest is
+  // read back sends nothing (account_mismatch). What remains is the switch
+  // between that read and the click reaching the page.
   const PRESS_TIMEOUT_MS = 15000;
   async function pinElement(where, locator) {
     if (!locator || typeof locator.elementHandle !== "function") throw new SiteError("invalid", `${where}: the control to press is not a locator (a site tool bug)`);
@@ -511,7 +525,12 @@
             if (wrote) throw new SiteError("commit_reused", `${where}: a draft writes once (a site tool bug)`);
             wrote = true;
             const submit = options && options.submit ? await pinElement(where, options.submit) : null;
+            const readAccount = options && typeof options.account === "function" ? options.account : null;
             const check = async () => checkIntent(where, entry, await observe());
+            const recheck = async () => {
+              await check();
+              if (readAccount) checkIntent(where, entry, await readAccount(), ["account"]);
+            };
             entry.checked = await check();
             let pressed = false;
             const press = async (locator) => {
@@ -519,7 +538,17 @@
               pressed = true;
               const el = locator ? await pinElement(where, locator) : submit;
               if (!el) throw new SiteError("invalid", `${where}: press() needs the control to press (a site tool bug)`);
-              await pressPinned(where, el, check);
+              await pressPinned(where, el, recheck);
+            };
+            let pressedNext = false;
+            press.next = async (locator) => {
+              if (!pressed) throw new SiteError("invalid", `${where}: press.next() presses a control the write's press() opened; call press() first (a site tool bug)`);
+              if (pressedNext) throw new SiteError("commit_reused", `${where}: a write presses one follow-up control (a site tool bug)`);
+              pressedNext = true;
+              if (!locator || typeof locator.count !== "function") throw new SiteError("invalid", `${where}: press.next() needs the control to press (a site tool bug)`);
+              const n = await locator.count();
+              if (n !== 1) throw new SiteError("target_unverified", `${where}: expected one control to press after the first, found ${n}; nothing more was pressed`);
+              await pressPinned(where, await pinElement(where, locator), recheck);
             };
             const result = await act(press);
             if (submit && !pressed) throw new SiteError("commit_unverified", `${where}: the tool wrote without pressing the control its read-back verified (a site tool bug); treat the result as unverified`);

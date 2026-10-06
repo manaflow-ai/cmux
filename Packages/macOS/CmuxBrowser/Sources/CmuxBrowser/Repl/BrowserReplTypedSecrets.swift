@@ -82,6 +82,29 @@ public final class BrowserReplTypedSecrets: @unchecked Sendable {
         }
     }
 
+    /// The user typed `value` into the sign-in sheet (`auth.request`) for
+    /// field `field` of `tab`, which fills it into the page. No session
+    /// holds it, the one whose agent asked included, so it masks for every
+    /// session that reads the tab until the tab closes, in results, events
+    /// and captures, shown as `<secret:browserAuth.<field>>`. An empty
+    /// value is not recorded. The driver records before it fills, as it
+    /// does for a typed secret.
+    public func recordCredential(tab: String, field: String, value: String, domains: [BrowserReplDomainPattern]) throws {
+        guard !value.isEmpty else { return }
+        try BrowserReplSecretStore.checkTypedValue(value, domains: domains)
+        let name = "browserAuth.\(field)"
+        try lock.withLock {
+            let same = { (entry: Typed) in entry.tab == tab && entry.name == name && entry.value == value && entry.typist == nil }
+            if !entries.contains(where: same), entries.count >= BrowserReplSecretStore.maximumTypedValues {
+                throw BrowserReplSecretStore.tooManyTypedValues
+            }
+            entries.removeAll(where: same)
+            nextKey += 1
+            entries.append(Typed(key: nextKey, tab: tab, name: name, value: value, domains: domains, typist: nil))
+            stores.removeAll()
+        }
+    }
+
     /// `sessionID` ended: what it typed masks for every session from now on.
     public func sessionLeft(_ sessionID: String) {
         lock.withLock {

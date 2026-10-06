@@ -20,8 +20,11 @@
 // document that receives the values is checked here, at fill time: a
 // different origin gets nothing (origin_changed). Only password, username
 // and one-time-code inputs are filled, by the same rule as
-// sites/browser-auth.js, and a password only into a password input. The
-// result carries no value.
+// sites/browser-auth.js, and a password only into a password input. "bind"
+// answers each bound element's kind, which the sheet shows as the field's
+// label. The result carries no value. The app records the values as the
+// tab's typed secrets before "fill", so every session's reads of the page
+// get them masked.
 if (typeof __origin !== "string" || location.origin !== __origin) return { status: "origin_changed" };
 const kindOf = (el) => {
   if (!(el instanceof HTMLInputElement)) return null;
@@ -55,7 +58,8 @@ if (__phase === "bind") {
     elements.push(all[0]);
   }
   bindings.set(__binding, { document, origin: location.origin, elements });
-  return { status: "bound" };
+  // The sheet labels each field by this kind, never by the agent's label.
+  return { status: "bound", kinds: elements.map(kindOf) };
 }
 if (__phase !== "fill") return { status: "page_changed" };
 const bound = bindings.get(__binding);

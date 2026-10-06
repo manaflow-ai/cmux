@@ -312,3 +312,30 @@ test("signed out: Gmail's sign-in redirect is reported, not parsed", async () =>
     await out.close();
   }
 });
+
+// r15 sites#1: with guests, Save opens Calendar's invitation dialog and
+// its Send is the click that saves the event and emails the guests. That
+// Send is pressed like Save: only the one Send button in the dialog,
+// pinned, with the form (guests included) read back again right before
+// the press. A guest added when Save was clicked, or a page's own Send
+// button placed first, sends nothing.
+test("googleCalendar.create: the invitation Send is a pinned, read-back press", async () => {
+  const created = env.state.calendarCreated.length;
+  const confirm = async (tamper) => {
+    env.state.calendarTamper = tamper;
+    try {
+      const d = await s.value('sites.googleCalendar.create({ title: "Invite", start: "2026-10-01T17:00:00Z", end: "2026-10-01T18:00:00Z", guests: ["bob@example.com"] })');
+      return await s.error(`sites.googleCalendar.create(${JSON.stringify(d.id)}, { confirm: true })`);
+    } finally {
+      env.state.calendarTamper = null;
+    }
+  };
+  // A guest added when Save opened the dialog: the read-back before Send fails.
+  assert.match(await confirm({ guestOnSave: "eve@evil.test" }), /target_mismatch|object it acts on differs/);
+  assert.equal(env.state.calendarCreated.length, created, "an invitation went out with a guest added after Save");
+  // A page's own Send button first in the document: only the dialog's Send is pressed.
+  await confirm({ decoySend: true });
+  const sent = env.state.calendarCreated.slice(created);
+  assert.deepEqual(sent.filter((e) => /eve@evil\.test/.test(JSON.stringify(e))), [], "the page's own Send button was pressed");
+  assert.deepEqual(sent.map((e) => e.add), ["bob@example.com"]);
+});

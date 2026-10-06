@@ -40,6 +40,24 @@ struct BrowserReplTypedSecretsTests {
         #expect(!typed.typedSince(typed.captureMark(forReader: "reader"), forReader: "reader"))
     }
 
+    /// r15 whole#1: a value the user typed into the sign-in sheet is
+    /// masked for every session that reads the tab, the one whose agent
+    /// asked for it included: the agent never holds it.
+    @Test func aFilledCredentialIsMaskedForEverySessionIncludingTheAsker() throws {
+        let typed = BrowserReplTypedSecrets()
+        try typed.recordCredential(tab: "tab1", field: "password", value: "hunter2-secret", domains: Self.domains)
+        for reader in ["asker", "other"] {
+            let store = try #require(typed.redaction(forReader: reader))
+            #expect(store.redactJSON(#"{"value":"hunter2-secret"}"#) == #"{"value":"<secret:browserAuth.password>"}"#)
+            #expect(typed.captureMasks(forReader: reader).map { $0["value"] as? String } == ["hunter2-secret"])
+        }
+        // A session that leaves does not unmask it, and an empty field is not a value.
+        typed.sessionLeft("asker")
+        #expect(typed.redaction(forReader: "asker") != nil)
+        try typed.recordCredential(tab: "tab1", field: "otp", value: "", domains: Self.domains)
+        #expect(typed.captureMasks(forReader: "asker").count == 1)
+    }
+
     @Test func theTypingSessionKeepsItsOwnRedaction() throws {
         let typed = BrowserReplTypedSecrets()
         try typed.record(tab: "tab1", name: "password", value: "hunter2-secret", domains: Self.domains, typist: "typist")

@@ -23,9 +23,10 @@ final class BrowserReplBoundary: @unchecked Sendable {
     /// The session's working and temporary directories, the only places a
     /// navigation may load a file from.
     private var fileRoots: [String] = []
-    /// The domains of each secret the session sent to be typed: the policy
-    /// may not let pages reach past any of them from then on
-    /// (``secretTypingRefusal(name:domains:)``).
+    /// The domains of each secret the session sent to be typed, and of each
+    /// sign-in sheet it asked for: the policy may not let pages reach past
+    /// any of them from then on (``secretTypingRefusal(name:domains:)``,
+    /// ``credentialDomains(origin:)``).
     private var typedSecretDomains: [[BrowserReplDomainPattern]] = []
 
     /// - Parameters:
@@ -143,7 +144,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
                         if let domains = typedSecretDomains.first(where: { !Self.keeps(next.allowed, within: $0) }) {
                             throw BrowserReplDriverError(
                                 code: "invalid",
-                                message: "\(title): a secret was typed under the domain policy, so it may only keep pages on that secret's domains (\(domains.map(\.raw).joined(separator: ", "))) for the rest of the session"
+                                message: "\(title): a secret or sign-in credential was typed under the domain policy, so it may only keep pages on its domains (\(domains.map(\.raw).joined(separator: ", "))) for the rest of the session"
                             )
                         }
                     }
@@ -200,7 +201,7 @@ final class BrowserReplBoundary: @unchecked Sendable {
     ///   policy.
     /// - Captures get the plain secret values to mask in matching frames.
     func prepare(method: String, paramsJSON: String) -> Result<String, BrowserReplDriverError> {
-        let watched = ["input.insertText", "tab.navigate", "tabs.open", "session.configure", "tab.screenshot", "tab.pdf"]
+        let watched = ["input.insertText", "tab.navigate", "tabs.open", "session.configure", "tab.screenshot", "tab.pdf", "auth.request"]
         guard watched.contains(method) || paramsJSON.contains("secret") else { return .success(paramsJSON) }
         var params = JSONSerialization.browserReplObject(paramsJSON)
         for key in Self.reservedParameters { params.removeValue(forKey: key) }
@@ -218,6 +219,15 @@ final class BrowserReplBoundary: @unchecked Sendable {
                 // The driver asks again right before typing
                 // (``secretIsCurrent(name:revision:)``).
                 params["secretRevision"] = typed.revision
+            }
+        case "auth.request":
+            // The sign-in sheet's values go into the page like a typed
+            // secret: under a policy that keeps the session's tabs on the
+            // page's site, which the driver gets as their domains (checked
+            // against the frame that receives them, and masked by them).
+            switch credentialDomains(origin: params["origin"]) {
+            case .success(let domains): params["secretDomains"] = domains.map(\.json)
+            case .failure(let refusal): return .failure(refusal)
             }
         case "tab.navigate", "tabs.open":
             if let url = params["url"] as? String {
@@ -277,6 +287,37 @@ final class BrowserReplBoundary: @unchecked Sendable {
             }
             if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
             return nil
+        }
+    }
+
+    /// The domains of the values the sign-in sheet fills into a page of
+    /// `origin` (`auth.request`): its site (`*.<registrable domain>`, or
+    /// the host itself when it has none, an IP address or a single label).
+    /// Refused unless the policy keeps the session's tabs within them, as
+    /// for a typed secret, and kept from then on (``policyOperation(_:_:)``).
+    private func credentialDomains(origin raw: Any?) -> Result<[BrowserReplDomainPattern], BrowserReplDriverError> {
+        guard let origin = raw as? String, let url = URL(string: origin), url.scheme == "https" || url.scheme == "http",
+              let host = url.host, !host.isEmpty else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: origin: expected the page's http(s) origin"))
+        }
+        let site = publicSuffixes.site(of: host)
+        guard let domain = (try? BrowserReplDomainPattern.parse("*.\(site)", title: "auth.request", publicSuffixes: publicSuffixes))
+            ?? (try? BrowserReplDomainPattern.parse(site, title: "auth.request", publicSuffixes: publicSuffixes)) else {
+            return .failure(BrowserReplDriverError(code: "invalid", message: "auth.request: \(origin) has no site a domain policy can name"))
+        }
+        let domains = [domain]
+        return lock.withLock {
+            guard let allowed = policy.allowed, Self.keeps(allowed, within: domains) else {
+                let also = policy.allowed.map { list in
+                    "; the policy also allows " + list.filter { pattern in !domains.contains { $0.covers(pattern) } }.map(\.raw).joined(separator: ", ")
+                } ?? ""
+                return .failure(BrowserReplDriverError(
+                    code: "invalid",
+                    message: "sites.browserAuth fills what the user types into the page, which can send it wherever the domain policy lets it; it asks only while the policy keeps the session's tabs on \(domain.raw)\(also). Call session.allowedDomains([\"\(domain.raw)\"]) (or narrower) first"
+                ))
+            }
+            if !typedSecretDomains.contains(domains) { typedSecretDomains.append(domains) }
+            return .success(domains)
         }
     }
 

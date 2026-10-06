@@ -171,14 +171,16 @@ export async function createSitesEnv({ signedIn = true, authResponder, gmailRepl
 // "fill"), with the origin the sheet named as __origin. `origin` stands in
 // for a frame that navigated elsewhere while the sheet was open;
 // `meanwhile({ params, call })` runs while the sheet is up (another
-// session or the page changing the page).
-export function fillLike(values, { origin, meanwhile } = {}) {
+// session or the page changing the page); `onBound(answer)` sees the bind
+// phase's answer (its credential kinds label the app's sheet).
+export function fillLike(values, { origin, meanwhile, onBound } = {}) {
   return async (params, { call }) => {
     const source = `async (__phase, __binding, __fields, __values, __origin) => { ${authFillSource()} }`;
     const fields = params.fields.map((f) => ({ id: f.id, type: f.type, marker: f.marker }));
     const binding = `binding-${Math.random().toString(36).slice(2)}`;
     const run = (phase, vals, from) => call("frame.evaluate", { targetId: params.targetId, frameId: params.frameId, world: "page", source, args: [phase, binding, fields, vals, from], awaitPromise: true });
     const bound = await run("bind", {}, params.origin);
+    if (onBound) onBound(bound);
     if (bound && bound.status && bound.status !== "bound" && bound.status !== "filled") return bound;
     if (meanwhile) await meanwhile({ params, call });
     return run("fill", values, origin ?? params.origin);

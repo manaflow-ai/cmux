@@ -565,14 +565,39 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
             }
             try await frameGate.authorize(frame, in: panel.webView)
-            let workspaceTitle = allBrowserPanels().first { $0.panel.id == panel.id }?.workspace.title ?? ""
+            // What the user types goes into the page like a typed secret,
+            // under the same checks: only a tab this session created runs
+            // under its domain policy, which the session made sure keeps
+            // the page on the credential's domains (its site;
+            // BrowserReplBoundary.prepare sends them as secretDomains), and
+            // the frame that receives the values must be on them.
             let sessionID = self.sessionID
+            let creator = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.liveCreatorSessionID
+            guard creator == sessionID else {
+                throw Self.error("invalid", "sites.browserAuth fills only a tab this session opened (tabs.open), where its domain policy keeps the page from sending the values elsewhere; this tab is \(creator == nil ? "the user's" : "another session's")")
+            }
+            let domains = (params["secretDomains"] as? [[String: Any]] ?? []).compactMap(BrowserReplDomainPattern.from(json:))
+            guard !domains.isEmpty else {
+                throw Self.error("invalid", "auth.request needs the credential's domains, which only a REPL session sends")
+            }
+            guard let fieldsOrigin = BrowserReplCredentialRequest.frameOrigin(frame.info, panel.webView),
+                  domains.contains(where: { $0.matches(origin: fieldsOrigin, secure: true) }) else {
+                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), outside the credential's domains (\(domains.map(\.raw).joined(separator: ", ")))")
+            }
             let tabAttachment = attachment(panel)
             let webView = panel.webView
+            let tab = panel.id.uuidString
             return await BrowserReplCredentialRequest.run(
                 webView: webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js"),
-                requester: (tab: Self.title(panel), workspace: workspaceTitle),
+                // Recorded before the fill, on the fill's main-actor turn:
+                // every session that reads the tab, this one included, gets
+                // the values masked in results, events and captures.
+                record: { values in
+                    for (field, value) in values.sorted(by: { $0.key < $1.key }) {
+                        try BrowserReplTabAttachments.typedSecrets.recordCredential(tab: tab, field: field, value: value, domains: domains)
+                    }
+                },
                 stillAllowed: { [weak self, weak panel] in
                     // The session still runs and drives this tab, which still
                     // shows the web view the sheet was asked for.

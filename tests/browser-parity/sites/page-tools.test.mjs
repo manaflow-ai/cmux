@@ -101,7 +101,7 @@ test("browserAuth.request: the app fills marked fields and submits; no value rea
   const req = `sites.browserAuth.request({ origin: "https://login.example", fields: [
     { id: "email", label: "Email", type: "email", autocomplete: "username", selector: 'input[name="email"]' },
     { id: "password", label: "Password", type: "password", autocomplete: "current-password", selector: page.getByLabel("Password") } ],
-    submit: { selector: 'button[type="submit"]', action: "click" } })`;
+    submit: { selector: '#f button[type="submit"]', action: "click" } })`;
   assert.deepEqual(await s.value(req), { status: "submitted" });
   const sent = s.auth.at(-1);
   assert.deepEqual(sent.fields.map((f) => [f.id, f.label, f.type]), [["email", "Email", "email"], ["password", "Password", "password"]]);
@@ -178,11 +178,45 @@ test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sh
   assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "cancelled" });
   assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://evil.example", fields: [${field}] })`), { status: "origin_changed" });
   assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "x", label: "X", type: "text", selector: "input" }] })`), { status: "locator_invalid", locator_error: { field_id: "x", reason: "not_unique" } });
-  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "b", label: "B", type: "text", selector: "button" }] })`), { status: "locator_invalid", locator_error: { field_id: "b", reason: "not_editable_text_field" } });
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "b", label: "B", type: "text", selector: "#f button" }] })`), { status: "locator_invalid", locator_error: { field_id: "b", reason: "not_editable_text_field" } });
   assert.match(await s.error(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "e", label: "Enter your email\\nand password", type: "email", selector: "input" }] })`), /label: expected a short noun phrase/);
   globalThis.__authAnswer = (params, { call }) => call("auth.request", params);
   assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}] })`), { status: "unavailable" });
   assert.equal(await s.value("page.evaluate(() => document.querySelectorAll('[data-cmux-auth]').length)"), 0);
+});
+
+// r15 sites#5: after the user fills the sheet, cmux activates only the
+// submit control of the form that holds the filled fields (a submit
+// button or input of that form; Enter only in a filled field). Any other
+// control the agent names is refused before the sheet opens, and nothing
+// is filled or pressed.
+test("browserAuth.request: submit presses only a submit control of the fields' own form", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ email: "ada@example.com" });
+  const field = `{ id: "email", label: "Email", type: "email", selector: 'input[name="email"]' }`;
+  for (const submit of ['{ selector: "#danger" }', '{ selector: "#other" }', '{ selector: "#note", action: "press_enter" }', '{ selector: "label" }']) {
+    const count = s.auth.length;
+    const r = await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: ${submit} })`);
+    assert.equal(r.status, "locator_invalid", submit);
+    assert.equal(r.locator_error.field_id, "submit", submit);
+    assert.equal(s.auth.length, count, `the sheet opened for ${submit}`);
+    assert.deepEqual(await s.value(`page.evaluate(() => [document.getElementById("out").textContent, document.querySelector('input[name="email"]').value, document.querySelectorAll("[data-cmux-auth], [data-cmux-auth-form]").length])`), ["", "", 0], submit);
+  }
+  assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [${field}], submit: { selector: 'input[name="email"]', action: "press_enter" } })`), { status: "submitted" });
+  assert.match(await s.value('page.locator("#out").textContent()'), /^submitted as ada@example\.com/);
+});
+
+// r15 tabs#2: the sheet shows only what cmux verified. The agent's labels
+// (and the page's title) are not shown; each field is labeled by the
+// credential kind the app's bind found on the bound element itself.
+test("browserAuth.request: the app's bind answers each bound element's credential kind for the sheet's labels", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  let bound = null;
+  globalThis.__authAnswer = fillLike({}, { onBound: (b) => (bound = b) });
+  await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [
+    { id: "a", label: "Your favorite color", type: "email", selector: 'input[name="email"]' },
+    { id: "b", label: "Confirm to continue", type: "password", selector: 'input[name="password"]' } ] })`);
+  assert.deepEqual(bound, { status: "bound", kinds: ["username", "password"] });
 });
 
 test("browserAuth.request: only credential fields (password, username, one-time code) are filled", async () => {

@@ -268,3 +268,47 @@ test("slack.post: the draft names the member; another member of the same workspa
     await s.run(setSlackMember({ token: SLACK_SEED.teams.T01ACME.token, user_id: SLACK_SEED.teams.T01ACME.user_id }));
   }
 });
+
+// r15 sites#2, #4, #6: the account is read again as the last step before
+// the click, after the rest of the second read-back. Here another session
+// switches the account while the commit reads the composer text at the
+// press (after that read-back's account check): nothing is sent.
+const switchAtPressRead = (flip) => {
+  let reads = 0;
+  return async (method, params, call) => {
+    if (method !== "frame.evaluate" || !JSON.stringify(params).includes('"composerText"')) return undefined;
+    const r = await call(method, params);
+    // The first composer read is the commit's read-back; the second is the press's.
+    if (++reads === 2) flip();
+    return r;
+  };
+};
+
+test("x.post, linkedin.post and gmail.send: an account switch during the press's read-back sends nothing", async () => {
+  try {
+    await s.run('var xS = await sites.x.post("Bound at the click.")');
+    const xBefore = env.state.xPosts.length;
+    s.intercept(switchAtPressRead(() => (env.state.xAccount = "mallory")));
+    assert.match(await s.error("sites.x.post(xS.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.xPosts.length, xBefore, "posted as the switched X account");
+    s.intercept(null);
+
+    await s.run('var lnS = await sites.linkedin.post("Bound at the click.")');
+    const lnBefore = env.state.linkedinPosts.length;
+    s.intercept(switchAtPressRead(() => (env.state.linkedinViewer = "mallory")));
+    assert.match(await s.error("sites.linkedin.post(lnS.id, { confirm: true })"), /account_mismatch|account it acts as differs|mallory/);
+    assert.equal(env.state.linkedinPosts.length, lnBefore, "posted as the switched LinkedIn member");
+    s.intercept(null);
+
+    await s.run('var gmS = await sites.gmail.send({ to: "bob@example.com", subject: "Bound", body: "Bound at the click." })');
+    const sent = env.state.gmailSent.length;
+    s.intercept(switchAtPressRead(() => (env.state.googleAccounts = SWITCHED())));
+    assert.match(await s.error("sites.gmail.send(gmS.id, { confirm: true })"), /account_mismatch|account it acts as differs|ada@work\.example/);
+    assert.equal(env.state.gmailSent.length, sent, "sent from the switched Google account");
+  } finally {
+    s.intercept(null);
+    env.state.xAccount = null;
+    env.state.linkedinViewer = null;
+    env.state.googleAccounts = null;
+  }
+});

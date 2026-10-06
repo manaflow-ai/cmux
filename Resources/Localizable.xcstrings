@@ -623495,114 +623495,232 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent asked cmux to fill this sign-in form. The agent does not receive what you type, but scripts on the page, and code the agent runs in the page, can read the filled fields."
+            "value": "An agent asked cmux to fill this sign-in form. cmux masks what you type wherever the agent reads it back, but scripts on the page can read the filled fields."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. لا يتلقى الوكيل ما تكتبه، لكن البرامج النصية في الصفحة، والتعليمات البرمجية التي يشغلها الوكيل في الصفحة، يمكنها قراءة الحقول المعبأة."
+            "value": "طلب وكيل من cmux تعبئة نموذج تسجيل الدخول هذا. يُخفي cmux ما تكتبه في كل ما يقرؤه الوكيل، لكن نصوص الصفحة البرمجية يمكنها قراءة الحقول المعبأة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. Der Agent erhält nicht, was du eingibst, aber Skripte der Seite und Code, den der Agent in der Seite ausführt, können die ausgefüllten Felder lesen."
+            "value": "Ein Agent hat cmux gebeten, dieses Anmeldeformular auszufüllen. cmux maskiert, was du eingibst, überall, wo der Agent es zurückliest, aber Skripte der Seite können die ausgefüllten Felder lesen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. El agente no recibe lo que escribes, pero los scripts de la página y el código que el agente ejecuta en la página pueden leer los campos rellenados."
+            "value": "Un agente pidió a cmux que rellene este formulario de inicio de sesión. cmux enmascara lo que escribes en todo lo que el agente lee, pero los scripts de la página pueden leer los campos rellenados."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. L’agent ne reçoit pas ce que vous saisissez, mais les scripts de la page, et le code que l’agent exécute dans la page, peuvent lire les champs remplis."
+            "value": "Un agent a demandé à cmux de remplir ce formulaire de connexion. cmux masque ce que vous saisissez partout où l’agent le relit, mais les scripts de la page peuvent lire les champs remplis."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容はエージェントには送られませんが、ページのスクリプトや、エージェントがページ内で実行するコードは入力済みのフィールドを読み取れます。"
+            "value": "エージェントが cmux にこのサインインフォームへの入力を依頼しました。入力した内容は、エージェントが読み取るすべての箇所で cmux がマスクしますが、ページのスクリプトは入力済みのフィールドを読み取れます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. 에이전트는 입력한 내용을 받지 않지만, 페이지의 스크립트와 에이전트가 페이지에서 실행하는 코드는 채워진 필드를 읽을 수 있습니다."
+            "value": "에이전트가 cmux에 이 로그인 양식을 채우도록 요청했습니다. cmux는 에이전트가 읽어 가는 모든 곳에서 입력한 내용을 가리지만, 페이지의 스크립트는 채워진 필드를 읽을 수 있습니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "有智能体请求 cmux 填写此登录表单。智能体不会收到你输入的内容，但网页上的脚本以及智能体在网页中运行的代码可以读取已填写的字段。"
+            "value": "一个代理请求 cmux 填写此登录表单。cmux 会在代理读取的所有内容中遮盖你输入的内容，但页面上的脚本可以读取已填写的字段。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "有代理程式要求 cmux 填寫此登入表單。代理程式不會收到你輸入的內容，但網頁上的指令碼，以及代理程式在網頁中執行的程式碼，可以讀取已填寫的欄位。"
+            "value": "一個代理請求 cmux 填寫此登入表單。cmux 會在代理讀取的所有內容中遮蓋你輸入的內容，但頁面上的指令碼可以讀取已填寫的欄位。"
           }
         }
       }
     },
-    "browser.repl.auth.requester": {
+    "browser.repl.auth.field.oneTimeCode": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Asked by an agent working in the tab “%1$@” of the workspace “%2$@”."
+            "value": "One-time code"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "طلبه وكيل يعمل في علامة التبويب ”%1$@“ في مساحة العمل ”%2$@“."
+            "value": "رمز لمرة واحدة"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Angefragt von einem Agenten im Tab „%1$@“ des Arbeitsbereichs „%2$@“."
+            "value": "Einmalcode"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo pide un agente que trabaja en la pestaña «%1$@» del espacio de trabajo «%2$@»."
+            "value": "Código de un solo uso"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Demandé par un agent qui travaille dans l’onglet « %1$@ » de l’espace de travail « %2$@ »."
+            "value": "Code à usage unique"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペース「%2$@」のタブ「%1$@」で作業中のエージェントからの要求です。"
+            "value": "ワンタイムコード"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "작업 공간 “%2$@”의 탭 “%1$@”에서 작업 중인 에이전트가 요청했습니다."
+            "value": "일회용 코드"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "由在工作区“%2$@”的标签页“%1$@”中工作的代理请求。"
+            "value": "一次性验证码"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "由在工作區「%2$@」的分頁「%1$@」中工作的代理請求。"
+            "value": "一次性驗證碼"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.field.password": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Password"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كلمة المرور"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraseña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mot de passe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスワード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비밀번호"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密码"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "密碼"
+          }
+        }
+      }
+    },
+    "browser.repl.auth.field.username": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Username or email"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسم المستخدم أو البريد الإلكتروني"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benutzername oder E-Mail"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuario o correo electrónico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom d’utilisateur ou e-mail"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザー名またはメールアドレス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 이름 또는 이메일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用户名或电子邮件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用者名稱或電子郵件"
           }
         }
       }
