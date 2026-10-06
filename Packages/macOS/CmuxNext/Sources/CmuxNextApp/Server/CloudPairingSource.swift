@@ -184,6 +184,9 @@ final class CloudPairingSource: ServerSource {
         }
     }
 
+    /// The pairing capability of a server that runs a user's Chief (`optchat-chief cloud pair`).
+    nonisolated static let chiefBrainCapability = "optchat-chief-brain"
+
     private static func chiefNotMoved(_ reason: String) -> String {
         format("refusal.server.chiefNotMoved", "The server was added, but your Chief could not move to it: %@", reason)
     }
@@ -228,8 +231,8 @@ final class CloudPairingSource: ServerSource {
             region: value["country"] as? String,
             words: words,
             teams: [team],
-            // `optchat-chief cloud pair` names itself in the version field.
-            isChiefBrain: (info["cmux_version"] as? String)?.hasPrefix("optchat-chief/") == true
+            // `optchat-chief cloud pair` declares the capability; the paired install keeps it.
+            isChiefBrain: (info["capabilities"] as? [String])?.contains(Self.chiefBrainCapability) == true
         )
     }
 

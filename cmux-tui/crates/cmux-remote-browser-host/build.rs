@@ -30,25 +30,37 @@ fn main() {
     );
     let mut wrapper = Vec::new();
     sources(&cef.join("libcef_dll"), &mut wrapper);
-    let mut build = cc::Build::new();
-    build
+    // CEF's own wrapper: its headers warn by the thousand under -Wall
+    // -Wextra, so this build is quiet and sees CEF through -isystem.
+    let mut wrapper_build = cc::Build::new();
+    wrapper_build
         .cpp(true)
-        // CEF's own headers warn by the thousand under -Wall -Wextra (80k log
-        // lines in step 42dc56837182b305e5d5b1a2); the shim is checked with
-        // clang -Wall separately.
-        .warnings(false)
         .std("c++20")
-        .include(&cef)
-        .include("csrc")
+        .warnings(false)
+        .flag(format!("-isystem{}", cef.display()))
         .define("WRAPPING_CEF_SHARED", None)
         .flag("-fno-exceptions")
         .flag("-fno-rtti")
         .flag("-fobjc-arc")
         .flag("-mmacosx-version-min=12.0")
         .flag("-Wno-undefined-var-template")
-        .file("csrc/rb_shim.mm")
         .files(wrapper);
-    build.compile("cmux_rb_shim");
+    wrapper_build.compile("cmux_cef_wrapper");
+    // Our shim: CEF headers as system headers (quiet), our code under -Wall
+    // -Werror.
+    let mut shim = cc::Build::new();
+    shim.cpp(true)
+        .std("c++20")
+        .warnings(true)
+        .warnings_into_errors(true)
+        .flag(format!("-isystem{}", cef.display()))
+        .include("csrc")
+        .flag("-fno-exceptions")
+        .flag("-fno-rtti")
+        .flag("-fobjc-arc")
+        .flag("-mmacosx-version-min=12.0")
+        .file("csrc/rb_shim.mm");
+    shim.compile("cmux_rb_shim");
     for framework in ["Cocoa", "AppKit", "IOSurface", "CoreGraphics"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
