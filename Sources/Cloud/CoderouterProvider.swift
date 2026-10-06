@@ -56,7 +56,8 @@ struct CoderouterProvider: Hashable {
         // changed by a sidebar click. Newer CLIs may accept `--team` directly,
         // but this isolated path keeps dev builds compatible before that
         // release is bundled.
-        return "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\"); cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'CodeRouter is not signed in on this Mac.' >&2; exit 1; fi; mkdir -p \"$tmp/coderouter\"; cp \"$source_config\" \"$tmp/coderouter/config.json\"; status=0; if CODEROUTER_DATA_DIR=\"$tmp\" cmux cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || status=$?; else status=$?; fi; exit $status"
+        let script = "tmp=$(mktemp -d \"${TMPDIR:-/tmp}/cmux-coderouter-add.XXXXXX\") || exit 1; cleanup(){ rm -rf \"$tmp\"; }; trap cleanup EXIT INT TERM; source_root=\"${CODEROUTER_DATA_DIR:-$HOME/Library/Application Support}\"; source_config=\"$source_root/coderouter/config.json\"; if [ ! -f \"$source_config\" ]; then echo 'CodeRouter is not signed in on this Mac.' >&2; exit 1; fi; if ! mkdir -p \"$tmp/coderouter\"; then exit 1; fi; if ! cp \"$source_config\" \"$tmp/coderouter/config.json\"; then exit 1; fi; result=0; if CODEROUTER_DATA_DIR=\"$tmp\" cmux cr org switch \(quotedOrganization); then CODEROUTER_DATA_DIR=\"$tmp\" \(addCommand) || result=$?; else result=$?; fi; exit \"$result\""
+        return "/bin/sh -c \(Self.shellQuote(script))"
     }
 
     private static func shellQuote(_ value: String) -> String {

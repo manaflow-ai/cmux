@@ -238,9 +238,64 @@ struct CoderouterSidebarSectionTests {
         #expect(teamScopedCodex.contains("CODEROUTER_DATA_DIR=\"$tmp\""))
         let quotedTeam = CoderouterProvider.claude.addCommand(for: "team's-id")
         #expect(quotedTeam.contains("cmux cr org switch 'team'\\''s-id'"))
+        #expect(teamScopedCodex.hasPrefix("/bin/sh -c "))
+        #expect(!teamScopedCodex.contains("status=0"))
         // The server names OpenCode Go accounts `opencode-go`; the CLI verb is `opencode`.
         #expect(CoderouterProvider(id: "opencode-go") == .opencodeGo)
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
+    }
+
+    @Test("Team-scoped add runs in a child shell and cleans its copied config")
+    func teamScopedAddCommandIsContained() throws {
+        let organizationID = "17a2ba34-5a88-412e-8380-0ea4118139c3"
+        for shell in ["/bin/zsh", "/bin/bash"] {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-coderouter-add-\(UUID().uuidString)")
+            let configDirectory = root.appendingPathComponent("coderouter")
+            let binDirectory = root.appendingPathComponent("bin")
+            try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            try Data("{}\n".utf8).write(to: configDirectory.appendingPathComponent("config.json"))
+            let log = root.appendingPathComponent("cmux.log")
+            let fakeCmux = binDirectory.appendingPathComponent("cmux")
+            try """
+            #!/bin/sh
+            printf '%s\\n' "$CODEROUTER_DATA_DIR" >> "$CMUX_TEST_LOG"
+            printf '%s\\n' "$*" >> "$CMUX_TEST_LOG"
+            test -f "$CODEROUTER_DATA_DIR/coderouter/config.json"
+            """.write(to: fakeCmux, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeCmux.path)
+
+            let process = Process()
+            let output = Pipe()
+            let error = Pipe()
+            let terminated = DispatchSemaphore(value: 0)
+            process.executableURL = URL(fileURLWithPath: shell)
+            process.arguments = ["-fc", "\(CoderouterProvider.codex.addCommand(for: organizationID)); printf '%s\\n' sentinel"]
+            process.environment = [
+                "PATH": "\(binDirectory.path):/usr/bin:/bin",
+                "HOME": root.path,
+                "CODEROUTER_DATA_DIR": root.path,
+                "CMUX_TEST_LOG": log.path,
+            ]
+            process.standardOutput = output
+            process.standardError = error
+            process.terminationHandler = { _ in terminated.signal() }
+            try process.run()
+            #expect(terminated.wait(timeout: .now() + 5) == .success, "\(shell) timed out")
+            if process.isRunning { process.terminate() }
+
+            #expect(process.terminationStatus == 0, String(decoding: error.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self))
+            #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).contains("sentinel\n"))
+            let lines = try String(contentsOf: log, encoding: .utf8).split(whereSeparator: \.isNewline).map(String.init)
+            #expect(lines.count == 4)
+            #expect(lines[1] == "cr org switch \(organizationID)")
+            #expect(lines[3] == "cr add codex")
+            #expect(lines[0] == lines[2])
+            #expect(!FileManager.default.fileExists(atPath: lines[0] + "/coderouter/config.json"))
+        }
     }
 
     @Test("An unlabeled key account reads as its type and key suffix")
