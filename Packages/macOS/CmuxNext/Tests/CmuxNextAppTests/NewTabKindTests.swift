@@ -80,7 +80,7 @@ import Testing
     /// never loses a key it reads.
     @Test func eachKindHasItsOwnChord() {
         let chords: [ActionID: Shortcut] = [
-            "newSurface": Shortcut("t", modifiers: [.control, .shift, .command]),
+            "newSurface": Shortcut("`", modifiers: [.control]),
             "openBrowser": Shortcut("l", modifiers: [.command, .shift]),
             "palette.newAgentChat": Shortcut("i", modifiers: [.command]),
         ]

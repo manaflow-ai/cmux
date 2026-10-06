@@ -3551,11 +3551,9 @@
             "zh-TW": "新增終端機標籤頁"
           },
           "shortcut": {
-            "key": "t",
+            "key": "`",
             "modifiers": [
-              "ctrl",
-              "shift",
-              "cmd"
+              "ctrl"
             ]
           },
           "chord": null,
