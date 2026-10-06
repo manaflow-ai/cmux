@@ -208,6 +208,14 @@ public final class BrowserReplDragPasteboardRedirect: @unchecked Sendable {
     /// every process of the user can read and overwrite. Lookups by other
     /// code keep the system's.
     ///
+    /// Past `timeout` (or ``expireDragWindow(_:)``) the window stays open
+    /// but diverted: WebKit may still be handling the event that opened it
+    /// (a page's slow `dragstart`), so its late lookups get a private
+    /// discard that is emptied at each lookup, never `pasteboard` and never
+    /// the system's, until ``closeDragWindow(_:)``, which the driver calls
+    /// once WebKit handled the event. No other drag opens its window
+    /// meanwhile.
+    ///
     /// One window is open at a time in the whole app, since WebKit's
     /// lookups do not say which web view a drag starts in: an open window of
     /// another drag is waited for, up to `timeout`, and `false` means it was
@@ -228,29 +236,54 @@ public final class BrowserReplDragPasteboardRedirect: @unchecked Sendable {
         let window = DragWindow(pasteboard: pasteboard)
         dragWindow = window
         setTarget(pasteboard, for: .drag)
-        // Bounded: a drag the page never starts does not keep every other
-        // web view's drag data on this pasteboard.
+        // Bounded: a drag the page starts late does not get this drag's
+        // pasteboard. The window stays diverted until the driver closes it
+        // (the event may still be running in WebKit), so a late write never
+        // reaches the system's drag pasteboard.
         let bound = clock.now.advanced(by: timeout)
         Task { @MainActor in
             if await window.closed.wait(until: bound, clock: clock, honoringCancellation: false) { return }
-            self.closeDragWindow(pasteboard)
+            self.expireDragWindow(pasteboard)
         }
         return true
     }
 
-    /// Closes `pasteboard`'s drag window, if it is the open one.
+    /// Diverts `pasteboard`'s drag window, if it is the open one: from now
+    /// until ``closeDragWindow(_:)`` every WebKit lookup of the drag
+    /// pasteboard gets a private discard, emptied at each lookup, so a
+    /// drag WebKit starts late carries no data and its data reaches no
+    /// pasteboard another process reads. The window stays open, so no
+    /// other drag opens one while the event that opened it may still run.
     @MainActor
-    public func closeDragWindow(_ pasteboard: NSPasteboard) {
+    public func expireDragWindow(_ pasteboard: NSPasteboard) {
         guard let window = dragWindow, window.pasteboard === pasteboard else { return }
+        window.expired = true
+        lock.lock()
+        let target = targets[NSPasteboard.Name.drag.rawValue]
+        lock.unlock()
+        if let target, target.pasteboard === pasteboard { _ = divert(target) }
+    }
+
+    /// Closes `pasteboard`'s drag window, if it is the open one. Returns
+    /// `true` when the window was open and not diverted
+    /// (``expireDragWindow(_:)``): WebKit's lookups got `pasteboard` until
+    /// now, so a drag it started holds its data there.
+    @MainActor
+    @discardableResult
+    public func closeDragWindow(_ pasteboard: NSPasteboard) -> Bool {
+        guard let window = dragWindow, window.pasteboard === pasteboard else { return false }
         endRedirect(to: pasteboard, for: .drag)
         dragWindow = nil
         window.closed.signal()
+        return !window.expired
     }
 
     @MainActor
     private final class DragWindow {
         let pasteboard: NSPasteboard
         let closed = BrowserReplLatch()
+        /// Past its bound, or its capture ended: lookups get the discard.
+        var expired = false
 
         init(pasteboard: NSPasteboard) {
             self.pasteboard = pasteboard

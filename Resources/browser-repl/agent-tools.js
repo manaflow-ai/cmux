@@ -1216,6 +1216,10 @@
         } else if (event === "download.finished") {
           const d = downloadsById.get(p.downloadId);
           if (d) Object.assign(d, { state: p.error ? "failed" : "finished", path: p.path || null, error: p.error || null });
+        } else if (event === "tab.replaced" && p.reason) {
+          // The session narrowed its domain policy: cmux loaded the page of
+          // each tab it opened again, ending connections opened before.
+          print("warn", `# tab ${p.targetId}: ${p.reason}`);
         } else if (event === "navigation.blocked") {
           // The driver cancelled a navigation of a tab the session opened (a
           // link, redirect or script): the tab stays where it was.

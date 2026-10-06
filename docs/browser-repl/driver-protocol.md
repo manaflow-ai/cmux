@@ -262,7 +262,7 @@ All input is delivered as native, trusted events (`isTrusted === true`).
 | `input.mouse` | `{ targetId, type: "move"\|"down"\|"up"\|"wheel", x, y, button: "left"\|"right"\|"middle", clickCount, modifiers, deltaX?, deltaY?, expect? }`. `expect`, on a `down` only: `{ frameId, handle, x, y, owners: [{ frameId, handle, x, y }] }`, the element the press must reach at `x`, `y` of its frame, then each parent frame's `<iframe>` and where the press lands in that frame, innermost first, the last at the press point; the press is sent only while each is still what is at its point (see "Frames and scripts"), else it fails with `stale` and no press. A `frameId` of `null` is the main frame |
 | `input.key` | `{ targetId, type: "down"\|"up", key, code, text?, location?, modifiers, autoRepeat? }` |
 | `input.insertText` | `{ targetId, text }` or, from the runtime, `{ targetId, secret: name }`, which the native session turns into `{ targetId, text, secretName, secretDomains, secretRevision }` (see "Guards") (IME commit into the focused element. On WebKit a `contenteditable` editor gets marked text then its confirmation, so `compositionstart`, `beforeinput`/`input` and `compositionend` fire, trusted, and editors that start an edit only on a keydown or a composition (Google Sheets) take it; a form field gets a plain insert with one `input` event, as Chrome's `Input.insertText`; text with a line break or tab, or focus in an unreadable frame, inserts without a composition) |
-| `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers, expect?, dropExpect? }` (native drag session so HTML5 drag and drop fires). `expect` binds the press at the first point and `dropExpect` the release at the last, each shaped and checked as `input.mouse`'s `expect`, right before the press and right before the release (a locator's `dragTo` sends both unless `force`): a changed source fails with `stale` (`no press was sent: …`) and no press; a changed target fails with `stale` (`no drop was made: …`), the HTML5 drag ends with no drop and a plain mouse drag is released at the press point. The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |
+| `input.drag` | `{ targetId, path: [{ x, y }], button, modifiers, expect?, dropExpect? }` (native drag session so HTML5 drag and drop fires). `expect` binds the press at the first point and `dropExpect` the release at the last, each shaped and checked as `input.mouse`'s `expect`, right before the press and right before the release (a locator's `dragTo` sends both unless `force`): a changed source fails with `stale` (`no press was sent: …`) and no press; a changed target fails with `stale` (`no drop was made: …`), the HTML5 drag ends with no drop and a plain mouse drag is released at the press point. The drag's data goes to a private pasteboard of that drag, never the system's named drag pasteboard: around each move that may start the drag, WebKit's lookups of the drag pasteboard get the private one until WebKit starts the drag, the move is handled or 5 s pass. Past 5 s, or once the tab's drag state is reset, the window stays held but diverted until WebKit has handled the move: its lookups get a private discard emptied at each lookup, so a page whose `dragstart` runs late never writes the system's drag pasteboard, and the drag WebKit then starts ends with no drop and the move fails with `timeout`. One drag holds that window at a time across all tabs (WebKit's lookups do not say which web view they serve); a move that cannot get it within 5 s fails with `timeout` and is not delivered. A drag WebKit starts after its window closed drops no data. A person's drag in another web view during the window writes the private pasteboard too, but a drop there never reads it: the drop's access grant comes from AppKit calling WebKit, which diverts the window to an extra private pasteboard emptied at each lookup until it closes (the automated drag then carries no data) |
 
 `modifiers` is an array of `Alt`, `Control`, `Meta`, `Shift`. Key names follow
 Playwright (`KeyboardEvent.key` values plus `Meta+a` style parsed by the runtime).
@@ -330,7 +330,7 @@ way reaches every session in that form.
 | `tab.created` | `{ targetId, openerTargetId?, url }` (popups and `target=_blank`; `url` as written only for the opener's live creator) |
 | `tab.closed` | |
 | `tab.crashed` | (the web content process ended; calls other than navigation fail until a reload or navigation starts a new one) |
-| `tab.replaced` | (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; frame ids and element handles from before are gone) |
+| `tab.replaced` | `{ reason? }` (cmux gave the tab a new web view: it restored a page it had unloaded to save memory, or recovered a crashed one; or, with `reason`, the creating session narrowed its domain policy and cmux loaded the page again (see Guards); frame ids and element handles from before are gone) |
 | `tab.navigated` | `{ frameId, url, sameDocument }` |
 | `navigation.blocked` | `{ url, reason }`: the driver cancelled a navigation of a tab a session created because that session's domain policy blocks `url`, its file roots do, or its content rules failed; every attached session hears of it, and only the tab's live creator gets `url` as written |
 | `tab.loadState` | `{ state: "domcontentloaded"\|"load"\|"networkidle" }` |
@@ -379,8 +379,10 @@ native (`BrowserReplBoundary` in the session, and the driver):
   created stays its own wherever it moves). A call already in flight when
   the tab moves stops too: the frame gate asks the tab capability, with
   the tab's workspace as it is then, before every script it runs and every
-  input it guards, the driver before each native mouse, drag, key and text
-  step, and again before it hands back a result, so the moved tab is
+  input it guards and again when that script returns, the driver before
+  each native mouse, drag, key and text step (also when the move left no
+  session attached to the tab), and again before it hands back a result
+  (a tab it can no longer reach fails the call), so the moved tab is
   neither read nor sent input and the call fails with `denied`. A
   navigation the session started there (`tab.navigate`, `tab.history`,
   `tab.reload`) that has not committed when the session leaves the tab
@@ -889,6 +891,17 @@ native (`BrowserReplBoundary` in the session, and the driver):
   policy: no page loads its subresources under the previous rules. A page
   already loaded keeps running meanwhile, so its own script can still
   start subresource loads under the previous rules until they are replaced.
+  Content rules judge a connection only when it opens, so when the new
+  policy may block something the previous one allowed (it blocks IP
+  addresses, prohibits a new pattern, or allows a list that lacks a
+  pattern allowed before, or there was no allow list), each live page of a
+  tab the session created is loaded again once the rules are on it: an
+  allowed page reloads, a blocked one becomes `about:blank`, and the
+  tab's sessions get `tab.replaced` with the reason. Every connection the
+  old document held (a WebSocket to a now-blocked host) ends with it. The
+  session's calls wait until this is done; a tab whose page cannot be
+  replaced within 10 s is closed. A policy that only widens reloads
+  nothing.
 - Page clipboard: in a tab a session created, page scripts read and write
   only the tab's virtual clipboard, never the system clipboard, also while
   an agent's click, key or evaluated script gives them a user gesture.

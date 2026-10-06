@@ -184,6 +184,56 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // a newer one keeps them under the fail-closed list.
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID, rulesGeneration: generation)
         BrowserReplPolicyBoard.shared.rulesInstalled(sessionID: sessionID, generation: generation)
+        let previous = tabsPolicy
+        tabsPolicy = policy
+        // The session's calls wait for this task (policyRunner), so none
+        // reaches a page that loaded under the looser policy.
+        if policy.narrows(previous) { await replacePagesAfterNarrowing(policy) }
+    }
+
+    /// The policy whose content rules were last put on the session's tabs.
+    @MainActor private var tabsPolicy = BrowserReplDomainPolicy()
+
+    /// Content rules judge a connection only when it opens: a page that
+    /// loaded under a looser policy keeps a WebSocket to a host the new one
+    /// blocks. So after a narrower policy's rules are on the session's
+    /// tabs, each live page of a tab the session created is loaded again
+    /// (its old document and every connection it held end; an allowed page
+    /// reloads, a blocked one becomes `about:blank`), and the tab's
+    /// sessions get `tab.replaced` with the reason. A tab whose page cannot
+    /// be replaced within 10 s is closed.
+    @MainActor
+    private func replacePagesAfterNarrowing(_ policy: BrowserReplDomainPolicy) async {
+        let reason = "the session narrowed its domain policy, so cmux loaded the tab's page again: connections the page opened before (WebSockets) to hosts the new policy blocks are closed, and element handles and page state from before are gone"
+        for attachment in BrowserReplTabAttachments.shared.attachments(forSession: sessionID) {
+            guard attachment.creatorSessionID == sessionID, let panel = attachment.panel, let url = panel.webView.url else { continue }
+            var replaced = false
+            if policy.blockReason(url.absoluteString) == nil, let (ticket, _) = panel.beginAutomationReloadFromCLI() {
+                replaced = await settle(ticket, in: panel)
+            }
+            if !replaced, let blank = URL(string: "about:blank") {
+                replaced = await settle(panel.beginAutomationNavigation(to: blank, recordTypedNavigation: false), in: panel)
+            }
+            guard replaced else {
+                if let workspace = Self.browserPanelEntries().first(where: { $0.panel.id == panel.id })?.workspace {
+                    _ = workspace.closePanel(panel.id, force: true)
+                }
+                continue
+            }
+            attachment.emit(.tabReplaced, ["reason": reason])
+        }
+    }
+
+    /// Whether navigation `ticket` of `panel` committed within 10 s; one
+    /// that did not is stopped.
+    @MainActor
+    private func settle(_ ticket: BrowserAutomationNavigationTicket, in panel: BrowserPanel) async -> Bool {
+        let outcome = try? await withTimeoutThrowing(milliseconds: 10_000, what: "replacing the page") {
+            await panel.finishAutomationNavigation(ticket)
+        }
+        if outcome == .committed { return true }
+        panel.automationNavigationCoordinator.stop(ticket, loading: panel.webView)
+        return false
     }
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
@@ -239,12 +289,20 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// judges it, in the workspace that holds it now, so the gate refuses
     /// every later script and input step once the tab moved out of the
     /// session's workspace (``BrowserReplFrameGate/checkTab(in:)``). A web
-    /// view no attached tab shows counts as a user's tab, and no workspace
-    /// is judged for it.
+    /// view no attached tab shows (the last session left a tab the user
+    /// moved to another workspace) counts as a user's tab in the workspace
+    /// that holds it now, and one no workspace holds is refused: the
+    /// session's workspace is always judged.
     @MainActor
     private func frameGateScope(_ webView: WKWebView) -> BrowserReplFrameGate.Scope {
         guard let panel = BrowserReplTabAttachments.shared.attachment(showing: webView)?.panel else {
-            return BrowserReplFrameGate.Scope(sessionID: sessionID, fileRoots: currentFileRoots, tab: BrowserReplTabFacts(mainFrameURL: webView.url))
+            let holder = Self.browserPanelEntries().first { $0.panel.webView === webView }
+            return BrowserReplFrameGate.Scope(
+                sessionID: sessionID,
+                fileRoots: currentFileRoots,
+                tab: BrowserReplTabFacts(id: holder?.panel.id, mainFrameURL: webView.url, workspaceID: holder?.workspace.id),
+                workspaceID: workspaceID
+            )
         }
         return BrowserReplFrameGate.Scope(
             sessionID: sessionID,
@@ -620,10 +678,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// The tab capability the method needs (``BrowserReplMethodSpec/target``),
-    /// judged by the authority on the tab `targetId` names.
+    /// judged by the authority on the tab `targetId` names. A tab the
+    /// session may no longer reach (the user moved it to another workspace
+    /// while the call ran) fails the call, never passes as a missing tab.
     @MainActor
     private func checkTab(_ spec: BrowserReplMethodSpec, params: [String: Any]) throws {
-        guard let capability = spec.capability, let panel = targetPanel(params) else { return }
+        guard let capability = spec.capability,
+              let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+              let panel = try reachablePanel(id) else { return }
         try authority.verdict(BrowserReplAccess(in: tabFacts(panel), capability: capability)).check()
     }
 
@@ -2363,10 +2425,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             defer { capture?.closePasteboardWindow() }
             try send()
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
-            await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+            try await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
         case .leftMouseUp:
             if attachment.drag?.drop == nil {
-                await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
+                try await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
             }
             if let drop = attachment.drag?.drop {
                 try frameGate.checkTab(in: webView)
@@ -2395,19 +2457,30 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// WebKit starts a drag asynchronously after the page's `dragstart`; once
-    /// it has, enter the web view as the drop destination.
+    /// it has, enter the web view as the drop destination. A drag WebKit
+    /// started after its pasteboard window was diverted (the page's handler
+    /// ran past the window's bound, or the tab's drag state was reset)
+    /// wrote its data to a discard: it ends without a drop and the call
+    /// fails.
     @MainActor
     private func startDropIfDragBegan(
         webView: CmuxWebView,
         window: NSWindow,
         location: NSPoint,
         attachment: BrowserReplTabAttachment
-    ) async {
+    ) async throws {
         guard let state = attachment.drag, state.drop == nil else { return }
         if !state.capture.didBegin {
             await BrowserReplNativeInput.roundTrip(webView)
         }
         guard state.capture.didBegin else { return }
+        if state.capture.lostDragData {
+            webView.automationDragCapture = nil
+            attachment.drag = nil
+            webView.endAutomationDrag(at: location, operation: [])
+            await BrowserReplNativeInput.roundTrip(webView)
+            throw Self.error("timeout", "The page started the drag after its 5 s pasteboard window, so its drag data was discarded (never put on the system's drag pasteboard) and the drag ended without a drop; make the page's dragstart handler return sooner")
+        }
         dragSequence += 1
         let drop = BrowserAutomationDraggingInfo(
             window: window,

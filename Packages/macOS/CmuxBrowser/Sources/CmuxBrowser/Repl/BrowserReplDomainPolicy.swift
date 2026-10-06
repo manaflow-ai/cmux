@@ -455,6 +455,22 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
 
     public var isActive: Bool { allowed != nil || !prohibited.isEmpty || blockIPAddresses }
 
+    /// Whether this policy may block a URL `previous` allowed: it blocks IP
+    /// addresses where `previous` did not, prohibits a pattern `previous`
+    /// did not, or allows a list that lacks a pattern `previous` allowed
+    /// (or `previous` allowed every host). Patterns are compared as
+    /// written, so a change that cannot be shown to only widen counts as
+    /// narrowing. Locking narrows nothing.
+    public func narrows(_ previous: BrowserReplDomainPolicy) -> Bool {
+        if blockIPAddresses, !previous.blockIPAddresses { return true }
+        let earlierProhibited = Set(previous.prohibited.map(\.raw))
+        if prohibited.contains(where: { !earlierProhibited.contains($0.raw) }) { return true }
+        guard let allowed else { return false }
+        guard let earlierAllowed = previous.allowed else { return true }
+        let now = Set(allowed.map(\.raw))
+        return earlierAllowed.contains { !now.contains($0.raw) }
+    }
+
     /// The most patterns `allowed` or `prohibited` may hold: each pattern is
     /// checked on every navigation and becomes up to eight content rules.
     public static let maximumPatternsPerList = 1_024

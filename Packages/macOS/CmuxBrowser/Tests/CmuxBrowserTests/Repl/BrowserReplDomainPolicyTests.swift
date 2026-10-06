@@ -299,3 +299,28 @@ struct BrowserReplDomainPolicyTests {
         #expect((try? boundary.policyOperation("site", ["host": "a.b.example.com"]).0.get()) as? String == "example.com")
     }
 }
+
+extension BrowserReplDomainPolicyTests {
+    /// A page that loaded under a looser policy can hold a WebSocket to a
+    /// host the new policy blocks; content rules judge only new loads. The
+    /// driver replaces the session tabs' documents when a policy narrows,
+    /// so it must tell a narrowing from a widening (a widening reloads
+    /// nothing; a change it cannot prove wider counts as narrowing).
+    @Test("A policy that blocks something the previous one allowed narrows it; one that only widens does not")
+    func narrowingIsToldFromWidening() throws {
+        let open = BrowserReplDomainPolicy()
+        let example = try policy(allowed: ["example.com"])
+        let exampleAndDocs = try policy(allowed: ["example.com", "docs.example.org"])
+        #expect(example.narrows(open), "a first allow list after browsing narrows")
+        #expect(example.narrows(exampleAndDocs), "dropping an allowed host narrows")
+        #expect(!exampleAndDocs.narrows(example), "adding an allowed host only widens")
+        #expect(!open.narrows(example), "removing the allow list only widens")
+        #expect(try policy(prohibited: ["evil.test"]).narrows(open), "a prohibited host narrows")
+        #expect(!open.narrows(try policy(prohibited: ["evil.test"])), "removing a prohibited host only widens")
+        #expect(try policy(blockIPs: true).narrows(open), "blocking IP addresses narrows")
+        #expect(!example.narrows(example), "the same policy (set again with new directories) narrows nothing")
+        var locked = example
+        locked.locked = true
+        #expect(!locked.narrows(example), "locking alone narrows nothing")
+    }
+}
