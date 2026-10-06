@@ -10,7 +10,10 @@ fn home_with_messages(dir: &std::path::Path, n: usize) -> Paths {
     let paths = Paths::new(dir);
     paths.create().unwrap();
     let items: Vec<optchat_chief::browse::Imported> = (0..n)
-        .map(|i| optchat_chief::browse::Imported { kind: Kind::Note, text: format!("note {i}") })
+        .map(|i| optchat_chief::browse::Imported {
+            kind: Kind::Note,
+            text: format!("note {i}"),
+        })
         .collect();
     optchat_chief::browse::import(&paths.chat, &items).unwrap();
     optchat_chief::persist::snapshot(&paths.chat, "turn:test").unwrap();
@@ -35,13 +38,19 @@ fn export_then_import_moves_the_whole_memory_but_not_the_host_state() {
     let archive = out.path().join("chief-memory.tar");
     let report = export(&from, &archive, false).unwrap();
     assert_eq!(report.messages, 3);
-    assert!(!sealed(&from), "export without --seal leaves the home usable");
+    assert!(
+        !sealed(&from),
+        "export without --seal leaves the home usable"
+    );
 
     let to = Paths::new(dst.path());
     let report = import(&to, &archive).unwrap();
     assert_eq!(report.messages, 3);
     assert_eq!(messages(&to), 3);
-    assert_eq!(std::fs::read_to_string(&to.instructions).unwrap(), "Be brief.\n");
+    assert_eq!(
+        std::fs::read_to_string(&to.instructions).unwrap(),
+        "Be brief.\n"
+    );
     // host.json holds the old home's outbox and cursor of its own conversation.
     assert!(!to.state.exists());
     // The memory stays a git repository with its history.

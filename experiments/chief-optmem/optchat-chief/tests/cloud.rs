@@ -58,9 +58,15 @@ fn the_chief_id_is_agent_mux_inside_the_brain_and_back_outside() {
     assert_eq!(v["read_cursors"]["agent_mux"], 1);
     assert!(v["read_cursors"].get(CHIEF).is_none());
     assert_eq!(v["last_message"]["author"], "agent_mux");
-    assert_eq!(v["last_message"]["parts"][0]["runs"][0]["mention"], "agent_mux");
+    assert_eq!(
+        v["last_message"]["parts"][0]["runs"][0]["mention"],
+        "agent_mux"
+    );
     // Text is never rewritten.
-    assert_eq!(v["last_message"]["parts"][0]["text"], format!("I am {CHIEF}"));
+    assert_eq!(
+        v["last_message"]["parts"][0]["text"],
+        format!("I am {CHIEF}")
+    );
     // The owner keeps its own id.
     assert_eq!(v["participants"][0]["id"], OWNER);
     to_cloud(&mut v, CHIEF);
@@ -101,13 +107,18 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
     let change = port
         .op(CONV, "cursor:agent_mux:2", &Op::ReadCursorSet { seq: 2 })
         .unwrap();
-    assert!(matches!(change, Some(Change::ReadCursor { ref participant, seq: 2 }) if participant == "agent_mux"));
+    assert!(
+        matches!(change, Some(Change::ReadCursor { ref participant, seq: 2 }) if participant == "agent_mux")
+    );
     port.op(
         CONV,
         "turn:optchat:3:1",
         &Op::MessageSend {
             client_msg_id: "turn:optchat:3:1".into(),
-            parts: vec![Part::Text { text: "ok".into(), runs: None }],
+            parts: vec![Part::Text {
+                text: "ok".into(),
+                runs: None,
+            }],
             reply_to: None,
         },
     )
@@ -117,9 +128,15 @@ fn the_port_reads_and_writes_through_the_cloud_commands() {
     let calls = rpc.calls.lock().unwrap();
     assert_eq!(calls.len(), 4);
     assert_eq!(calls[0].0, "cloud-conversation-snapshot");
-    assert_eq!(calls[0].1, json!({"conversation": CONV, "tail": SNAPSHOT_TAIL}));
+    assert_eq!(
+        calls[0].1,
+        json!({"conversation": CONV, "tail": SNAPSHOT_TAIL})
+    );
     assert_eq!(calls[1].0, "cloud-conversation-history");
-    assert_eq!(calls[1].1, json!({"conversation": CONV, "before_seq": 2, "limit": HISTORY_LIMIT}));
+    assert_eq!(
+        calls[1].1,
+        json!({"conversation": CONV, "before_seq": 2, "limit": HISTORY_LIMIT})
+    );
     assert_eq!(calls[2].0, "cloud-conversation-op");
     assert_eq!(
         calls[2].1,
@@ -135,9 +152,17 @@ fn owner_rejects_keep_their_reason_and_cloud_outages_are_transport_errors() {
     use optchat_chief::cloud::wire::reply_error;
     let rejected = json!({"id": 1, "ok": false, "error": "refused", "error_code": "cloud_conversation_rejected", "reason": "agent_rate", "retryable": true});
     assert!(matches!(reply_error(&rejected), OpError::Rejected(r) if r.contains("agent_rate")));
-    for code in ["cloud_unavailable", "cloud_unauthenticated", "cloud_session_expired", "cloud_signed_out"] {
+    for code in [
+        "cloud_unavailable",
+        "cloud_unauthenticated",
+        "cloud_session_expired",
+        "cloud_signed_out",
+    ] {
         let reply = json!({"id": 1, "ok": false, "error": "x", "error_code": code, "reason": "r", "retryable": true});
-        assert!(matches!(reply_error(&reply), OpError::Transport(_)), "{code}");
+        assert!(
+            matches!(reply_error(&reply), OpError::Transport(_)),
+            "{code}"
+        );
     }
     let plain = json!({"id": 1, "ok": false, "error": "bad request: tail"});
     assert!(matches!(reply_error(&plain), OpError::Rejected(_)));
@@ -150,7 +175,9 @@ fn cloud_events_become_brain_changes() {
     let changed = json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 5, "seq": 10, "transaction": "tx",
         "change": {"kind": "message", "message": cloud_message(3, CHIEF, "x")}, "account": OWNER});
     match map_event(&changed, CONV, CHIEF) {
-        Some(CloudSignal::Changed(Change::Message { message })) => assert_eq!(message.author, "agent_mux"),
+        Some(CloudSignal::Changed(Change::Message { message })) => {
+            assert_eq!(message.author, "agent_mux")
+        }
         _ => panic!("expected a message change"),
     }
     let other = json!({"event": "cloud-conversation-changed", "conversation": "conv_other", "rev": 1, "seq": 1, "transaction": "t",
@@ -166,20 +193,34 @@ fn cloud_events_become_brain_changes() {
         _ => panic!("expected a resync"),
     }
     let live = json!({"event": "cloud-subscription-state", "scope": "conversation", "conversation": CONV, "state": "live"});
-    assert!(matches!(map_event(&live, CONV, CHIEF), Some(CloudSignal::State { live: true, .. })));
+    assert!(matches!(
+        map_event(&live, CONV, CHIEF),
+        Some(CloudSignal::State { live: true, .. })
+    ));
     let down = json!({"event": "cloud-subscription-state", "scope": "conversation", "conversation": CONV, "state": "disconnected", "reason": "unauthenticated"});
-    assert!(matches!(map_event(&down, CONV, CHIEF), Some(CloudSignal::State { live: false, .. })));
-    let inbox = json!({"event": "cloud-subscription-state", "scope": "inbox", "state": "disconnected"});
+    assert!(matches!(
+        map_event(&down, CONV, CHIEF),
+        Some(CloudSignal::State { live: false, .. })
+    ));
+    let inbox =
+        json!({"event": "cloud-subscription-state", "scope": "inbox", "state": "disconnected"});
     assert!(map_event(&inbox, CONV, CHIEF).is_none());
     let needed = json!({"event": "cloud-session-needed", "reason": "expiring", "expires_at": 1});
-    assert!(matches!(map_event(&needed, CONV, CHIEF), Some(CloudSignal::SessionNeeded(r)) if r == "expiring"));
+    assert!(
+        matches!(map_event(&needed, CONV, CHIEF), Some(CloudSignal::SessionNeeded(r)) if r == "expiring")
+    );
     // A part type this brain does not know (an image) does not lose the message.
     let mut image = cloud_message(4, OWNER, "look");
-    image["parts"].as_array_mut().unwrap().push(json!({"type": "image", "asset": "a1"}));
+    image["parts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type": "image", "asset": "a1"}));
     let ev = json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 6, "seq": 11, "transaction": "t",
         "change": {"kind": "message", "message": image}});
     match map_event(&ev, CONV, CHIEF) {
-        Some(CloudSignal::Changed(Change::Message { message })) => assert_eq!(message.parts.len(), 1),
+        Some(CloudSignal::Changed(Change::Message { message })) => {
+            assert_eq!(message.parts.len(), 1)
+        }
         _ => panic!("expected the message without the unknown part"),
     }
 }
@@ -197,8 +238,14 @@ fn the_install_key_signs_challenges_the_backend_verifies() {
     assert_eq!(mode & 0o777, 0o600);
     let loaded = InstallFile::load(&path).unwrap();
     let jwk = &loaded.public_jwk;
-    assert_eq!((jwk["kty"].as_str(), jwk["crv"].as_str()), (Some("EC"), Some("P-256")));
-    assert!(jwk.get("d").is_none(), "the public JWK never carries the private key");
+    assert_eq!(
+        (jwk["kty"].as_str(), jwk["crv"].as_str()),
+        (Some("EC"), Some("P-256"))
+    );
+    assert!(
+        jwk.get("d").is_none(),
+        "the public JWK never carries the private key"
+    );
     let message = challenge_message("staging", "inst_1", "nonce-1");
     assert_eq!(message, "cmux-auth-v1\nstaging\ninst_1\nnonce-1");
     let sig = loaded.sign(&message).unwrap();
@@ -216,11 +263,18 @@ struct FakeHttp {
 
 impl Http for FakeHttp {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<Value, String> {
-        self.calls.lock().unwrap().push((url.to_owned(), body.clone(), bearer.map(str::to_owned)));
+        self.calls
+            .lock()
+            .unwrap()
+            .push((url.to_owned(), body.clone(), bearer.map(str::to_owned)));
         if url.ends_with("/v1/auth/challenge") {
-            Ok(json!({"install": body["install"], "nonce": "n-1", "expires_at": 1, "message_prefix": format!("cmux-auth-v1\n{}\n{}\n", self.env, body["install"].as_str().unwrap())}))
+            Ok(
+                json!({"install": body["install"], "nonce": "n-1", "expires_at": 1, "message_prefix": format!("cmux-auth-v1\n{}\n{}\n", self.env, body["install"].as_str().unwrap())}),
+            )
         } else if url.ends_with("/v1/auth/token") {
-            Ok(json!({"access_token": "jwt-1", "token_type": "Bearer", "expires_at": 1_900_000_000_000u64, "user": body["user"], "team": "team_1", "install": body["install"], "grant": "grant_1"}))
+            Ok(
+                json!({"access_token": "jwt-1", "token_type": "Bearer", "expires_at": 1_900_000_000_000u64, "user": body["user"], "team": "team_1", "install": body["install"], "grant": "grant_1"}),
+            )
         } else {
             Err(format!("unexpected {url}"))
         }
@@ -233,7 +287,10 @@ fn a_chief_token_is_minted_by_challenge_and_signature() {
     file.install = Some("inst_1".into());
     file.user = Some(OWNER.into());
     file.chief = Some(CHIEF.into());
-    let http = Arc::new(FakeHttp { calls: Mutex::new(Vec::new()), env: "staging" });
+    let http = Arc::new(FakeHttp {
+        calls: Mutex::new(Vec::new()),
+        env: "staging",
+    });
     let tokens = InstallTokens::new(file.clone(), http.clone());
     let lease: Lease = tokens.mint(Some(CHIEF)).unwrap();
     assert_eq!(lease.access_token, "jwt-1");
@@ -246,7 +303,11 @@ fn a_chief_token_is_minted_by_challenge_and_signature() {
     assert_eq!(token["agent"], CHIEF);
     assert_eq!(token["nonce"], "n-1");
     let message = challenge_message("staging", "inst_1", "n-1");
-    assert!(verify(&file.public_jwk, &message, token["signature"].as_str().unwrap()));
+    assert!(verify(
+        &file.public_jwk,
+        &message,
+        token["signature"].as_str().unwrap()
+    ));
     // Without an agent the token is the install's own (chief.list, chief.create).
     drop(calls);
     tokens.mint(None).unwrap();
@@ -256,7 +317,11 @@ fn a_chief_token_is_minted_by_challenge_and_signature() {
 // ---------------------------------------------------------------- link
 
 /// A fake cmux-tui daemon with `cloud-conversations-v1`.
-fn serve_cloud(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, subscribers: Arc<Mutex<Vec<UnixStream>>>) {
+fn serve_cloud(
+    listener: UnixListener,
+    requests: Arc<Mutex<Vec<Value>>>,
+    subscribers: Arc<Mutex<Vec<UnixStream>>>,
+) {
     std::thread::spawn(move || {
         for conn in listener.incoming().flatten() {
             let (requests, subscribers) = (requests.clone(), subscribers.clone());
@@ -269,17 +334,29 @@ fn serve_cloud(listener: UnixListener, requests: Arc<Mutex<Vec<Value>>>, subscri
                     let data = match req["cmd"].as_str().unwrap() {
                         "identify" => json!({"app": "cmux", "version": "test", "protocol": 12,
                             "capabilities": ["local-conversations-v1", "cloud-conversations-v1"]}),
-                        "cloud-session-set" => json!({"state": "active", "api_base_url": req["api_base_url"], "expires_at": req["expires_at"]}),
+                        "cloud-session-set" => {
+                            json!({"state": "active", "api_base_url": req["api_base_url"], "expires_at": req["expires_at"]})
+                        }
                         "subscribe" => {
                             subscribers.lock().unwrap().push(conn.try_clone().unwrap());
                             json!({})
                         }
-                        "cloud-conversation-subscribe" => json!({"conversation": req["conversation"], "state": "connecting"}),
-                        "cloud-conversation-snapshot" => json!({"conversation": cloud_summary(1), "messages": [cloud_message(1, OWNER, "hi")], "rev": 4, "seq": 9}),
-                        "cloud-conversation-op" => json!({"value": {}, "rev": 5, "replayed": false}),
+                        "cloud-conversation-subscribe" => {
+                            json!({"conversation": req["conversation"], "state": "connecting"})
+                        }
+                        "cloud-conversation-snapshot" => {
+                            json!({"conversation": cloud_summary(1), "messages": [cloud_message(1, OWNER, "hi")], "rev": 4, "seq": 9})
+                        }
+                        "cloud-conversation-op" => {
+                            json!({"value": {}, "rev": 5, "replayed": false})
+                        }
                         _ => json!({}),
                     };
-                    let _ = writeln!(out, "{}", json!({"id": req["id"], "ok": true, "data": data}));
+                    let _ = writeln!(
+                        out,
+                        "{}",
+                        json!({"id": req["id"], "ok": true, "data": data})
+                    );
                 }
             });
         }
@@ -307,26 +384,52 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
     let socket = dir.path().join("daemon.sock");
     let requests = Arc::new(Mutex::new(Vec::new()));
     let subscribers = Arc::new(Mutex::new(Vec::new()));
-    serve_cloud(UnixListener::bind(&socket).unwrap(), requests.clone(), subscribers.clone());
+    serve_cloud(
+        UnixListener::bind(&socket).unwrap(),
+        requests.clone(),
+        subscribers.clone(),
+    );
     let tokens = Arc::new(CountingTokens(Mutex::new(0)));
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_cloud_link(
-        CloudLinkConfig { socket, chief: CHIEF.into(), conversation: CONV.into() },
+        CloudLinkConfig {
+            socket,
+            chief: CHIEF.into(),
+            conversation: CONV.into(),
+        },
         tokens.clone(),
         Arc::new(move |e| tx.lock().unwrap().send(e).unwrap()),
         Arc::new(|_: &str| {}),
     );
     let wait = Duration::from_secs(30);
-    let Ok(DaemonEvent::Up { mut port, conversation, .. }) = rx.recv_timeout(wait) else { panic!("no Up") };
+    let Ok(DaemonEvent::Up {
+        mut port,
+        conversation,
+        ..
+    }) = rx.recv_timeout(wait)
+    else {
+        panic!("no Up")
+    };
     assert_eq!(conversation.id, CONV);
-    assert!(conversation.participants.iter().any(|p| p.id == "agent_mux"));
+    assert!(
+        conversation
+            .participants
+            .iter()
+            .any(|p| p.id == "agent_mux")
+    );
     {
         let requests = requests.lock().unwrap();
-        let set = requests.iter().find(|r| r["cmd"] == "cloud-session-set").unwrap();
+        let set = requests
+            .iter()
+            .find(|r| r["cmd"] == "cloud-session-set")
+            .unwrap();
         assert_eq!(set["access_token"], "jwt-1");
         assert_eq!(set["api_base_url"], "https://api.example.test");
-        let sub = requests.iter().find(|r| r["cmd"] == "cloud-conversation-subscribe").unwrap();
+        let sub = requests
+            .iter()
+            .find(|r| r["cmd"] == "cloud-conversation-subscribe")
+            .unwrap();
         assert_eq!(sub["conversation"], CONV);
         // Never bound: a bound connection is refused every cloud command.
         assert!(!requests.iter().any(|r| r["cmd"] == "conversation-bind"));
@@ -336,33 +439,58 @@ fn the_cloud_link_leases_the_chief_token_subscribes_and_answers() {
         "turn:optchat:1:1",
         &Op::MessageSend {
             client_msg_id: "turn:optchat:1:1".into(),
-            parts: vec![Part::Text { text: "hello".into(), runs: None }],
+            parts: vec![Part::Text {
+                text: "hello".into(),
+                runs: None,
+            }],
             reply_to: None,
         },
     )
     .unwrap();
-    assert!(requests.lock().unwrap().iter().any(|r| r["cmd"] == "cloud-conversation-op" && r["op"]["kind"] == "message.send"));
+    assert!(
+        requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r["cmd"] == "cloud-conversation-op" && r["op"]["kind"] == "message.send")
+    );
 
     let mut sub = subscribers.lock().unwrap()[0].try_clone().unwrap();
     writeln!(sub, "{}", json!({"event": "cloud-conversation-changed", "conversation": CONV, "rev": 5, "seq": 10, "transaction": "t",
         "change": {"kind": "message", "message": cloud_message(2, OWNER, "next")}})).unwrap();
     match rx.recv_timeout(wait).unwrap() {
-        DaemonEvent::Changed { conversation, change: Change::Message { message } } => {
+        DaemonEvent::Changed {
+            conversation,
+            change: Change::Message { message },
+        } => {
             assert_eq!((conversation.as_str(), message.seq), (CONV, 2))
         }
         _ => panic!("expected the message"),
     }
     // The daemon asks for a new lease: the link mints one and sets it.
-    writeln!(sub, "{}", json!({"event": "cloud-session-needed", "reason": "expiring", "expires_at": 1})).unwrap();
+    writeln!(
+        sub,
+        "{}",
+        json!({"event": "cloud-session-needed", "reason": "expiring", "expires_at": 1})
+    )
+    .unwrap();
     let deadline = std::time::Instant::now() + wait;
-    while !requests.lock().unwrap().iter().any(|r| r["cmd"] == "cloud-session-set" && r["access_token"] == "jwt-2") {
+    while !requests
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|r| r["cmd"] == "cloud-session-set" && r["access_token"] == "jwt-2")
+    {
         assert!(std::time::Instant::now() < deadline, "no lease refresh");
         std::thread::sleep(Duration::from_millis(20));
     }
     // The upstream socket drops: Down, then Up again.
     writeln!(sub, "{}", json!({"event": "cloud-subscription-state", "scope": "conversation", "conversation": CONV, "state": "disconnected", "reason": "unavailable"})).unwrap();
     assert!(matches!(rx.recv_timeout(wait).unwrap(), DaemonEvent::Down));
-    assert!(matches!(rx.recv_timeout(wait).unwrap(), DaemonEvent::Up { .. }));
+    assert!(matches!(
+        rx.recv_timeout(wait).unwrap(),
+        DaemonEvent::Up { .. }
+    ));
 }
 
 #[test]
@@ -376,14 +504,22 @@ fn a_daemon_without_the_cloud_capability_is_fatal() {
             for line in BufReader::new(conn).lines() {
                 let Ok(line) = line else { return };
                 let req: Value = serde_json::from_str(&line).unwrap();
-                let _ = writeln!(out, "{}", json!({"id": req["id"], "ok": true, "data": {"app": "cmux", "version": "old", "capabilities": ["local-conversations-v1"]}}));
+                let _ = writeln!(
+                    out,
+                    "{}",
+                    json!({"id": req["id"], "ok": true, "data": {"app": "cmux", "version": "old", "capabilities": ["local-conversations-v1"]}})
+                );
             }
         }
     });
     let (tx, rx) = channel();
     let tx = Mutex::new(tx);
     spawn_cloud_link(
-        CloudLinkConfig { socket, chief: CHIEF.into(), conversation: CONV.into() },
+        CloudLinkConfig {
+            socket,
+            chief: CHIEF.into(),
+            conversation: CONV.into(),
+        },
         Arc::new(CountingTokens(Mutex::new(0))),
         Arc::new(move |e| tx.lock().unwrap().send(e).unwrap()),
         Arc::new(|_: &str| {}),
@@ -392,4 +528,44 @@ fn a_daemon_without_the_cloud_capability_is_fatal() {
         DaemonEvent::Fatal(why) => assert!(why.contains("cloud-conversations-v1"), "{why}"),
         _ => panic!("expected Fatal"),
     }
+}
+
+// ---------------------------------------------------------------- host flags
+
+#[test]
+fn the_cloud_source_needs_a_registered_install_with_a_chief() {
+    use optchat_chief::cli::Flags;
+    use optchat_chief::host::{Source, conversation_source};
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("install.json");
+    let mut file = InstallFile::generate("https://api.example.test").unwrap();
+    file.save(&path).unwrap();
+    let args: Vec<String> = [
+        "host",
+        "--conversation-source",
+        "cloud",
+        "--cloud-install",
+        path.to_str().unwrap(),
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let err = conversation_source(&Flags::parse(&args))
+        .err()
+        .expect("unregistered install refused");
+    assert!(err.contains("install, user, chief, conversation"), "{err}");
+    file.install = Some("inst_1".into());
+    file.user = Some(OWNER.into());
+    file.chief = Some(CHIEF.into());
+    file.conversation = Some(CONV.into());
+    file.save(&path).unwrap();
+    assert!(matches!(
+        conversation_source(&Flags::parse(&args)),
+        Ok(Source::Cloud { .. })
+    ));
+    let bad: Vec<String> = ["host", "--conversation-source", "carrier-pigeon"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert!(conversation_source(&Flags::parse(&bad)).is_err());
 }

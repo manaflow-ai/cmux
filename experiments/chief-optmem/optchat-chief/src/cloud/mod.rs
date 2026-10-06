@@ -3,6 +3,7 @@
 //! `cloud-conversations-v1` proxy, as the chief principal.
 
 pub mod auth;
+pub mod cli;
 pub mod events;
 pub mod idmap;
 pub mod link;

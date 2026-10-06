@@ -34,6 +34,9 @@ libc = "0.2"
 ureq = { version = "2", features = ["json"] }
 # The codex compactor slots' config.toml, kept keys copied from the user's.
 toml = "0.8"
+# The brain host's cloud install key (ES256) and its base64url encodings.
+ring = "0.17"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

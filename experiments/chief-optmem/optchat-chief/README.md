@@ -502,6 +502,48 @@ subrouter it gets the same 429 (`--test live two_native_turns` repeats it).
 - **Reply keys.** `turn:optchat:<first id>:<its stamp>`: the stamp keeps keys
   unique after a memory reset or a restored backup.
 
+## Always-on brain (cloud conversation source)
+
+Design: `brains/DESIGN-cmux-lawrence.md` in the OptChat lab. The host can answer the
+chief's CLOUD main conversation instead of the app's local one, so the Chief keeps
+running when the laptop sleeps and every device sees it through its cloud Home source:
+
+```
+optchat-chief host --conversation-source cloud --cloud-install FILE --daemon-socket PATH --mux-home DIR
+```
+
+It connects to a cmux-tui daemon of its own that has `cloud-conversations-v1`
+(feat-cmux-next), leases a chief token to it (`cloud-session-set`), subscribes to the
+chief's main conversation and answers as `agent_<chief>`; inside the brain that id is
+`agent_mux`, so the wake rule, cursor and outbox are unchanged (`src/cloud/idmap.rs`).
+The token lives 600 s and is renewed 150 s before it expires and on
+`cloud-session-needed`. The lease is daemon-wide: every unbound client of that daemon
+acts as the chief, so never point it at a shared daemon.
+
+Identity (once per brain host; the install key never leaves `install.json`, 0600):
+
+```
+optchat-chief cloud enroll   --install $B/cloud/install.json --api-base https://<api origin>
+CMUX_CLOUD_SESSION_TOKEN=<the user's session token> \
+optchat-chief cloud register --install $B/cloud/install.json     # install.register (session only)
+optchat-chief cloud chief    --install $B/cloud/install.json --create   # default chief + main conversation
+optchat-chief cloud status   --install $B/cloud/install.json     # mints a test chief token
+```
+
+Memory move (both hosts stopped; `--seal` last):
+
+```
+optchat-chief memory export --mux-home OLD --out chief-memory.tar --seal
+optchat-chief memory import --mux-home NEW chief-memory.tar
+```
+
+The archive is a git bundle of `optchat/chat/` (messages and summaries), AGENTS.md and a
+manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts a host.
+
+`deploy/brain/install.sh` installs three user LaunchAgents
+(`ai.manaflow.chief-brain.{daemon,acpmux,host}`) under `~/.cmux/brains/chief` with
+pinned binaries; `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
 ## Tests
 
 Run them on a Blacksmith Testbox (`skills/blacksmith-testbox/SKILL.md` in a
