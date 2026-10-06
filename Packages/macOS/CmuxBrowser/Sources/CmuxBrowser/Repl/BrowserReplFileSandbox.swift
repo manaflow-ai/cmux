@@ -201,15 +201,34 @@ public struct BrowserReplFileSandbox: Sendable {
     /// `data:` document a file page wrote), whose maker cannot be told; the
     /// caller passes `documentOrigin` only for tabs the session did not
     /// create, whose file pages no session check stood before.
+    ///
+    /// A page of one of cmux's own URL schemes (``isAppServedScheme(_:)``),
+    /// or a document of such a page's origin, is refused the same way, under
+    /// any roots: the scheme's handler streams local files (a diff's) that
+    /// no root of the session granted.
     public static func localPageRefusal(url: String, documentOrigin: String?, roots: [String]) -> String? {
-        if URL(string: url)?.scheme?.lowercased() == "file" {
+        let scheme = URL(string: url)?.scheme?.lowercased()
+        if scheme == "file" {
             guard let reason = navigationRefusal(url, roots: roots) else { return nil }
             return "the tab shows the local file \(url), which a REPL session may not read: \(reason)"
         }
         if documentOrigin?.lowercased() == "file://" {
             return "the tab shows \(url.isEmpty ? "a document" : url) of a local file's origin, which a REPL session may not read; open files inside the session's directories with tabs.open"
         }
+        let originScheme = documentOrigin.flatMap { URL(string: $0)?.scheme?.lowercased() }
+        if let served = [scheme, originScheme].compactMap({ $0 }).first(where: isAppServedScheme) {
+            return "the tab shows a page cmux serves from local files through its own \(served): scheme, which a REPL session may not read; open files inside the session's directories with tabs.open"
+        }
         return nil
+    }
+
+    /// Whether `scheme` (lowercased) is one of cmux's own URL schemes rather
+    /// than one of the web's, a file's or an opaque document's: a page of
+    /// one was served by a URL scheme handler cmux installs on the web view
+    /// (`cmux-diff-viewer:` streams local files), since WebKit loads no other
+    /// scheme in a frame.
+    public static func isAppServedScheme(_ scheme: String) -> Bool {
+        !["http", "https", "ws", "wss", "file", "about", "data", "blob", "javascript"].contains(scheme)
     }
 
     /// WebKit content rules that keep pages in a session's tabs from loading

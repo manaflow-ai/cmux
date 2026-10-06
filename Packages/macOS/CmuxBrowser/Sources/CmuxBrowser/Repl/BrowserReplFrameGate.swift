@@ -421,7 +421,9 @@ public final class BrowserReplFrameGate {
 
     /// Why a session whose directories are `roots` may not read `document`
     /// in a tab it did not create, or nil: a local file outside `roots`, a
-    /// document of a local file's origin under another URL, or an opaque
+    /// document of a local file's origin under another URL, a page of
+    /// cmux's own URL scheme or of its origin
+    /// (``BrowserReplFileSandbox/isAppServedScheme(_:)``), or an opaque
     /// document (``BrowserReplFrameDocument/isOpaque``) that such a document
     /// made, or whose maker cmux cannot tell. A file can replace itself with
     /// a `data:` document that shows its content, whose origin and URL name
@@ -431,6 +433,11 @@ public final class BrowserReplFrameGate {
     nonisolated public static func localBlockReason(_ document: BrowserReplFrameDocument, roots: [String]) -> String? {
         if let local = document.local {
             return BrowserReplFileSandbox.localPageRefusal(url: local, documentOrigin: document.origin, roots: roots)
+        }
+        // A page of cmux's own URL scheme (its place names the scheme), or a
+        // document of its origin under another URL.
+        if !document.isOpaque, let reason = BrowserReplFileSandbox.localPageRefusal(url: document.place, documentOrigin: document.origin, roots: roots) {
+            return reason
         }
         guard document.isOpaque else { return nil }
         let kind = "a \(document.place.dropLast(3)): document"
