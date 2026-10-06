@@ -420,6 +420,11 @@ rest. Measurements: [performance.md](performance.md).
 - A cell times out after 120 s by default; `--timeout <ms>` (the socket's
   `timeout_ms`) asks for at most 600000 (10 minutes), and a longer one is
   refused before the cell runs, since a running cell holds the session.
+  A cell that times out is over: its timers, fetches and driver calls are
+  cancelled, code of it that resumes later (an await that a page event or
+  a later cell settles) gets an error with code `cancelled` from every
+  `fs`, `fetch`, timer, secrets, policy and browser call, and the page
+  listeners it registered are dropped unrun.
 - At most 4 sessions drive one tab at once. Each session's page agent,
   refs and handles live in a content world of its own in every tab it
   drives, so code one session runs in its agent world (patched built-ins,

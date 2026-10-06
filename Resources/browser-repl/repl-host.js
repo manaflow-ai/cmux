@@ -7,6 +7,9 @@
 (function (root) {
   "use strict";
   const ns = (root.CmuxBrowserRepl = root.CmuxBrowserRepl || {});
+  // Taken before any cell runs, so a cell that replaces the global Error
+  // does not change how the runtime reads a stack.
+  const StackError = Error;
 
   function acornApi() {
     const acorn = root.acorn || (ns.vendor && ns.vendor.acorn);
@@ -150,21 +153,65 @@
         Object.defineProperty(scope, key, Object.getOwnPropertyDescriptor(g, key));
       }
     }
+    // Which cell's code runs now. Each cell body runs as a function named
+    // __cmuxCell<seq>, which the stack names in every engine, also after an
+    // await resumes it, and the engines' async stacks name it under an
+    // async function the cell awaits. The cell's sequence number is the
+    // token its leftover work carries: once the app cancelled the cell
+    // (it timed out), that work is refused host and driver calls
+    // (isCancelledWork) and its page listeners are dropped. Agent code can
+    // change what a stack shows; this keeps a cell's own stale work from
+    // acting late, it is not a guard (the app cancels the cell's timers,
+    // fetches and driver calls itself).
+    let cellSeq = 0;
+    const cancelledSeqs = new Set();
+    const CELL_FRAME = /__cmuxCell(\d+)\b/g;
+    // The cells whose bodies are on the stack now, innermost first.
+    function cellsOnStack() {
+      const limit = StackError.stackTraceLimit;
+      let stack = "";
+      try {
+        StackError.stackTraceLimit = Infinity;
+        stack = String(new StackError().stack || "");
+      } catch {
+        // A non-writable limit: read the stack as it is.
+        stack = String(new StackError().stack || "");
+      } finally {
+        try {
+          StackError.stackTraceLimit = limit;
+        } catch {}
+      }
+      return Array.from(stack.matchAll(CELL_FRAME), (m) => Number(m[1]));
+    }
+    const runningOnStack = (seqs) => !!running && running.seq !== undefined && seqs.includes(running.seq);
+    // Whether the code running now is a cancelled cell's leftover work: a
+    // cancelled cell's body is on the stack and the running cell's is not
+    // (a function the cancelled cell defined still works for the cell that
+    // calls it).
+    function isCancelledWork() {
+      if (!cancelledSeqs.size) return false;
+      const seqs = cellsOnStack();
+      return !runningOnStack(seqs) && seqs.some((seq) => cancelledSeqs.has(seq));
+    }
+    // The cell whose code runs now (the running cell when its body is on
+    // the stack, else the innermost cell there), or undefined outside every
+    // cell (a timer or listener callback).
+    function ownerOnStack() {
+      const seqs = cellsOnStack();
+      return runningOnStack(seqs) ? running.seq : seqs[0];
+    }
     // The console a cell's code sees. Once the cell is cancelled, output its
     // own leftover work prints later (a timer, a listener, an await that
     // resumes) is dropped, so it never lands in another cell. A function
     // the cancelled cell defined still prints when the running cell calls
-    // it: the running cell's body is then on the stack. Each cell body runs
-    // as a function named __cmuxCell<seq>, which the stack names in every
-    // engine, also after an await resumes it.
-    let cellSeq = 0;
+    // it: the running cell's body is then on the stack.
     function cellConsole(cell) {
       const base = scope.console;
       if (!base || typeof base !== "object") return base;
       const prints = () => {
         if (!cell.cancelled) return true;
         if (!running || running === cell || running.seq === undefined) return false;
-        return String(new Error().stack || "").includes(`__cmuxCell${running.seq}`);
+        return runningOnStack(cellsOnStack());
       };
       return new Proxy(base, {
         get(target, key) {
@@ -230,6 +277,9 @@
     }
     return {
       scope,
+      isCancelledWork,
+      ownerOnStack,
+      isCancelledCell: (seq) => cancelledSeqs.has(seq),
       // `id` names the cell for cancel().
       evaluate(code, { id } = {}) {
         return new Promise((resolve) => {
@@ -259,6 +309,7 @@
       cancel(message, id) {
         if (!running || (id !== undefined && running.id !== id)) return false;
         running.cancelled = true;
+        if (running.seq !== undefined) cancelledSeqs.add(running.seq);
         running.finish({ ok: false, error: String(message), cancelled: true, ms: 0 });
         return true;
       },
@@ -400,13 +451,43 @@
     // session masks registered secrets in output, files and errors
     // (BrowserReplBoundary) and bounds what reaches it past the gate.
     const gatedPrint = (level, text) => (gate ? gate.print(level, text) : host.print(level, printable(text)));
+    // A cancelled cell's leftover work (an await that resumes after its
+    // timeout) is refused every host and driver call, so it acts neither
+    // under a later cell nor between cells (createReplSession).
+    let isCancelledWork = () => false;
+    const cancelledError = (what) => {
+      const e = new Error(`${what}: cancelled because the cell that started this work timed out; it does not run in a later cell`);
+      e.code = "cancelled";
+      return e;
+    };
+    const guarded = {};
+    for (const name of ["setTimeout", "fsOp", "secrets", "policy"]) {
+      if (typeof host[name] !== "function") continue;
+      guarded[name] = {
+        value: (...args) => {
+          if (isCancelledWork()) throw cancelledError(name === "fsOp" ? "fs" : name);
+          return host[name](...args);
+        },
+      };
+    }
+    if (typeof host.fetch === "function") {
+      guarded.fetch = { value: (...args) => (isCancelledWork() ? Promise.reject(cancelledError("fetch")) : host.fetch(...args)) };
+    }
     const gatedHost = Object.create(host, {
       print: { value: gatedPrint },
       console: { value: Object.freeze({ error: (text) => gatedPrint("error", text) }) },
+      ...guarded,
     });
-    const session = new core.Session({ driver, host: gatedHost });
+    const guardedDriver = Object.create(driver, {
+      call: { value: (method, params) => (isCancelledWork() ? Promise.reject(cancelledError(method)) : driver.call(method, params)) },
+    });
+    const session = new core.Session({ driver: guardedDriver, host: gatedHost });
     const api = ns.api.createGlobals(session, gatedHost);
     const repl = createReplSession({ host: gatedHost, globals: [timerGlobals(gatedHost, api.importModule), api.globals] });
+    isCancelledWork = repl.isCancelledWork;
+    // A page listener belongs to the cell that registered it; a cancelled
+    // cell's listeners are dropped instead of run.
+    session.listenerOwnership = { owner: repl.ownerOnStack, isCancelled: repl.isCancelledCell };
     return {
       session,
       api,

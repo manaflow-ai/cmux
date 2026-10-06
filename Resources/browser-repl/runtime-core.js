@@ -552,13 +552,25 @@
   // last listener).
   const HANDLED_KEY_RESEND = Symbol("handled key resend");
 
+  // An emitter of a REPL session (one with `_session`) records the cell
+  // that registered each listener (`session.listenerOwnership`, set by
+  // repl-host.js); a listener of a cell the app cancelled (timed out) is
+  // dropped instead of run, so it cannot act in a later cell.
   class EventEmitter {
     constructor() {
       this._listeners = new Map();
     }
+    _listenerOwner() {
+      const ownership = this._session && this._session.listenerOwnership;
+      return ownership ? ownership.owner() : undefined;
+    }
+    _isLive(listener) {
+      const ownership = this._session && this._session.listenerOwnership;
+      return listener.owner === undefined || !ownership || !ownership.isCancelled(listener.owner);
+    }
     on(event, handler) {
       if (!this._listeners.has(event)) this._listeners.set(event, []);
-      this._listeners.get(event).push({ handler, once: false });
+      this._listeners.get(event).push({ handler, once: false, owner: this._listenerOwner() });
       return this;
     }
     addListener(event, handler) {
@@ -566,7 +578,7 @@
     }
     once(event, handler) {
       if (!this._listeners.has(event)) this._listeners.set(event, []);
-      this._listeners.get(event).push({ handler, once: true });
+      this._listeners.get(event).push({ handler, once: true, owner: this._listenerOwner() });
       return this;
     }
     off(event, handler) {
@@ -583,12 +595,15 @@
       return this;
     }
     listenerCount(event) {
-      return (this._listeners.get(event) || []).length;
+      return (this._listeners.get(event) || []).filter((l) => this._isLive(l)).length;
     }
     emit(event, ...args) {
-      const list = this._listeners.get(event);
-      if (!list || !list.length) return false;
+      const all = this._listeners.get(event);
+      if (!all || !all.length) return false;
+      // A cancelled cell's listeners go now, unrun.
+      const list = all.filter((l) => this._isLive(l));
       this._listeners.set(event, list.filter((l) => !l.once));
+      if (!list.length) return false;
       for (const l of list) {
         try {
           const r = l.handler(...args);
