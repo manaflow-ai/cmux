@@ -3,8 +3,16 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$ROOT_DIR/scripts/install-zig-ci.sh"
 TMP_DIR="$(mktemp -d)"
+# The installer accepts only a Zig version the license review recorded
+# (cmux-tui/build-support/notices/toolchains/toolchains.json). Run a copy in a
+# fixture repository root that records the fixture version, so no installed
+# Zig of a real version can stand in for the download under test.
+FIXTURE_REPO="$TMP_DIR/repo"
+mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains"
+cp "$ROOT_DIR/scripts/install-zig-ci.sh" "$ROOT_DIR/scripts/ghostty-zig-version.sh" "$FIXTURE_REPO/scripts/"
+printf '{"zig": [{"ci_version": "99.99.99"}]}\n' > "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains/toolchains.json"
+SCRIPT="$FIXTURE_REPO/scripts/install-zig-ci.sh"
 
 cleanup() {
   rm -rf "$TMP_DIR"
