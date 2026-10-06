@@ -18,6 +18,10 @@ struct ShortcutListStableLazyView: View {
     @State private var lastReportedHeight: CGFloat = 0
     /// Actions matching `query` when it last changed, or `nil` when unfiltered.
     @State private var matchedActions: [ShortcutAction]?
+    @State private var searchIndex: ShortcutListSearchIndex?
+    @State private var searchIndexRevision = 0
+    @State private var preserveShownOnIndexRefresh = false
+    @State private var shownActionsForIndexRefresh: [ShortcutAction] = []
 
     var body: some View {
         let actions = matchedActions ?? ShortcutAction.settingsVisibleActions
@@ -64,15 +68,17 @@ struct ShortcutListStableLazyView: View {
             }
         }
         .frame(minHeight: measuredHeight, alignment: .top)
-        .onChange(of: query, initial: true) { _, query in
-            matchedActions = query.isEmpty ? nil : model.actions(matching: query)
+        .onChange(of: query) { _, _ in
+            // A new text query must replace the prior result set. Binding
+            // refreshes set this flag back to true after rebuilding the index.
+            preserveShownOnIndexRefresh = false
         }
         // A binding edit can give another action the searched keys (a legacy
         // conflict lifting, say), so add new matches without dropping shown rows.
-        .onChange(of: model.latestBindings) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.legacyBindings) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.managedBindingActionIDs) { refreshMatchesAfterBindingChange() }
-        .onChange(of: model.whenOverrideRawStrings) { refreshMatchesAfterBindingChange() }
+        .onChange(of: model.latestBindings) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.legacyBindings) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.managedBindingActionIDs) { refreshSearchIndexAfterBindingChange() }
+        .onChange(of: model.whenOverrideRawStrings) { refreshSearchIndexAfterBindingChange() }
         .onChange(of: controlActiveState) { _, state in
             // A filter can shrink the list while inactive; drop the held
             // height once the window is active again.
@@ -80,11 +86,42 @@ struct ShortcutListStableLazyView: View {
                 updateMeasuredHeight(to: lastReportedHeight)
             }
         }
+        .task(id: SearchTaskID(query: query, revision: searchIndexRevision, preserveShown: preserveShownOnIndexRefresh)) {
+            if query.isEmpty {
+                matchedActions = nil
+                preserveShownOnIndexRefresh = false
+                return
+            }
+            let index = searchIndex ?? model.shortcutSearchIndex()
+            searchIndex = index
+            let shown = preserveShownOnIndexRefresh ? shownActionsForIndexRefresh : nil
+            do {
+                try await Task.sleep(for: .milliseconds(80))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            let results = await Task.detached(priority: .userInitiated) {
+                index.actions(matching: query, keeping: shown)
+            }.value
+            guard !Task.isCancelled else { return }
+            matchedActions = results
+            preserveShownOnIndexRefresh = false
+        }
     }
 
-    private func refreshMatchesAfterBindingChange() {
-        guard let shown = matchedActions else { return }
-        matchedActions = model.actions(matching: query, keeping: shown)
+    private func refreshSearchIndexAfterBindingChange() {
+        searchIndex = model.shortcutSearchIndex()
+        searchIndexRevision &+= 1
+        guard !query.isEmpty else { return }
+        shownActionsForIndexRefresh = matchedActions ?? []
+        preserveShownOnIndexRefresh = true
+    }
+
+    private struct SearchTaskID: Hashable {
+        let query: ShortcutListSearchQuery
+        let revision: Int
+        let preserveShown: Bool
     }
 
     private func updateMeasuredHeight(to height: CGFloat) {

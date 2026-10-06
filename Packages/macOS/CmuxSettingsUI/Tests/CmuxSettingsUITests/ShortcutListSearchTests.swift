@@ -65,6 +65,19 @@ struct ShortcutListSearchTests {
         #expect(!titleHits[firstCaptionOnly...].contains(true))
     }
 
+    @Test func preparedIndexPreservesModelRankingAndKeyFiltering() {
+        let model = makeModel()
+        let index = ShortcutListSearchIndex(model: model)
+        let queries = [
+            ShortcutListSearchQuery(text: "browser"),
+            ShortcutListSearchQuery(text: "surface", keys: StoredShortcut(first: commandT)),
+            ShortcutListSearchQuery(text: "terminal hunk")
+        ]
+        for query in queries {
+            #expect(index.actions(matching: query) == model.actions(matching: query))
+        }
+    }
+
     @Test func oneStrokeFindsExactBindingsAndChordsStartingWithIt() {
         let keys = StoredShortcut(first: controlB)
         #expect(ShortcutListSearch.keys(keys, match: StoredShortcut(first: controlB), numbered: false))
