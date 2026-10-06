@@ -71,9 +71,14 @@ import Testing
                 with: type, location: at, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: h.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
                 pressure: type == .otherMouseUp ? 0 : 1))
-            // As debug.mouse makes them: NSEvent.mouseEvent leaves buttonNumber 0, the middle button is 2.
+            // As debug.mouse makes them (DebugMouse.keepingWindowPoint): NSEvent.mouseEvent leaves
+            // buttonNumber 0, the middle button is 2, and the copy is moved by what AppKit's mapping
+            // through the window server's frame (not this unshown window's) got wrong.
             let cg = try #require(made.cgEvent?.copy())
             cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+            let first = try #require(NSEvent(cgEvent: cg))
+            cg.location = CGPoint(x: cg.location.x + at.x - first.locationInWindow.x,
+                                  y: cg.location.y - (at.y - first.locationInWindow.y))
             let event = try #require(NSEvent(cgEvent: cg))
             #expect(event.buttonNumber == 2)
             #expect(event.locationInWindow == at)

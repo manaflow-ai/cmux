@@ -312,6 +312,7 @@ impl Driver for CdpDriver {
             "frame.ownerBox" => inner.owner_box(params),
             "frame.focused" => inner.focused_frame(params),
             "input.mouse" => inner.with_chooser_events(method, params, || inner.mouse(params)),
+            "input.drag" => inner.drag(params),
             "input.key" => match super::clipboard::shortcut(method, params) {
                 Some(kind) if inner.owns_browser => inner.clipboard_key(kind, params),
                 _ => inner.with_chooser_events(method, params, || inner.key(params)),
