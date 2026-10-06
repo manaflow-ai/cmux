@@ -231,14 +231,15 @@ test("⌘Return with an empty composer opens a started chat without sending, and
   expect(calls).toEqual([["quick.openInWindow", { sessionId: "s3" }]]);
 });
 
-test("without a surface the pane is unchanged: home lists, session list, no key hints, Escape stays in the page", async () => {
+test("without a surface the pane is unchanged: home lists, no session list, no key hints, Escape stays in the page", async () => {
   await mount(undefined, snapshot("s1"));
   const page = container();
   expect(page.querySelector(".acpmux-quick")).toBeNull();
   expect(page.querySelector(".acpmux-quick-keys")).toBeNull();
   expect(page.querySelector(".acpmux-home-area")).not.toBeNull();
   expect(page.querySelector(".acpmux-empty")).not.toBeNull();
-  expect(page.querySelector(".acpmux-sidebar")).not.toBeNull();
+  // Agent chats live in the window's one sidebar, not in the pane.
+  expect(page.querySelector(".acpmux-sidebar")).toBeNull();
   expect(page.querySelector(".acpmux-header")).not.toBeNull();
   await type("draft");
   await key("Escape");
