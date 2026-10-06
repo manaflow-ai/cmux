@@ -221,3 +221,17 @@ test("googleDrive.trash: a confirmed draft re-checks sharing right before the tr
     doc.trashed = false;
   }
 });
+
+// r15 sites#7: a file reference's kind picks the editor path. Only Docs,
+// Sheets and Slides kinds (own entries of the format table) name one;
+// inherited property names never reach a signed-in editor URL.
+test("googleDrive.trash and export: an inherited kind name is refused before any editor request", async () => {
+  const before = env.state.requests.length;
+  for (const kind of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+    const ref = JSON.stringify({ id: DOC_ID, kind });
+    assert.match(await s.error(`sites.googleDrive.trash(${ref})`), /kind|expected a Google Docs, Sheets or Slides/, kind);
+    assert.match(await s.error(`sites.googleDrive.export(${ref})`), /kind|expected/, kind);
+  }
+  const reached = env.state.requests.slice(before).filter((r) => /docs\.google\.com\/(constructor|__proto__|toString|hasOwnProperty)\//.test(r.url));
+  assert.deepEqual(reached.map((r) => r.url), [], "an inherited kind built an editor URL");
+});
