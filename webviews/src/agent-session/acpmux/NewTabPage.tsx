@@ -154,7 +154,9 @@ export function cycleKind(kind: TabKind, step = 1): TabKind {
 
 /// The newest sessions first, the ones waiting on the user ahead of them.
 export function recentSessions(sessions: AcpmuxSnapshot["sessions"], count = RECENT_COUNT): AcpmuxSessionEntry[] {
-  const entries = sessions.map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>));
+  const entries = sessions
+    .map((session) => sessionEntry(session as AcpmuxSessionEntry & Record<string, unknown>))
+    .filter((entry) => !entry.archived);
   const urgency = (entry: AcpmuxSessionEntry) => (sessionMark(entry, false) === "input" ? 0 : 1);
   return entries.sort((a, b) => urgency(a) - urgency(b) || (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, count);
 }

@@ -58,7 +58,7 @@ test("an archived chat is found only by its title, and says it is archived", asy
   expect(searchChats([...sessions, archived], "spike").map((s) => s.sessionId)).toEqual(["z"]);
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
-    root.render(createElement(SearchChats, { sessions: [archived], onSelect() {}, onClose() {} })),
+    root.render(createElement(SearchChats, { sessions: [archived], onSelect() {}, onNewChat() {}, onClose() {} })),
   );
   const input = document.querySelector<HTMLInputElement>(".acpmux-search-input")!;
   await act(async () => {
