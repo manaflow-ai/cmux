@@ -38,9 +38,6 @@ PRAGMA user_version=1;
 
 /// The shortest word the trigram index can find.
 const MIN_TEXT_WORD: usize = 3;
-/// Snippet match markers; the hit carries ranges instead.
-const MARK_START: char = '\u{2}';
-const MARK_END: char = '\u{3}';
 
 /// What a hit is, and so where it jumps.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -225,23 +222,19 @@ impl SearchIndex {
             .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
             .collect::<Vec<_>>()
             .join(" AND ");
-        let mut values = vec![
-            Sql::Text(MARK_START.to_string()),
-            Sql::Text(MARK_END.to_string()),
-            Sql::Text(expression),
-        ];
+        let mut values = vec![Sql::Text(expression)];
         let filter = kind_filter(kinds, &mut values);
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
         let sql = format!(
             "SELECT d.key, d.kind, d.target, d.position, d.title, d.at_ms, \
-             snippet(docs_text, 0, ?, ?, '…', 12) \
+             snippet(docs_text, 0, '', '', '…', 12) \
              FROM docs_text JOIN docs d ON d.id = docs_text.rowid \
              WHERE docs_text MATCH ?{filter} ORDER BY docs_text.rowid DESC LIMIT ?"
         );
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| {
-            let marked: String = row.get(6)?;
-            hit(row, &marked)
+            let snippet: String = row.get(6)?;
+            hit(row, snippet, &long)
         })?;
         Ok(rows.filter_map(Result::transpose).collect::<Result<_, _>>()?)
     }
@@ -272,23 +265,10 @@ impl SearchIndex {
         }
         sql.push_str(" ORDER BY d.id DESC LIMIT ?");
         values.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
-        let first = words[0].to_ascii_lowercase();
         let mut statement = self.connection.prepare(&sql)?;
         let rows = statement.query_map(params_from_iter(values), |row| {
             let title: String = row.get(4)?;
-            let marked = match title.to_ascii_lowercase().find(&first) {
-                Some(start) => {
-                    let end = start + first.len();
-                    format!(
-                        "{}{MARK_START}{}{MARK_END}{}",
-                        &title[..start],
-                        &title[start..end],
-                        &title[end..],
-                    )
-                }
-                None => title,
-            };
-            hit(row, &marked)
+            hit(row, title, words)
         })?;
         Ok(rows.filter_map(Result::transpose).collect::<Result<_, _>>()?)
     }
@@ -376,11 +356,11 @@ fn kind_filter(kinds: &[SearchKind], values: &mut Vec<Sql>) -> String {
 }
 
 /// The hit of a row (`key, kind, target, position, title, at_ms`) with its
-/// `marked` snippet; `None` for a kind this build does not know.
-fn hit(row: &Row<'_>, marked: &str) -> rusqlite::Result<Option<SearchHit>> {
+/// `snippet`, marking `words` in it; `None` for a kind this build does not know.
+fn hit(row: &Row<'_>, snippet: String, words: &[&str]) -> rusqlite::Result<Option<SearchHit>> {
     let kind: String = row.get(1)?;
     let Some(kind) = SearchKind::parse(&kind) else { return Ok(None) };
-    let (snippet, highlights) = unmark(marked);
+    let highlights = highlights(&snippet, words);
     Ok(Some(SearchHit {
         key: row.get(0)?,
         kind,
@@ -393,23 +373,27 @@ fn hit(row: &Row<'_>, marked: &str) -> rusqlite::Result<Option<SearchHit>> {
     }))
 }
 
-/// `marked` without its match markers, and the byte ranges they marked.
-fn unmark(marked: &str) -> (String, Vec<Range<usize>>) {
-    let mut text = String::with_capacity(marked.len());
-    let mut ranges = Vec::new();
-    let mut start = None;
-    for character in marked.chars() {
-        match character {
-            MARK_START => start = Some(text.len()),
-            MARK_END => {
-                if let Some(start) = start.take() {
-                    ranges.push(start..text.len());
-                }
-            }
-            _ => text.push(character),
+/// Byte ranges of every occurrence of each of `words` in `text`, ASCII case
+/// folded (so byte offsets hold), in order and merged where they touch.
+fn highlights(text: &str, words: &[&str]) -> Vec<Range<usize>> {
+    let folded = text.to_ascii_lowercase();
+    let mut ranges: Vec<Range<usize>> = Vec::new();
+    for word in words {
+        let word = word.to_ascii_lowercase();
+        if word.is_empty() {
+            continue;
+        }
+        ranges.extend(folded.match_indices(&word).map(|(start, _)| start..start + word.len()));
+    }
+    ranges.sort_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::new();
+    for range in ranges {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
         }
     }
-    (text, ranges)
+    merged
 }
 
 #[cfg(test)]
