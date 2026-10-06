@@ -8,7 +8,7 @@
 //! timeout only to keep the one-second spacing. It exits when the last subscriber leaves.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex, PoisonError, Weak};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
@@ -64,7 +64,7 @@ impl ActivityStream {
 
     fn update(&self, change: impl FnOnce(&mut State)) {
         let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap();
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
         change(&mut state);
         if !state.subscribers.is_empty() {
             state.dirty = true;
@@ -80,7 +80,7 @@ impl ActivityStream {
     ) -> anyhow::Result<Value> {
         let times = {
             let (lock, _) = &*self.shared;
-            let mut state = lock.lock().unwrap();
+            let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
             anyhow::ensure!(
                 state.subscribers.len() < MAX_SUBSCRIBERS
                     || state.subscribers.contains_key(&client),
@@ -104,7 +104,7 @@ impl ActivityStream {
 
     fn disconnect(&self, client: u64) {
         let (lock, wake) = &*self.shared;
-        let mut state = lock.lock().unwrap();
+        let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
         if state.subscribers.remove(&client).is_some() && state.subscribers.is_empty() {
             wake.notify_one();
         }
@@ -114,7 +114,7 @@ impl ActivityStream {
 /// Counts are read at emit time from their owners (client registry, agent roster).
 fn snapshot(mux: &Mux, (user_input_ms, agent_action_ms): (Option<u64>, Option<u64>)) -> Value {
     let attached_clients = {
-        let state = mux.control_clients.state.lock().unwrap();
+        let state = mux.control_clients.state.lock().unwrap_or_else(PoisonError::into_inner);
         state
             .clients
             .values()
@@ -142,7 +142,7 @@ type Due = (Vec<(u64, MessageWriter)>, (Option<u64>, Option<u64>), Weak<Mux>);
 /// Blocks until a change is due; `None` when the last subscriber left.
 fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
     let (lock, wake) = shared;
-    let mut state = lock.lock().unwrap();
+    let mut state = lock.lock().unwrap_or_else(PoisonError::into_inner);
     loop {
         if state.subscribers.is_empty() {
             state.worker = false;
@@ -155,10 +155,10 @@ fn next_due(shared: &(Mutex<State>, Condvar)) -> Option<Due> {
             if wait.is_zero() {
                 break;
             }
-            state = wake.wait_timeout(state, wait).unwrap().0;
+            state = wake.wait_timeout(state, wait).unwrap_or_else(PoisonError::into_inner).0;
             continue;
         }
-        state = wake.wait(state).unwrap();
+        state = wake.wait(state).unwrap_or_else(PoisonError::into_inner);
     }
     state.dirty = false;
     state.last_emit = Some(Instant::now());
