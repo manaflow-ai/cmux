@@ -10,7 +10,16 @@ import Foundation
 /// view started, the local id the reducer gave it (`aliases`).
 enum HomeMapping {
     static func id(_ item: TranscriptItem, aliases: [IdempotencyKey: ID]) -> ID {
-        aliases[item.key] ?? item.key.rawValue
+        aliases[item.key] ?? rowSafe(item.key.rawValue)
+    }
+
+    /// MessagesLab's row keys are "kind:messageID[:part]" and RowBuilder.owner
+    /// splits at colons; the Chief's keys have colons ("turn:s1:2"). A colon
+    /// (and the escape character) is percent-encoded, so the id stays unique
+    /// and its rows are found by the incremental row update.
+    static func rowSafe(_ key: String) -> ID {
+        guard key.contains(":") || key.contains("%") else { return key }
+        return key.replacingOccurrences(of: "%", with: "%25").replacingOccurrences(of: ":", with: "%3A")
     }
 
     /// A hash's bubble picture (`HomeMedia.asset`), nil until it is ready.
