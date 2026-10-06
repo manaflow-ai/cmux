@@ -48,12 +48,17 @@ try {
 } catch (e) {
   if (e.code !== "unsupported") throw e;
 }
-await otherView.evaluate(() => document.title);
+// cmux-next: the owner session holds the tab's automation lease, so another
+// session's act is refused (automation-lease.md, act: lease_held).
+emitCmux("other-session-acts", await otherView.evaluate(() => document.title).then(() => "acted", (e) => (/holds this tab/.test(e.message) ? "lease-held" : e.message)));
 // ---- cell cmux-only
 // A third session with no options of its own reloads the tab after the
 // second one ended.
 const observedRow = (await tabs.list()).find((t) => t.url.endsWith("?ctx-owner"));
 const observed = await tabs.use(observedRow.id);
-await observed.reload();
-const observedUserAgent = await observed.evaluate(() => [navigator.userAgent, localStorage.getItem("ctxOwnerApplies")]);
-emitCmux("owner-options-survive-another-session", observedUserAgent[1] !== "true" || observedUserAgent[0] === "brepl-owner-ua");
+const thirdActs = await observed.reload().then(() => "acted", (e) => (/holds this tab/.test(e.message) ? "lease-held" : e.message));
+emitCmux("third-session-acts", thirdActs);
+if (thirdActs === "acted") {
+  const observedUserAgent = await observed.evaluate(() => [navigator.userAgent, localStorage.getItem("ctxOwnerApplies")]);
+  emitCmux("owner-options-survive-another-session", observedUserAgent[1] !== "true" || observedUserAgent[0] === "brepl-owner-ua");
+}

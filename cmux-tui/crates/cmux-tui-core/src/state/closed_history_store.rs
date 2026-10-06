@@ -594,14 +594,20 @@ fn capture_workspace(
     }
     let row = transaction
         .query_row(
-            "SELECT w.name, w.position FROM resource_workspaces AS rw
+            "SELECT w.name, w.position, w.workspace_key FROM resource_workspaces AS rw
              JOIN workspaces AS w ON w.workspace_key = rw.workspace_key
              WHERE rw.public_id = ?1",
             [workspace_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<i64>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()?;
-    let Some((name, position)) = row else { return Ok(()) };
+    let Some((name, position, workspace_key)) = row else { return Ok(()) };
     let screens = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_screens
@@ -616,9 +622,12 @@ fn capture_workspace(
         .map(|screen| screen_record(transaction, screen))
         .collect::<anyhow::Result<Vec<_>>>()?;
     capture.note_window(transaction, workspace_id)?;
+    // `workspace_key`: reopen moves the closed workspace's personal row
+    // (group, place, theme) to the new workspace.
     capture.members.push(json!({
         "kind": "workspace",
         "name": name,
+        "workspace_key": workspace_key,
         "workspace_id": null,
         "pane_id": null,
         "index": position.unwrap_or(0),
