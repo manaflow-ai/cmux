@@ -1210,6 +1210,9 @@ class Controller:
             if kind := self.reported(pr, ("culprit", "conflict", "refused")):
                 eligible.remove(pr)
                 skipped[pr.number] = f"dropped at this head ({kind}); waiting for a push"
+            elif self.reported(pr, ("receipt",)):
+                eligible.remove(pr)
+                skipped[pr.number] = "green receipt at this head; owner lands"
         log("eligible: " + (" ".join(f"#{pr.number}" for pr in eligible) or "none"))
         if not eligible:
             write_summary("No eligible pull requests.\n\n" + "\n".join(
