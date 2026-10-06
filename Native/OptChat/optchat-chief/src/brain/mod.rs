@@ -21,6 +21,7 @@
 
 mod approvals;
 mod children;
+pub mod images;
 mod inbox;
 mod outbox;
 mod recover;
@@ -63,7 +64,8 @@ pub enum Input {
     /// and answers with the texts to deliver (section 7).
     Boundary {
         key: String,
-        reply: Sender<Vec<String>>,
+        /// The prompt blocks to deliver: the messages' images, then their text.
+        reply: Sender<Vec<serde_json::Value>>,
     },
     TurnEnded {
         key: String,
@@ -124,6 +126,11 @@ pub enum Input {
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
     SpawnPolicy {
         reply: Sender<Option<String>>,
+    },
+    /// A description of a turn's image arrived (or failed): logged as a note.
+    Described {
+        image: Box<images::TurnImage>,
+        description: Result<String, String>,
     },
 }
 
@@ -228,6 +235,8 @@ const REPLY_BYTES: usize = 60_000;
 struct Queued {
     text: String,
     source: Source,
+    /// The images of a human message, for the turn's prompt (never logged).
+    images: Vec<images::TurnImage>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -316,6 +325,10 @@ pub struct Brain {
     remote_taint: bool,
     /// The running turn's permission requests waiting for a person.
     approvals: VecDeque<crate::approval::Pending>,
+    /// Writes the log's description of each turn image (None: references only).
+    describer: Option<Arc<dyn images::Describe>>,
+    /// Images being described now (`conversation/hash`), started once each.
+    describing: HashSet<String>,
 }
 
 impl Brain {
@@ -373,6 +386,8 @@ impl Brain {
             settle_clock: None,
             turn_clock: None,
             turn_engine: None,
+            describer: None,
+            describing: HashSet::new(),
         };
         brain.save();
         brain
@@ -406,6 +421,11 @@ impl Brain {
     ) -> Brain {
         self.workspaces = workspaces;
         self
+    }
+
+    /// Describes each turn image for the log (the compactor's deny-all model).
+    pub fn set_describer(&mut self, describer: Arc<dyn images::Describe>) {
+        self.describer = Some(describer);
     }
 
     /// acpmux sessions the brain keeps a summary of (its children only).
@@ -477,8 +497,8 @@ impl Brain {
                 after,
             } => self.progress(&key, session_id, after),
             Input::Boundary { key, reply } => {
-                let texts = self.boundary(&key);
-                let _ = reply.send(texts);
+                let blocks = self.boundary(&key);
+                let _ = reply.send(blocks);
             }
             Input::TurnEnded { key, outcome } => self.turn_ended(&key, outcome),
             Input::Notice { key, text } => self.notice(key, text),
@@ -507,6 +527,7 @@ impl Brain {
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
+            Input::Described { image, description } => self.described(&image, description),
         }
     }
 
@@ -621,10 +642,18 @@ impl Brain {
     }
 
     fn queue(&mut self, text: String, source: Source) {
+        self.queue_with_images(text, Vec::new(), source);
+    }
+
+    fn queue_with_images(&mut self, text: String, images: Vec<images::TurnImage>, source: Source) {
         // Section 9: subagents' reports reach a working Chief between its
         // tool calls; on acpmux that is a stop like a human message's.
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
-        self.queue.push_back(Queued { text, source });
+        self.queue.push_back(Queued {
+            text,
+            source,
+            images,
+        });
         if human {
             self.interrupt_for_newer();
         }

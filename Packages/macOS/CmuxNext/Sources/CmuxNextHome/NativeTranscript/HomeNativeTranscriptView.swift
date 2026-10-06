@@ -43,7 +43,7 @@ public final class HomeNativeTranscriptView: NSView {
     public var isSendEnabled = true {
         didSet { transcript.isSendEnabled = isSendEnabled }
     }
-    /// A user-chosen sent-bubble colour; nil follows the theme.
+    /// A chosen sent-bubble colour (opt in); nil keeps iMessage blue on every theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     /// The first-run panel's open-a-terminal or start-an-agent row was
     /// picked (the host runs the matching registry action).

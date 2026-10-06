@@ -6086,18 +6086,6 @@
     "handlers.misc.failed.sessionRequired": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Name the acpmux session to open (session)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "開くacpmuxセッションを指定してください(session)。"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -6119,7 +6107,13 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenne die zu öffnende acpmux-Sitzung (session)."
+            "value": "Gib die zu öffnende acpmux-Sitzung an (session)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the acpmux session to open (session)."
           }
         },
         "es": {
@@ -6140,10 +6134,16 @@
             "value": "Indica la sessione acpmux da aprire (session)."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開くacpmuxセッションを指定してください(session)。"
+          }
+        },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ជាក់វគ្គ acpmux ដែលត្រូវបើក (session)។"
+            "value": "សូមដាក់ឈ្មោះវគ្គ acpmux ដែលត្រូវបើក (session)។"
           }
         },
         "ko": {
@@ -6167,7 +6167,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indique a sessão do acpmux a abrir (session)."
+            "value": "Informe a sessão do acpmux a ser aberta (session)."
           }
         },
         "ru": {
@@ -6191,13 +6191,13 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Укажіть сеанс acpmux, який слід відкрити (session)."
+            "value": "Вкажіть сеанс acpmux, який потрібно відкрити (session)."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nêu phiên acpmux cần mở (session)."
+            "value": "Hãy chỉ định phiên acpmux cần mở (session)."
           }
         },
         "zh-Hans": {

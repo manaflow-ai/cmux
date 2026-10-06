@@ -14938,18 +14938,6 @@
     "argument.agent.cwd": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Folder"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フォルダ"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -14959,7 +14947,7 @@
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Folder"
+            "value": "Mapa"
           }
         },
         "da": {
@@ -14972,6 +14960,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Folder"
           }
         },
         "es": {
@@ -14990,6 +14984,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ"
           }
         },
         "km": {
@@ -15069,18 +15069,6 @@
     "argument.agent.session": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Session"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セッション"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -15105,6 +15093,12 @@
             "value": "Sitzung"
           }
         },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session"
+          }
+        },
         "es": {
           "stringUnit": {
             "state": "needs_review",
@@ -15121,6 +15115,12 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション"
           }
         },
         "km": {
@@ -15200,18 +15200,6 @@
     "argument.agent.workspaceKey": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace Key"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースキー"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -15233,7 +15221,13 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Arbeitsbereich-Schlüssel"
+            "value": "Workspace-Schlüssel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Key"
           }
         },
         "es": {
@@ -15254,16 +15248,22 @@
             "value": "Chiave dello spazio di lavoro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースキー"
+          }
+        },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កូនសោកន្លែងធ្វើការ"
+            "value": "សោកន្លែងធ្វើការ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작업 공간 키"
+            "value": "워크스페이스 키"
           }
         },
         "nb": {
@@ -15323,7 +15323,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "工作區鍵"
+            "value": "工作區鍵值"
           }
         }
       }
@@ -15331,18 +15331,6 @@
     "argument.agent.workspaceName": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace Name"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース名"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
@@ -15364,7 +15352,13 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Name des Arbeitsbereichs"
+            "value": "Workspace-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Name"
           }
         },
         "es": {
@@ -15385,6 +15379,12 @@
             "value": "Nome dello spazio di lavoro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース名"
+          }
+        },
         "km": {
           "stringUnit": {
             "state": "needs_review",
@@ -15394,7 +15394,7 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "작업 공간 이름"
+            "value": "워크스페이스 이름"
           }
         },
         "nb": {
