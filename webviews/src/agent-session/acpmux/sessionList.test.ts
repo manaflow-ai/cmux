@@ -43,9 +43,21 @@ describe("session titles", () => {
       "codex-",
     );
   });
-  test("a generated name without a prompt yet shows the name, then the id", () => {
-    expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("claude-2");
-    expect(sessionTitle({ sessionId: "abcdef123456" })).toBe("abcdef12");
+  test("a generated name without a prompt yet is a new chat, never the launch profile's name", () => {
+    expect(sessionTitle({ sessionId: "s1", name: "claude-2", harness: "claude" })).toBe("New chat");
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr", harness: "claude-sr", family: "claude" })).toBe(
+      "New chat",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr-2", harness: "claude-sr" })).toBe("New chat");
+    expect(sessionTitle({ sessionId: "abcdef123456" })).toBe("New chat");
+  });
+  test("a generated name falls back to the last prompt, and a fork's name is generated too", () => {
+    expect(sessionTitle({ sessionId: "s1", name: "claude-sr-1", harness: "claude-sr", lastPrompt: "Ship it" })).toBe(
+      "Ship it",
+    );
+    expect(sessionTitle({ sessionId: "s1", name: "codex-fork-1", harness: "codex", title: "Fix the login flow" })).toBe(
+      "Fix the login flow",
+    );
   });
 });
 

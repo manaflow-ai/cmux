@@ -397,6 +397,138 @@
         }
       }
     },
+    "composer.chooseFolderMenu": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختيار المجلد…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi folder…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg mappe…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordner auswählen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose folder…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elegir carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir le dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli cartella…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសថត…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "폴더 선택…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg mappe…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz folder…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolher pasta…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выбрать папку…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกโฟลเดอร์…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klasör seç…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вибрати папку…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn thư mục…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择文件夹…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇資料夾…"
+          }
+        }
+      }
+    },
     "composer.cloud": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -9116,127 +9248,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تظهر هنا الدردشات التي تبدأها."
+            "value": "لا توجد دردشات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chatovi koje pokrenete prikazuju se ovdje."
+            "value": "Nema chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chats, du starter, vises her."
+            "value": "Ingen chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chats, die du startest, erscheinen hier."
+            "value": "Keine Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chats you start show up here."
+            "value": "No chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Los chats que inicies aparecen aquí."
+            "value": "No hay chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les chats que vous démarrez s'affichent ici."
+            "value": "Aucune discussion"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le chat che avvii vengono mostrate qui."
+            "value": "Nessuna chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始したチャットがここに表示されます。"
+            "value": "チャットはありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការជជែកដែលអ្នកចាប់ផ្តើមនឹងបង្ហាញនៅទីនេះ។"
+            "value": "គ្មានការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "시작한 채팅이 여기에 표시됩니다."
+            "value": "채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chatter du starter vises her."
+            "value": "Ingen chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rozpoczęte przez Ciebie czaty pojawią się tutaj."
+            "value": "Brak czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Os chats que você iniciar aparecem aqui."
+            "value": "Nenhum chat"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Начатые вами чаты появятся здесь."
+            "value": "Нет чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แชตที่คุณเริ่มจะแสดงที่นี่"
+            "value": "ไม่มีแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Başlattığınız sohbetler burada görünür."
+            "value": "Sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Чати, які ви починаєте, показуються тут."
+            "value": "Немає чатів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các cuộc trò chuyện bạn bắt đầu sẽ hiển thị ở đây."
+            "value": "Không có cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你开始的对话会显示在这里。"
+            "value": "没有对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "你開始的對話會顯示在這裡。"
+            "value": "沒有對話"
           }
         }
       }
@@ -16233,138 +16365,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "返回"
-          }
-        }
-      }
-    },
-    "picker.default": {
-      "comment": "Agent pane: the agent's own default model or reasoning level (a menu hint, and the label until the model it resolves to is known)",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "افتراضي"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zadano"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standard"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standard"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Default"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Predeterminado"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Par défaut"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Predefinito"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "デフォルト"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "លំនាំដើម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "기본값"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Standard"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Domyślny"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Padrão"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "По умолчанию"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ค่าเริ่มต้น"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Varsayılan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "За замовчуванням"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mặc định"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "默认"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "預設"
           }
         }
       }
@@ -69297,6 +69297,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "App 拒絕了此要求。"
+          }
+        }
+      }
+    },
+    "picker.default": {
+      "comment": "Agent pane: the agent's own default model or reasoning level (a menu hint, and the label until the model it resolves to is known)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتراضي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zadano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predeterminado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Predefinito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "デフォルト"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លំនាំដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기본값"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Standard"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Domyślny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Padrão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "По умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่าเริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Varsayılan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "За замовчуванням"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mặc định"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "默认"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "預設"
           }
         }
       }
