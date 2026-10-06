@@ -12,6 +12,11 @@
 //! 4. A token is single-use, bound to the tab and the URL of the first hop,
 //!    and expires with its fetch.
 //! 5. The request filter (policy, ranges) decides first; this runs after.
+//!
+//! Redirects are not followed by the browser (SHELL-REDIRECT-LNA option 1):
+//! the host fetches with `redirect: "manual"`, reads the Location here at
+//! the response stage, and runs each next hop as a new fetch with a new
+//! token. No redirect hop is relaxed.
 
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -24,9 +29,6 @@ pub const TOKEN_HEADER: &str = "x-cmux-fetch-token";
 const SHELL_CSP: &str =
     "default-src 'none'; connect-src http: https:; base-uri 'none'; form-action 'none'";
 
-/// Redirect hops of one fetch whose preflights the host answers.
-const MAX_REDIRECT_PREFLIGHTS: u8 = 5;
-
 #[derive(Debug, Clone)]
 struct Grant {
     target: String,
@@ -36,11 +38,10 @@ struct Grant {
     /// browser leaves CORS-safelisted ones out of the list).
     method: String,
     header_names: Vec<String>,
-    /// Preflights still answerable: the first hop's, then a few redirect
-    /// hops'. A page that imitates one in the fetch's window gets at most
-    /// these, for this tab and these exact method and headers.
+    /// The one preflight the host answers for this fetch (this tab, URL,
+    /// method and headers).
     preflights: u8,
-    /// The first hop claimed the token; later hops ride its network id.
+    /// The request claimed the token (single use).
     used: bool,
 }
 
@@ -72,6 +73,9 @@ pub struct Cors {
     relaxed: HashMap<String, (String, String)>,
     /// Relaxations not yet reported, per token.
     pub log: Vec<Relaxed>,
+    /// A token request's redirect (status, Location as sent), read at the
+    /// response stage: the fetch saw only an opaque redirect.
+    redirects: HashMap<String, (u16, String)>,
     /// Fetch shells: a tab-less fetch runs in a background tab whose
     /// document (at the fetch URL's origin) the host answers locally, so
     /// the fetch has a real origin and the server sees no extra request.
@@ -129,7 +133,7 @@ impl Cors {
                 first_url: url.to_owned(),
                 method: method.to_ascii_uppercase(),
                 header_names: names,
-                preflights: 1 + MAX_REDIRECT_PREFLIGHTS,
+                preflights: 1,
                 used: false,
             },
         );
@@ -139,6 +143,7 @@ impl Cors {
     pub fn revoke(&mut self, token: &str) {
         self.grants.remove(token);
         self.relaxed.retain(|_, (_, held)| held != token);
+        self.redirects.remove(token);
     }
 
     /// The token's relaxations so far (taken).
@@ -177,20 +182,19 @@ impl Cors {
         if let Some(token) = header(headers, TOKEN_HEADER) {
             let stripped = RequestAction::ContinueWith { headers: pairs(headers, TOKEN_HEADER) };
             let origin = header(headers, "origin").unwrap_or("null").to_owned();
-            let hop = self.relaxed.get(network_id).is_some_and(|(_, held)| held == token);
             let Some(grant) = self.grants.get_mut(token).filter(|g| g.target == target) else {
                 // Guessed, replayed or expired: removed, nothing relaxed.
                 return stripped;
             };
-            if hop || (!grant.used && grant.first_url == url) {
+            if !grant.used && grant.first_url == url {
                 grant.used = true;
                 self.relaxed.insert(network_id.to_owned(), (origin, token.to_owned()));
             }
             return stripped;
         }
         // A preflight of a token request: the browser sends the header's
-        // name, never its value, so it is matched by tab and first-hop URL
-        // of a live grant (or a redirect hop of a relaxed request).
+        // name, never its value, so it is matched by tab and URL of a live
+        // grant whose request has not gone yet.
         let requested = header(headers, "access-control-request-headers").unwrap_or("");
         let mut names: Vec<String> = requested
             .split(',')
@@ -207,7 +211,8 @@ impl Cors {
                     && g.preflights > 0
                     && g.method == wanted
                     && names.iter().all(|n| g.header_names.contains(n))
-                    && (g.first_url == url || g.used)
+                    && !g.used
+                    && g.first_url == url
             });
             if let Some((token, grant)) = grant {
                 grant.preflights -= 1;
@@ -232,6 +237,27 @@ impl Cors {
             }
         }
         RequestAction::Continue
+    }
+
+    /// The response stage of a token request: a redirect's status and
+    /// Location are kept for its fetch.
+    pub fn note_redirect(&mut self, network_id: &str, status: u16, headers: &[Value]) {
+        if !(300..400).contains(&status) {
+            return;
+        }
+        let Some((_, token)) = self.relaxed.get(network_id) else { return };
+        let location = headers
+            .iter()
+            .find(|h| h["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case("location")))
+            .and_then(|h| h["value"].as_str());
+        if let Some(location) = location {
+            self.redirects.insert(token.clone(), (status, location.to_owned()));
+        }
+    }
+
+    /// The redirect a fetch's token request got (taken).
+    pub fn take_redirect(&mut self, token: &str) -> Option<(u16, String)> {
+        self.redirects.remove(token)
     }
 
     /// The response stage: the headers to continue with for a token

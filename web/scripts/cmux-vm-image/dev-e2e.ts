@@ -168,10 +168,12 @@ export async function main(argv = process.argv): Promise<number> {
       return { value: null, detail: r.stdout.trim().split("\n").join(" | ") };
     });
     const hasReportLog = (await run(vm, "grep -q 'report \\${r.reason}' /opt/cmux/guest/vm-agent.ts && echo yes")).stdout.includes("yes");
-    const journalWait = async (pattern: string, budgetMs: number): Promise<string> => {
+    /** Test-side wait for an agent log line, optionally only lines logged at or after `sinceUnix`. */
+    const journalWait = async (pattern: string, budgetMs: number, sinceUnix?: number): Promise<string> => {
       const t0 = Date.now();
+      const since = sinceUnix ? ` --since=@${sinceUnix}` : "";
       while (Date.now() - t0 < budgetMs) {
-        const r = await run(vm, `${AGENT_LOG} | grep -E ${JSON.stringify(pattern)} | tail -1`);
+        const r = await run(vm, `${AGENT_LOG}${since} | grep -E ${JSON.stringify(pattern)} | tail -1`);
         if (r.stdout.trim()) return r.stdout.trim();
         await sleep(1000);
       }
@@ -180,14 +182,28 @@ export async function main(argv = process.argv): Promise<number> {
     if (hasReportLog) {
       await R.step("first status.report applied", async () => ({ value: null, detail: await journalWait("report (start|bind) applied", 30_000) }));
       await R.step("change report (activity line on the agent socket)", async () => {
+        const sentAt = Math.floor(Date.now() / 1000);
         const line = JSON.stringify({ activity: { active_sessions: 1, last_user_input_at: Date.now() } });
-        await run(vm, `python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect("/run/cmux-vm-agent/agent.sock"); s.sendall(sys.argv[1].encode()+b"\\n"); s.close()' ${JSON.stringify(line)}`);
-        return { value: null, detail: await journalWait("report change (applied|held)", 30_000) };
+        const sent = await run(vm, `ls -l /run/cmux-vm-agent/; python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect("/run/cmux-vm-agent/agent.sock"); s.sendall(sys.argv[1].encode()+b"\\n"); s.close(); print("sent")' '${line}'`);
+        if (!sent.stdout.includes("sent")) throw new Error(`socket send failed: ${sent.stdout.trim().slice(-200)} ${sent.stderr.slice(-300)}`);
+        try {
+          // auto5 names only the latest reason (a resume can relabel the change report); later agents log
+          // every reason (change+resume). Either way the next report carries the latest activity.
+          return { value: null, detail: await journalWait("report [a-z+]*(change|resume)[a-z+]* (applied|held)", 30_000, sentAt) };
+        } catch (error) {
+          const tail = await run(vm, `${AGENT_LOG} | tail -6`);
+          throw new Error(`${(error as Error).message}; agent log: ${tail.stdout.trim().split("\n").join(" | ")}`);
+        }
       });
       await R.step("heartbeat on a 15 s test interval (dev override)", async () => {
         await run(vm, "mkdir -p /etc/systemd/system/cmux-vm-agent.service.d && printf '[Service]\\nEnvironment=CMUX_VM_AGENT_HEARTBEAT_MS=15000\\n' > /etc/systemd/system/cmux-vm-agent.service.d/e2e.conf && systemctl daemon-reload && systemctl restart cmux-vm-agent.service");
-        await journalWait("heartbeat test override: 15000", 20_000);
-        return { value: null, detail: await journalWait("report heartbeat applied", 45_000) };
+        const restartedAt = Math.floor(Date.now() / 1000);
+        // Every provider exec steps the guest clock, which fires the resume timer and re-arms the
+        // heartbeat (cloud-automation.md 26). So: no exec for 40 s (the restart exec itself causes one resume report about 10 s later), then one read.
+        await sleep(40_000);
+        const r = await run(vm, `${AGENT_LOG} --since=@${restartedAt} | grep -E 'heartbeat test override|report ' | tail -6`);
+        if (!/heartbeat test override: 15000/.test(r.stdout) || !/report [a-z+]*heartbeat[a-z+]* (applied|held)/.test(r.stdout)) throw new Error(`no heartbeat report: ${r.stdout.trim().split("\n").join(" | ")}`);
+        return { value: null, detail: r.stdout.trim().split("\n").join(" | ") };
       });
     } else {
       R.record({ step: "report steps (first, change, heartbeat)", ok: false, ms: 0, detail: "SKIPPED: this snapshot's agent does not log report results (needs auto5 or later)" });
@@ -218,13 +234,23 @@ export async function main(argv = process.argv): Promise<number> {
       const m = await waitMachine(api, created.id, (x) => x.status === "paused", 120_000);
       return { value: m, detail: `status ${m.status}` };
     });
+    const startedAt = Math.floor(Date.now() / 1000);
     await R.step("start", async () => {
       await api.op("cloud.machine.start", { machine: created.id }, `${tag}-start`);
       const m = await waitMachine(api, created.id, (x) => x.status === "running", 120_000);
       return { value: m, detail: `status ${m.status}` };
     });
     if (hasReportLog) {
-      await R.step("report after start (resume, OnClockChange)", async () => ({ value: null, detail: await journalWait("report resume (applied|held)", 30_000) }));
+      await R.step("report after start (resume, OnClockChange)", async () => {
+        // No exec for 15 s: a resume report logged before our first read came from the provider's
+        // resume clock step, not from an exec (every exec also steps the clock).
+        await sleep(15_000);
+        const readAt = Date.now() / 1000;
+        const r = await run(vm, `${AGENT_LOG.replace("-o cat", "-o short-unix")} --since=@${startedAt} | grep -E 'report [a-z+]*resume[a-z+]* (applied|held)' | head -1`);
+        const ts = Number(r.stdout.trim().split(/\s+/)[0]);
+        if (!(ts > 0) || ts >= readAt) throw new Error(`no resume report before the first read: ${r.stdout.trim().slice(0, 200)}`);
+        return { value: null, detail: `${r.stdout.trim()} (logged ${(ts - startedAt).toFixed(1)} s after start, before any exec)` };
+      });
     }
     await R.step("VM after start (agent alive)", async () => {
       const r = await run(vm, `systemctl is-active cmux-vm-agent.service; ${AGENT_LOG} | tail -3`);

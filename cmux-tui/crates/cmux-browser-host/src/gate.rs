@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 mod fetch;
 mod guards;
+mod redirects;
 
 /// Per-session grants decided by the session's opener (user or mux).
 #[derive(Debug, Clone, Default)]
@@ -369,7 +370,7 @@ impl VmHost for Gate {
     fn driver_call_reply(&self, method: &str, params: Value) -> Result<Reply, DriverError> {
         // Fetch cancels come from the VM's cell timeouts and the session's
         // end through the gate, never from agent code.
-        if method == "net.fetch.cancel" {
+        if matches!(method, "net.fetch.cancel" | "net.fetch.done") {
             return Err(DriverError::unsupported_method(method));
         }
         if !self.filter_enforced.load(std::sync::atomic::Ordering::SeqCst) {
