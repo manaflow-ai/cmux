@@ -11,10 +11,11 @@ struct HistoryFilterLayout: Layout {
         cache: inout Cache,
     ) -> CGSize {
         let rows = rows(for: proposal.width, subviews: subviews)
-        return rows.reduce(into: CGSize.zero) { result, row in
+        let size = rows.reduce(into: CGSize.zero) { result, row in
             result.width = max(result.width, row.width)
             result.height += row.height
-        }.addingVerticalSpacing(verticalSpacing, rowCount: rows.count)
+        }
+        return CGSize(width: size.width, height: size.height + verticalSpacing * CGFloat(max(0, rows.count - 1)))
     }
 
     func placeSubviews(
@@ -67,8 +68,3 @@ struct HistoryFilterLayout: Layout {
     }
 }
 
-private extension CGSize {
-    func addingVerticalSpacing(_ spacing: CGFloat, rowCount: Int) -> CGSize {
-        CGSize(width: width, height: height + spacing * CGFloat(max(0, rowCount - 1)))
-    }
-}
