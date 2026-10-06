@@ -9,8 +9,8 @@ import Foundation
 /// and are never logged. `CMUX_AUTH_CREDENTIALS_FILE` (baked by
 /// `reload.sh --credentials-file`) is the only source when present.
 /// `CMUX_DEV_AUTH_PROFILE` picks `personal` (dogfood keys) or `agent`
-/// (uitest keys); without a profile or a credentials file nothing signs in.
-/// `CMUX_DEV_AUTH_ACCOUNT`, when set, is the only email that may sign in.
+/// (uitest keys). Ambient files sign in only the machine's declared owner
+/// account (`~/.config/cmux/dev-account` or `CMUX_DEV_AUTH_ACCOUNT`).
 struct DogfoodCredentials: Equatable {
     let email: String
     let password: String
@@ -21,41 +21,55 @@ struct DogfoodCredentials: Equatable {
         case accountMismatch(found: String, declared: String)
     }
 
-    /// Red stub.
+    static func resolve(environment: [String: String], home: String,
+                        read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }) -> DogfoodCredentials? {
+        decide(environment: environment, home: home, read: read).credentials
+    }
+
+    /// The account to sign in, or why none. An explicit credentials file
+    /// (`CMUX_AUTH_CREDENTIALS_FILE`) is taken as given, unless
+    /// `CMUX_DEV_AUTH_ACCOUNT` names another account. The ambient files
+    /// (`~/.secrets/cmuxterm-dev.env`, `~/.secrets/cmux.env`) and exports
+    /// sign in only the machine's declared owner account
+    /// (`CMUX_DEV_AUTH_ACCOUNT`, else `~/.config/cmux/dev-account`): a
+    /// machine's secrets file can name another person (hmdm1 on
+    /// cmux-lawrence-2, 2026-10-06).
     static func decide(environment: [String: String], home: String,
                        read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) })
         -> (credentials: DogfoodCredentials?, refusal: Refusal?) {
-        (resolve(environment: environment, home: home, read: read), nil)
-    }
-
-    static func resolve(environment: [String: String], home: String,
-                        read: (String) -> String? = { try? String(contentsOfFile: $0, encoding: .utf8) }) -> DogfoodCredentials? {
-        guard let found = candidate(environment: environment, home: home, read: read) else { return nil }
-        // The launcher's expected account (CMUX_DEV_AUTH_ACCOUNT): any other
-        // account signs in nobody, whichever file or export named it.
-        if let expected = environment["CMUX_DEV_AUTH_ACCOUNT"], !expected.isEmpty,
-           found.email.lowercased() != expected.lowercased() { return nil }
-        return found
-    }
-
-    /// The pair an explicit credentials file or an explicit profile names.
-    /// Without either, nobody: a machine's ambient secrets file can name
-    /// another person (hmdm1 on cmux-lawrence-2, 2026-10-06).
-    private static func candidate(environment: [String: String], home: String, read: (String) -> String?) -> DogfoodCredentials? {
+        let expected = environment["CMUX_DEV_AUTH_ACCOUNT"].flatMap { $0.isEmpty ? nil : $0 }
         if let explicit = environment["CMUX_AUTH_CREDENTIALS_FILE"], !explicit.isEmpty {
-            guard secure(explicit), let text = read(explicit) else { return nil }
+            guard secure(explicit), let text = read(explicit) else { return (nil, nil) }
             let values = parse(text)
-            return pair(values, prefix: "CMUX_DOGFOOD_STACK") ?? pair(values, prefix: "CMUX_UITEST_STACK")
+            guard let found = pair(values, prefix: "CMUX_DOGFOOD_STACK") ?? pair(values, prefix: "CMUX_UITEST_STACK") else { return (nil, nil) }
+            if let expected, found.email.lowercased() != expected.lowercased() {
+                return (nil, .accountMismatch(found: found.email, declared: expected))
+            }
+            return (found, nil)
         }
-        let prefix: String
-        switch environment["CMUX_DEV_AUTH_PROFILE"]?.lowercased() {
-        case "personal": prefix = "CMUX_DOGFOOD_STACK"
-        case "agent": prefix = "CMUX_UITEST_STACK"
-        default: return nil
+        guard let declared = expected ?? declaredAccount(home: home, read: read) else { return (nil, .noDeclaredAccount) }
+        let prefixes: [String] = switch environment["CMUX_DEV_AUTH_PROFILE"]?.lowercased() {
+        case nil, "": ["CMUX_DOGFOOD_STACK", "CMUX_UITEST_STACK"]
+        case "personal": ["CMUX_DOGFOOD_STACK"]
+        case "agent": ["CMUX_UITEST_STACK"]
+        default: []
         }
         let files = ["\(home)/.secrets/cmuxterm-dev.env", "\(home)/.secrets/cmux.env"].compactMap(read).map(parse)
-        for values in files { if let found = pair(values, prefix: prefix) { return found } }
-        return pair(environment, prefix: prefix)
+        var first: DogfoodCredentials?
+        for prefix in prefixes {
+            for found in (files + [environment]).compactMap({ pair($0, prefix: prefix) }) {
+                if found.email.lowercased() == declared.lowercased() { return (found, nil) }
+                first = first ?? found
+            }
+        }
+        return (nil, first.map { .accountMismatch(found: $0.email, declared: declared) })
+    }
+
+    /// The machine owner's account (`~/.config/cmux/dev-account`, one email; not a secret).
+    static func declaredAccount(home: String, read: (String) -> String?) -> String? {
+        guard let text = read("\(home)/.config/cmux/dev-account") else { return nil }
+        let email = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return email.isEmpty ? nil : email
     }
 
     /// A complete pair from one source; never mixes sources.

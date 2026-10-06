@@ -2,6 +2,7 @@ public import AppKit
 public import CMUXAuthCore
 public import CmuxAuthRuntime
 import Foundation
+import os
 public import Observation
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
@@ -59,7 +60,10 @@ public final class CloudAuth {
         let devAuth = configuration.isDebugBuild && !configuration.isProductionAuth
         var launchEnvironment = environment
         var replaceSession = false
-        if devAuth, let credentials = DogfoodCredentials.resolve(environment: environment, home: NSHomeDirectory()) {
+        let decision: (credentials: DogfoodCredentials?, refusal: DogfoodCredentials.Refusal?) =
+            devAuth ? DogfoodCredentials.decide(environment: environment, home: NSHomeDirectory()) : (nil, nil)
+        if let refusal = decision.refusal { Self.logRefusal(refusal) }
+        if let credentials = decision.credentials {
             launchEnvironment["CMUX_UITEST_STACK_EMAIL"] = credentials.email
             launchEnvironment["CMUX_UITEST_STACK_PASSWORD"] = credentials.password
             replaceSession = environment["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1"
@@ -127,5 +131,23 @@ public final class CloudAuth {
     public func handleCallback(_ url: URL) async -> Bool {
         guard callbackRouter.isAuthCallbackURL(url) else { return false }
         return await browserSignIn.handleCallbackURL(url)
+    }
+}
+
+extension CloudAuth {
+    /// Why a tagged build starts signed out (no account names or emails beyond a mask).
+    nonisolated static func logRefusal(_ refusal: DogfoodCredentials.Refusal) {
+        let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "auth")
+        switch refusal {
+        case .noDeclaredAccount:
+            logger.notice("dev auto sign-in off: no declared account (~/.config/cmux/dev-account or CMUX_DEV_AUTH_ACCOUNT)")
+        case .accountMismatch(let found, let declared):
+            logger.notice("dev auto sign-in off: \(mask(found), privacy: .public) is not the declared \(mask(declared), privacy: .public)")
+        }
+    }
+
+    nonisolated static func mask(_ email: String) -> String {
+        guard let at = email.firstIndex(of: "@") else { return "***" }
+        return String(email.prefix(1)) + "***" + String(email[at...])
     }
 }
