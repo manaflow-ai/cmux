@@ -198,20 +198,55 @@ class GodfileScopes(unittest.TestCase):
 
 
 class PathRoutingStructure(unittest.TestCase):
-    def test_path_route_gates_mac_jobs_and_keeps_webviews_on_one_compile(self):
+    def test_path_route_gates_each_mac_job_on_its_tier(self):
+        """tests/test_cmux_next_route.py covers which paths reach which tier."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         route = jobs["path_route"]
-        self.assertIn("native", route["outputs"])
-        self.assertIn("macos", route["outputs"])
+        for output in ("native", "macos", "scheme", "generated", "swift", "daemon", "full", "swift_filter", "swift_targets"):
+            self.assertIn(output, route["outputs"])
+        self.assertIn("scripts/ci/cmux_next_route.py", route["steps"][-1]["run"])
         self.assertIn("needs.path_route.outputs.macos", jobs["macos-placement"]["if"])
-        self.assertIn("needs.path_route.outputs.native", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.swift == 'true'", jobs["swift-test"]["if"])
+        self.assertIn("needs.path_route.outputs.daemon == 'true'", jobs["daemon-test"]["if"])
+        self.assertIn("needs.path_route.outputs.generated == 'true'", jobs["generated-files"]["if"])
         self.assertIn("needs.path_route.outputs.native", jobs["release-compile"]["if"])
-        self.assertIn("needs.path_route.outputs.macos", jobs["cmux-scheme-compile"]["if"])
-        route_script = route["steps"][-1]["run"]
-        self.assertIn("webviews/*", route_script)
-        self.assertIn("web/*", route_script)
-        self.assertIn("Packages/macOS/CmuxNext/*", route_script)
-        self.assertIn("Packages/*", route_script)
+        self.assertIn("needs.path_route.outputs.scheme == 'true'", jobs["cmux-scheme-compile"]["if"])
+
+    def test_package_tests_never_wait_for_the_cmux_tui_tree(self):
+        """#17470's swift test spent 13 of 29 minutes waiting for the base tree."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        swift = jobs["swift-test"]
+        self.assertNotIn("same-tree-cmux-tui", swift["needs"])
+        self.assertFalse([step for step in swift["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
+        self.assertIn("SWIFT_FILTER", swift["env"])
+
+    def test_generated_files_are_checked_outside_the_package_tests(self):
+        """a925bd9 went red when PRs that skipped swift test landed a stale export."""
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
+        self.assertIn("check-action-surfaces.sh", runs)
+        self.assertIn("ci-target-graph.py --check", runs)
+        self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
+        swift_runs = " ".join(step.get("run", "") for step in jobs["swift-test"]["steps"])
+        self.assertNotIn("check-action-surfaces.sh", swift_runs)
+
+    def test_autofix_pushes_only_generated_paths_of_same_repository_prs(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        autofix = jobs["generated-autofix"]
+        self.assertIn("head.repo.full_name == github.repository", autofix["if"])
+        self.assertNotIn("vars.", str(autofix["runs-on"]))
+        run = autofix["steps"][-1]["run"]
+        self.assertIn("plans/cmux-next/*.json|plans/cmux-next/*.md|Packages/macOS/CmuxNext/ci-target-graph.json) ;;", run)
+        self.assertIn('"$current" != "$HEAD_SHA"', run)
+        self.assertNotIn("--force", run)
+
+    def test_red_push_runs_name_their_pull_requests(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        attribution = jobs["push-attribution"]
+        self.assertIn("failure()", attribution["if"])
+        self.assertIn("github.event_name == 'push'", attribution["if"])
+        for job_id in ("checks", "generated-files", "swift-test", "daemon-test", "release-compile", "cmux-scheme-compile"):
+            self.assertIn(job_id, attribution["needs"])
 
     def test_push_head_preflight_skips_superseded_macos_jobs(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -220,7 +255,7 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertIn("git", preflight["steps"][0]["run"])
         self.assertIn("ls-remote", preflight["steps"][0]["run"])
         self.assertIn("current", preflight["outputs"])
-        for job_id in ("macos-placement", "swift-test", "release-compile", "cmux-scheme-compile"):
+        for job_id in ("macos-placement", "swift-test", "daemon-test", "generated-files", "release-compile", "cmux-scheme-compile"):
             job = jobs[job_id]
             needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
             with self.subTest(job=job_id):
@@ -416,7 +451,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[index + 1] if index + 1 < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "release-compile", "same-tree-cmux-tui", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
+                                           "same-tree-cmux-tui", "swift-test"])
 
 
 
