@@ -26,6 +26,8 @@ public final class MockOnboardingServices: OnboardingServices {
     /// A fresh temporary folder, so the mock never writes to ~/cmux.
     public var firstTaskFolder = FirstTaskFolder(url: FileManager.default.temporaryDirectory
         .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
+    /// Whether the classic cmux session import is offered.
+    public var canImportClassicSessions = false
     /// The computer use step's grants; nil leaves the step out.
     public var computerUseSource: MockComputerUsePermissionSource?
     /// Picked screen variants, by step.
