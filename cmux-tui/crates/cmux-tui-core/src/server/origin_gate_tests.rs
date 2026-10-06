@@ -503,3 +503,22 @@ fn another_process_cannot_use_an_install_proved_confirmation() {
     assert_forbidden(&send(&mux, &foreign_relay, &install(Some(user_claim(&token)))));
     assert_not_forbidden(&send(&mux, &app_relay, &install(Some(user_claim(&token)))));
 }
+
+/// The fast path reads the raw line: a `\u` escape in the operation name
+/// must not carry an A2 operation past the gate.
+#[test]
+fn an_escaped_operation_name_still_meets_gate_a2() {
+    let mux = mux("escaped-operation");
+    let agent = connect(&mux);
+    for (from, to) in
+        [("\"apps.install", "\"\\u0061pps.install"), ("apps.install\"", "apps.inst\\u0061ll\"")]
+    {
+        let line = install(None).to_string().replacen(from, to, 1);
+        assert!(line.contains("\\u0061"), "{line}");
+        let request: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(request["operation"], "apps.install");
+        assert!(handle_connection_message(&mux, agent.client, &line, &agent.writer, &agent.scheduler));
+        let reply: Value = serde_json::from_str(&agent.outbound.try_pop().unwrap()).unwrap();
+        assert_a2_refusal(&reply, "agent");
+    }
+}
