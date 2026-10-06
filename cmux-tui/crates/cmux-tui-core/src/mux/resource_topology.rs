@@ -1917,8 +1917,7 @@ impl Mux {
                     LayoutOpKind::MoveTabToNewWorkspace {
                         tab: surface,
                         // The in-group index places the workspace among its
-                        // group's members; the model does not compare the
-                        // workspace order.
+                        // group's members; the model does not compare the workspace order.
                         index: None,
                         new_workspace: target_ws_slot,
                         new_screen: target_screen,
@@ -3016,7 +3015,7 @@ impl Mux {
                 &registry,
                 &state,
                 &notifications,
-                mutation.origin != super::terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
+                mutation.origin != terminal_reap::END_TERMINALS_MUTATION_ORIGIN,
             )?;
             (target, plan)
         } else {
@@ -3590,7 +3589,8 @@ impl Mux {
             registry,
             state,
             &mut projected,
-            notifications, close_emptied_workspaces,
+            notifications,
+            close_emptied_workspaces,
         )? {
             (delta, changed_screens, workspace_was_active) =
                 (emptied.delta, emptied.changed_screens, emptied.was_active);

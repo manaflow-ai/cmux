@@ -36,6 +36,9 @@ enum OnboardingStrings {
     // Import
     static var importTitle: String { String(localized: "onboarding.import.title2", defaultValue: "Import from Browsers", bundle: .module) }
     static var detecting: String { String(localized: "onboarding.import.detecting", defaultValue: "Looking for browsers…", bundle: .module) }
+    static var findBrowsers: String { String(localized: "onboarding.import.findBrowsers", defaultValue: "Find Browsers", bundle: .module) }
+    /// Where the browser list goes before Find Browsers ran (as short as "Looking for browsers…").
+    static var notSearched: String { String(localized: "onboarding.import.notSearched", defaultValue: "Not looked for yet.", bundle: .module) }
     static var noBrowsers: String { String(localized: "onboarding.import.none", defaultValue: "No other browsers found on this Mac.", bundle: .module) }
     static func importing(_ profile: String) -> String {
         String(format: String(localized: "onboarding.import.progress", defaultValue: "Importing %@…", bundle: .module), profile)
