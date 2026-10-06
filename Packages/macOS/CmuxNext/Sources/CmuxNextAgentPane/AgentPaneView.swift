@@ -124,6 +124,7 @@ public final class AgentPaneView: NSView {
         }
         self.webView = webView
         super.init(frame: .zero)
+        AgentPaneLaunchTimings.mark("agent_pane.view_created")
         inputReadiness.attach(webView)
         if let page {
             attachPage(page)

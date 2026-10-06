@@ -20,7 +20,18 @@ on waitpid for the app, and on kqueue NOTE_EXIT for the tag's daemon.
         state root, then one connection's identify and snapshot round trips
 
   scripts/cmux-next/bench-startup.py --tag nxboot [--tag other] [--runs 5]
-      [--mode cold --mode warm] [--json out.json]
+      [--mode cold --mode warm] [--profile empty|realistic] [--json out.json]
+  scripts/cmux-next/bench-startup.py --app "/path/cmux DEV launch-1.app" ...
+
+--app runs a fleet artifact staged anywhere (its tag comes from the
+`cmux DEV <tag>.app` name, as the app's own LaunchIdentity reads it).
+--profile empty deletes the tag's daemon, agent and sidebar state before
+each run (a first launch on a new Mac; cold mode only). --profile realistic
+seeds one priming launch with REALISTIC_WORKSPACES workspaces of three
+terminal tabs and a split, then splits the selected pane and opens an agent
+chat in it, so the measured launch restores a full sidebar, a terminal and
+an agent pane. Its runs wait for the agent pane's handshake as well as the
+first terminal frame.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
@@ -31,6 +42,8 @@ import argparse
 import glob
 import json
 import os
+import re
+import shutil
 import select
 import signal
 import statistics
@@ -41,6 +54,7 @@ import time
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
+AGENT_MARK = "agent_pane.handshake_end"
 
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
@@ -73,10 +87,40 @@ MARKS = [
     ("first_terminal_content", "first terminal content decoded"),
     ("first_terminal_content_applied", "first content in a surface"),
     (FINAL_MARK, "first live terminal frame"),
+    ("sidebar_rows_shown", "sidebar rows shown"),
+    ("reveal.sidebar", "sidebar revealed"),
+    ("reveal.tabs", "tab strips revealed"),
+    ("reveal.pane", "pane content revealed"),
+    ("agent_pane.view_created", "first agent pane view made"),
+    ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
+    ("agent_pane.handshake_start", "agent page asked for its handshake"),
+    (AGENT_MARK, "agent pane handshake answered"),
 ]
+REALISTIC_WORKSPACES = 24
+
+# Apps given with --app, by tag; other tags are DerivedData builds.
+APPS = {}
+
+
+def app_tag(path):
+    """The tag of a staged `cmux DEV <tag>.app` (LaunchIdentity.taggedAppName)."""
+    name = os.path.basename(os.path.normpath(path))
+    match = re.fullmatch(r"cmux DEV (.+)\.app", name)
+    if not match:
+        raise SystemExit(f"{path}: expected a `cmux DEV <tag>.app` bundle")
+    return re.sub(r"[^a-z0-9-]", "-", match.group(1).lower())
+
+
+def bundle_root(tag):
+    """The path every process of the tag starts from, as a pgrep pattern."""
+    if tag in APPS:
+        return re.escape(APPS[tag])
+    return f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV"
 
 
 def app_binary(tag):
+    if tag in APPS:
+        return os.path.join(APPS[tag], "Contents/MacOS/cmux DEV")
     matches = glob.glob(f"{DERIVED}/cmux-{tag}/Build/Products/Debug/cmux DEV*.app/Contents/MacOS/cmux DEV")
     if not matches:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}")
@@ -90,11 +134,11 @@ def pgrep(pattern):
 
 def tag_pids(tag):
     """The tag's app, daemon and terminal hosts (started from its bundle)."""
-    return pgrep(f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV")
+    return pgrep(bundle_root(tag))
 
 
 def app_pids(tag):
-    return pgrep(f"DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV.*/Contents/MacOS/")
+    return pgrep(f"{bundle_root(tag)}.*/Contents/MacOS/")
 
 
 def wait_exit(pids, timeout):
@@ -156,9 +200,11 @@ class Launch:
         self.marks = {}
 
     def wait_for(self, mark, timeout):
-        """Reads marks until `mark` arrives, the app exits (EOF) or the timeout."""
+        """Reads marks until `mark` (or every mark of a list) arrived, the app
+        exits (EOF) or the timeout."""
+        wanted = [mark] if isinstance(mark, str) else list(mark)
         deadline = time.monotonic() + timeout
-        while mark not in self.marks:
+        while any(name not in self.marks for name in wanted):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
@@ -186,12 +232,98 @@ class Launch:
 RUN_TAGS = []
 
 
-def one_run(tag, mode, timeout):
+def state_directories(tag):
+    """Where a tagged build keeps its sessions: daemon state and the sidebar
+    snapshot, agent sessions (acpmux), Home's memory."""
+    home = os.path.expanduser("~")
+    return [os.path.join(home, "Library/Application Support/cmux/tags", tag),
+            os.path.join(home, ".acpmux/tags", tag), os.path.join(home, ".cmux/mux/tags", tag)]
+
+
+def reset_state(tag):
+    """A first launch: no daemon, no saved workspaces, sidebar or agent sessions."""
+    stop(tag_pids(tag))
+    for directory in state_directories(tag):
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def daemon_socket(tag, timeout=20):
+    tmp = subprocess.run(["getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True).stdout.strip()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        found = glob.glob(os.path.join(tmp, "cmux-tui-*", f"cmux-app-{tag}.sock"))
+        if found:
+            return found[0]
+        time.sleep(0.2)
+    raise SystemExit(f"tag {tag}: no daemon socket")
+
+
+def app_client(tag, timeout=30):
+    from bench_cli_storm import Client  # noqa: E402
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            return Client(f"/tmp/cmux-debug-{tag}.sock", timeout=10)
+        except OSError:
+            time.sleep(0.2)
+    raise SystemExit(f"tag {tag}: control socket did not answer")
+
+
+def seed_realistic(tag, scratch, timeout):
+    """Fills the tag's state with a day's work (see --profile realistic) and
+    leaves the daemon running."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from bench_cli_storm import Client  # noqa: E402
+    reset_state(tag)
+    prime = Launch(tag, scratch)
+    try:
+        if not prime.wait_for(FINAL_MARK, timeout):
+            raise SystemExit(f"tag {tag}: the seeding launch never drew a terminal")
+        daemon = Client(daemon_socket(tag), timeout=10)
+
+        def workspaces():
+            return {w["id"]: w for w in daemon.call("list-workspaces", cmd_key="cmd")["data"]["workspaces"]}
+
+        for index in range(REALISTIC_WORKSPACES):
+            before = workspaces()
+            created = daemon.call("new-workspace", {"name": f"project-{index + 1:02d}"}, cmd_key="cmd")
+            if not created.get("ok"):
+                raise SystemExit(f"tag {tag}: new-workspace failed: {created.get('error')}")
+            workspace = next(w for key, w in workspaces().items() if key not in before)
+            pane = workspace["screens"][0]["panes"][0]["id"]
+            for _ in range(2):
+                daemon.call("new-tab", {"pane": pane}, cmd_key="cmd")
+            daemon.call("split", {"pane": pane, "dir": "right"}, cmd_key="cmd")
+        daemon.close()
+        app = app_client(tag)
+        for action in ("splitRight", "palette.newAgentChat"):
+            reply = app.call("action.run", {"action": action})
+            if not reply.get("ok"):
+                raise SystemExit(f"tag {tag}: {action} failed: {reply.get('error')}")
+        app.close()
+        if not prime.wait_for(AGENT_MARK, timeout):
+            raise SystemExit(f"tag {tag}: the seeded agent chat never loaded")
+    finally:
+        prime.quit()
+    with open(seeded_marker(tag), "w") as out:
+        out.write(f"{REALISTIC_WORKSPACES}\n")
+
+
+def seeded_marker(tag):
+    return os.path.join(state_directories(tag)[0], "bench-startup-realistic")
+
+
+def one_run(tag, mode, timeout, profile=None):
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
     if app_pids(tag):
         raise SystemExit(f"tag {tag} has an app running; quit it first (this bench only stops what it starts)")
+    final = [FINAL_MARK, AGENT_MARK] if profile == "realistic" else [FINAL_MARK]
+    if profile == "empty":
+        reset_state(tag)
+    elif profile == "realistic" and not os.path.exists(seeded_marker(tag)):
+        seed_realistic(tag, scratch, timeout)
     if mode == "cold":
         # Builds of one tag (a before and an after copy) share its daemon.
         for other in RUN_TAGS or [tag]:
@@ -210,11 +342,12 @@ def one_run(tag, mode, timeout):
         prime.quit()
     launch = Launch(tag, scratch)
     try:
-        reached = launch.wait_for(FINAL_MARK, timeout)
+        reached = launch.wait_for(final, timeout)
     finally:
         launch.quit()
     if not reached:
-        print(f"  {tag} {mode}: {FINAL_MARK} not reached within {timeout} s", file=sys.stderr)
+        missing = [mark for mark in final if mark not in launch.marks]
+        print(f"  {tag} {mode}: {', '.join(missing)} not reached within {timeout} s", file=sys.stderr)
     return launch.marks
 
 
@@ -271,26 +404,38 @@ def daemon_side(tag, runs):
 
 
 def table(runs):
-    rows = []
-    previous = 0.0
+    """Rows in the order the marks landed (by median), each with its gap
+    from the row before."""
+    medians = []
     for mark, label in MARKS:
         values = [run[mark] for run in runs if mark in run]
-        if not values:
-            continue
-        median = statistics.median(values)
-        rows.append((label, mark, median, max(values), median - previous, len(values)))
+        if values:
+            medians.append((statistics.median(values), label, mark, max(values), len(values)))
+    rows = []
+    previous = 0.0
+    for median, label, mark, worst, count in sorted(medians, key=lambda row: row[0]):
+        rows.append((label, mark, median, worst, median - previous, count))
         previous = median
     return rows
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--tag", action="append", required=True)
+    parser.add_argument("--tag", action="append", default=[])
+    parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
+    parser.add_argument("--profile", choices=["empty", "realistic"],
+                        help="empty: no saved state before each run; realistic: a seeded day's work "
+                             "(default: whatever state the tag has)")
     parser.add_argument("--runs", type=int, default=5)
     parser.add_argument("--mode", action="append", choices=["cold", "restart", "warm", "daemon"])
     parser.add_argument("--timeout", type=float, default=30.0, help="seconds per launch to reach the first frame")
     parser.add_argument("--json", help="write every run's marks here")
     args = parser.parse_args()
+    for path in args.app:
+        APPS[app_tag(path)] = os.path.abspath(path)
+        args.tag.append(app_tag(path))
+    if not args.tag:
+        parser.error("give at least one --tag or --app")
     RUN_TAGS.extend(args.tag)
     modes = args.mode or ["cold", "warm"]
     if "daemon" in modes:
@@ -305,11 +450,13 @@ def main():
         for mode in modes:
             for index in range(args.runs):
                 for tag in args.tag:
-                    marks = one_run(tag, mode, args.timeout)
+                    marks = one_run(tag, mode, args.timeout, args.profile)
                     results[tag][mode].append(marks)
-                    final = marks.get(FINAL_MARK)
-                    print(f"  {tag} {mode} run {index + 1}: first live frame "
-                          f"{'%.0f ms' % final if final is not None else 'missing'}", flush=True)
+
+                    def shown(mark):
+                        return "%.0f ms" % marks[mark] if mark in marks else "missing"
+                    agent = f", agent pane {shown(AGENT_MARK)}" if args.profile == "realistic" else ""
+                    print(f"  {tag} {mode} run {index + 1}: first live frame {shown(FINAL_MARK)}{agent}", flush=True)
     finally:
         for tag in args.tag:
             stop(tag_pids(tag))
@@ -317,7 +464,7 @@ def main():
     for tag in args.tag:
         for mode in modes:
             runs = results[tag][mode]
-            print(f"\n{tag} {mode} ({len(runs)} runs), ms since process start")
+            print(f"\n{tag} {mode} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
             print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
             for label, mark, median, worst, gap, count in table(runs):
                 print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
