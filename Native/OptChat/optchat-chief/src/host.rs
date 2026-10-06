@@ -39,11 +39,9 @@ const PASSTHROUGH: [&str; 5] = [
 /// harness does not silence the Chief for a day.
 const DEFAULT_TURN_LIMIT_MIN: u64 = 180;
 
-/// The native engine's model and effort (`OPTCHAT_CHIEF_MODEL`,
-/// `OPTCHAT_CHIEF_EFFORT`): the Chief is long-horizon agentic work, which
-/// repays more effort than Claude Opus 5.5's default (medium).
+/// The native engine's model (`OPTCHAT_CHIEF_MODEL`); its effort is
+/// `effort::native_effort` (medium, as Taelin runs it).
 const NATIVE_MODEL: &str = "claude-opus-5-5";
-const NATIVE_EFFORT: &str = "high";
 /// Longest one bash command of the native engine may run.
 const BASH_TIMEOUT: Duration = Duration::from_secs(600);
 
@@ -224,6 +222,7 @@ fn start(
     let config = Config {
         agent: crate::prompt::AGENT.to_owned(),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
+        db: Some(paths.memory_db.clone()),
         ..Config::default()
     };
     let route = compact_route(env("OPTCHAT_COMPACTOR").as_deref(), &config)?;
@@ -413,9 +412,10 @@ fn start(
             let slots = Slots::new(optchat_core::JOBS);
             let compactor_log: crate::compactor::Log = Arc::new(|line: &str| log(line));
             let build = |model: Option<&str>| {
+                let spec = compactor_spec(paths, home, &compactor_harness, compactor_family, model);
                 let spec = crate::compactor::CompactorSpec {
-                    effort: compactor_effort.clone(),
-                    ..compactor_spec(paths, home, &compactor_harness, compactor_family, model)
+                    effort: compactor_effort.clone().or(spec.effort.clone()),
+                    ..spec
                 };
                 Arc::new(
                     AcpmuxCompactor::new(port.clone(), spec, slots.clone())
@@ -423,11 +423,15 @@ fn start(
                         .with_trace(trace.clone()),
                 )
             };
+            let effort = compactor_effort
+                .clone()
+                .or_else(|| crate::compactor::compactor_effort(compactor_family));
             let text = format!(
-                "{} in deny-all {compactor_harness} sessions through acpmux",
+                "{} at effort {} in deny-all {compactor_harness} sessions through acpmux",
                 compactor_model
                     .as_deref()
-                    .unwrap_or("the harness's default model")
+                    .unwrap_or("the harness's default model"),
+                effort.as_deref().unwrap_or("default")
             );
             let fallback = config
                 .fallback_model
@@ -545,7 +549,7 @@ fn start(
         Some("native") => {
             let native_config = NativeConfig {
                 model: env("OPTCHAT_CHIEF_MODEL").unwrap_or_else(|| NATIVE_MODEL.into()),
-                effort: Some(env("OPTCHAT_CHIEF_EFFORT").unwrap_or_else(|| NATIVE_EFFORT.into())),
+                effort: Some(crate::effort::native_effort(env("OPTCHAT_CHIEF_EFFORT"))),
                 max_tokens: 64_000,
                 server_fallback: env("OPTCHAT_CHIEF_SERVER_FALLBACK").as_deref() == Some("1"),
                 system: crate::prompt::claude_md(instructions.as_deref()),
@@ -594,6 +598,7 @@ fn start(
         harness,
         policy: env("MUX_POLICY").unwrap_or_else(|| "approve-all".into()),
         model: env("OPTCHAT_CHIEF_MODEL"),
+        effort: crate::effort::turn_effort(env("OPTCHAT_CHIEF_EFFORT"), family),
         parent: parent_tag(home),
         turn_prefix: format!("optchat-{}", crate::paths::home_id(home)),
         agent_gap: Duration::from_millis(cmux_chief::rules::AGENT_GAP_RETRY_MS),
@@ -605,8 +610,17 @@ fn start(
     };
     let brain_log: crate::brain::Log = Arc::new(|line: &str| log(line));
     // Section 10: persist after each turn.
-    let persister = crate::persist::Persister::start(paths.chat.clone(), brain_log.clone())
-        .map_err(|e| format!("starting the persister: {e}"))?;
+    let backup = crate::backup::Backup::new(crate::backup::BackupConfig::for_home(
+        paths,
+        &crate::paths::home_id(home),
+    ));
+    let persister = crate::persist::Persister::start(
+        paths.chat.clone(),
+        paths.memory_db.clone(),
+        Some(backup),
+        brain_log.clone(),
+    )
+    .map_err(|e| format!("starting the persister: {e}"))?;
     let brain = Brain::new(
         chat.clone(),
         agents.clone(),
