@@ -1994,8 +1994,8 @@ describe("acpmux turn diff", () => {
       name.focus();
       expect(document.activeElement === name).toBe(true);
       expect({
-        sameWindow: globalThis.window === dom.window,
-        sameDocument: globalThis.document === document,
+        sameWindow: globals.window === dom.window,
+        sameDocument: globals.document === document,
         inputConstructor: typeof HTMLInputElement,
       }).toEqual({ sameWindow: true, sameDocument: true, inputConstructor: "function" });
       const keyErrors: string[] = [];
