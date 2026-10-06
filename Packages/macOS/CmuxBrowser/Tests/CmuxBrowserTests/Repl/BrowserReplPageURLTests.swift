@@ -132,4 +132,21 @@ import Testing
         }
         #expect(Self.read(Self.frameRow(raw), creator: "reader")["url"] as? String == raw, "the tab's creator lost its own URL")
     }
+
+    /// A diff viewer's URL names its capability token (the custom scheme's
+    /// host, the HTTP form's first path segment): with it a session could
+    /// load the files the diff registered. It reaches no reader but the
+    /// tab's creator.
+    @Test(arguments: [
+        "cmux-diff-viewer://0123456789abcdef0123456789abcdef/index.html",
+        "http://127.0.0.1:59873/0123456789abcdef0123456789abcdef/index.html#cmux-diff-viewer",
+    ])
+    func aDiffViewersTokenReachesNoReaderButTheCreator(raw: String) throws {
+        for creator in [nil, "other"] as [String?] {
+            let listed = try #require(Self.read(Self.row(raw), creator: creator)["url"] as? String)
+            #expect(!listed.contains("0123456789abcdef"), "a diff viewer's token reached another reader: \(listed)")
+            #expect(listed.contains("index.html"))
+        }
+        #expect(Self.read(Self.row(raw), creator: "reader")["url"] as? String == raw)
+    }
 }
