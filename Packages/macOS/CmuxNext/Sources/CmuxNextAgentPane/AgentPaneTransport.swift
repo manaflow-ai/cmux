@@ -56,6 +56,9 @@ import Synchronization
     /// The workspace's agent-home folder: a root once it exists, and the cwd of a `session/new`
     /// that names none when there is no ``primaryRoot`` (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
     public var agentHome: @MainActor () -> AgentHomeFill? = { nil }
+    /// The user's home folder: never a root or a filled cwd unless the user added it
+    /// (``addedRoots``), so an inherited or default `~` never opens the whole home folder.
+    public var homeFolder: String? = NSHomeDirectory()
     /// Asks the user to add a refused folder as a root (a native sheet); the answer is true for
     /// Add. Asked only after a real gesture, one at a time.
     public var requestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?

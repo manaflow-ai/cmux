@@ -43,6 +43,15 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return canonical
     }
 
+    /// Whether `path` is `/`, the home folder `home` or a folder above it (by path components,
+    /// after `~` and `..` are resolved as text). Such a folder is never a chat's implicit folder.
+    public static func isHomeOrAbove(_ path: String, home: String? = NSHomeDirectory()) -> Bool {
+        let standard = (path as NSString).standardizingPath
+        guard standard != "/" else { return true }
+        guard let home = home.map({ ($0 as NSString).standardizingPath }) else { return false }
+        return AcpmuxPathPolicy.contains(root: standard, path: home)
+    }
+
     /// The folder of workspace `id`, nil for an id that is not safe. Does not touch the disk.
     public func path(for id: String) -> String? {
         guard Self.isSafeID(id) else { return nil }

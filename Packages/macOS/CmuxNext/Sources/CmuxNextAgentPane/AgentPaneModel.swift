@@ -96,7 +96,7 @@ public final class AgentPaneModel {
     /// The folder this pane's user chose with "Choose Folder…": new chats start there until the
     /// workspace's own field (``workspaceRoots``) carries it.
     @ObservationIgnored public private(set) var chosenFolder: String?
-    @ObservationIgnored private var handshakeCwd: String?
+    @ObservationIgnored private(set) var handshakeCwd: String?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
     /// What a new chat inherits from the tab it was opened from.
@@ -136,26 +136,6 @@ public final class AgentPaneModel {
 
     /// Asks the user to add a folder the page named outside every root (the view's native sheet).
     @ObservationIgnored public var onRequestRoot: (@MainActor (_ folder: String, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
-
-    /// The host's own roots for ``AcpmuxPathPolicy``: the workspace's local tab folders, the
-    /// handshake's cwd and the new tab page's cwd.
-    func roots() -> [String] {
-        var roots = (chosenFolder.map { [$0] } ?? []) + (workspaceRoots?() ?? [])
-        if let handshakeCwd { roots.append(handshakeCwd) }
-        if let cwd = newTab?.cwd { roots.append(cwd) }
-        return roots
-    }
-
-    /// The new tab page's project scan and open folders: roots only when the user picks one.
-    func gestureRoots() -> [String] {
-        guard let newTab else { return [] }
-        return newTab.projects + newTab.omnibar.folders
-    }
-
-    /// The pane's workspace root: what a `session/new` without a cwd gets.
-    func primaryRoot() -> String? {
-        handshakeCwd ?? chosenFolder ?? workspaceRoots?().first ?? newTab?.cwd
-    }
 
     /// Cmd-T adopted this prewarmed new tab page: `page` is the context of
     /// the tab it became (plans/cmux-next/new-tab.md section 2.2). A page that
@@ -210,6 +190,8 @@ public final class AgentPaneModel {
                 }
                 handshake.linkScheme = linkScheme
                 if sessionMustExist, sessionId != nil { handshake.sessionMustExist = true }
+                // An inherited or default `~` is no chat folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE).
+                if sessionId == nil, let cwd = handshake.cwd, isHomeOrAbove(cwd) { handshake.cwd = nil }
                 // A new chat with no folder starts in agent-home; the page offers Choose Folder….
                 if sessionId == nil, handshake.cwd == nil, primaryRoot() == nil, onChooseFolder != nil,
                    workspaceAgentHome?() != nil {

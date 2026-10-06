@@ -47,12 +47,21 @@ nonisolated enum AcpmuxPathPolicy {
         /// The workspace's agent-home folder (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a root once it
         /// exists, and made here as the cwd of a new chat that has no other.
         public var agentHome: AgentHomeFill? = nil
+        /// The user's home folder. It and its ancestors are never a root from ``roots`` or a filled
+        /// cwd (an inherited or default folder would widen the page's reach to the whole home
+        /// folder); only ``granted`` may hold it.
+        public var home: String? = nil
+        /// Folders the user added or picked by a gesture: roots as given.
+        public var granted: [String] = []
 
-        public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil) {
+        public init(roots: [String], gestureRoots: [String] = [], fillCwd: String? = nil, agentHome: AgentHomeFill? = nil,
+                    home: String? = nil, granted: [String] = []) {
             self.roots = roots
             self.gestureRoots = gestureRoots
             self.fillCwd = fillCwd
             self.agentHome = agentHome
+            self.home = home
+            self.granted = granted
         }
     }
 
@@ -79,10 +88,13 @@ nonisolated enum AcpmuxPathPolicy {
         }
         let method = object["method"] as? String
         let id = object["id"].flatMap(AcpmuxPaneMethods.rawID)
-        var context = Context(roots: scope.roots.compactMap(canonical).filter { $0 != "/" },
+        let userHome = scope.home.flatMap(canonical)
+        let homeOrAbove = { (path: String) in path == "/" || userHome.map { contains(root: path, path: $0) } == true }
+        var context = Context(roots: scope.roots.compactMap(canonical).filter { !homeOrAbove($0) }
+                                  + scope.granted.compactMap(canonical).filter { $0 != "/" },
                               gestureRoots: scope.gestureRoots.compactMap(canonical).filter { $0 != "/" })
         // The agent-home folder is a root once it exists (a running chat may still name it).
-        if let home = scope.agentHome, let path = home.home.path(for: home.workspace), canonical(path) == path {
+        if let fill = scope.agentHome, let path = fill.home.path(for: fill.workspace), canonical(path) == path {
             context.roots.append(path)
         }
         var params = object["params"]
@@ -91,9 +103,9 @@ nonisolated enum AcpmuxPathPolicy {
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
             if fields["cwd"] == nil {
-                if let fill = scope.fillCwd {
+                if let fill = scope.fillCwd, !(canonical(fill).map(homeOrAbove) ?? false) {
                     fields["cwd"] = fill
-                } else if let home = scope.agentHome, let path = home.home.ensure(home.workspace) {
+                } else if let agentHome = scope.agentHome, let path = agentHome.home.ensure(agentHome.workspace) {
                     fields["cwd"] = path
                     if !context.roots.contains(path) { context.roots.append(path) }
                 } else {

@@ -62,7 +62,9 @@ extension AgentTabStore {
         guard let view = views[key], let url = await view.pickFolder() else { return nil }
         let picked = url.path
         let folder = await Task.detached { AgentHome.canonicalFolder(picked) }.value
-        guard let folder, let workspace = workspace(holding: key), let resource = workspace.resourceID else { return nil }
+        // The home folder (or above it) would open the whole home folder to the page: refused.
+        guard let folder, !AgentHome.isHomeOrAbove(folder), let workspace = workspace(holding: key),
+              let resource = workspace.resourceID else { return nil }
         guard await saveAgentFolder(key, resource, folder) else { return nil }
         return folder
     }
